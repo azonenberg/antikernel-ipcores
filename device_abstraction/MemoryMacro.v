@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2016 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -36,6 +36,12 @@
 	Parameterizable width, depth, etc.
 	
 	Read enables ignored in combinatorial mode.
+
+	Initialization attribute precedence:
+		NO_INIT
+		INIT_ADDR
+		INIT_FILE
+		INIT_VALUE
  */
 module MemoryMacro(
 	porta_clk, porta_en, porta_addr, porta_we, porta_din, porta_dout,
@@ -69,7 +75,7 @@ module MemoryMacro(
 	//set true to enable writes on port B (ignored if not dual port)
 	parameter TRUE_DUAL = 1;
 	
-	//Initialize to address (takes precedence over INIT_FILE)
+	//Initialize to address
 	parameter INIT_ADDR = 0;
 	
 	//Initialization file (set to empty string to fill with zeroes)
@@ -77,6 +83,9 @@ module MemoryMacro(
 	
 	//If neither INIT_ADDR nor INIT_FILE is set, set to INIT_VALUE
 	parameter INIT_VALUE = {WIDTH{1'h0}};
+
+	//NO INITIALIZATION AT ALL - dangerous!
+	parameter NO_INIT = 0;
 	
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O declarations
@@ -121,9 +130,12 @@ module MemoryMacro(
 	integer i;
 	generate
 		initial begin
+
+			if(NO_INIT) begin
+			end
 			
 			//address fill
-			if(INIT_ADDR) begin
+			else if(INIT_ADDR) begin
 				for(i=0; i<DEPTH; i=i+1)
 					storage[i] <= i[PWIDTH-1 : 0];
 			end
