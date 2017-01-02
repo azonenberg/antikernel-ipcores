@@ -46,6 +46,10 @@
 module MemoryMacro(
 	porta_clk, porta_en, porta_addr, porta_we, porta_din, porta_dout,
 	portb_clk, portb_en, portb_addr, portb_we, portb_din, portb_dout
+
+	`ifdef FORMAL
+	, porta_dout_comb, portb_dout_comb
+	`endif
 	);
 	
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -103,6 +107,12 @@ module MemoryMacro(
 	input wire					portb_we;
 	input wire[WIDTH-1 : 0]		portb_din;
 	output wire[WIDTH-1 : 0]	portb_dout;
+
+	//Always-combinatorial output used by formal tools to inspect the memory
+	`ifdef FORMAL
+	output wire[WIDTH-1 : 0]	porta_dout_comb;
+	output wire[WIDTH-1 : 0]	portb_dout_comb;
+	`endif
 	
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Sanity checks
@@ -158,13 +168,18 @@ module MemoryMacro(
 	
 	reg[WIDTH-1 : 0]		porta_dout_raw 		= 0;
 	reg[WIDTH-1 : 0]		porta_dout_raw_ff	= 0;
+
+	//Combinatorial read for formal equivalence testing
+	`ifdef FORMAL
+		assign porta_dout_comb = storage[porta_addr];
+	`endif
 	
 	generate
 	
 		//Write port is always enabled
 		always @(posedge porta_clk) begin
 			if(porta_we && porta_en)
-				storage[porta_addr] <= porta_din;
+				storage[porta_addr]	<= porta_din;
 		end
 		
 		if(OUT_REG) begin
@@ -177,18 +192,23 @@ module MemoryMacro(
 		end
 		else begin
 			always @(*)
-				porta_dout_raw <= storage[porta_addr];
+				porta_dout_raw		<= storage[porta_addr];
 		end
 		
 		if( (OUT_REG == 0) || (OUT_REG == 1) )
-			assign porta_dout	= porta_dout_raw;
+			assign porta_dout		= porta_dout_raw;
 		else
-			assign porta_dout	= porta_dout_raw_ff;
+			assign porta_dout		= porta_dout_raw_ff;
 	
 	endgenerate
 	
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Port B
+
+	//Combinatorial read for formal equivalence testing
+	`ifdef FORMAL
+		assign portb_dout_comb = storage[portb_addr];
+	`endif
 	
 	generate
 	
@@ -201,20 +221,20 @@ module MemoryMacro(
 			if(TRUE_DUAL) begin
 				always @(posedge portb_clk) begin
 					if(portb_we && portb_en)
-						storage[portb_addr] <= portb_din;
+						storage[portb_addr]	<= portb_din;
 				end
 			end
 			
 			if(OUT_REG) begin
 				always @(posedge portb_clk) begin
-					portb_dout_raw_ff	<= portb_dout_raw;
+					portb_dout_raw_ff		<= portb_dout_raw;
 					if(portb_en)
-						portb_dout_raw <= storage[portb_addr];
+						portb_dout_raw		<= storage[portb_addr];
 				end
 			end
 			else begin
 				always @(*)
-					portb_dout_raw <= storage[portb_addr];
+					portb_dout_raw	<= storage[portb_addr];
 			end
 			
 			if( (OUT_REG == 0) || (OUT_REG == 1) )
