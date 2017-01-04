@@ -64,14 +64,15 @@
 		Note that if DATA_WIDTH=128 and rpc_tx_ready is set, rpc_fab_tx_done will be asserted combinatorially.
 
 	To receive a message:
-		Assert rpc_fab_rx_ready
+		Assert rpc_fab_rx_ready for one cycle
 		Wait for rpc_fab_rx_en to go high and process rpc_fab_rx_*
-		If not ready to receive another message, bring rpc_fab_rx_ready low until done processing this one.
+		If still ready to receive another message, keep rpc_fab_rx_ready high.
 
 		Note that two messages can arrive on consecutive clocks (before rpc_fab_rx_ready can be deasserted)
 		if DATA_WIDTH=128, so any node receiving messages witha 128-bit bus must have a 2+ message receive FIFO.
 
 	RESOURCE USAGE (XST S6 post synthesis estimate, TX side)
+	TODO update
 		Quiet
 			Width			FF			LUT
 			16				7			57
@@ -457,15 +458,24 @@ module RPCv3Transceiver
 				end
 			end
 
-			//In any datapath width, source address is the first word
-			//if(rx_starting)
-			//	rpc_fab_rx_src_addr		<= rpc_rx_data[DATA_WIDTH-1 : DATA_WIDTH-16];
-
 		end
 
-		//placeholder: always ready to receive
+		//Ready to receive if the fabric side is ready.
+		//Once we go ready, go un-ready when a message comes in unless we keep ready high.
+		reg		rpc_rx_ready_ff	= 0;
+		always @(posedge clk) begin
+			if(rpc_rx_en)
+				rpc_rx_ready_ff		<= 0;
+			if(rpc_fab_rx_ready)
+				rpc_rx_ready_ff		<= 1;
+		end
+
 		always @(*) begin
-			rpc_rx_ready	<= 1;
+			rpc_rx_ready		<= rpc_rx_ready_ff;
+			if(rpc_rx_en)
+				rpc_rx_ready	<= 0;
+			if(rpc_fab_rx_ready)
+				rpc_rx_ready	<= 1;
 		end
 
 	endgenerate
