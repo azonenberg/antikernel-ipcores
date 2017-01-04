@@ -74,17 +74,17 @@
 	RESOURCE USAGE (XST S6 post synthesis estimate, TX side)
 		Quiet
 			Width			FF			LUT
-			16				7			56		x
+			16				7			57
 			32				6			54
-			64				4			67		x
-			128				2			114		x
+			64				4			68
+			128				2			115
 
 		Noisy
 			Width			FF			LUT
-			16				9			53		x
-			32				6			37		x
-			64				3			67		x
-			128				1			2		x
+			16				9			54
+			32				6			38
+			64				3			68
+			128				1			3
 
 		RPCv2 (for comparison)
 			32				11			73
@@ -92,10 +92,13 @@
 	RESOURCE USAGE (XST S6 post synthesis estimate, RX side)
 		RPCv3
 			Width			FF			LUT
-			16				7			56		x
+			16				126			117
+			32				125			116
+			64				118			48
+			128				BROKEN!!!
 
 		RPCv2 (for comparison)
-			32				11			73
+			32				143			135
  */
 module RPCv3Transceiver
 #(
@@ -181,6 +184,7 @@ module RPCv3Transceiver
 	//Number of bits we need in the cycle counter
 	`include "../../synth_helpers/clog2.vh"
 	localparam CYCLE_BITS = clog2(MESSAGE_CYCLES);
+	localparam CYCLE_MAX = CYCLE_BITS ? CYCLE_BITS-1 : 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transmit path
@@ -205,7 +209,7 @@ module RPCv3Transceiver
 	wire		tx_starting			= tx_request && rpc_tx_ready;
 
 	//Position within the message (in DATA_WIDTH-bit units)
-	reg[CYCLE_BITS-1:0] tx_count	= 0;
+	reg[CYCLE_MAX:0] tx_count	= 0;
 
 	//True if a transmit is in progress
 	wire		tx_active			= (tx_count != 0) || tx_starting;
@@ -329,7 +333,7 @@ module RPCv3Transceiver
 	wire					rx_starting		= (rpc_rx_en && rpc_rx_ready);
 
 	//Position within the message (in DATA_WIDTH-bit units)
-	reg[CYCLE_BITS-1:0]		rx_count		= 0;
+	reg[CYCLE_MAX:0]		rx_count		= 0;
 
 	//True if a receive is in progress
 	wire					rx_active		= (rx_count != 0) || rx_starting;
@@ -384,7 +388,7 @@ module RPCv3Transceiver
 								32: rpc_fab_rx_src_addr	<= rpc_rx_data[15:0];
 
 								64: begin
-									rpc_fab_rx_src_addr	<= rpc_rx_data[63:48];
+									rpc_fab_rx_src_addr	<= rpc_rx_data[47:32];
 									rpc_fab_rx_callnum	<= rpc_rx_data[31:24];
 									rpc_fab_rx_type		<= rpc_rx_data[23:21];
 									rpc_fab_rx_d0		<= rpc_rx_data[20:0];
