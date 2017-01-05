@@ -267,7 +267,7 @@ module RPCv3Transceiver
 				rpc_fab_tx_busy <= (tx_pending || (tx_count != 0) || tx_starting );
 
 				//Send the message if we're starting to send
-				rpc_tx_en		<= tx_starting;
+				rpc_tx_en		<= tx_starting && (tx_count == 0);
 
 				//Optionally squash output when not sending
 				if(QUIET_WHEN_IDLE && !tx_active)
