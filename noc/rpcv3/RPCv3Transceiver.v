@@ -119,25 +119,25 @@ module RPCv3Transceiver
 	input wire					clk,
 
 	//Network interface, outbound side
-	output reg					rpc_tx_en			= 0,
-	output reg[DATA_WIDTH-1:0]	rpc_tx_data			= 0,
+	output reg					rpc_tx_en,
+	output reg[DATA_WIDTH-1:0]	rpc_tx_data,
 	input wire					rpc_tx_ready,
 
 	//Network interface, inbound side
 	input wire					rpc_rx_en,
 	input wire[DATA_WIDTH-1:0]	rpc_rx_data,
-	output reg					rpc_rx_ready		= 0,
+	output reg					rpc_rx_ready,
 
 	//Fabric interface, outbound side
 	input wire					rpc_fab_tx_en,
-	output reg					rpc_fab_tx_busy		= 0,
+	output reg					rpc_fab_tx_busy,
 	input wire[15:0]			rpc_fab_tx_dst_addr,
 	input wire[7:0]				rpc_fab_tx_callnum,
 	input wire[2:0]				rpc_fab_tx_type,
 	input wire[20:0]			rpc_fab_tx_d0,
 	input wire[31:0]			rpc_fab_tx_d1,
 	input wire[31:0]			rpc_fab_tx_d2,
-	output reg					rpc_fab_tx_done		= 0,
+	output reg					rpc_fab_tx_done,
 
 	//Fabric interface, inbound side
 	input wire					rpc_fab_rx_ready,
@@ -223,8 +223,8 @@ module RPCv3Transceiver
 			//All transmit logic is combinatorial
 			always @(*) begin
 
-				//We're only busy if we want to send, but can't yet
-				rpc_fab_tx_busy <= (tx_pending || (tx_count != 0) ) && !rpc_tx_ready;
+				//Busy if we're sending or waiting to send
+				rpc_fab_tx_busy <= (tx_pending || (tx_count != 0) || tx_starting );
 
 				//Send the message if we're starting to send
 				rpc_tx_en		<= tx_starting;
@@ -264,7 +264,7 @@ module RPCv3Transceiver
 			always @(*) begin
 
 				//We're busy if we want to send, or are sending.
-				rpc_fab_tx_busy <= (tx_pending || (tx_count != 0) );
+				rpc_fab_tx_busy <= (tx_pending || (tx_count != 0) || tx_starting );
 
 				//Send the message if we're starting to send
 				rpc_tx_en		<= tx_starting;
