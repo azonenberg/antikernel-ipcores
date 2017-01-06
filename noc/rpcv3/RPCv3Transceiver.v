@@ -68,11 +68,11 @@
 		Wait for rpc_fab_rx_en to go high and process rpc_fab_rx_*
 		If still ready to receive another message, keep rpc_fab_rx_ready high.
 
-		Note that two messages can arrive on consecutive clocks (before rpc_fab_rx_ready can be deasserted)
-		if DATA_WIDTH=128, so any node receiving messages witha 128-bit bus must have a 2+ message receive FIFO.
+		Note that two messages can arrive on consecutive clocks if DATA_WIDTH=128 and rpc_fab_rx_ready is held high,
+		so any node doing this must have a 2+ message receive FIFO.
 
 	RESOURCE USAGE (XST S6 post synthesis estimate, TX side)
-	TODO update
+	TODO update after bug fixes
 		Quiet
 			Width			FF			LUT
 			16				7			57
@@ -141,9 +141,10 @@ module RPCv3Transceiver
 
 	//Fabric interface, inbound side
 	input wire					rpc_fab_rx_ready,
-	output reg 					rpc_fab_rx_busy		= 0,
+	output reg 					rpc_fab_rx_busy,
 	output reg					rpc_fab_rx_en		= 0,
 	output reg[15:0]			rpc_fab_rx_src_addr	= 0,
+	output reg[15:0]			rpc_fab_rx_dst_addr	= 0,
 	output reg[7:0]				rpc_fab_rx_callnum	= 0,
 	output reg[2:0]				rpc_fab_rx_type		= 0,
 	output reg[20:0]			rpc_fab_rx_d0		= 0,
@@ -355,7 +356,7 @@ module RPCv3Transceiver
 
 				//Whole message is on the wire right now
 				if(DATA_WIDTH == 128) begin
-					//127:112 are source address, ignore
+					rpc_fab_rx_dst_addr	<= rpc_rx_data[127:112];
 					rpc_fab_rx_src_addr	<= rpc_rx_data[111:96];
 					rpc_fab_rx_callnum	<= rpc_rx_data[95:88];
 					rpc_fab_rx_type		<= rpc_rx_data[87:85];
@@ -382,13 +383,15 @@ module RPCv3Transceiver
 
 							case(DATA_WIDTH)
 
-								16:	begin
-									//dest address, ignore
+								16:	rpc_fab_rx_dst_addr	<= rpc_rx_data[15:0];
+
+								32: begin
+									rpc_fab_rx_dst_addr	<= rpc_rx_data[31:16];
+									rpc_fab_rx_src_addr	<= rpc_rx_data[15:0];
 								end
 
-								32: rpc_fab_rx_src_addr	<= rpc_rx_data[15:0];
-
 								64: begin
+									rpc_fab_rx_dst_addr	<= rpc_rx_data[64:48];
 									rpc_fab_rx_src_addr	<= rpc_rx_data[47:32];
 									rpc_fab_rx_callnum	<= rpc_rx_data[31:24];
 									rpc_fab_rx_type		<= rpc_rx_data[23:21];
