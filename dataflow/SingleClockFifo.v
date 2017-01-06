@@ -49,7 +49,7 @@ module SingleClockFifo(
 	parameter DEPTH = 512;
 
 	//number of bits in the address bus
-	`include "clog2.vh"
+	`include "../synth_helpers/clog2.vh"
 	localparam ADDR_BITS = clog2(DEPTH);
 
 	//set true to use block RAM, false for distributed RAM
