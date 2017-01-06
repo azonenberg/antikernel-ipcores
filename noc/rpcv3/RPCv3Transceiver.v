@@ -71,35 +71,34 @@
 		Note that two messages can arrive on consecutive clocks if DATA_WIDTH=128 and rpc_fab_rx_ready is held high,
 		so any node doing this must have a 2+ message receive FIFO.
 
-	RESOURCE USAGE (XST S6 post synthesis estimate, TX side)
-	TODO update after bug fixes
+	RESOURCE USAGE (XST A7 post synthesis estimate, TX side)
 		Quiet
 			Width			FF			LUT
-			16				7			57
-			32				6			54
+			16				5			56
+			32				3			56
 			64				4			68
 			128				2			115
 
 		Noisy
 			Width			FF			LUT
-			16				9			54
-			32				6			38
+			16				5			54
+			32				3			39
 			64				3			68
 			128				1			3
 
 		RPCv2 (for comparison)
-			32				11			73
+			32				7			73
 
-	RESOURCE USAGE (XST S6 post synthesis estimate, RX side)
+	RESOURCE USAGE (XST A7 post synthesis estimate, RX side)
 		RPCv3
 			Width			FF			LUT
-			16				126			117
-			32				125			116
-			64				118			48
-			128				BROKEN!!!
+			16				135			136
+			32				134			136
+			64				132			67
+			128				130			2
 
 		RPCv2 (for comparison)
-			32				143			135
+			32				135			135
  */
 module RPCv3Transceiver
 #(
@@ -338,9 +337,15 @@ module RPCv3Transceiver
 	reg[CYCLE_MAX:0]		rx_count		= 0;
 
 	//True if a receive is in progress
-	wire					rx_active		= (rx_count != 0) || rx_starting;
+	wire					rx_active;
 
 	generate
+
+		if(DATA_WIDTH == 128)
+			assign rx_active = rx_starting;
+
+		else
+			assign rx_active = (rx_count != 0) || rx_starting;
 
 		//Set busy flag if we're doing stuff (mostly used by formal stuff)
 		always @(*) begin
@@ -391,7 +396,7 @@ module RPCv3Transceiver
 								end
 
 								64: begin
-									rpc_fab_rx_dst_addr	<= rpc_rx_data[64:48];
+									rpc_fab_rx_dst_addr	<= rpc_rx_data[63:48];
 									rpc_fab_rx_src_addr	<= rpc_rx_data[47:32];
 									rpc_fab_rx_callnum	<= rpc_rx_data[31:24];
 									rpc_fab_rx_type		<= rpc_rx_data[23:21];
