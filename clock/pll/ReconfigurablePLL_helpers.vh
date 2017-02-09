@@ -32,13 +32,13 @@
 	@author Andrew D. Zonenberg
 	@brief Helper functions for ReconfigurablePLL
  */
- 
+
 //Return the actual period at the phase-frequency detector given the input period and input divider
 function integer pll_pfd_period;
 
 	input integer	inperiod;
 	input integer	div;
-	
+
 	pll_pfd_period	= inperiod * div;
 
 endfunction
@@ -49,7 +49,7 @@ function integer pll_vco_period;
 	input integer	inperiod;
 	input integer	mult;
 	input integer	div;
-	
+
 	pll_vco_period = pll_pfd_period(inperiod, div) / mult;
 
 endfunction
@@ -61,13 +61,13 @@ function integer pll_vco_sanitycheck;
 	input integer	speed;
 	input integer	mult;
 	input integer	div;
-	
+
 	//Verify PFD configuration is sane
 	if( (pll_pfd_period(inperiod, div) > pll_pfd_max_period(speed)) ||
 		(pll_pfd_period(inperiod, div) < pll_pfd_min_period(speed)) ) begin
 		pll_vco_sanitycheck = 0;
 	end
-	
+
 	//Verify VCO settings are sane
 	else if( (pll_vco_period(inperiod, mult, div) > pll_vco_max_period(speed)) ||
 			 (pll_vco_period(inperiod, mult, div) < pll_vco_min_period(speed)) ) begin
@@ -85,9 +85,9 @@ endfunction
 function integer pll_output_expected_divisor;
 	input integer	vco_period;
 	input integer	target_period;
-	
+
 	pll_output_expected_divisor = target_period / vco_period;
-	
+
 endfunction
 
 //Determines if the given output frequency can be produced by a PLL with the specified VCO configuration.
@@ -96,26 +96,26 @@ function integer pll_vco_outdivcheck;
 	input integer	inperiod;
 	input integer	mult;
 	input integer	div;
-	
+
 	input integer	target_period;
-	
+
 	//If the computed divisor is too big, give up
 	if(pll_output_expected_divisor(pll_vco_period(inperiod, mult, div), target_period) > pll_outdiv_max(1))
 	begin
 		pll_vco_outdivcheck = 0;
 	end
-	
+
 	//If it doesn't divide evenly, give up
 	else if((pll_output_expected_divisor(pll_vco_period(inperiod, mult, div), target_period) *
 			pll_vco_period(inperiod, mult, div)) != target_period) begin
 		pll_vco_outdivcheck = 0;
 	end
-		
+
 	//all good
 	else begin
 		pll_vco_outdivcheck = pll_output_expected_divisor(pll_vco_period(inperiod, mult, div), target_period);
 	end
-	
+
 endfunction
 
 //Determines if the given PLL configuration is usable
@@ -130,7 +130,7 @@ function integer pll_config_usable;
 	input integer	t3_period;
 	input integer	t4_period;
 	input integer	t5_period;
-	
+
 	pll_config_usable =
 		pll_vco_outdivcheck(inperiod, mult, div, t0_period) && pll_vco_outdivcheck(inperiod, mult, div, t1_period) &&
 		pll_vco_outdivcheck(inperiod, mult, div, t2_period) && pll_vco_outdivcheck(inperiod, mult, div, t3_period) &&
@@ -153,12 +153,12 @@ function [15:0] find_pll_config;
 	integer mult;
 	integer tmp;
 	integer hit;
-	
+
 	begin
 		hit = 0;
-	
+
 		for(mult=pll_mult_max(speed); mult > 0; mult = mult - 1) begin
-		
+
 			//See if any divisors will work
 			tmp = find_pll_divisor(
 				inperiod,
@@ -170,18 +170,18 @@ function [15:0] find_pll_config;
 				t3_period,
 				t4_period,
 				t5_period);
-				
+
 			if(tmp > 0) begin
 				find_pll_config = {mult[7:0], tmp[7:0]};
 				hit = 1;
 			end
 
 		end
-		
+
 		//If nothing hit by the very end, give up
 		if(!hit)
 			find_pll_config	= 0;
-		
+
 	end
 
 endfunction
@@ -201,28 +201,28 @@ function[7:0] find_pll_divisor;
 
 	integer div;
 	integer hit;
-	
+
 	begin
 		hit = 0;
-		
+
 		//Cap input divisor at 16 rather than the true max input divisor
 		//This is a workaround for the terribad constant function evaluation in XST
 		for(div=/*pll_indiv_max(speed)*/16; div > 0; div = div - 1) begin
 			if(
-				pll_vco_sanitycheck(inperiod, speed, mult, div) &&					
+				pll_vco_sanitycheck(inperiod, speed, mult, div) &&
 				pll_config_usable(inperiod, mult, div, t0_period, t1_period, t2_period, t3_period, t4_period, t5_period)
 				) begin
-			
+
 				find_pll_divisor = div;
 				hit = 1;
 
 			end
 		end
-		
+
 		//If nothing hit by the very end, give up
 		if(!hit)
 			find_pll_divisor = 0;
-	
+
 	end
 
 endfunction

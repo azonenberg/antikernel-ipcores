@@ -31,15 +31,15 @@
 	@file
 	@author Andrew D. Zonenberg
 	@brief Table of PLL timing / configuration values
-	
+
 	Use MMCMs, not PLLs, for 7 series
  */
- 
+
  //Maximum legal period, in picoseconds, at input to the PLL
  function integer pll_input_max_period;
- 
+
 	input integer speed;
-	
+
 	//from DS162
 	`ifdef XILINX_SPARTAN6
 		case(speed)
@@ -52,7 +52,7 @@
 			end
 		endcase
 	`endif
-	
+
 	//from DS181
 	`ifdef XILINX_ARTIX7
 		case(speed)
@@ -65,7 +65,7 @@
 			end
 		endcase
 	`endif
-	
+
 	//from DS182
 	`ifdef XILINX_KINTEX7
 		case(speed)
@@ -78,14 +78,14 @@
 			end
 		endcase
 	`endif
-	
+
 endfunction
 
 //Minimum legal period, in picoseconds, at input to the PLL
 function integer pll_input_min_period;
-	
+
 	input integer speed;
-	
+
 	//from DS162
 	`ifdef XILINX_SPARTAN6
 		case(speed)
@@ -98,7 +98,7 @@ function integer pll_input_min_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS181
 	`ifdef XILINX_ARTIX7
 		case(speed)
@@ -111,7 +111,7 @@ function integer pll_input_min_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS182
 	`ifdef XILINX_KINTEX7
 		case(speed)
@@ -124,14 +124,14 @@ function integer pll_input_min_period;
 			end
 		endcase
 	`endif
-	
+
 endfunction
 
 //Maximum legal period, in picoseconds, at input to the phase-frequency detector
 function integer pll_pfd_max_period;
-	
+
 	input integer speed;
-	
+
 	//from DS162
 	`ifdef XILINX_SPARTAN6
 		case(speed)
@@ -144,7 +144,7 @@ function integer pll_pfd_max_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS181
 	`ifdef XILINX_ARTIX7
 		case(speed)
@@ -157,7 +157,7 @@ function integer pll_pfd_max_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS182
 	`ifdef XILINX_KINTEX7
 		case(speed)
@@ -170,14 +170,14 @@ function integer pll_pfd_max_period;
 			end
 		endcase
 	`endif
-	
+
 endfunction
 
 //Minimum legal period, in picoseconds, at input to the phase-frequency detector
 function integer pll_pfd_min_period;
-	
+
 	input integer speed;
-	
+
 	//from DS162
 	`ifdef XILINX_SPARTAN6
 		case(speed)
@@ -190,7 +190,7 @@ function integer pll_pfd_min_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS181
 	`ifdef XILINX_ARTIX7
 		case(speed)
@@ -203,7 +203,7 @@ function integer pll_pfd_min_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS182
 	`ifdef XILINX_KINTEX7
 		case(speed)
@@ -216,14 +216,14 @@ function integer pll_pfd_min_period;
 			end
 		endcase
 	`endif
-	
+
 endfunction
 
 //Maximum legal period, in picoseconds, of the VCO
 function integer pll_vco_max_period;
-	
+
 	input integer speed;
-	
+
 	//from DS162
 	`ifdef XILINX_SPARTAN6
 		case(speed)
@@ -236,7 +236,7 @@ function integer pll_vco_max_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS181
 	`ifdef XILINX_ARTIX7
 		case(speed)
@@ -249,7 +249,7 @@ function integer pll_vco_max_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS182
 	`ifdef XILINX_KINTEX7
 		case(speed)
@@ -262,14 +262,14 @@ function integer pll_vco_max_period;
 			end
 		endcase
 	`endif
-	
+
 endfunction
 
 //Minimum legal period, in picoseconds, of the VCO
 function integer pll_vco_min_period;
-	
+
 	input integer speed;
-	
+
 	//from DS162
 	`ifdef XILINX_SPARTAN6
 		case(speed)
@@ -282,7 +282,7 @@ function integer pll_vco_min_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS181
 	`ifdef XILINX_ARTIX7
 		case(speed)
@@ -295,7 +295,7 @@ function integer pll_vco_min_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS182
 	`ifdef XILINX_KINTEX7
 		case(speed)
@@ -308,14 +308,14 @@ function integer pll_vco_min_period;
 			end
 		endcase
 	`endif
-	
+
 endfunction
 
 //Maximum legal period, in picoseconds, of a PLL output
 function integer pll_output_max_period;
-	
+
 	input integer speed;
-	
+
 	//from DS162
 	`ifdef XILINX_SPARTAN6
 		case(speed)
@@ -328,7 +328,7 @@ function integer pll_output_max_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS181
 	`ifdef XILINX_ARTIX7
 		case(speed)
@@ -341,7 +341,7 @@ function integer pll_output_max_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS182
 	`ifdef XILINX_KINTEX7
 		case(speed)
@@ -354,14 +354,14 @@ function integer pll_output_max_period;
 			end
 		endcase
 	`endif
-	
+
 endfunction
 
 //Minimum legal period, in picoseconds, of a PLL output
 function integer pll_output_min_period;
-	
+
 	input integer speed;
-	
+
 	//from DS162
 	`ifdef XILINX_SPARTAN6
 		case(speed)
@@ -374,7 +374,7 @@ function integer pll_output_min_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS181
 	`ifdef XILINX_ARTIX7
 		case(speed)
@@ -387,7 +387,7 @@ function integer pll_output_min_period;
 			end
 		endcase
 	`endif
-	
+
 	//from DS182
 	`ifdef XILINX_KINTEX7
 		case(speed)
@@ -400,62 +400,62 @@ function integer pll_output_min_period;
 			end
 		endcase
 	`endif
-	
+
 endfunction
 
 //Maximum legal input divider
 function integer pll_indiv_max;
-	
+
 	input integer speed;
-	
+
 	`ifdef XILINX_SPARTAN6
 		pll_indiv_max	= 52;
 	`endif
-	
+
 	`ifdef XILINX_ARTIX7
 		pll_indiv_max	= 106;
 	`endif
-	
+
 	`ifdef XILINX_KINTEX7
 		pll_indiv_max	= 106;
 	`endif
-	
+
 endfunction
 
 //Maximum legal multiplier
 function integer pll_mult_max;
-	
+
 	input integer speed;
-	
+
 	`ifdef XILINX_SPARTAN6
 		pll_mult_max	= 64;
 	`endif
-	
+
 	`ifdef XILINX_ARTIX7
 		pll_mult_max	= 64;
 	`endif
-	
+
 	`ifdef XILINX_KINTEX7
 		pll_mult_max	= 64;
 	`endif
-	
+
 endfunction
 
 //Maximum legal output divider
 function integer pll_outdiv_max;
 
 	input integer speed;
-	
+
 	`ifdef XILINX_SPARTAN6
 		pll_outdiv_max	= 128;
 	`endif
-	
+
 	`ifdef XILINX_ARTIX7
 		pll_outdiv_max	= 128;
 	`endif
-	
+
 	`ifdef XILINX_KINTEX7
 		pll_outdiv_max	= 128;
 	`endif
-	
+
 endfunction
