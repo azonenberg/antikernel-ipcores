@@ -79,6 +79,19 @@
 		endcase
 	`endif
 
+	//from DS187
+	`ifdef XILINX_ZYNQ7
+		case(speed)
+			1:	pll_input_max_period = 100000;
+			2:	pll_input_max_period = 100000;
+			3:	pll_input_max_period = 100000;
+			default: begin
+				$display("Unrecognized speed grade");
+				$finish;
+			end
+		endcase
+	`endif
+
 endfunction
 
 //Minimum legal period, in picoseconds, at input to the PLL
@@ -125,6 +138,19 @@ function integer pll_input_min_period;
 		endcase
 	`endif
 
+	//from DS187 (TODO update for kintex-based zynqs)
+	`ifdef XILINX_ZYNQ7
+		case(speed)
+			1:	pll_input_min_period = 1250;
+			2:	pll_input_min_period = 1250;
+			3:	pll_input_min_period = 1250;
+			default: begin
+				$display("Unrecognized speed grade");
+				$finish;
+			end
+		endcase
+	`endif
+
 endfunction
 
 //Maximum legal period, in picoseconds, at input to the phase-frequency detector
@@ -160,6 +186,19 @@ function integer pll_pfd_max_period;
 
 	//from DS182
 	`ifdef XILINX_KINTEX7
+		case(speed)
+			1:	pll_pfd_max_period = 100000;
+			2:	pll_pfd_max_period = 100000;
+			3:	pll_pfd_max_period = 100000;
+			default: begin
+				$display("Unrecognized speed grade");
+				$finish;
+			end
+		endcase
+	`endif
+
+	//from DS187 (TODO update for kintex-based zynqs)
+	`ifdef XILINX_ZYNQ7
 		case(speed)
 			1:	pll_pfd_max_period = 100000;
 			2:	pll_pfd_max_period = 100000;
@@ -217,6 +256,19 @@ function integer pll_pfd_min_period;
 		endcase
 	`endif
 
+	//from DS187 (TODO update for kintex-based zynqs)
+	`ifdef XILINX_ZYNQ7
+		case(speed)
+			1:	pll_pfd_min_period = 2222;
+			2:	pll_pfd_min_period = 2000;
+			3:	pll_pfd_min_period = 1818;
+			default: begin
+				$display("Unrecognized speed grade");
+				$finish;
+			end
+		endcase
+	`endif
+
 endfunction
 
 //Maximum legal period, in picoseconds, of the VCO
@@ -252,6 +304,19 @@ function integer pll_vco_max_period;
 
 	//from DS182
 	`ifdef XILINX_KINTEX7
+		case(speed)
+			1:	pll_vco_max_period = 1667;
+			2:	pll_vco_max_period = 1667;
+			3:	pll_vco_max_period = 1667;
+			default: begin
+				$display("Unrecognized speed grade");
+				$finish;
+			end
+		endcase
+	`endif
+
+	//from DS187 (TODO update for kintex-based zynqs)
+	`ifdef XILINX_ZYNQ7
 		case(speed)
 			1:	pll_vco_max_period = 1667;
 			2:	pll_vco_max_period = 1667;
@@ -309,6 +374,19 @@ function integer pll_vco_min_period;
 		endcase
 	`endif
 
+	//from DS187 (TODO update for kintex-based zynqs)
+	`ifdef XILINX_ZYNQ7
+		case(speed)
+			1:	pll_vco_min_period =  833;
+			2:	pll_vco_min_period =  694;
+			3:	pll_vco_min_period =  625;
+			default: begin
+				$display("Unrecognized speed grade");
+				$finish;
+			end
+		endcase
+	`endif
+
 endfunction
 
 //Maximum legal period, in picoseconds, of a PLL output
@@ -344,6 +422,19 @@ function integer pll_output_max_period;
 
 	//from DS182
 	`ifdef XILINX_KINTEX7
+		case(speed)
+			1:	pll_output_max_period = 213220;
+			2:	pll_output_max_period = 213220;
+			3:	pll_output_max_period = 213220;
+			default: begin
+				$display("Unrecognized speed grade");
+				$finish;
+			end
+		endcase
+	`endif
+
+	//from DS187
+	`ifdef XILINX_ZYNQ7
 		case(speed)
 			1:	pll_output_max_period = 213220;
 			2:	pll_output_max_period = 213220;
@@ -401,6 +492,19 @@ function integer pll_output_min_period;
 		endcase
 	`endif
 
+	//from DS187
+	`ifdef XILINX_ZYNQ7
+		case(speed)
+			1:	pll_output_min_period = 1250;
+			2:	pll_output_min_period = 1250;
+			3:	pll_output_min_period = 1250;
+			default: begin
+				$display("Unrecognized speed grade");
+				$finish;
+			end
+		endcase
+	`endif
+
 endfunction
 
 //Maximum legal input divider
@@ -417,6 +521,10 @@ function integer pll_indiv_max;
 	`endif
 
 	`ifdef XILINX_KINTEX7
+		pll_indiv_max	= 106;
+	`endif
+
+	`ifdef XILINX_ZYNQ7
 		pll_indiv_max	= 106;
 	`endif
 
@@ -439,6 +547,10 @@ function integer pll_mult_max;
 		pll_mult_max	= 64;
 	`endif
 
+	`ifdef XILINX_ZYNQ7
+		pll_mult_max	= 64;
+	`endif
+
 endfunction
 
 //Maximum legal output divider
@@ -455,6 +567,10 @@ function integer pll_outdiv_max;
 	`endif
 
 	`ifdef XILINX_KINTEX7
+		pll_outdiv_max	= 128;
+	`endif
+
+	`ifdef XILINX_ZYNQ7
 		pll_outdiv_max	= 128;
 	`endif
 
