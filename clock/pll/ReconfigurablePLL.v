@@ -518,10 +518,10 @@ module ReconfigurablePLL(
 	reg[7:0]	pll_filter_lowbw[63:0];
 	reg[7:0]	pll_filter_highbw[63:0];
 	initial begin
-		$readmemb("../../../rtl/achd-soc/clock/ReconfigurablePLL_rom_7series_lockcnt.bin", pll_lockcnt_rom);
-		$readmemb("../../../rtl/achd-soc/clock/ReconfigurablePLL_rom_7series_lockrefdly.bin", pll_lockrefdly_rom);
-		$readmemb("../../../rtl/achd-soc/clock/ReconfigurablePLL_rom_7series_filter_lowbw.bin", pll_filter_lowbw);
-		$readmemb("../../../rtl/achd-soc/clock/ReconfigurablePLL_rom_7series_filter_highbw.bin", pll_filter_highbw);
+		$readmemb("ReconfigurablePLL_rom_7series_lockcnt.bin", pll_lockcnt_rom);
+		$readmemb("ReconfigurablePLL_rom_7series_lockrefdly.bin", pll_lockrefdly_rom);
+		$readmemb("ReconfigurablePLL_rom_7series_filter_lowbw.bin", pll_filter_lowbw);
+		$readmemb("ReconfigurablePLL_rom_7series_filter_highbw.bin", pll_filter_highbw);
 	end
 
 	//ROM addresses
