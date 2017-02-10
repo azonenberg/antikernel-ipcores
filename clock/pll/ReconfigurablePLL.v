@@ -144,6 +144,9 @@ module ReconfigurablePLL(
 	//Set true to automatically start in Fmax state
 	parameter			ACTIVE_ON_START			= 0;
 
+	//Set true to print the initial PLL configuration at synthesis
+	parameter			PRINT_CONFIG			= 1;
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Sanity checks for timing analysis
 
@@ -301,14 +304,16 @@ module ReconfigurablePLL(
 
 			//Debug print
 			initial begin
-				$display("ReconfigurablePLL: Found legal default config: indiv=%d, mult=%d", pll_div, pll_mult);
+				if(PRINT_CONFIG) begin
+					$display("ReconfigurablePLL: Found legal default config: indiv=%d, mult=%d", pll_div, pll_mult);
 
-				$display("    outdiv[0] = %d", outdiv0);
-				$display("    outdiv[1] = %d", outdiv1);
-				$display("    outdiv[2] = %d", outdiv2);
-				$display("    outdiv[3] = %d", outdiv3);
-				$display("    outdiv[4] = %d", outdiv4);
-				$display("    outdiv[5] = %d", outdiv5);
+					$display("    outdiv[0] = %d", outdiv0);
+					$display("    outdiv[1] = %d", outdiv1);
+					$display("    outdiv[2] = %d", outdiv2);
+					$display("    outdiv[3] = %d", outdiv3);
+					$display("    outdiv[4] = %d", outdiv4);
+					$display("    outdiv[5] = %d", outdiv5);
+				end
 			end
 
 			//Instantiate the actual PLL
