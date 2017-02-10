@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2016 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -32,7 +32,7 @@
 	@file
 	@author Andrew D. Zonenberg
 	@brief Ganged collection of DDR I/O buffers for a parallel DDR output bus
-	
+
 	Supports Spartan-6 and 7 series.
  */
 module DDROutputBuffer(clk_p, clk_n, dout, din0, din1);
@@ -41,25 +41,25 @@ module DDROutputBuffer(clk_p, clk_n, dout, din0, din1);
 	// I/O and parameter declarations
 
 	parameter WIDTH = 16;
-	
+
 	//Clocks
 	input wire clk_p;
 	input wire clk_n;
-	
+
 	//Output data
 	output wire[WIDTH-1:0] dout;
-	
+
 	//Input data (clk_p domain)
 	input wire[WIDTH-1:0] din0;
 	input wire[WIDTH-1:0] din1;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// The IO buffers
-	
+
 	genvar i;
 	generate
 		for(i=0; i<WIDTH; i = i+1) begin: buffers
-		
+
 			`ifdef XILINX_SPARTAN6
 				ODDR2 #
 				(
@@ -78,7 +78,7 @@ module DDROutputBuffer(clk_p, clk_n, dout, din0, din1);
 					.Q(dout[i])
 				);
 			`endif
-			
+
 			`ifdef XILINX_7SERIES
 				ODDR #
 				(
@@ -96,7 +96,7 @@ module DDROutputBuffer(clk_p, clk_n, dout, din0, din1);
 					.Q(dout[i])
 				);
 			`endif
-				
+
 		end
 	endgenerate
 
