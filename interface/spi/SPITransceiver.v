@@ -48,7 +48,7 @@ module SPITransceiver(
 	input wire shift_en,
 	output reg shift_done = 0,
 	input wire[7:0] tx_data,
-	output reg[7:0] rx_data = 0;
+	output reg[7:0] rx_data = 0
     );
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
