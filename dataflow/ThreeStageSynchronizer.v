@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2016 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -36,7 +36,7 @@
 module ThreeStageSynchronizer(
 	clk_in, din, clk_out, dout
     );
-	 
+
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O / parameter declarations
 	input wire clk_in;
@@ -46,11 +46,11 @@ module ThreeStageSynchronizer(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// The flipflops
-	
+
 	wire dout0;	//The cross-clock path
 	wire dout1;
 	wire dout2;
-		
+
 					  FDCE stage0 (.Q(dout0), .C(clk_in),  .CE(1'b1), .CLR(1'b0), .D(din));
 	(* RLOC="X0Y0" *) FDCE stage1 (.Q(dout1), .C(clk_out), .CE(1'b1), .CLR(1'b0), .D(dout0));
 	(* RLOC="X0Y0" *) FDCE stage2 (.Q(dout2), .C(clk_out), .CE(1'b1), .CLR(1'b0), .D(dout1));
