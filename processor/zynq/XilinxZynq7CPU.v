@@ -44,9 +44,9 @@ module XilinxZynq7CPU(
 	//Note that these pins are INPUTS.
 	//The multiple-driver warning is a false positive (see AR#50430).
 	//The __nowarn_528_ prefix will make Splash filter it out
-	output wire cpu_clk,
-	input wire __nowarn_528_cpu_por_n,
-	input wire __nowarn_528_cpu_srst_n
+	inout wire __nowarn_528_cpu_clk,
+	inout wire __nowarn_528_cpu_por_n,
+	inout wire __nowarn_528_cpu_srst_n
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -55,7 +55,7 @@ module XilinxZynq7CPU(
 	PS7 cpu(
 
 		//CPU clock and reset
-		.PSCLK(cpu_clk),
+		.PSCLK(__nowarn_528_cpu_clk),
 		.PSPORB(__nowarn_528_cpu_por_n),
 		.PSSRSTB(__nowarn_528_cpu_srst_n),
 
