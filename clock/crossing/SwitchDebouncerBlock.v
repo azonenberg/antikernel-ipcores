@@ -37,10 +37,10 @@ module SwitchDebouncerBlock(clk, buttons, buttons_debounced);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// IO / parameter declarations
-	
+
 	parameter WIDTH = 4;
 	parameter INIT_VAL = 0;
-	
+
 	input wire clk;
 	input wire[WIDTH-1:0] buttons;
 	output wire[WIDTH-1:0] buttons_debounced;
@@ -58,7 +58,7 @@ module SwitchDebouncerBlock(clk, buttons, buttons_debounced);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Create the debouncers
-	
+
 	genvar i;
 	generate
 		for(i=0; i<WIDTH; i = i+1) begin: debouncers
