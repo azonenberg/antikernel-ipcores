@@ -34,29 +34,25 @@
 	@brief SPI transceiver
  */
 module SPITransceiver(
-	clk,
-	clkdiv,
-	spi_sck, spi_mosi, spi_miso,
-	shift_en, shift_done, tx_data, rx_data
+
+	//Clocking
+	input wire clk,
+	input wire[15:0] clkdiv,
+
+	//SPI niterface
+	output reg spi_sck = 0,
+	output reg spi_mosi = 0,
+	input wire spi_miso,
+
+	//Control interface
+	input wire shift_en,
+	output reg shift_done = 0,
+	input wire[7:0] tx_data,
+	output reg[7:0] rx_data = 0;
     );
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// IO declarations
-
-	//Clocking
-	input wire clk;
-	input wire[15:0] clkdiv;
-
-	//SPI interface
-	output reg spi_sck = 0;
-	output reg spi_mosi = 0;
-	input wire spi_miso;
-
-	//Control interface
-	input wire shift_en;
-	output reg shift_done = 0;
-	input wire[7:0] tx_data;
-	output reg[7:0] rx_data = 0;
+	// Parameter declarations
 
 	//Indicates which edge of SCK the remote end samples data on.
 	parameter SAMPLE_EDGE = "RISING";
