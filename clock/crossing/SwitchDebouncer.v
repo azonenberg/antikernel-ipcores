@@ -33,10 +33,12 @@
 	@author Andrew D. Zonenberg
 	@brief De-bounces a switch using a parameterizable delay
  */
-module SwitchDebouncer(
+module SwitchDebouncer #(
+	parameter INIT_VAL 			= 0
+) (
 	input wire clk,
 	input wire din,
-	output reg dout = 0,
+	output reg dout = INIT_VAL,
 	output reg rising = 0,
 	output reg falling = 0
     );
