@@ -33,25 +33,21 @@
 	@brief Low-level wrapper for the Xilinx Zynq
  */
 module XilinxZynq7CPU(
-	cpu_jtag_tdo, cpu_jtag_tdi, cpu_jtag_tms, cpu_jtag_tck,
-	__nowarn_528_cpu_clk, __nowarn_528_cpu_por_n, __nowarn_528_cpu_srst_n
-	);
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O / parameter declarations
-
-	//JTAG signals for the CPU
-	output wire		cpu_jtag_tdo;
-	input wire		cpu_jtag_tdi;
-	input wire		cpu_jtag_tms;
-	input wire		cpu_jtag_tck;
+	//EMIO JTAG pins for the CPU
+	//Useful for debugging the CPU from the FPGA or just breaking them out to GPIOs
+	output wire cpu_jtag_tdo,
+	input wire cpu_jtag_tdi,
+	input wire cpu_jtag_tms,
+	input wire cpu_jtag_tck,
 
 	//Note that these pins are INPUTS.
 	//The multiple-driver warning is a false positive (see AR#50430).
 	//The __nowarn_528_ prefix will make Splash filter it out
-	input wire		__nowarn_528_cpu_clk;
-	input wire		__nowarn_528_cpu_por_n;
-	input wire		__nowarn_528_cpu_srst_n;
+	input wire __nowarn_528_cpu_clk,
+	input wire __nowarn_528_cpu_por_n,
+	input wire __nowarn_528_cpu_srst_n
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual CPU
@@ -65,7 +61,7 @@ module XilinxZynq7CPU(
 
 		//CPU JTAG
 		.EMIOPJTAGTDO(cpu_jtag_tdo),
-		.EMIOPJTAGTDTN(),
+		.EMIOPJTAGTDTN(),				//JTAG TDO tristate enable (not used for now)
 		.EMIOPJTAGTCK(cpu_jtag_tck),
 		.EMIOPJTAGTDI(cpu_jtag_tdi),
 		.EMIOPJTAGTMS(cpu_jtag_tms)//,
