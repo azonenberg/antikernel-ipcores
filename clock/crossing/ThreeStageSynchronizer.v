@@ -34,15 +34,11 @@
 	@brief Three-stage flipflop-based synchronizer
  */
 module ThreeStageSynchronizer(
-	clk_in, din, clk_out, dout
+	input wire clk_in,
+	input wire din,
+	input wire clk_out,
+	output wire dout
     );
-
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O / parameter declarations
-	input wire clk_in;
-	input wire din;
-	input wire clk_out;
-	output wire dout;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// The flipflops
