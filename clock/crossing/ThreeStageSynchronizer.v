@@ -40,14 +40,27 @@ module ThreeStageSynchronizer(
 	output wire dout
     );
 
-	////////////////////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The flipflops
 
-	wire dout0;	//The cross-clock path
+	//Set false to skip the first FF stage (if input is already registered, or totally async)
+	parameter IN_REG = 1;
+
+	wire dout0;			//The cross-clock path
 	wire dout1;
 	wire dout2;
 
-					  FDCE stage0 (.Q(dout0), .C(clk_in),  .CE(1'b1), .CLR(1'b0), .D(din));
+	//First stage: either a FF in the transmitting clock domain, or nothing
+	generate
+
+		if(!IN_REG)
+			assign dout0 = din;
+		else
+			FDCE stage0 (.Q(dout0), .C(clk_in),  .CE(1'b1), .CLR(1'b0), .D(din));
+
+	endgenerate
+
+	//Three stages in the receiving clock domain
 	(* RLOC="X0Y0" *) FDCE stage1 (.Q(dout1), .C(clk_out), .CE(1'b1), .CLR(1'b0), .D(dout0));
 	(* RLOC="X0Y0" *) FDCE stage2 (.Q(dout2), .C(clk_out), .CE(1'b1), .CLR(1'b0), .D(dout1));
 	(* RLOC="X0Y0" *) FDCE stage3 (.Q(dout ), .C(clk_out), .CE(1'b1), .CLR(1'b0), .D(dout2));
