@@ -192,22 +192,17 @@ module SSD1306 #(
     reg			block_ready		= 0;
     reg[3:0]	block_col		= 0;
     reg[2:0]	block_row		= 0;
-    reg[2:0]	block_nbyte		= 0;
 
-	//pixel_block[0] is scanline 0 of the block
-    reg[7:0]	pixel_block[7:0];
-
-	//Initialize the block of data for testing (4x4 checkerboard)
-    initial begin
-		pixel_block[0]	<= 8'hF0;
-		pixel_block[1]	<= 8'hF0;
-		pixel_block[2]	<= 8'hF0;
-		pixel_block[3]	<= 8'hF0;
-		pixel_block[4]	<= 8'h0F;
-		pixel_block[5]	<= 8'h0F;
-		pixel_block[6]	<= 8'h0F;
-		pixel_block[7]	<= 8'h0F;
-    end
+	//pixel_scanline[0] is scanline 0 of the block
+	//just a raw array of FFs for transposing
+    reg[7:0]	pixel_scanline0 = 8'h80;
+    reg[7:0]	pixel_scanline1 = 8'h00;
+    reg[7:0]	pixel_scanline2 = 8'h00;
+    reg[7:0]	pixel_scanline3 = 8'h00;
+    reg[7:0]	pixel_scanline4 = 8'h00;
+    reg[7:0]	pixel_scanline5 = 8'h00;
+    reg[7:0]	pixel_scanline6 = 8'h00;
+    reg[7:0]	pixel_scanline7 = 8'h00;
 
 	reg			framebuffer_rd_en_ff	= 0;
 	reg[2:0]	block_scanline			= 0;
@@ -252,8 +247,19 @@ module SSD1306 #(
 			block_scanline			<= next_scanline;
 
 		//Save completed scanlines in the buffer
-		if(framebuffer_rd_en_ff)
-			pixel_block[block_scanline]		<= framebuffer_rd_data;
+		//0x80 should be a vertical column of pixels, 1 in 8 illuminated
+		if(framebuffer_rd_en_ff) begin
+			case(block_scanline)
+				0:	pixel_scanline0		<= framebuffer_rd_data;
+				1:	pixel_scanline1		<= framebuffer_rd_data;
+				2:	pixel_scanline2		<= framebuffer_rd_data;
+				3:	pixel_scanline3		<= framebuffer_rd_data;
+				4:	pixel_scanline4		<= framebuffer_rd_data;
+				5:	pixel_scanline5		<= framebuffer_rd_data;
+				6:	pixel_scanline6		<= framebuffer_rd_data;
+				7:	pixel_scanline7		<= framebuffer_rd_data;
+			endcase
+		end
 
 		//Done with the block? Let the display controller know
 		if(framebuffer_rd_en_ff && !more_scanlines)
@@ -290,6 +296,8 @@ module SSD1306 #(
 
 	reg[7:0]	state			= 0;
 	reg[23:0]	count			= 0;
+
+	reg[2:0]	block_nbit		= 0;
 
 	reg powerdown_pending		= 0;
 
@@ -530,7 +538,7 @@ module SSD1306 #(
 			STATE_REFRESH_3: begin
 				if(spi_byte_done) begin
 					block_read		<= 1;
-					block_nbyte		<= 0;
+					block_nbit		<= 0;
 					state			<= STATE_REFRESH_4;
 				end
 			end	//end STATE_REFRESH_3
@@ -543,26 +551,26 @@ module SSD1306 #(
 					//Send the byte
 					spi_tx_data		<=
 					{
-						pixel_block[7][block_nbyte],
-						pixel_block[6][block_nbyte],
-						pixel_block[5][block_nbyte],
-						pixel_block[4][block_nbyte],
-						pixel_block[3][block_nbyte],
-						pixel_block[2][block_nbyte],
-						pixel_block[1][block_nbyte],
-						pixel_block[0][block_nbyte]
+						pixel_scanline7[block_nbit],
+						pixel_scanline6[block_nbit],
+						pixel_scanline5[block_nbit],
+						pixel_scanline4[block_nbit],
+						pixel_scanline3[block_nbit],
+						pixel_scanline2[block_nbit],
+						pixel_scanline1[block_nbit],
+						pixel_scanline0[block_nbit]
 					};
 					spi_byte_en		<= 1;
 					cmd_n			<= 1;
 
-					//Go to next byte in the block
-					block_nbyte		<= block_nbyte + 1'h1;
+					//Go to next bitplane in the block
+					block_nbit		<= block_nbit + 1'h1;
 
 					//If done with this block, move to the next one in the row
-					if(block_nbyte == 7) begin
+					if(block_nbit == 7) begin
 
 						//Default to fetching the next block from the current row
-						block_nbyte			<= 0;
+						block_nbit			<= 0;
 						state				<= STATE_REFRESH_3;
 
 						//If done with this column, move to next row
