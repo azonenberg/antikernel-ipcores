@@ -46,32 +46,36 @@ module SSD1306 #(
 	// To display
 
 	//System control signals
-	output reg rst_out_n = 0,		//Reset output to display
-	output reg vbat_en_n = 1,		//Power rail enables
-	output reg vdd_en_n = 1,
+	output reg	rst_out_n = 0,		//Reset output to display
+	output reg	vbat_en_n = 1,		//Power rail enables
+	output reg	vdd_en_n = 1,
 
 	//SPI
 	output wire spi_sck,			//4-wire SPI bus to display (MISO not used by this core)
 	output wire spi_mosi,
-	output reg spi_cs_n = 1,
+	output reg	spi_cs_n = 1,
 
 	//Misc data lines
-	output reg cmd_n = 0,			//SPI command/data flag
+	output reg	cmd_n = 0,			//SPI command/data flag
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// To GPU
 
 	//Command inputs
-	input wire powerup,				//Request to turn the display on
-	input wire powerdown,			//Request to turn the display off
-	input wire refresh,				//Request to refresh the display from the GPU framebuffer
+	input wire		powerup,					//Request to turn the display on
+	input wire		powerdown,					//Request to turn the display off
+	input wire		refresh,					//Request to refresh the display from the GPU framebuffer
 
 	//Status outputs
-	output wire ready,				//1 = ready for new commands, 0 = busy
-									//All commands except "power down" are ignored when not ready.
-									//Power down is queued if needed.
+	output wire		ready,						//1 = ready for new commands, 0 = busy
+												//All commands except "power down" are ignored when not ready.
+												//Power down is queued if needed.
 
-	output reg power_state = 0		//1=on, 0=off
+	output reg		framebuffer_rd_en	= 0,	//Framebuffer SRAM read bus (expects single cycle latency)
+	output reg[8:0]	framebuffer_rd_addr	= 0,
+	input wire[7:0]	framebuffer_rd_data,
+
+	output reg		power_state = 0				//1=on, 0=off
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -179,17 +183,18 @@ module SSD1306 #(
 
     /*
 		Our framebuffer is stored in scanline order (as is common for pretty much all standard image file formats)
-		The display wants us to output data in 8-pixel vertical slices.
-
+		The display wants us to output data in 8-pixel vertical slices so we have to rotate the bit ordering
+		within each 8x8 block.
 
 		To read a new block of data, assert block_read and wait for block_ready to go high
      */
     reg			block_read		= 0;
     reg			block_ready		= 0;
-    reg[4:0]	block_col		= 0;
+    reg[3:0]	block_col		= 0;
     reg[2:0]	block_row		= 0;
     reg[2:0]	block_nbyte		= 0;
 
+	//pixel_block[0] is scanline 0 of the block
     reg[7:0]	pixel_block[7:0];
 
 	//Initialize the block of data for testing (4x4 checkerboard)
@@ -204,8 +209,56 @@ module SSD1306 #(
 		pixel_block[7]	<= 8'h0F;
     end
 
+	reg			framebuffer_rd_en_ff	= 0;
+	reg[2:0]	block_scanline			= 0;
+	wire[2:0]	next_scanline			= block_scanline + 1'h1;
+	wire		more_scanlines 			= (block_scanline != 7);
+
+	/*
+		Address map: blocks go L-R then raster scan (16 blocks wide x 4 high, or 8 for a 64-pixel display)
+		Each block is 1 byte wide x 8 scanlines high
+
+		addr[8:7] = row (9:7 for 64-line displays)
+		addr[6:4] = scanline
+		addr[3:0] = col
+	 */
     always @(posedge clk) begin
-		block_ready <= block_read;
+
+		//clear flags
+		framebuffer_rd_en		<= 0;
+		block_ready				<= 0;
+
+		//one cycle after we dispatched a read, data is available
+		framebuffer_rd_en_ff	<= framebuffer_rd_en;
+
+		//Start reading the first scanline of a new block
+		if(block_read)
+			block_scanline			<= 0;
+
+		//Reading a new scanline if we're starting a block, or not done with current one
+		framebuffer_rd_addr[8:7]	<= block_row[1:0];
+		framebuffer_rd_addr[3:0]	<= block_col;
+		if(block_read) begin
+			framebuffer_rd_addr[6:4]	<= 0;
+			framebuffer_rd_en			<= 1;
+		end
+		if(framebuffer_rd_en_ff && more_scanlines) begin
+			framebuffer_rd_addr[6:4]	<= next_scanline;
+			framebuffer_rd_en			<= 1;
+		end
+
+		//Bump row pointer if there's more stuff to read
+		if(framebuffer_rd_en_ff && more_scanlines)
+			block_scanline			<= next_scanline;
+
+		//Save completed scanlines in the buffer
+		if(framebuffer_rd_en_ff)
+			pixel_block[block_scanline]		<= framebuffer_rd_data;
+
+		//Done with the block? Let the display controller know
+		if(framebuffer_rd_en_ff && !more_scanlines)
+			block_ready						<= 1;
+
     end
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -463,7 +516,7 @@ module SSD1306 #(
 			//Col addr high = 0
 			STATE_REFRESH_2: begin
 				if(spi_byte_done) begin
-					spi_tx_data		<= {4'h1, block_col[4:1]};
+					spi_tx_data		<= {5'h1, block_col[3:1]};
 					spi_byte_en		<= 1;
 					cmd_n			<= 0;
 					state			<= STATE_REFRESH_3;
@@ -513,7 +566,7 @@ module SSD1306 #(
 						state				<= STATE_REFRESH_3;
 
 						//If done with this column, move to next row
-						if(block_col == 31) begin
+						if(block_col == 15) begin
 
 							block_col		<= 0;
 							block_row		<= block_row + 1'h1;
