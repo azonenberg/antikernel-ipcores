@@ -175,6 +175,40 @@ module SSD1306 #(
     end
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Framebuffer rotation
+
+    /*
+		Our framebuffer is stored in scanline order (as is common for pretty much all standard image file formats)
+		The display wants us to output data in 8-pixel vertical slices.
+
+
+		To read a new block of data, assert block_read and wait for block_ready to go high
+     */
+    reg			block_read		= 0;
+    reg			block_ready		= 0;
+    reg[4:0]	block_col		= 0;
+    reg[2:0]	block_row		= 0;
+    reg[2:0]	block_nbyte		= 0;
+
+    reg[7:0]	pixel_block[7:0];
+
+	//Initialize the block of data for testing (4x4 checkerboard)
+    initial begin
+		pixel_block[0]	<= 8'hF0;
+		pixel_block[1]	<= 8'hF0;
+		pixel_block[2]	<= 8'hF0;
+		pixel_block[3]	<= 8'hF0;
+		pixel_block[4]	<= 8'h0F;
+		pixel_block[5]	<= 8'h0F;
+		pixel_block[6]	<= 8'h0F;
+		pixel_block[7]	<= 8'h0F;
+    end
+
+    always @(posedge clk) begin
+		block_ready <= block_read;
+    end
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Main state machine
 
 	localparam STATE_OFF			= 8'h00;
@@ -199,11 +233,10 @@ module SSD1306 #(
 	localparam STATE_REFRESH_1		= 8'h13;
 	localparam STATE_REFRESH_2		= 8'h14;
 	localparam STATE_REFRESH_3		= 8'h15;
+	localparam STATE_REFRESH_4		= 8'h16;
 
 	reg[7:0]	state			= 0;
 	reg[23:0]	count			= 0;
-
-	reg[2:0]	page_addr		= 0;
 
 	reg powerdown_pending		= 0;
 
@@ -212,6 +245,7 @@ module SSD1306 #(
     always @(posedge clk) begin
 
 		spi_byte_en				<= 0;
+		block_read				<= 0;
 
 		if(powerdown)
 			powerdown_pending	<= 1;
@@ -387,7 +421,14 @@ module SSD1306 #(
 
 				//If asked to refresh the display, do that
 				else if(refresh) begin
-					page_addr				<= 0;
+					block_row				<= 0;
+					block_col				<= 0;
+
+					//Send a nop b/c REFRESH_0 expects to wait for a tx
+					spi_tx_data				<= 8'hE3;
+					spi_byte_en				<= 1;
+					cmd_n					<= 0;
+
 					state					<= STATE_REFRESH_0;
 				end
 
@@ -401,16 +442,18 @@ module SSD1306 #(
 
 			//Send row pointer
 			STATE_REFRESH_0: begin
-				spi_tx_data		<= {4'hB, 1'b0, page_addr[2:0]};
-				spi_byte_en		<= 1;
-				cmd_n			<= 0;
-				state			<= STATE_REFRESH_1;
+				if(spi_byte_done) begin
+					spi_tx_data		<= {4'hB, 1'b0, block_row};
+					spi_byte_en		<= 1;
+					cmd_n			<= 0;
+					state			<= STATE_REFRESH_1;
+				end
 			end	//end STATE_REFRESH_0
 
 			//Col addr low = 0
 			STATE_REFRESH_1: begin
 				if(spi_byte_done) begin
-					spi_tx_data		<= 8'h00;
+					spi_tx_data		<= {4'h0, block_col[0], 3'h0};
 					spi_byte_en		<= 1;
 					cmd_n			<= 0;
 					state			<= STATE_REFRESH_2;
@@ -420,42 +463,76 @@ module SSD1306 #(
 			//Col addr high = 0
 			STATE_REFRESH_2: begin
 				if(spi_byte_done) begin
-					spi_tx_data		<= 8'h10;
+					spi_tx_data		<= {4'h1, block_col[4:1]};
 					spi_byte_en		<= 1;
 					cmd_n			<= 0;
 					state			<= STATE_REFRESH_3;
 					count			<= 0;
+
+					block_col		<= 0;
 				end
 			end	//end STATE_REFRESH_2
 
-			//Write alternating 1s and 0s to the display
+			//Fetch the next block of data
 			STATE_REFRESH_3: begin
 				if(spi_byte_done) begin
+					block_read		<= 1;
+					block_nbyte		<= 0;
+					state			<= STATE_REFRESH_4;
+				end
+			end	//end STATE_REFRESH_3
 
-					spi_tx_data		<= 8'hf0;
+			//When the block comes back, start sending it out
+			STATE_REFRESH_4: begin
+
+				if(block_ready || spi_byte_done) begin
+
+					//Send the byte
+					spi_tx_data		<=
+					{
+						pixel_block[7][block_nbyte],
+						pixel_block[6][block_nbyte],
+						pixel_block[5][block_nbyte],
+						pixel_block[4][block_nbyte],
+						pixel_block[3][block_nbyte],
+						pixel_block[2][block_nbyte],
+						pixel_block[1][block_nbyte],
+						pixel_block[0][block_nbyte]
+					};
+					spi_byte_en		<= 1;
 					cmd_n			<= 1;
 
-					count			<= count + 1'h1;
+					//Go to next byte in the block
+					block_nbyte		<= block_nbyte + 1'h1;
 
-					//If done with this page, move to the next page
-					if(count == 128) begin
+					//If done with this block, move to the next one in the row
+					if(block_nbyte == 7) begin
 
-						//If we wrote the last page we're done (TODO: handle 64-pixel high displays)
-						if(page_addr == 3)
-							state		<= STATE_IDLE;
+						//Default to fetching the next block from the current row
+						block_nbyte			<= 0;
+						state				<= STATE_REFRESH_3;
 
-						//Nope, more pages to go still
-						else begin
-							page_addr	<= page_addr + 1'h1;
-							state		<= STATE_REFRESH_0;
+						//If done with this column, move to next row
+						if(block_col == 31) begin
+
+							block_col		<= 0;
+							block_row		<= block_row + 1'h1;
+							state			<= STATE_REFRESH_0;
+
+							//If done with the last row, finish
+							if(block_row == 3)
+								state		<= STATE_WAIT_IDLE;
+
 						end
 
-					end
-					else
-						spi_byte_en		<= 1;
-				end
+						//Nope, just go to next block position
+						else
+							block_col	<= block_col + 1'h1;
 
-			end	//end STATE_REFRESH_3
+					end
+
+				end
+			end	//end STATE_REFRESH_4
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// SHUTDOWN: turn the display off
