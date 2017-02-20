@@ -46,6 +46,11 @@ module Minimal2DGPU(
 	fg_color,
 	bg_color,
 
+	left,
+	right,
+	top,
+	bottom,
+
 	cmd_en,
 	cmd,
 	cmd_done
@@ -70,6 +75,9 @@ module Minimal2DGPU(
 
 	localparam MAX_ADDR						= FRAMEBUFFER_BYTES - 1'h1;
 
+	localparam X_BITS						= clog2(FRAMEBUFFER_WIDTH);
+	localparam Y_BITS						= clog2(FRAMEBUFFER_HEIGHT);
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// System-wide stuff
 
@@ -90,6 +98,11 @@ module Minimal2DGPU(
 	input wire[PIXEL_DEPTH-1:0] fg_color;			//Foreground draw color
 	input wire[PIXEL_DEPTH-1:0] bg_color;			//Background draw color
 
+	input wire[X_BITS-1:0]		left;				//Corners for operations
+	input wire[Y_BITS-1:0]		top;
+	input wire[X_BITS-1:0]		right;
+	input wire[Y_BITS-1:0]		bottom;
+
 	input wire					cmd_en;				//Start processing something
 	input wire[3:0]				cmd;				//The operation to execute
 	output reg					cmd_done = 0;		//Set high for one clock when the command finishes
@@ -99,7 +112,7 @@ module Minimal2DGPU(
 
 	initial begin
 
-		if( (PIXEL_DEPTH == 1) || (PIXEL_DEPTH == 2) || (PIXEL_DEPTH == 4) || (PIXEL_DEPTH == 8) ) begin
+		if( (PIXEL_DEPTH == 1) /*|| (PIXEL_DEPTH == 2) || (PIXEL_DEPTH == 4) || (PIXEL_DEPTH == 8)*/ ) begin
 			//all OK
 		end
 
@@ -127,14 +140,32 @@ module Minimal2DGPU(
 	//State values
 	localparam STATE_IDLE			= 8'h00;
 	localparam STATE_CLEAR_0		= 8'h01;
+	localparam STATE_RECT_0			= 8'h02;
+	localparam STATE_RECT_1			= 8'h03;
+	localparam STATE_RECT_2			= 8'h04;
 
-	reg[7:0] state	= STATE_IDLE;
+	localparam STATE_PIXEL_0		= 8'h10;
+	localparam STATE_PIXEL_1		= 8'h11;
+
+	reg[X_BITS-1:0]	pix_x			= 0;						//Random X/Y helper coordinates
+	reg[Y_BITS-1:0]	pix_y			= 0;
+
+	wire[X_BITS-4:0] pix_x_byte		= pix_x[X_BITS-1 : 3];		//Byte position of the current pixel
+																//TODO: Update for multi-bit stuff?
+	wire[2:0] pix_x_col				= pix_x[2:0];
+
+	reg[7:0] state					= STATE_IDLE;
+	reg[7:0] state_ret				= STATE_IDLE;
+
+	reg framebuffer_mem_en_ff		= 0;
 
 	always @(posedge clk) begin
 
 		cmd_done				<= 0;
 		framebuffer_mem_en		<= 0;
 		framebuffer_mem_wr		<= 0;
+
+		framebuffer_mem_en_ff	<= framebuffer_mem_en;
 
 		case(state)
 
@@ -158,7 +189,12 @@ module Minimal2DGPU(
 							state		<= STATE_CLEAR_0;
 						end	//end GPU_OP_CLEAR
 
-						//Silently ignore all other commands (TODO report error)
+						//Draw an outlined rectangle between specified X and Y coordinates
+						GPU_OP_RECT: begin
+							state		<= STATE_RECT_0;
+						end	//end GPU_OP_RECT
+
+						//Silently ignore all other commands (TODO: report error)
 						default: begin
 							cmd_done	<= 1;
 						end
@@ -187,6 +223,100 @@ module Minimal2DGPU(
 				end
 
 			end	//end STATE_CLEAR_0
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Draw an outline-only rectangle very inefficiently (one rmw per pixel o_O)
+
+			//Start drawing top side
+			STATE_RECT_0: begin
+				pix_x					<= left;
+				pix_y					<= top;
+				state					<= STATE_PIXEL_0;
+				state_ret				<= STATE_RECT_1;
+			end	//end STATE_RECT_0
+
+			//Continue drawing top side
+			STATE_RECT_1: begin
+
+				//If we just drew the last pixel, done
+				if(pix_x == right) begin
+
+					//If we're drawing the top side, start the bottom
+					if(pix_y == top) begin
+						pix_x			<= left;
+						pix_y			<= bottom;
+						state			<= STATE_PIXEL_0;
+						state_ret		<= STATE_RECT_1;
+					end
+
+					//Done with top and bottom, do sides
+					else begin
+						pix_x			<= left;
+						pix_y			<= top;
+						state			<= STATE_RECT_2;
+					end
+
+				end
+
+				//Nope, draw the next pixel
+				else begin
+					pix_x				<= pix_x + 1'h1;
+					state				<= STATE_PIXEL_0;
+					state_ret			<= STATE_RECT_1;
+				end
+
+			end	//end STATE_RECT_1
+
+			STATE_RECT_2: begin
+
+				//If we just drew the last pixel, done
+				if(pix_y == bottom) begin
+
+					//If we're drawing the left side, start the right
+					if(pix_x == left) begin
+						pix_x			<= right;
+						pix_y			<= top;
+						state			<= STATE_PIXEL_0;
+						state_ret		<= STATE_RECT_2;
+					end
+
+					//Done drawing
+					else begin
+						cmd_done		<= 1;
+						state			<= STATE_IDLE;
+					end
+
+				end
+
+				//Nope, draw the next pixel
+				else begin
+					pix_y				<= pix_y + 1'h1;
+					state				<= STATE_PIXEL_0;
+					state_ret			<= STATE_RECT_2;
+				end
+
+			end	//end STATE_RECT_2
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Helper: Set a single pixel via read-modify-write
+
+			//Dispatch read
+			STATE_PIXEL_0: begin
+				framebuffer_mem_en		<= 1;
+				framebuffer_mem_addr	<= {pix_y, pix_x_byte};
+				state					<= STATE_PIXEL_1;
+			end	//end STATE_PIXEL_0
+
+			//Mask in the new bit and write it back
+			STATE_PIXEL_1: begin
+				if(framebuffer_mem_en_ff) begin
+					framebuffer_mem_en					<= 1;
+					framebuffer_mem_wr					<= 1;
+					framebuffer_mem_wdata				<= framebuffer_mem_rdata;
+					framebuffer_mem_wdata[pix_x_col]	<= fg_color;	//TODO: multi-bit handling
+					state								<= state_ret;
+				end
+			end	//end STATE_PIXEL_1
 
 		endcase
 	end
