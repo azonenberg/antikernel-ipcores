@@ -83,7 +83,7 @@ module SSD1306 #(
 
     initial begin
 		if(INTERFACE != "SPI") begin
-			$display("SSD1306 only supports INTERFACE=SPI for now");
+			$display("ERROR: SSD1306 only supports INTERFACE=SPI for now");
 			$finish;
 		end
     end
