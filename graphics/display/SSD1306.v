@@ -334,6 +334,10 @@ module SSD1306 #(
 		if(powerdown)
 			powerdown_pending	<= 1;
 
+		//Decrement counter if nonzero
+		if(count != 0)
+			count				<= count - 1'h1;
+
 		case(state)
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -346,7 +350,7 @@ module SSD1306 #(
 				if(powerup) begin
 					vdd_en_n	<= 0;
 
-					count		<= 0;
+					count		<= 24'h01ffff;
 					state		<= STATE_BOOT_0;
 
 				end
@@ -361,8 +365,7 @@ module SSD1306 #(
 				//Get ready to read the first ROM command
 				init_rom_addr	<= 0;
 
-				count			<= count + 1'h1;
-				if(count == 24'h01ffff) begin
+				if(count == 0) begin
 					spi_tx_data		<= 8'hae;
 					spi_byte_en		<= 1;
 					cmd_n			<= 0;
@@ -374,15 +377,14 @@ module SSD1306 #(
 			STATE_BOOT_1: begin
 				if(spi_byte_done) begin
 					rst_out_n		<= 0;
-					count			<= 0;
+					count			<= 24'h01ffff;
 					state			<= STATE_BOOT_2;
 				end
 			end	//end STATE_BOOT_1
 
 			//When reset finishes, send the first init command
 			STATE_BOOT_2: begin
-				count			<= count + 1'h1;
-				if(count == 24'h01ffff) begin
+				if(count == 0) begin
 					rst_out_n		<= 1;
 
 					init_rom_addr	<= init_rom_addr + 1'h1;
@@ -415,15 +417,14 @@ module SSD1306 #(
 			STATE_BOOT_4: begin
 				if(spi_byte_done) begin
 					vbat_en_n		<= 0;
-					count			<= 0;
+					count			<= 24'hbfffff;
 					state			<= STATE_BOOT_5;
 				end
 			end	//end STATE_BOOT_4
 
 			//Wait 100 ms then go to idle
 			STATE_BOOT_5: begin
-				count				<= count + 1'h1;
-				if(count == 24'hbfffff)
+				if(count == 0)
 					state			<= STATE_IDLE;
 			end	//end STATE_BOOT_5
 
@@ -496,7 +497,6 @@ module SSD1306 #(
 					spi_byte_en		<= 1;
 					cmd_n			<= 0;
 					state			<= STATE_REFRESH_3;
-					count			<= 0;
 
 					block_col		<= 0;
 				end
@@ -578,15 +578,14 @@ module SSD1306 #(
 			STATE_SHUTDOWN_1: begin
 				if(spi_byte_done) begin
 					vbat_en_n	<= 1;
-					count		<= 0;
+					count		<= 24'hbfffff;
 					state		<= STATE_SHUTDOWN_2;
 				end
 			end	//end STATE_SHUTDOWN_1
 
 			//Wait 100ms then turn off Vdd and reset
 			STATE_SHUTDOWN_2: begin
-				count			<= count + 1'h1;
-				if(count == 24'hbfffff) begin
+				if(count == 0) begin
 					vdd_en_n	<= 1;
 					state		<= STATE_OFF;
 				end
