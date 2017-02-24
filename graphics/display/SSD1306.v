@@ -220,19 +220,19 @@ module SSD1306 #(
     always @(posedge clk) begin
 
 		//clear flags
-		framebuffer_rd_en		<= 0;
-		block_ready				<= 0;
+		framebuffer_rd_en				<= 0;
+		block_ready						<= 0;
 
 		//one cycle after we dispatched a read, data is available
-		framebuffer_rd_en_ff	<= framebuffer_rd_en;
+		framebuffer_rd_en_ff			<= framebuffer_rd_en;
 
 		//Start reading the first scanline of a new block
 		if(block_read)
-			block_scanline			<= 0;
+			block_scanline				<= 0;
 
 		//Reading a new scanline if we're starting a block, or not done with current one
-		framebuffer_rd_addr[8:7]	<= block_row[1:0];
-		framebuffer_rd_addr[3:0]	<= block_col + 4'h1;	//what is this offset from?
+		framebuffer_rd_addr[8:7]		<= block_row[1:0];
+		framebuffer_rd_addr[3:0]		<= block_col + 4'h1;	//what is this offset from?
 		if(block_read) begin
 			framebuffer_rd_addr[6:4]	<= 0;
 			framebuffer_rd_en			<= 1;
@@ -244,7 +244,7 @@ module SSD1306 #(
 
 		//Bump row pointer if there's more stuff to read
 		if(framebuffer_rd_en_ff && more_scanlines)
-			block_scanline			<= next_scanline;
+			block_scanline				<= next_scanline;
 
 		//Save completed scanlines in the buffer
 		//MSB in is lowest column number
