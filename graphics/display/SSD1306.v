@@ -193,16 +193,16 @@ module SSD1306 #(
     reg[3:0]	block_col		= 0;
     reg[2:0]	block_row		= 0;
 
-	//pixel_scanline[0] is scanline 0 of the block
+	//pixel_column[0] is scanline 0 of the block
 	//just a raw array of FFs for transposing
-    reg[7:0]	pixel_scanline0 = 8'h80;
-    reg[7:0]	pixel_scanline1 = 8'h00;
-    reg[7:0]	pixel_scanline2 = 8'h00;
-    reg[7:0]	pixel_scanline3 = 8'h00;
-    reg[7:0]	pixel_scanline4 = 8'h00;
-    reg[7:0]	pixel_scanline5 = 8'h00;
-    reg[7:0]	pixel_scanline6 = 8'h00;
-    reg[7:0]	pixel_scanline7 = 8'h00;
+    reg[7:0]	pixel_column0 = 8'h80;
+    reg[7:0]	pixel_column1 = 8'h00;
+    reg[7:0]	pixel_column2 = 8'h00;
+    reg[7:0]	pixel_column3 = 8'h00;
+    reg[7:0]	pixel_column4 = 8'h00;
+    reg[7:0]	pixel_column5 = 8'h00;
+    reg[7:0]	pixel_column6 = 8'h00;
+    reg[7:0]	pixel_column7 = 8'h00;
 
 	reg			framebuffer_rd_en_ff	= 0;
 	reg[2:0]	block_scanline			= 0;
@@ -247,18 +247,17 @@ module SSD1306 #(
 			block_scanline			<= next_scanline;
 
 		//Save completed scanlines in the buffer
-		//0x80 should be a vertical column of pixels, 1 in 8 illuminated
+		//MSB in is lowest column number
+		//MSB out is highest row number
 		if(framebuffer_rd_en_ff) begin
-			case(block_scanline)
-				0:	pixel_scanline0		<= framebuffer_rd_data;
-				1:	pixel_scanline1		<= framebuffer_rd_data;
-				2:	pixel_scanline2		<= framebuffer_rd_data;
-				3:	pixel_scanline3		<= framebuffer_rd_data;
-				4:	pixel_scanline4		<= framebuffer_rd_data;
-				5:	pixel_scanline5		<= framebuffer_rd_data;
-				6:	pixel_scanline6		<= framebuffer_rd_data;
-				7:	pixel_scanline7		<= framebuffer_rd_data;
-			endcase
+			pixel_column0	<= {framebuffer_rd_data[0], pixel_column0[7:1]};
+			pixel_column1	<= {framebuffer_rd_data[1], pixel_column1[7:1]};
+			pixel_column2	<= {framebuffer_rd_data[2], pixel_column2[7:1]};
+			pixel_column3	<= {framebuffer_rd_data[3], pixel_column3[7:1]};
+			pixel_column4	<= {framebuffer_rd_data[4], pixel_column4[7:1]};
+			pixel_column5	<= {framebuffer_rd_data[5], pixel_column5[7:1]};
+			pixel_column6	<= {framebuffer_rd_data[6], pixel_column6[7:1]};
+			pixel_column7	<= {framebuffer_rd_data[7], pixel_column7[7:1]};
 		end
 
 		//Done with the block? Let the display controller know
@@ -527,17 +526,16 @@ module SSD1306 #(
 				if(block_ready || spi_byte_done) begin
 
 					//Send the byte
-					spi_tx_data		<=
-					{
-						pixel_scanline7[block_nbit],
-						pixel_scanline6[block_nbit],
-						pixel_scanline5[block_nbit],
-						pixel_scanline4[block_nbit],
-						pixel_scanline3[block_nbit],
-						pixel_scanline2[block_nbit],
-						pixel_scanline1[block_nbit],
-						pixel_scanline0[block_nbit]
-					};
+					case(block_nbit)
+						0:	spi_tx_data	<= pixel_column0;
+						1:	spi_tx_data	<= pixel_column1;
+						2:	spi_tx_data	<= pixel_column2;
+						3:	spi_tx_data	<= pixel_column3;
+						4:	spi_tx_data	<= pixel_column4;
+						5:	spi_tx_data	<= pixel_column5;
+						6:	spi_tx_data	<= pixel_column6;
+						7:	spi_tx_data	<= pixel_column7;
+					endcase
 					spi_byte_en		<= 1;
 					cmd_n			<= 1;
 
