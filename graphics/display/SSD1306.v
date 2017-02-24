@@ -276,24 +276,22 @@ module SSD1306 #(
 	localparam STATE_BOOT_2			= 8'h03;
 	localparam STATE_BOOT_3			= 8'h04;
 	localparam STATE_BOOT_4			= 8'h05;
-	localparam STATE_BOOT_5			= 8'h06;
-	localparam STATE_BOOT_6			= 8'h07;
-	localparam STATE_INIT_0			= 8'h08;
-	localparam STATE_INIT_1			= 8'h09;
-	localparam STATE_INIT_2			= 8'h0a;
-	localparam STATE_INIT_3			= 8'h0b;
-	localparam STATE_INIT_4			= 8'h0c;
-	localparam STATE_INIT_5			= 8'h0d;
-	localparam STATE_WAIT_IDLE		= 8'h0e;
-	localparam STATE_IDLE			= 8'h0f;
-	localparam STATE_SHUTDOWN_0		= 8'h10;
-	localparam STATE_SHUTDOWN_1		= 8'h11;
-	localparam STATE_SHUTDOWN_2		= 8'h12;
-	localparam STATE_REFRESH_0		= 8'h13;
-	localparam STATE_REFRESH_1		= 8'h14;
-	localparam STATE_REFRESH_2		= 8'h15;
-	localparam STATE_REFRESH_3		= 8'h16;
-	localparam STATE_REFRESH_4		= 8'h17;
+	localparam STATE_INIT_0			= 8'h06;
+	localparam STATE_INIT_1			= 8'h07;
+	localparam STATE_INIT_2			= 8'h08;
+	localparam STATE_INIT_3			= 8'h09;
+	localparam STATE_INIT_4			= 8'h0a;
+	localparam STATE_INIT_5			= 8'h0b;
+	localparam STATE_WAIT_IDLE		= 8'h0c;
+	localparam STATE_IDLE			= 8'h0d;
+	localparam STATE_SHUTDOWN_0		= 8'h0e;
+	localparam STATE_SHUTDOWN_1		= 8'h0f;
+	localparam STATE_SHUTDOWN_2		= 8'h10;
+	localparam STATE_REFRESH_0		= 8'h11;
+	localparam STATE_REFRESH_1		= 8'h12;
+	localparam STATE_REFRESH_2		= 8'h13;
+	localparam STATE_REFRESH_3		= 8'h14;
+	localparam STATE_REFRESH_4		= 8'h15;
 
 	reg[7:0]	state			= 0;
 	reg[23:0]	count			= 0;
@@ -303,6 +301,24 @@ module SSD1306 #(
 	reg powerdown_pending		= 0;
 
 	assign ready = (state == STATE_IDLE) || (state == STATE_OFF);
+
+	//Microcode table of init commands
+	//TODO: some of this is panel specific, have a parameter to specify various configs?
+	reg[2:0]	init_rom_addr	= 0;
+	reg[7:0]	init_rom[3:0];
+	initial begin
+
+		//BEFORE TURNING ON VBAT
+		init_rom[0]				<= 8'h8d;		//Set up charge pump for internal DC-DC
+		init_rom[1]				<= 8'h14;
+		init_rom[2]				<= 8'hd9;		//Set pre-charge period for internal DC-DCs
+		init_rom[3]				<= 8'hf1;
+
+		//AFTER TURNING ON VBAT
+
+
+	end
+	wire[7:0]	init_rom_cmd	= init_rom[init_rom_addr];
 
     always @(posedge clk) begin
 
@@ -335,6 +351,10 @@ module SSD1306 #(
 
 			//Give power rails ~1 ms to stabilize, then turn the display off
 			STATE_BOOT_0: begin
+
+				//Get ready to read the first ROM command
+				init_rom_addr	<= 0;
+
 				count			<= count + 1'h1;
 				if(count == 24'h01ffff) begin
 					spi_tx_data		<= 8'hae;
@@ -353,54 +373,46 @@ module SSD1306 #(
 				end
 			end	//end STATE_BOOT_1
 
-			//When reset finishes, set the charge pump and pre-charge period
+			//When reset finishes, send the first init command
 			STATE_BOOT_2: begin
 				count			<= count + 1'h1;
 				if(count == 24'h01ffff) begin
 					rst_out_n		<= 1;
 
-					spi_tx_data		<= 8'h8d;
+					init_rom_addr	<= init_rom_addr + 1'h1;
+
+					spi_tx_data		<= init_rom_cmd;
 					spi_byte_en		<= 1;
 					cmd_n			<= 0;
 					state			<= STATE_BOOT_3;
 				end
 			end	//end STATE_BOOT_2
 
+			//Send remaining init commands
 			STATE_BOOT_3: begin
 				if(spi_byte_done) begin
-					spi_tx_data		<= 8'h14;
+
+					init_rom_addr	<= init_rom_addr + 1'h1;
+
+					spi_tx_data		<= init_rom_cmd;
 					spi_byte_en		<= 1;
 					cmd_n			<= 0;
-					state			<= STATE_BOOT_4;
+
+					//If we have more commands, stay here.
+					//If we just sent the last command, move on.
+					if(init_rom_addr == 'h3)
+						state			<= STATE_BOOT_4;
 				end
 			end	//end STATE_BOOT_3
 
-			STATE_BOOT_4: begin
-				if(spi_byte_done) begin
-					spi_tx_data		<= 8'hd9;
-					spi_byte_en		<= 1;
-					cmd_n			<= 0;
-					state			<= STATE_BOOT_5;
-				end
-			end	//end STATE_BOOT_4
-
-			STATE_BOOT_5: begin
-				if(spi_byte_done) begin
-					spi_tx_data		<= 8'hf1;
-					spi_byte_en		<= 1;
-					cmd_n			<= 0;
-					state			<= STATE_BOOT_6;
-				end
-			end	//end STATE_BOOT_5
-
 			//When the last send finishes, turn on Vbat and wait ~100 ms
-			STATE_BOOT_6: begin
+			STATE_BOOT_4: begin
 				if(spi_byte_done) begin
 					vbat_en_n		<= 0;
 					count			<= 0;
 					state			<= STATE_INIT_0;
 				end
-			end	//end STATE_BOOT_6
+			end	//end STATE_BOOT_4
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// INIT: set up display addressing etc
