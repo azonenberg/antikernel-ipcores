@@ -276,22 +276,17 @@ module SSD1306 #(
 	localparam STATE_BOOT_2			= 8'h03;
 	localparam STATE_BOOT_3			= 8'h04;
 	localparam STATE_BOOT_4			= 8'h05;
-	localparam STATE_INIT_0			= 8'h06;
-	localparam STATE_INIT_1			= 8'h07;
-	localparam STATE_INIT_2			= 8'h08;
-	localparam STATE_INIT_3			= 8'h09;
-	localparam STATE_INIT_4			= 8'h0a;
-	localparam STATE_INIT_5			= 8'h0b;
-	localparam STATE_WAIT_IDLE		= 8'h0c;
-	localparam STATE_IDLE			= 8'h0d;
-	localparam STATE_SHUTDOWN_0		= 8'h0e;
-	localparam STATE_SHUTDOWN_1		= 8'h0f;
-	localparam STATE_SHUTDOWN_2		= 8'h10;
-	localparam STATE_REFRESH_0		= 8'h11;
-	localparam STATE_REFRESH_1		= 8'h12;
-	localparam STATE_REFRESH_2		= 8'h13;
-	localparam STATE_REFRESH_3		= 8'h14;
-	localparam STATE_REFRESH_4		= 8'h15;
+	localparam STATE_BOOT_5			= 8'h06;
+	localparam STATE_WAIT_IDLE		= 8'h07;
+	localparam STATE_IDLE			= 8'h08;
+	localparam STATE_SHUTDOWN_0		= 8'h09;
+	localparam STATE_SHUTDOWN_1		= 8'h0a;
+	localparam STATE_SHUTDOWN_2		= 8'h0b;
+	localparam STATE_REFRESH_0		= 8'h0c;
+	localparam STATE_REFRESH_1		= 8'h0d;
+	localparam STATE_REFRESH_2		= 8'h0e;
+	localparam STATE_REFRESH_3		= 8'h0f;
+	localparam STATE_REFRESH_4		= 8'h10;
 
 	reg[7:0]	state			= 0;
 	reg[23:0]	count			= 0;
@@ -304,18 +299,29 @@ module SSD1306 #(
 
 	//Microcode table of init commands
 	//TODO: some of this is panel specific, have a parameter to specify various configs?
-	reg[2:0]	init_rom_addr	= 0;
-	reg[7:0]	init_rom[3:0];
+	reg[3:0]	init_rom_addr	= 0;
+	reg[7:0]	init_rom[15:0];
 	initial begin
 
-		//BEFORE TURNING ON VBAT
-		init_rom[0]				<= 8'h8d;		//Set up charge pump for internal DC-DC
-		init_rom[1]				<= 8'h14;
-		init_rom[2]				<= 8'hd9;		//Set pre-charge period for internal DC-DCs
-		init_rom[3]				<= 8'hf1;
+		init_rom[0]		<= 8'h8d;		//Set up charge pump for internal DC-DC
+		init_rom[1]		<= 8'h14;
+		init_rom[2]		<= 8'hd9;		//Set pre-charge period for internal DC-DCs
+		init_rom[3]		<= 8'hf1;
 
-		//AFTER TURNING ON VBAT
+		init_rom[4]		<= 8'ha1;		//Segment re-mapping
+		init_rom[5]		<= 8'hc8;		//COM scan direction
+		init_rom[6]		<= 8'hda;		//COM hardware config. Note that panel docs say 0x02 which is wrong!
+		init_rom[7]		<= 8'h20;
+		init_rom[8]		<= 8'h2e;		//Disable scrolling
 
+		init_rom[9]		<= 8'he3;		//nop padding for future init commands
+		init_rom[10]	<= 8'he3;
+		init_rom[11]	<= 8'he3;
+		init_rom[12]	<= 8'he3;
+		init_rom[13]	<= 8'he3;
+		init_rom[14]	<= 8'he3;
+
+		init_rom[15]	<= 8'haf;		//Turn on display
 
 	end
 	wire[7:0]	init_rom_cmd	= init_rom[init_rom_addr];
@@ -400,85 +406,26 @@ module SSD1306 #(
 
 					//If we have more commands, stay here.
 					//If we just sent the last command, move on.
-					if(init_rom_addr == 'h3)
+					if(init_rom_addr == 'hf)
 						state			<= STATE_BOOT_4;
 				end
 			end	//end STATE_BOOT_3
 
-			//When the last send finishes, turn on Vbat and wait ~100 ms
+			//When the last send finishes, turn on Vbat
 			STATE_BOOT_4: begin
 				if(spi_byte_done) begin
 					vbat_en_n		<= 0;
 					count			<= 0;
-					state			<= STATE_INIT_0;
+					state			<= STATE_BOOT_5;
 				end
 			end	//end STATE_BOOT_4
 
-			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// INIT: set up display addressing etc
-
-			//TODO: A lot of this config is panel specific, should we have a table or something??
-
-			//After Vbat stabilizes, configure stuff.
-			//Set column mapping
-			STATE_INIT_0: begin
+			//Wait 100 ms then go to idle
+			STATE_BOOT_5: begin
 				count				<= count + 1'h1;
-				if(count == 24'hbfffff) begin
-					spi_tx_data		<= 8'hA1;
-					spi_byte_en		<= 1;
-					cmd_n			<= 0;
-					state			<= STATE_INIT_1;
-				end
-			end	//end STATE_INIT_0
-
-			//Set row mapping
-			STATE_INIT_1: begin
-				if(spi_byte_done) begin
-					spi_tx_data		<= 8'hC8;
-					spi_byte_en		<= 1;
-					cmd_n			<= 0;
-					state			<= STATE_INIT_2;
-				end
-			end	//end STATE_INIT_1
-
-			//Select sequential COM scan configuration with left/right remap
-			STATE_INIT_2: begin
-				if(spi_byte_done) begin
-					spi_tx_data		<= 8'hDA;
-					spi_byte_en		<= 1;
-					cmd_n			<= 0;
-					state			<= STATE_INIT_3;
-				end
-			end	//end STATE_INIT_2
-
-			STATE_INIT_3: begin
-				if(spi_byte_done) begin
-					spi_tx_data		<= 8'h20;
-					spi_byte_en		<= 1;
-					cmd_n			<= 0;
-					state			<= STATE_INIT_4;
-				end
-			end	//end STATE_INIT_3
-
-			//Disable scrolling
-			STATE_INIT_4: begin
-				if(spi_byte_done) begin
-					spi_tx_data		<= 8'h2E;
-					spi_byte_en		<= 1;
-					cmd_n			<= 0;
-					state			<= STATE_INIT_5;
-				end
-			end	//end STATE_INIT_4
-
-			//Turn the actual display on
-			STATE_INIT_5: begin
-				if(spi_byte_done) begin
-					spi_tx_data		<= 8'hAF;
-					spi_byte_en		<= 1;
-					cmd_n			<= 0;
-					state			<= STATE_WAIT_IDLE;
-				end
-			end	//end STATE_INIT_5
+				if(count == 24'hbfffff)
+					state			<= STATE_IDLE;
+			end	//end STATE_BOOT_5
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// WAIT: go to idle after current txn finishes
