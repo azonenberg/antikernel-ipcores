@@ -339,6 +339,10 @@ module SSD1306 #(
 		if(count != 0)
 			count				<= count - 1'h1;
 
+		//Bump microcode pointer after sending stuff during boot
+		if(spi_byte_en && (state <= STATE_BOOT_5) )
+			init_rom_addr		<= init_rom_addr + 1'h1;
+
 		case(state)
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -351,6 +355,9 @@ module SSD1306 #(
 
 				//We're off
 				power_state		<= 0;
+
+				//Prepare to send commands
+				cmd_n			<= 0;
 
 				if(powerup) begin
 					vdd_en_n	<= 0;
@@ -368,11 +375,9 @@ module SSD1306 #(
 			STATE_BOOT_0: begin
 
 				if(count == 0) begin
-					init_rom_addr	<= init_rom_addr + 1'h1;
 					spi_tx_data		<= init_rom_cmd;
 					spi_byte_en		<= 1;
 
-					cmd_n			<= 0;
 					state			<= STATE_BOOT_1;
 				end
 
@@ -392,11 +397,9 @@ module SSD1306 #(
 				if(count == 0) begin
 					rst_out_n		<= 1;
 
-					init_rom_addr	<= init_rom_addr + 1'h1;
 					spi_tx_data		<= init_rom_cmd;
 					spi_byte_en		<= 1;
 
-					cmd_n			<= 0;
 					state			<= STATE_BOOT_3;
 				end
 			end	//end STATE_BOOT_2
@@ -405,11 +408,8 @@ module SSD1306 #(
 			STATE_BOOT_3: begin
 				if(spi_byte_done) begin
 
-					init_rom_addr	<= init_rom_addr + 1'h1;
 					spi_tx_data		<= init_rom_cmd;
 					spi_byte_en		<= 1;
-
-					cmd_n			<= 0;
 
 					//If we have more commands, stay here.
 					//If we just sent the last command, move on.
@@ -446,6 +446,7 @@ module SSD1306 #(
 
 			STATE_IDLE: begin
 
+				//We're currently turned on and running
 				power_state					<= 1;
 
 				//If we were asked to shut down, do that
@@ -454,7 +455,7 @@ module SSD1306 #(
 					state					<= STATE_SHUTDOWN_0;
 
 					//Read the "shutdown" command
-					init_rom_addr				<= 0;
+					init_rom_addr			<= 0;
 				end
 
 				//If asked to refresh the display, do that
