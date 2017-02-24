@@ -143,9 +143,16 @@ module Minimal2DGPU(
 	localparam STATE_RECT_0			= 8'h02;
 	localparam STATE_RECT_1			= 8'h03;
 	localparam STATE_RECT_2			= 8'h04;
+	localparam STATE_RECT_3			= 8'h05;
 
 	localparam STATE_PIXEL_0		= 8'h10;
 	localparam STATE_PIXEL_1		= 8'h11;
+
+	localparam STATE_HLINE_0		= 8'h20;
+	localparam STATE_HLINE_1		= 8'h21;
+	localparam STATE_HLINE_2		= 8'h22;
+	localparam STATE_HLINE_3		= 8'h23;
+	localparam STATE_HLINE_4		= 8'h24;
 
 	reg[X_BITS-1:0]	pix_x			= 0;						//Random X/Y helper coordinates
 	reg[Y_BITS-1:0]	pix_y			= 0;
@@ -153,11 +160,21 @@ module Minimal2DGPU(
 	wire[X_BITS-4:0] pix_x_byte		= pix_x[X_BITS-1 : 3];		//Byte position of the current pixel
 																//TODO: Update for multi-bit stuff?
 	wire[2:0] pix_x_col				= pix_x[2:0];
+	wire[X_BITS-4:0] pix_x_byte_inc	= pix_x_byte + 1'h1;		//Byte index of next pixel byte in the line
+	wire[X_BITS-1:0] pix_x_inc		= {pix_x_byte_inc, 3'h0};	//Starting X coordinate of next pixel byte in the line
+
+	wire[X_BITS-4:0] left_byte		= left[X_BITS-1 : 3];		//Byte position of the left pixel being written
+	wire[2:0] left_col				= left[2:0];
+
+	wire[X_BITS-4:0] right_byte		= right[X_BITS-1 : 3];		//Byte position of the right pixel being written
+	wire[2:0] right_col				= right[2:0];
 
 	reg[7:0] state					= STATE_IDLE;
 	reg[7:0] state_ret				= STATE_IDLE;
 
 	reg framebuffer_mem_en_ff		= 0;
+
+	integer i;
 
 	always @(posedge clk) begin
 
@@ -227,47 +244,28 @@ module Minimal2DGPU(
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Draw an outline-only rectangle very inefficiently (one rmw per pixel o_O)
 
-			//Start drawing top side
+			//Draw top side
 			STATE_RECT_0: begin
-				pix_x					<= left;
 				pix_y					<= top;
-				state					<= STATE_PIXEL_0;
 				state_ret				<= STATE_RECT_1;
+				state					<= STATE_HLINE_0;
 			end	//end STATE_RECT_0
 
-			//Continue drawing top side
+			//Draw bottom side
 			STATE_RECT_1: begin
-
-				//If we just drew the last pixel, done
-				if(pix_x == right) begin
-
-					//If we're drawing the top side, start the bottom
-					if(pix_y == top) begin
-						pix_x			<= left;
-						pix_y			<= bottom;
-						state			<= STATE_PIXEL_0;
-						state_ret		<= STATE_RECT_1;
-					end
-
-					//Done with top and bottom, do sides
-					else begin
-						pix_x			<= left;
-						pix_y			<= top;
-						state			<= STATE_RECT_2;
-					end
-
-				end
-
-				//Nope, draw the next pixel
-				else begin
-					pix_x				<= pix_x + 1'h1;
-					state				<= STATE_PIXEL_0;
-					state_ret			<= STATE_RECT_1;
-				end
-
+				pix_y					<= bottom;
+				state_ret				<= STATE_RECT_2;
+				state					<= STATE_HLINE_0;
 			end	//end STATE_RECT_1
 
+			//Prepare to do the vertical stuff
 			STATE_RECT_2: begin
+				pix_x					<= left;
+				pix_y					<= top;
+				state					<= STATE_RECT_3;
+			end	//end STATE_RECT_2
+
+			STATE_RECT_3: begin
 
 				//If we just drew the last pixel, done
 				if(pix_y == bottom) begin
@@ -277,7 +275,7 @@ module Minimal2DGPU(
 						pix_x			<= right;
 						pix_y			<= top;
 						state			<= STATE_PIXEL_0;
-						state_ret		<= STATE_RECT_2;
+						state_ret		<= STATE_RECT_3;
 					end
 
 					//Done drawing
@@ -292,13 +290,13 @@ module Minimal2DGPU(
 				else begin
 					pix_y				<= pix_y + 1'h1;
 					state				<= STATE_PIXEL_0;
-					state_ret			<= STATE_RECT_2;
+					state_ret			<= STATE_RECT_3;
 				end
 
-			end	//end STATE_RECT_2
+			end	//end STATE_RECT_3
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// Helper: Set a single pixel via read-modify-write
+			// Helper: Set a single pixel at (pix_x, pix_y) via read-modify-write
 
 			//Dispatch read
 			STATE_PIXEL_0: begin
@@ -317,6 +315,96 @@ module Minimal2DGPU(
 					state								<= state_ret;
 				end
 			end	//end STATE_PIXEL_1
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Helper: Draw a horizontal line from (left, pix_y) to (right, pix_y) efficiently (one rmw per byte)
+
+			//Kick off the first read
+			STATE_HLINE_0: begin
+				pix_x					<= left;
+
+				framebuffer_mem_en		<= 1;
+				framebuffer_mem_addr	<= {pix_y, left_byte};
+				state					<= STATE_HLINE_1;
+			end	//end STATE_HLINE_0
+
+			//Fill in the pixels from the left to the end of the first byte.
+			STATE_HLINE_1: begin
+
+				if(framebuffer_mem_en_ff) begin
+					framebuffer_mem_en					<= 1;
+					framebuffer_mem_wr					<= 1;
+					framebuffer_mem_wdata				<= framebuffer_mem_rdata;
+
+					//If the line is entirely within this byte, we're done right now
+					if(left_byte == right_byte) begin
+						for(i=0; i<8; i=i+1) begin
+							if(i >= left_col && i <= right_col)
+								framebuffer_mem_wdata[i]	<= fg_color;	//TODO: multi-bit handling
+						end
+
+						state								<= state_ret;
+					end
+
+					//Nope, fill to end of byte
+					else begin
+						for(i=0; i<8; i=i+1) begin
+							if(i >= left_col)
+								framebuffer_mem_wdata[i]	<= fg_color;	//TODO: multi-bit handling
+						end
+
+						//Start the byte-wide fill
+						pix_x								<= pix_x_inc;
+						state								<= STATE_HLINE_2;
+
+					end
+
+				end
+
+			end	//end STATE_HLINE_1
+
+			//Fill in the pixels until the end of the full bytes (no read needed)
+			STATE_HLINE_2: begin
+
+				//If we're done with full-byte writes, then move to the last block
+				if(pix_x_byte >= right_byte)
+					state				<= STATE_HLINE_3;
+
+				//Nope, fill this block
+				else begin
+					framebuffer_mem_en		<= 1;
+					framebuffer_mem_addr	<= {pix_y, pix_x_byte};
+					framebuffer_mem_wr		<= 1;
+					framebuffer_mem_wdata	<= solid_fg;
+
+					pix_x					<= pix_x_inc;
+				end
+
+			end	//end STATE_HLINE_2
+
+			//Read the last byte
+			STATE_HLINE_3: begin
+				framebuffer_mem_en		<= 1;
+				framebuffer_mem_addr	<= {pix_y, pix_x_byte};
+				state					<= STATE_HLINE_4;
+			end	//end STATE_HLINE_3
+
+			//Write the last byte
+			STATE_HLINE_4: begin
+				if(!framebuffer_mem_en && framebuffer_mem_en_ff) begin
+
+					framebuffer_mem_en		<= 1;
+					framebuffer_mem_wr		<= 1;
+
+					for(i=0; i<8; i=i+1) begin
+						if(i <= right_col)
+							framebuffer_mem_wdata[i]	<= fg_color;	//TODO: multi-bit handling
+					end
+
+					//Done
+					state				<= state_ret;
+				end
+			end	//end STATE_HLINE_4
 
 		endcase
 	end
