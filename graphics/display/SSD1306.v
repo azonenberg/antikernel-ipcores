@@ -316,13 +316,13 @@ module SSD1306 #(
 		init_rom[8]		<= 8'h20;
 		init_rom[9]		<= 8'h2e;		//Disable scrolling
 
-		init_rom[10]	<= 8'he3;		//nop padding for future init commands
-		init_rom[11]	<= 8'he3;
+		init_rom[10]	<= 8'haf;		//Turn on display
+
+		init_rom[11]	<= 8'he3;		//nop padding for future init commands
 		init_rom[12]	<= 8'he3;
 		init_rom[13]	<= 8'he3;
 		init_rom[14]	<= 8'he3;
-
-		init_rom[15]	<= 8'haf;		//Turn on display
+		init_rom[15]	<= 8'he3;
 
 	end
 	wire[7:0]	init_rom_cmd	= init_rom[init_rom_addr];
@@ -413,7 +413,7 @@ module SSD1306 #(
 
 					//If we have more commands, stay here.
 					//If we just sent the last command, move on.
-					if(init_rom_addr == 'hf)
+					if(init_rom_addr == 'd10)
 						state			<= STATE_BOOT_4;
 				end
 			end	//end STATE_BOOT_3
@@ -452,6 +452,9 @@ module SSD1306 #(
 				if(powerdown_pending) begin
 					powerdown_pending		<= 0;
 					state					<= STATE_SHUTDOWN_0;
+
+					//Read the "shutdown" command
+					init_rom_addr				<= 0;
 				end
 
 				//If asked to refresh the display, do that
@@ -459,8 +462,9 @@ module SSD1306 #(
 					block_row				<= 0;
 					block_col				<= 0;
 
-					//Send a nop b/c REFRESH_0 expects to wait for a tx
-					spi_tx_data				<= 8'hE3;
+					//Send a nop b/c REFRESH_0 expects to wait for a tx.
+					//init_rom_addr should always be 'd11 when in IDLE
+					spi_tx_data				<= init_rom_cmd;
 					spi_byte_en				<= 1;
 					cmd_n					<= 0;
 
@@ -573,7 +577,7 @@ module SSD1306 #(
 
 			//Send "display off" command
 			STATE_SHUTDOWN_0: begin
-				spi_tx_data		<= 8'hae;
+				spi_tx_data		<= init_rom_cmd;
 				spi_byte_en		<= 1;
 				cmd_n			<= 0;
 				state			<= STATE_SHUTDOWN_1;
