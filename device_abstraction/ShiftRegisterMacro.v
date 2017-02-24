@@ -34,18 +34,20 @@
 	@brief A parameterizable width / depth (addressable up to 32 bits for now) shift register.
  */
 
-module ShiftRegisterMacro(clk, addr, din, ce, dout);
+module ShiftRegisterMacro #(
+	parameter WIDTH =16,
+	parameter DEPTH = 32,
+	parameter ADDR_BITS = 5
+) (
+	input wire clk,
+	input wire[ADDR_BITS-1 : 0] addr,
+	input wire[WIDTH-1 : 0] din,
+	input wire ce,
+	output wire[WIDTH-1 : 0] dout
+);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O and parameter declarations
-
-	parameter WIDTH = 16;
-	parameter DEPTH = 32;
-
-	`include "clog2.vh"
-
-	//number of bits in the address bus
-	localparam ADDR_BITS = clog2(DEPTH);
+	// Sanity checking
 
 	generate
 		initial begin
@@ -55,12 +57,6 @@ module ShiftRegisterMacro(clk, addr, din, ce, dout);
 			end
 		end
 	endgenerate
-
-	input wire clk;
-	input wire[ADDR_BITS-1:0] addr;
-	input wire[WIDTH-1:0] din;
-	input wire ce;
-	output wire[WIDTH-1:0] dout;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// The RAM itself
@@ -85,16 +81,15 @@ endmodule
 
 	Parameterizable depth.
  */
-module ShiftRegisterPrimitiveWrapper(clk, addr, din, ce, dout);
-
-	parameter DEPTH = 32;
-	parameter ADDR_BITS = 5;
-
-	input wire clk;
-	input wire[ADDR_BITS-1:0] addr;
-	input wire din;
-	input wire ce;
-	output wire dout;
+module ShiftRegisterPrimitiveWrapper #(
+	parameter DEPTH = 32,
+	parameter ADDR_BITS = 5
+)  (
+	input wire clk,
+	input wire[ADDR_BITS-1 : 0] addr,
+	input wire din,
+	input wire ce,
+	output wire dout);
 
 	generate
 		if(DEPTH == 32) begin
