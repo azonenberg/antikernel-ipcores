@@ -232,7 +232,7 @@ module SSD1306 #(
 
 		//Reading a new scanline if we're starting a block, or not done with current one
 		framebuffer_rd_addr[8:7]	<= block_row[1:0];
-		framebuffer_rd_addr[3:0]	<= block_col;
+		framebuffer_rd_addr[3:0]	<= block_col + 4'h1;	//what is this offset from?
 		if(block_read) begin
 			framebuffer_rd_addr[6:4]	<= 0;
 			framebuffer_rd_en			<= 1;
@@ -283,16 +283,17 @@ module SSD1306 #(
 	localparam STATE_INIT_2			= 8'h0a;
 	localparam STATE_INIT_3			= 8'h0b;
 	localparam STATE_INIT_4			= 8'h0c;
-	localparam STATE_WAIT_IDLE		= 8'h0d;
-	localparam STATE_IDLE			= 8'h0e;
-	localparam STATE_SHUTDOWN_0		= 8'h0f;
-	localparam STATE_SHUTDOWN_1		= 8'h10;
-	localparam STATE_SHUTDOWN_2		= 8'h11;
-	localparam STATE_REFRESH_0		= 8'h12;
-	localparam STATE_REFRESH_1		= 8'h13;
-	localparam STATE_REFRESH_2		= 8'h14;
-	localparam STATE_REFRESH_3		= 8'h15;
-	localparam STATE_REFRESH_4		= 8'h16;
+	localparam STATE_INIT_5			= 8'h0d;
+	localparam STATE_WAIT_IDLE		= 8'h0e;
+	localparam STATE_IDLE			= 8'h0f;
+	localparam STATE_SHUTDOWN_0		= 8'h10;
+	localparam STATE_SHUTDOWN_1		= 8'h11;
+	localparam STATE_SHUTDOWN_2		= 8'h12;
+	localparam STATE_REFRESH_0		= 8'h13;
+	localparam STATE_REFRESH_1		= 8'h14;
+	localparam STATE_REFRESH_2		= 8'h15;
+	localparam STATE_REFRESH_3		= 8'h16;
+	localparam STATE_REFRESH_4		= 8'h17;
 
 	reg[7:0]	state			= 0;
 	reg[23:0]	count			= 0;
@@ -406,8 +407,6 @@ module SSD1306 #(
 
 			//TODO: A lot of this config is panel specific, should we have a table or something??
 
-			//spi_tx_data		<= 8'ha5;	//display solid white
-
 			//After Vbat stabilizes, configure stuff.
 			//Set column mapping
 			STATE_INIT_0: begin
@@ -449,15 +448,25 @@ module SSD1306 #(
 				end
 			end	//end STATE_INIT_3
 
-			//Turn the actual display on
+			//Disable scrolling
 			STATE_INIT_4: begin
+				if(spi_byte_done) begin
+					spi_tx_data		<= 8'h2E;
+					spi_byte_en		<= 1;
+					cmd_n			<= 0;
+					state			<= STATE_INIT_5;
+				end
+			end	//end STATE_INIT_4
+
+			//Turn the actual display on
+			STATE_INIT_5: begin
 				if(spi_byte_done) begin
 					spi_tx_data		<= 8'hAF;
 					spi_byte_en		<= 1;
 					cmd_n			<= 0;
 					state			<= STATE_WAIT_IDLE;
 				end
-			end	//end STATE_INIT_4
+			end	//end STATE_INIT_5
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// WAIT: go to idle after current txn finishes
