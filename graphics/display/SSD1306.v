@@ -303,19 +303,20 @@ module SSD1306 #(
 	reg[7:0]	init_rom[15:0];
 	initial begin
 
-		init_rom[0]		<= 8'h8d;		//Set up charge pump for internal DC-DC
-		init_rom[1]		<= 8'h14;
-		init_rom[2]		<= 8'hd9;		//Set pre-charge period for internal DC-DCs
-		init_rom[3]		<= 8'hf1;
+		init_rom[0]		<= 8'hae;		//Turn display off
 
-		init_rom[4]		<= 8'ha1;		//Segment re-mapping
-		init_rom[5]		<= 8'hc8;		//COM scan direction
-		init_rom[6]		<= 8'hda;		//COM hardware config. Note that panel docs say 0x02 which is wrong!
-		init_rom[7]		<= 8'h20;
-		init_rom[8]		<= 8'h2e;		//Disable scrolling
+		init_rom[1]		<= 8'h8d;		//Set up charge pump for internal DC-DC
+		init_rom[2]		<= 8'h14;
+		init_rom[3]		<= 8'hd9;		//Set pre-charge period for internal DC-DCs
+		init_rom[4]		<= 8'hf1;
 
-		init_rom[9]		<= 8'he3;		//nop padding for future init commands
-		init_rom[10]	<= 8'he3;
+		init_rom[5]		<= 8'ha1;		//Segment re-mapping
+		init_rom[6]		<= 8'hc8;		//COM scan direction
+		init_rom[7]		<= 8'hda;		//COM hardware config. Note that panel docs say 0x02 which is wrong!
+		init_rom[8]		<= 8'h20;
+		init_rom[9]		<= 8'h2e;		//Disable scrolling
+
+		init_rom[10]	<= 8'he3;		//nop padding for future init commands
 		init_rom[11]	<= 8'he3;
 		init_rom[12]	<= 8'he3;
 		init_rom[13]	<= 8'he3;
@@ -345,6 +346,10 @@ module SSD1306 #(
 
 			STATE_OFF: begin
 
+				//Get ready to read the first ROM command
+				init_rom_addr	<= 0;
+
+				//We're off
 				power_state		<= 0;
 
 				if(powerup) begin
@@ -362,15 +367,15 @@ module SSD1306 #(
 			//Give power rails ~1 ms to stabilize, then turn the display off
 			STATE_BOOT_0: begin
 
-				//Get ready to read the first ROM command
-				init_rom_addr	<= 0;
-
 				if(count == 0) begin
-					spi_tx_data		<= 8'hae;
+					init_rom_addr	<= init_rom_addr + 1'h1;
+					spi_tx_data		<= init_rom_cmd;
 					spi_byte_en		<= 1;
+
 					cmd_n			<= 0;
 					state			<= STATE_BOOT_1;
 				end
+
 			end	//end STATE_BOOT_0
 
 			//Wait for command to finish, then strobe reset for ~1 ms
@@ -388,9 +393,9 @@ module SSD1306 #(
 					rst_out_n		<= 1;
 
 					init_rom_addr	<= init_rom_addr + 1'h1;
-
 					spi_tx_data		<= init_rom_cmd;
 					spi_byte_en		<= 1;
+
 					cmd_n			<= 0;
 					state			<= STATE_BOOT_3;
 				end
@@ -401,9 +406,9 @@ module SSD1306 #(
 				if(spi_byte_done) begin
 
 					init_rom_addr	<= init_rom_addr + 1'h1;
-
 					spi_tx_data		<= init_rom_cmd;
 					spi_byte_en		<= 1;
+
 					cmd_n			<= 0;
 
 					//If we have more commands, stay here.
