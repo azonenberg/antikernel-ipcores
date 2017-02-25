@@ -38,7 +38,7 @@
 	
 	Does not currently support Spartan-3A.
  */
-module BscanMacro(
+module JtagTAP(
 
 	//Indicates this JTAG instruction is loaded in the IR
 	instruction_active,
