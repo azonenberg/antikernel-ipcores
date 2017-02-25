@@ -36,43 +36,29 @@
 
 	Wrapper for BSCAN_SPARTAN6, BSCANE2, etc.
 
-	Does not currently support Spartan-3A.
+	Currently supports Spartan-6 and Xilinx 7 series only.
  */
-module JtagTAP(
+module JtagTAP #(
+	parameter USER_INSTRUCTION = 1;
+) (
 
 	//Indicates this JTAG instruction is loaded in the IR
-	instruction_active,
+	output wire instruction_active,
 
 	//One-hot state values (note that in SHIFT-IR etc all are deasserted)
-	state_capture_dr,
-	state_reset,
-	state_runtest,
-	state_shift_dr,
-	state_update_dr,
+	output wire state_capture_dr,
+	output wire state_reset,
+	output wire state_runtest,
+	output wire state_shift_dr,
+	output wire state_update_dr,
 
 	//JTAG nets
-	tck, tck_gated,
-	tms,
-	tdi,
-	tdo		//ignored if this instruction isn't loaded
+	output wire tck,
+	output wire tck_gated,
+	output wire tms,
+	output wire tdi,
+	input wire tdo		//ignored if this instruction isn't loaded
 	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O / parameter declarations
-
-	parameter USER_INSTRUCTION = 1;
-
-	output wire instruction_active;
-	output wire tck;
-	output wire state_capture_dr;
-	output wire state_reset;
-	output wire state_runtest;
-	output wire state_shift_dr;
-	output wire state_update_dr;
-	output wire tck_gated;
-	output wire tms;
-	output wire tdi;
-	input wire tdo;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual primitive
