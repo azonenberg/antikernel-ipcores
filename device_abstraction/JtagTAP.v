@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2016 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -33,35 +33,35 @@
 	@file
 	@author Andrew D. Zonenberg
 	@brief Boundary scan wrapper for a JTAG user instruction
-	
+
 	Wrapper for BSCAN_SPARTAN6, BSCANE2, etc.
-	
+
 	Does not currently support Spartan-3A.
  */
 module JtagTAP(
 
 	//Indicates this JTAG instruction is loaded in the IR
 	instruction_active,
-	
+
 	//One-hot state values (note that in SHIFT-IR etc all are deasserted)
 	state_capture_dr,
 	state_reset,
 	state_runtest,
 	state_shift_dr,
 	state_update_dr,
-	
+
 	//JTAG nets
 	tck, tck_gated,
 	tms,
 	tdi,
-	tdo		//ignored if this instruction isn't loaded	
+	tdo		//ignored if this instruction isn't loaded
 	);
-	
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O / parameter declarations
-	
+
 	parameter USER_INSTRUCTION = 1;
-	
+
 	output wire instruction_active;
 	output wire tck;
 	output wire state_capture_dr;
@@ -76,7 +76,7 @@ module JtagTAP(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual primitive
-	
+
 	`ifdef XILINX_SPARTAN6
 		BSCAN_SPARTAN6 #(
 			.JTAG_CHAIN(USER_INSTRUCTION)
@@ -96,7 +96,7 @@ module JtagTAP(
 		);
 
 	`endif
-	
+
 	`ifdef XILINX_7SERIES
 		BSCANE2 #(
 			.JTAG_CHAIN(USER_INSTRUCTION)
