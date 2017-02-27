@@ -40,4 +40,7 @@ Minimal2DGPU_opcodes:
         GPU_OP_CLEAR:   01
 
         # Draw a rectangle (one pixel outline in fg color)
-        GPU_OP_RECT:   02
+        GPU_OP_RECT:    02
+
+        # Draw a character (only one font supported for now)
+        GPU_OP_CHAR:    03

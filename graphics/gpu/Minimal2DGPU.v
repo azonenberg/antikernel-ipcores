@@ -53,7 +53,9 @@ module Minimal2DGPU(
 
 	cmd_en,
 	cmd,
-	cmd_done
+	cmd_char,
+	cmd_done,
+	cmd_fail
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -77,6 +79,19 @@ module Minimal2DGPU(
 
 	localparam X_BITS						= clog2(FRAMEBUFFER_WIDTH);
 	localparam Y_BITS						= clog2(FRAMEBUFFER_HEIGHT);
+
+	parameter FONT_HEIGHT					= 16;	//number of lines per character cell
+	parameter FONT_WIDTH					= 12;	//number of columns per character cell
+	localparam FONT_BYTES					= clog2(FONT_WIDTH);
+
+	//A font should contain FONT_HEIGHT lines for each character.
+	//Fonts should contain all printable characters from ' ' (0x20) to '~' (0x7e)
+	//This is 0x5f (95) rows.
+	localparam NUM_CHARS					= 8'd95;
+	localparam FONT_LENGTH_UNPADDED			= NUM_CHARS * FONT_HEIGHT;
+
+	localparam FONT_ROW_BITS				= clog2(FONT_HEIGHT);
+	localparam CHAR_BITS					= clog2(NUM_CHARS);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// System-wide stuff
@@ -105,7 +120,9 @@ module Minimal2DGPU(
 
 	input wire					cmd_en;				//Start processing something
 	input wire[3:0]				cmd;				//The operation to execute
+	input wire[7:0]				cmd_char;			//Character to draw
 	output reg					cmd_done = 0;		//Set high for one clock when the command finishes
+	output reg					cmd_fail = 0;		//Set high for one clock when the command finishes with an error
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Sanity checks: bit depth must be 1, 2, 4, 8 for now (multi-byte pixels or weird alignments not supported)
@@ -130,12 +147,32 @@ module Minimal2DGPU(
 	wire[7:0] solid_fg						= {PIXELS_PER_BYTE{fg_color}};
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Font ROM
+
+	//TODO: MemoryMacro once we get dep scanning figured out?
+	//TODO: make this parameterizable?
+	reg[11:0] font_rom[2047:0];
+	initial begin
+		$readmemh("../fonts/couriernew-12pt.hex", font_rom);
+	end
+
+	reg[6:0]		font_cindex = 0;		//Index within the font ROM (anything below ' ' is non-printable)
+	reg[3:0]		font_line	= 0;		//Line within the current character
+	reg[3:0]		font_col	= 0;		//Column within the current character
+
+	reg				font_rom_rd	= 0;
+	reg[11:0]		font_rom_out = 0;
+	always @(posedge clk) begin
+		if(font_rom_rd)
+			font_rom_out	<= font_rom[ {font_cindex, font_line} ];
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main state machine
 
 	`include "Minimal2DGPU_opcodes_localparam.vh"
 
 	reg[FRAMEBUFFER_ADDR_BITS-1 : 0]		count = 0;
-
 
 	//State values
 	localparam STATE_IDLE			= 8'h00;
@@ -153,6 +190,11 @@ module Minimal2DGPU(
 	localparam STATE_HLINE_2		= 8'h22;
 	localparam STATE_HLINE_3		= 8'h23;
 	localparam STATE_HLINE_4		= 8'h24;
+
+	localparam STATE_CHAR_0			= 8'h30;
+	localparam STATE_CHAR_1			= 8'h31;
+	localparam STATE_CHAR_2			= 8'h32;
+	localparam STATE_CHAR_3			= 8'h33;
 
 	reg[X_BITS-1:0]	pix_x			= 0;						//Random X/Y helper coordinates
 	reg[Y_BITS-1:0]	pix_y			= 0;
@@ -181,6 +223,8 @@ module Minimal2DGPU(
 		cmd_done				<= 0;
 		framebuffer_mem_en		<= 0;
 		framebuffer_mem_wr		<= 0;
+
+		font_rom_rd				<= 0;
 
 		framebuffer_mem_en_ff	<= framebuffer_mem_en;
 
@@ -211,8 +255,21 @@ module Minimal2DGPU(
 							state		<= STATE_RECT_0;
 						end	//end GPU_OP_RECT
 
-						//Silently ignore all other commands (TODO: report error)
+						//Draw a character with top left corner at (left, top)
+						//TODO: report delta X to calling code?
+						//If we ask for a non-printable char, complain
+						GPU_OP_CHAR: begin
+							if( (cmd_char < " ") || (cmd_char > "~") ) begin
+								cmd_done	<= 1;
+								cmd_fail	<= 1;
+							end
+							else
+								state		<= STATE_CHAR_0;
+						end	//end GPU_OP_CHAR
+
+						//Silently ignore all other commands
 						default: begin
+							cmd_fail	<= 1;
 							cmd_done	<= 1;
 						end
 
@@ -294,6 +351,73 @@ module Minimal2DGPU(
 				end
 
 			end	//end STATE_RECT_3
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Draw a single character at (left, top)
+
+			//Set up the char ROM
+			STATE_CHAR_0: begin
+				font_cindex				<= cmd_char[6:0] - 7'h20;
+				font_line				<= 0;
+				font_col				<= 0;
+				font_rom_rd				<= 1;
+				state					<= STATE_CHAR_1;
+			end	//end STATE_CHAR_0
+
+			//Wait for rom read
+			STATE_CHAR_1: begin
+				state					<= STATE_CHAR_2;
+			end	//end STATE_CHAR_1
+
+			//Write the pixels one at a time (TODO optimize)
+			STATE_CHAR_2: begin
+
+				state_ret				<= STATE_CHAR_3;
+
+				//Draw at the proper offset within the character cell
+				pix_x					<= left + font_col;
+				pix_y					<= top + font_line;
+
+				//Draw if char rom bit is set
+				if(font_rom_out[FONT_WIDTH - 1 - font_col])
+					state				<= STATE_PIXEL_0;
+
+				else
+					state				<= STATE_CHAR_3;
+
+				//Bump our column
+				font_col				<= font_col + 1'h1;
+
+			end	//end STATE_CHAR_2
+
+			//Move to next location
+			STATE_CHAR_3: begin
+
+				//If we just did the last pixel in the row, go to the next row
+				if(font_col == FONT_WIDTH) begin
+
+					//End of last row? We're finished
+					if(font_line == (FONT_HEIGHT - 1'h1) ) begin
+						cmd_done		<= 1;
+						state			<= STATE_IDLE;
+					end
+
+					//Nope, read the next row from the char rom and keep going
+					else begin
+						font_line		<= font_line + 1'h1;
+						font_col		<= 0;
+						font_rom_rd		<= 1;
+						state			<= STATE_CHAR_1;
+					end
+
+				end
+
+				//Nope, keep going in the current row
+				else begin
+					state				<= STATE_CHAR_1;
+				end
+
+			end	//end STATE_CHAR_3
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Helper: Set a single pixel at (pix_x, pix_y) via read-modify-write
