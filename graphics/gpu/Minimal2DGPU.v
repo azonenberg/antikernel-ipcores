@@ -54,6 +54,7 @@ module Minimal2DGPU(
 	cmd_en,
 	cmd,
 	cmd_char,
+	cmd_char_width,
 	cmd_done,
 	cmd_fail
 	);
@@ -80,18 +81,15 @@ module Minimal2DGPU(
 	localparam X_BITS						= clog2(FRAMEBUFFER_WIDTH);
 	localparam Y_BITS						= clog2(FRAMEBUFFER_HEIGHT);
 
-	parameter FONT_HEIGHT					= 16;	//number of lines per character cell
-	parameter FONT_WIDTH					= 12;	//number of columns per character cell
-	localparam FONT_BYTES					= clog2(FONT_WIDTH);
+	parameter FONT_HEIGHT					= 8;	//max number of lines per character cell
+	parameter FONT_WIDTH					= 16;	//max number of columns per character cell
+	localparam FONT_WBITS					= clog2(FONT_WIDTH);
 
 	//A font should contain FONT_HEIGHT lines for each character.
 	//Fonts should contain all printable characters from ' ' (0x20) to '~' (0x7e)
 	//This is 0x5f (95) rows.
-	localparam NUM_CHARS					= 8'd95;
-	localparam FONT_LENGTH_UNPADDED			= NUM_CHARS * FONT_HEIGHT;
 
 	localparam FONT_ROW_BITS				= clog2(FONT_HEIGHT);
-	localparam CHAR_BITS					= clog2(NUM_CHARS);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// System-wide stuff
@@ -121,6 +119,7 @@ module Minimal2DGPU(
 	input wire					cmd_en;				//Start processing something
 	input wire[3:0]				cmd;				//The operation to execute
 	input wire[7:0]				cmd_char;			//Character to draw
+	output reg[3:0]				cmd_char_width = 0;	//Width of the character we just drew
 	output reg					cmd_done = 0;		//Set high for one clock when the command finishes
 	output reg					cmd_fail = 0;		//Set high for one clock when the command finishes with an error
 
@@ -149,22 +148,46 @@ module Minimal2DGPU(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Font ROM
 
+	/*
+		For now, we don't know how high the font is (all we care is that all chars fit in a 16 x16 cell)
+
+		Arial 12 point:		16
+		Arial 6 point:		8
+	 */
+
 	//TODO: MemoryMacro once we get dep scanning figured out?
 	//TODO: make this parameterizable?
-	reg[11:0] font_rom[2047:0];
+	reg[FONT_WIDTH-1:0] font_rom[2047:0];
 	initial begin
-		$readmemh("../fonts/couriernew-12pt.hex", font_rom);
+		$readmemh("../fonts/couriernew-7pt.hex", font_rom);
 	end
 
-	reg[6:0]		font_cindex = 0;		//Index within the font ROM (anything below ' ' is non-printable)
-	reg[3:0]		font_line	= 0;		//Line within the current character
-	reg[3:0]		font_col	= 0;		//Column within the current character
+	//we only need 6 bits, but pad out for now to avoid warnings
+	localparam CINDEX_BITS = 11 - FONT_ROW_BITS;
 
-	reg				font_rom_rd	= 0;
-	reg[11:0]		font_rom_out = 0;
+	reg[CINDEX_BITS-1:0]	font_cindex = 0;		//Index within the font ROM (anything below ' ' is non-printable)
+	reg[FONT_ROW_BITS-1:0]	font_line	= 0;		//Line within the current character
+	reg[FONT_WBITS:0]		font_col	= 0;		//Column within the current character (need extra bit for = case)
+
+	reg						font_rom_rd	= 0;
+	reg[FONT_WIDTH-1:0]		font_rom_out = 0;
 	always @(posedge clk) begin
 		if(font_rom_rd)
 			font_rom_out	<= font_rom[ {font_cindex, font_line} ];
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Font width ROM (for proportional fonts)
+
+	reg[FONT_WBITS-1 : 0]	font_width_rom[127:0];
+	initial begin
+		$readmemh("../fonts/couriernew-7pt-width.hex", font_width_rom);
+	end
+
+	reg[3:0]		font_rom_cwidth = 0;
+	always @(posedge clk) begin
+		if(font_rom_rd)
+			font_rom_cwidth	<= font_width_rom[font_cindex];
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -399,6 +422,7 @@ module Minimal2DGPU(
 					//End of last row? We're finished
 					if(font_line == (FONT_HEIGHT - 1'h1) ) begin
 						cmd_done		<= 1;
+						cmd_char_width	<= font_rom_cwidth;
 						state			<= STATE_IDLE;
 					end
 
