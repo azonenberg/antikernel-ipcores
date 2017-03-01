@@ -55,6 +55,7 @@ module Minimal2DGPU(
 	cmd,
 	cmd_char,
 	cmd_char_width,
+	cmd_char_height,
 	cmd_done,
 	cmd_fail
 	);
@@ -81,7 +82,7 @@ module Minimal2DGPU(
 	localparam X_BITS						= clog2(FRAMEBUFFER_WIDTH);
 	localparam Y_BITS						= clog2(FRAMEBUFFER_HEIGHT);
 
-	parameter FONT_HEIGHT					= 8;	//max number of lines per character cell
+	parameter FONT_HEIGHT					= 16;	//max number of lines per character cell
 	parameter FONT_WIDTH					= 16;	//max number of columns per character cell
 	localparam FONT_WBITS					= clog2(FONT_WIDTH);
 
@@ -90,6 +91,15 @@ module Minimal2DGPU(
 	//This is 0x5f (95) rows.
 
 	localparam FONT_ROW_BITS				= clog2(FONT_HEIGHT);
+
+	/*
+		For now, we don't know how high the font is (all we care is that all chars fit in a 16 x16 cell)
+
+		Arial 12 point:		16
+		Arial 6 point:		8
+		Courier 7 point:	8
+	 */
+	assign cmd_char_height					= FONT_HEIGHT;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// System-wide stuff
@@ -108,20 +118,21 @@ module Minimal2DGPU(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Drawing command interface
 
-	input wire[PIXEL_DEPTH-1:0] fg_color;			//Foreground draw color
-	input wire[PIXEL_DEPTH-1:0] bg_color;			//Background draw color
+	input wire[PIXEL_DEPTH-1:0] fg_color;				//Foreground draw color
+	input wire[PIXEL_DEPTH-1:0] bg_color;				//Background draw color
 
-	input wire[X_BITS-1:0]		left;				//Corners for operations
+	input wire[X_BITS-1:0]		left;					//Corners for operations
 	input wire[Y_BITS-1:0]		top;
 	input wire[X_BITS-1:0]		right;
 	input wire[Y_BITS-1:0]		bottom;
 
-	input wire					cmd_en;				//Start processing something
-	input wire[3:0]				cmd;				//The operation to execute
-	input wire[7:0]				cmd_char;			//Character to draw
-	output reg[3:0]				cmd_char_width = 0;	//Width of the character we just drew
-	output reg					cmd_done = 0;		//Set high for one clock when the command finishes
-	output reg					cmd_fail = 0;		//Set high for one clock when the command finishes with an error
+	input wire					cmd_en;					//Start processing something
+	input wire[3:0]				cmd;					//The operation to execute
+	input wire[7:0]				cmd_char;				//Character to draw
+	output reg[3:0]				cmd_char_width;			//Width of the character we just drew
+	output wire[4:0]			cmd_char_height;		//Height of a character cell
+	output reg					cmd_done = 0;			//Set high for one clock when the command finishes
+	output reg					cmd_fail = 0;			//Set high for one clock when the command finishes with an error
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Sanity checks: bit depth must be 1, 2, 4, 8 for now (multi-byte pixels or weird alignments not supported)
@@ -148,18 +159,11 @@ module Minimal2DGPU(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Font ROM
 
-	/*
-		For now, we don't know how high the font is (all we care is that all chars fit in a 16 x16 cell)
-
-		Arial 12 point:		16
-		Arial 6 point:		8
-	 */
-
 	//TODO: MemoryMacro once we get dep scanning figured out?
 	//TODO: make this parameterizable?
 	reg[FONT_WIDTH-1:0] font_rom[2047:0];
 	initial begin
-		$readmemh("../fonts/couriernew-7pt.hex", font_rom);
+		$readmemh("../fonts/arial-12pt.hex", font_rom);
 	end
 
 	//we only need 6 bits, but pad out for now to avoid warnings
@@ -181,7 +185,7 @@ module Minimal2DGPU(
 
 	reg[FONT_WBITS-1 : 0]	font_width_rom[127:0];
 	initial begin
-		$readmemh("../fonts/couriernew-7pt-width.hex", font_width_rom);
+		$readmemh("../fonts/arial-12pt-width.hex", font_width_rom);
 	end
 
 	reg[3:0]		font_rom_cwidth = 0;
@@ -417,7 +421,8 @@ module Minimal2DGPU(
 			STATE_CHAR_3: begin
 
 				//If we just did the last pixel in the row, go to the next row
-				if(font_col == FONT_WIDTH) begin
+				//(also stop early if we hit the right side of the display)
+				if( (font_col == FONT_WIDTH) || (pix_x == FRAMEBUFFER_WIDTH - 1) ) begin
 
 					//End of last row? We're finished
 					if(font_line == (FONT_HEIGHT - 1'h1) ) begin
