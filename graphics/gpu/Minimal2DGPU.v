@@ -544,6 +544,7 @@ module Minimal2DGPU(
 					framebuffer_mem_en		<= 1;
 					framebuffer_mem_wr		<= 1;
 
+					framebuffer_mem_wdata	<= framebuffer_mem_rdata;
 					for(i=0; i<8; i=i+1) begin
 						if(i <= right_col)
 							framebuffer_mem_wdata[i]	<= fg_color;	//TODO: multi-bit handling
