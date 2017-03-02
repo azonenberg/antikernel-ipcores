@@ -39,7 +39,7 @@
 	Currently supports Spartan-6 and Xilinx 7 series only.
  */
 module JtagTAP #(
-	parameter USER_INSTRUCTION = 1;
+	parameter USER_INSTRUCTION = 1
 ) (
 
 	//Indicates this JTAG instruction is loaded in the IR

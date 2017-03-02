@@ -29,7 +29,9 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-module JtagDebugBridge();
+module JtagDebugBridge(
+	output reg[3:0] led
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The TAP interface for discovery (DEBUG_IDCODE register)
@@ -76,6 +78,7 @@ module JtagDebugBridge();
 
 	//The actual shift register
 	always @(posedge idcode_tck_bufh) begin
+
 		if(!idcode_active) begin
 		end
 
@@ -83,8 +86,18 @@ module JtagDebugBridge();
 			idcode_shreg	<= {IDCODE_VID, IDCODE_PID};
 
 		else if(idcode_shift)
-			idcode_shreg	<= {1'b1, idcode_shreg[31:1};
+			idcode_shreg	<= {1'b1, idcode_shreg[31:1]};
 
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Debug glue
+
+	always @(*) begin
+		led[0]	<= idcode_active;
+		led[1]	<= idcode_clear;
+		led[2]	<= idcode_shift;
+		led[3]	<= 0;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
