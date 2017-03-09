@@ -37,21 +37,21 @@ RPCv3Transceiver_types:
         RPC_TYPE_CALL:              0
 
         # Successful return from a function
-        RPC_TYPE_RETURN_SUCCESS     1
+        RPC_TYPE_RETURN_SUCCESS:    1
 
         # Unsuccessful return from a function
-        RPC_TYPE_RETURN_FAIL        2
+        RPC_TYPE_RETURN_FAIL:       2
 
         # "Buffer-full" response to a function call
-        RPC_TYPE_RETURN_RETRY       3
+        RPC_TYPE_RETURN_RETRY:      3
 
         # IRQ (and optional associated data)
-        RPC_TYPE_INTERRUPT          4
+        RPC_TYPE_INTERRUPT:         4
 
         # The node you asked for doesn't exist
-        RPC_TYPE_HOST_UNREACH       5
+        RPC_TYPE_HOST_UNREACH:      5
 
         # The node you asked for exists, but doesn't like you
-        RPC_TYPE_HOST_PROHIBITED    6
+        RPC_TYPE_HOST_PROHIBITED:   6
 
         # Value 7 reserved for future use
