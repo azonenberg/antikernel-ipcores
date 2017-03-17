@@ -30,39 +30,58 @@
 ***********************************************************************************************************************/
 
 module JtagDebugBridge(
-	output reg[3:0] led
+	input wire clk,
+	output reg[3:0] led = 0
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Buffer the main system clock
+
+	wire clk_bufg;
+	ClockBuffer #(
+		.TYPE("GLOBAL"),
+		.CE("NO")
+	) sysclk_clkbuf (
+		.clkin(clk),
+		.clkout(clk_bufg),
+		.ce(1'b1)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The TAP interface for discovery (DEBUG_IDCODE register)
 
-	//See https://github.com/azonenberg/jtaghal/wiki/FPGA-debug
-	localparam IDCODE_VID = 24'h42445a;	//"ADZ"
-	localparam IDCODE_PID = 8'h00;		//Antikernel NoC interface
+	//See https://github.com/azonenberg/jtaghal/wiki/FPGA-debug for ID table
+	JtagUserIdentifier #(
+		.IDCODE_VID(24'h42445a),	//"ADZ"
+		.IDCODE_PID(8'h00)			//Antikernel NoC interface
+	) id ();
 
-	reg[31:0]	idcode_shreg = 0;
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The TAP interface for Antikernel debug
 
-	wire		idcode_active;
-	wire		idcode_shift;
-	wire		idcode_clear;
-	wire		idcode_tck_raw;
-	wire		idcode_tck_bufh;
+	reg[31:0]	tap_shreg = 0;
+
+	wire		tap_active;
+	wire		tap_shift;
+	wire		tap_clear;
+	wire		tap_tck_raw;
+	wire		tap_tck_bufh;
 
 	//The TAP itself
 	JtagTAP #(
-		.USER_INSTRUCTION(1)
-	) idcode_tap (
-		.instruction_active(idcode_active),
-		.state_capture_dr(idcode_clear),
+		.USER_INSTRUCTION(2)
+	) tap_tap (
+		.instruction_active(tap_active),
+		.state_capture_dr(tap_clear),
 		.state_reset(),
 		.state_runtest(),
-		.state_shift_dr(idcode_shift),
+		.state_shift_dr(tap_shift),
 		.state_update_dr(),
-		.tck(idcode_tck_raw),
+		.tck(tap_tck_raw),
 		.tck_gated(),
 		.tms(),
 		.tdi(),
-		.tdo(idcode_shreg[0])
+		.tdo(tap_shreg[0])
 	);
 
 	//Buffer the clock b/c ISE is derpy and often won't instantiate a buffer (woo skew!)
@@ -70,49 +89,41 @@ module JtagDebugBridge(
 	ClockBuffer #(
 		.TYPE("LOCAL"),
 		.CE("NO")
-	) idcode_tck_clkbuf (
-		.clkin(idcode_tck_raw),
-		.clkout(idcode_tck_bufh),
+	) tap_tck_clkbuf (
+		.clkin(tap_tck_raw),
+		.clkout(tap_tck_bufh),
 		.ce(1'b1)
 	);
 
 	//The actual shift register
-	always @(posedge idcode_tck_bufh) begin
+	always @(posedge tap_tck_bufh) begin
 
-		if(!idcode_active) begin
+		if(!tap_active) begin
 		end
 
-		else if(idcode_clear)
-			idcode_shreg	<= {IDCODE_VID, IDCODE_PID};
+		else if(tap_clear)
+			tap_shreg	<= 32'h41414141;
 
-		else if(idcode_shift)
-			idcode_shreg	<= {1'b1, idcode_shreg[31:1]};
+		else if(tap_shift)
+			tap_shreg	<= {1'b1, tap_shreg[31:1]};
 
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug glue
 
-	always @(*) begin
-		led[0]	<= idcode_active;
-		led[1]	<= idcode_clear;
-		led[2]	<= idcode_shift;
-		led[3]	<= 0;
+	reg[23:0] count = 0;
+	always @(posedge clk_bufg) begin
+		count		<= count + 1'h1;
+
+		if(count == 0)
+			led[3]	<= ~led[3];
+
+		//TODO: do stuff here
+		led[0]	<= tap_active;
+		led[1]	<= tap_clear;
+		led[2]	<= tap_shift;
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The TAP interface for Antikernel debug
-	/*
-	wire	tap_active;
-	wire	tap_capture;
-
-	wire	tck_raw;
-	wire	tms;
-	wire	tdi;
-	wire	tdo;
-
-	JtagTAP #(
-		);
-	*/
 
 endmodule
