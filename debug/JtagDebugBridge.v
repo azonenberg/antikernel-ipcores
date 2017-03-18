@@ -59,13 +59,15 @@ module JtagDebugBridge(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The TAP interface for Antikernel debug
 
-	reg[31:0]	tap_shreg = 0;
+	reg[31:0]	tx_shreg = 0;
+	reg[31:0]	rx_shreg = 0;
 
 	wire		tap_active;
 	wire		tap_shift;
 	wire		tap_clear;
 	wire		tap_tck_raw;
 	wire		tap_tck_bufh;
+	wire		tap_tdi;
 
 	//The TAP itself
 	JtagTAP #(
@@ -80,8 +82,8 @@ module JtagDebugBridge(
 		.tck(tap_tck_raw),
 		.tck_gated(),
 		.tms(),
-		.tdi(),
-		.tdo(tap_shreg[0])
+		.tdi(tap_tdi),
+		.tdo(tx_shreg[0])
 	);
 
 	//Buffer the clock b/c ISE is derpy and often won't instantiate a buffer (woo skew!)
@@ -95,34 +97,113 @@ module JtagDebugBridge(
 		.ce(1'b1)
 	);
 
-	//The actual shift register
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Convert from a stream of bits to a stream of 32-bit words
+
+	reg[4:0] phase = 0;
+	always @(posedge tap_tck_bufh) begin
+
+		//Use the capture-dr -> shift-dr transition to word align our data
+		if(tap_clear)
+			phase	<= 0;
+
+		//Nothign fancy happening, just go to the next bit
+		else if(tap_shift)
+			phase	<= phase + 1'h1;
+
+	end
+
+	//TX data shift register
 	always @(posedge tap_tck_bufh) begin
 
 		if(!tap_active) begin
 		end
 
-		else if(tap_clear)
-			tap_shreg	<= 32'h41414141;
+		//Load new outbound data
+		else if(tap_clear || (tap_shift && phase == 31) )
+			tx_shreg	<= 32'hffff4141;
 
+		//Send stuff
 		else if(tap_shift)
-			tap_shreg	<= {1'b1, tap_shreg[31:1]};
+			tx_shreg	<= { 1'b0, tx_shreg[31:1] };
+
+	end
+
+	//RX data shift register
+	reg			rx_valid = 0;
+	//reg[31:0]	rx_data = 0;
+
+	always @(posedge tap_tck_bufh) begin
+		rx_valid	<= 0;
+
+		if(!tap_active) begin
+		end
+
+		//Receive stuff
+		else if(tap_shift) begin
+			rx_shreg		<= { tap_tdi, rx_shreg[31:1] };
+
+			if(phase == 31)
+				rx_valid	<= 1;
+		end
 
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX state machine
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// RX state machine
+
+	localparam RX_STATE_IDLE		= 0;
+
+	reg[3:0] rx_state	= RX_STATE_IDLE;
+
+	always @(posedge tap_tck_bufh) begin
+
+		case(rx_state)
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Waiting for a packet to come in
+
+			RX_STATE_IDLE: begin
+
+				//FIRST header word is here!
+				//See https://github.com/azonenberg/antikernel/wiki/JTAG-Tunnel
+				//31	= ack
+				//30	= nak
+				//29:20 = seq
+				//19:10 = credits
+				//9:0	= ack_seq
+				if(rx_valid) begin
+				end
+
+			end	//end RX_STATE_IDLE
+
+		endcase
+
+		//Reset everything when the TAP reinitializes
+		if(!tap_active || tap_clear)
+			rx_state	<= RX_STATE_IDLE;
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TODO: NoC transceivers
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug glue
 
-	reg[23:0] count = 0;
-	always @(posedge clk_bufg) begin
-		count		<= count + 1'h1;
+	always @(posedge tap_tck_bufh) begin
 
-		if(count == 0)
-			led[3]	<= ~led[3];
+		if(rx_valid) begin
+			led[0]	<= (rx_shreg == 32'h000000cf);
+			led[1]	<= (rx_shreg == 32'h80000036);
+		end
 
-		//TODO: do stuff here
-		led[0]	<= tap_active;
-		led[1]	<= tap_clear;
-		led[2]	<= tap_shift;
+		if(!tap_active)
+			led		<= 0;
+
 	end
 
 
