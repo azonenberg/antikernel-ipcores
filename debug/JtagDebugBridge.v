@@ -114,6 +114,7 @@ module JtagDebugBridge(
 	end
 
 	//TX data shift register
+	reg[31:0]	tx_data = 0;
 	always @(posedge tap_tck_bufh) begin
 
 		if(!tap_active) begin
@@ -121,7 +122,7 @@ module JtagDebugBridge(
 
 		//Load new outbound data
 		else if(tap_clear || (tap_shift && phase == 31) )
-			tx_shreg	<= 32'hffff4141;
+			tx_shreg	<= tx_data;
 
 		//Send stuff
 		else if(tap_shift)
@@ -131,7 +132,6 @@ module JtagDebugBridge(
 
 	//RX data shift register
 	reg			rx_valid = 0;
-	//reg[31:0]	rx_data = 0;
 
 	always @(posedge tap_tck_bufh) begin
 		rx_valid	<= 0;
@@ -153,13 +153,34 @@ module JtagDebugBridge(
 	// TX state machine
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// RX CRC calculation
+
+	reg			rx_crc_reset		= 0;
+	reg			rx_crc_en			= 0;
+	wire[7:0]	rx_crc_dout;
+
+	CRC8_ATM rx_crc(
+		.clk(tap_tck_bufh),
+		.reset(rx_crc_reset),
+		.update(rx_valid),
+		.din(rx_shreg),
+		.crc(),
+		.crc_first24(rx_crc_dout)
+		);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX state machine
 
-	localparam RX_STATE_IDLE		= 0;
+	localparam RX_STATE_IDLE		= 4'h0;
+	localparam RX_STATE_HEADER_0	= 4'h1;
+	localparam RX_STATE_HEADER_1	= 4'h2;
 
-	reg[3:0] rx_state	= RX_STATE_IDLE;
+	reg[3:0]	rx_state	= RX_STATE_IDLE;
+	reg[7:0]	rx_expected_crc = 0;
 
 	always @(posedge tap_tck_bufh) begin
+
+		rx_crc_reset		<= 0;
 
 		case(rx_state)
 
@@ -176,9 +197,48 @@ module JtagDebugBridge(
 				//19:10 = credits
 				//9:0	= ack_seq
 				if(rx_valid) begin
+					//TODO: process ack, seq, etc
+					rx_state		<= RX_STATE_HEADER_0;
+				end
+
+				//We always have at least one clock in idle before a new word comes in
+				//Use that time to clear the CRC for the new packet
+				else begin
+					rx_crc_reset	<= 1;
 				end
 
 			end	//end RX_STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// New message came in.
+
+			//Save header fields
+			RX_STATE_HEADER_0: begin
+
+				//SECOND header word is here!
+				//31	= payload present
+				//30	= RPC
+				//29	= DMA
+				//28:18	= reserved
+				//17:8	= payload length
+				//7:0	= header checksum
+				if(rx_valid) begin
+					rx_expected_crc	<= rx_shreg[7:0];
+					rx_state		<= RX_STATE_HEADER_1;
+				end
+
+			end	//end RX_STATE_HEADER_0
+
+			//One clock after the header word was fully processed. At this point the CRC is done.
+			RX_STATE_HEADER_1: begin
+				//TODO: process messages that have payloads
+
+				tx_data		<= { 24'h00, rx_crc_dout };
+				led[2]		<= (rx_crc_dout == rx_expected_crc);
+
+				rx_state	<= RX_STATE_IDLE;
+
+			end	//end RX_STATE_HEADER_1
 
 		endcase
 
@@ -194,16 +254,8 @@ module JtagDebugBridge(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug glue
 
-	always @(posedge tap_tck_bufh) begin
-
-		if(rx_valid) begin
-			led[0]	<= (rx_shreg == 32'h000000cf);
-			led[1]	<= (rx_shreg == 32'h80000036);
-		end
-
-		if(!tap_active)
-			led		<= 0;
-
+	always @(posedge clk) begin
+		led[3] <= 1;
 	end
 
 
