@@ -68,6 +68,7 @@ module JtagDebugBridge(
 	wire		tap_tck_raw;
 	wire		tap_tck_bufh;
 	wire		tap_tdi;
+	wire		tap_reset;
 
 	//The TAP itself
 	JtagTAP #(
@@ -75,7 +76,7 @@ module JtagDebugBridge(
 	) tap_tap (
 		.instruction_active(tap_active),
 		.state_capture_dr(tap_clear),
-		.state_reset(),
+		.state_reset(tap_reset),
 		.state_runtest(),
 		.state_shift_dr(tap_shift),
 		.state_update_dr(),
@@ -114,19 +115,31 @@ module JtagDebugBridge(
 	end
 
 	//TX data shift register
-	reg[31:0]	tx_data = 0;
+	reg[31:0]	tx_data			= 0;
+	reg			tx_data_needed	= 0;
 	always @(posedge tap_tck_bufh) begin
+
+		tx_data_needed		<= 0;
 
 		if(!tap_active) begin
 		end
 
-		//Load new outbound data
+		//Load the next word of data
 		else if(tap_clear || (tap_shift && phase == 31) )
-			tx_shreg	<= tx_data;
+			tx_shreg		<= tx_data;
 
 		//Send stuff
 		else if(tap_shift)
-			tx_shreg	<= { 1'b0, tx_shreg[31:1] };
+			tx_shreg		<= { 1'b0, tx_shreg[31:1] };
+
+		//If we are almost done with the current word, ask for another one
+		//27	prepare to assert
+		//28	TX state machine writes tx_crc_din
+		//29	TX state machine writes tx_crc_din_ff
+		//30	TX state machine writes tx_data
+		//31	we have data ready
+		if(tap_shift && phase == 27)
+			tx_data_needed	<= 1;
 
 	end
 
@@ -150,13 +163,9 @@ module JtagDebugBridge(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TX state machine
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX CRC calculation
 
 	reg			rx_crc_reset		= 0;
-	reg			rx_crc_en			= 0;
 	wire[7:0]	rx_crc_dout;
 
 	CRC8_ATM rx_crc(
@@ -232,8 +241,6 @@ module JtagDebugBridge(
 			//One clock after the header word was fully processed. At this point the CRC is done.
 			RX_STATE_HEADER_1: begin
 				//TODO: process messages that have payloads
-
-				tx_data		<= { 24'h00, rx_crc_dout };
 				led[2]		<= (rx_crc_dout == rx_expected_crc);
 
 				rx_state	<= RX_STATE_IDLE;
@@ -245,6 +252,157 @@ module JtagDebugBridge(
 		//Reset everything when the TAP reinitializes
 		if(!tap_active || tap_clear)
 			rx_state	<= RX_STATE_IDLE;
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX CRC calculation
+
+	reg[31:0]	tx_crc_din	 	= 0;
+	reg[31:0]	tx_crc_din_ff	= 0;
+	reg			tx_crc_reset	= 0;
+	reg			tx_crc_update	= 0;
+	wire[7:0]	tx_crc_dout;
+
+	CRC8_ATM tx_crc(
+		.clk(tap_tck_bufh),
+		.reset(tx_crc_reset),
+		.update(tx_crc_update),
+		.din(tx_crc_din),
+		.crc(),
+		.crc_first24(tx_crc_dout)
+		);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX state machine
+
+	localparam TX_STATE_RESET		= 4'h0;
+	localparam TX_STATE_IDLE_0		= 4'h1;
+	localparam TX_STATE_IDLE_1		= 4'h2;
+
+	reg[3:0]	tx_state			= TX_STATE_IDLE_0;
+	reg[9:0]	tx_seq_num			= 0;
+	reg			tx_header_done		= 0;
+	reg			tx_header_done_adv	= 0;
+
+	always @(posedge tap_tck_bufh) begin
+
+		//Clear flags
+		tx_crc_reset		<= 0;
+		tx_crc_update		<= 0;
+		tx_header_done_adv	<= 0;
+
+		//Save whatever we fed to the CRC (this is going to get sent out in a bit).
+		//If we just finished generating the packet header, it's CRCing this cycle so remember that.
+		tx_crc_din_ff		<= tx_crc_din;
+		tx_header_done		<= tx_header_done_adv;
+
+		//If we have the header checksum available, munge it into the outbound word.
+		//Otherwise, send the word as-is
+		if(tx_header_done)
+			tx_data			<= { tx_crc_din_ff[31:8], tx_crc_dout };
+		else
+			tx_data			<= tx_crc_din_ff;
+
+		//Main state machine
+		case(tx_state)
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// IDLE - send idle frames until we have something else to do
+
+			//Send initial idle frame when we reset the link
+			TX_STATE_RESET: begin
+
+				//Write this immediately (without waiting for data-needed flag)
+				//because as soon as we enter the capture state, this data has to be available!
+				tx_crc_din		<=
+				{
+					1'b0,		//ACK flag, always 0 since we haven't seen any packets yet
+					1'b0,		//NAK flag, always 0 since we haven't seen any packets yet
+					10'h0,		//Outbound sequence number (we start from zero when the link goes up)
+					10'h3FF,	//Inbound credit counter (max, since we have an empty buffer so far)
+								//TODO
+					10'h0		//ACK sequence number (ignored since ACK/NAK aren't set)
+				};
+
+				//We sent this packet so bump the sequence number for the next one
+				tx_seq_num		<= 1;
+
+				//Start a new checksum
+				tx_crc_update	<= 1;
+				tx_crc_reset	<= 1;
+
+				//Move on immediately to the second half of the packet
+				tx_state		<= TX_STATE_IDLE_1;
+
+			end	//end TX_STATE_RESET
+
+			//Send first half of idle frame
+			TX_STATE_IDLE_0: begin
+
+				if(tx_data_needed) begin
+
+					//TODO: check for tx data in fifo etc
+					tx_crc_din		<=
+					{
+						1'b0,		//ACK flag, always 0 for now
+						1'b0,		//NAK flag, always 0 for now
+						tx_seq_num,	//Outbound sequence number
+						10'h3FF,	//Inbound credit counter (always max for now)
+						10'h0		//ACK sequence number
+					};
+
+					//Start a new checksum
+					tx_crc_update	<= 1;
+					tx_crc_reset	<= 1;
+
+					//We sent this packet so bump the sequence number for the next one
+					tx_seq_num		<= tx_seq_num + 1'h1;
+
+					//Prepare to send second word
+					tx_state		<= TX_STATE_IDLE_1;
+
+				end
+
+			end	//end TX_STATE_IDLE_1
+
+			//Send second half of idle frame
+			TX_STATE_IDLE_1: begin
+
+				if(tx_data_needed) begin
+
+					//Format header
+					tx_crc_din		<=
+					{
+						1'b0,		//No payload
+						1'b0,		//No RPC payload
+						1'b0,		//No DMA payload
+						11'h0,		//Reserved
+						10'h0,		//Length
+						8'h0		//Placeholder for header checksum
+					};
+
+					//Checksum the data
+					tx_crc_update		<= 1;
+					tx_header_done_adv	<= 1;
+
+					tx_state			<= TX_STATE_IDLE_0;
+				end
+
+			end	//end TX_STATE_IDLE_1
+
+		endcase
+
+		//Reset everything when the TAP reinitializes
+		if(!tap_active || tap_reset) begin
+			tx_data		<= 0;
+			tx_state	<= TX_STATE_RESET;
+		end
+
+		//When we reset the link, wipe sequence numbers back to initial values.
+		//TODO: is this a good idea, or should we keep going from where we left off?
+		if(tap_reset)
+			tx_seq_num	<= 0;
 
 	end
 
