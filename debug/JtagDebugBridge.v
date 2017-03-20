@@ -183,9 +183,15 @@ module JtagDebugBridge(
 	localparam RX_STATE_IDLE		= 4'h0;
 	localparam RX_STATE_HEADER_0	= 4'h1;
 	localparam RX_STATE_HEADER_1	= 4'h2;
+	localparam RX_STATE_RESET_WAIT	= 4'h3;
 
-	reg[3:0]	rx_state	= RX_STATE_IDLE;
-	reg[7:0]	rx_expected_crc = 0;
+	reg[3:0]	rx_state			= RX_STATE_IDLE;
+	reg[7:0]	rx_expected_crc 	= 0;
+
+	reg			rx_failed			= 1;
+
+	reg[9:0]	tx_seq_num			= 0;
+	reg[9:0]	tx_ack_num			= 0;
 
 	always @(posedge tap_tck_bufh) begin
 
@@ -197,6 +203,8 @@ module JtagDebugBridge(
 			// Waiting for a packet to come in
 
 			RX_STATE_IDLE: begin
+
+				rx_failed			<= 0;
 
 				//FIRST header word is here!
 				//See https://github.com/azonenberg/antikernel/wiki/JTAG-Tunnel
@@ -219,7 +227,7 @@ module JtagDebugBridge(
 			end	//end RX_STATE_IDLE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// New message came in.
+			// New message came in. Process it
 
 			//Save header fields
 			RX_STATE_HEADER_0: begin
@@ -240,12 +248,29 @@ module JtagDebugBridge(
 
 			//One clock after the header word was fully processed. At this point the CRC is done.
 			RX_STATE_HEADER_1: begin
-				//TODO: process messages that have payloads
-				led[2]		<= (rx_crc_dout == rx_expected_crc);
 
-				rx_state	<= RX_STATE_IDLE;
+				//If the header checksum is bad, we have a problem.
+				//Since we don't know how long this frame was (because the length might be corrupted),
+				//we can't skip it and go to the next one.
+				//Eventually we can try to recover by looking for the next frame and seeing when we get a good CRC.
+				//For now, take the easy way out and just die.
+				if(rx_crc_dout != rx_expected_crc) begin
+					rx_state	<= RX_STATE_RESET_WAIT;
+					led[2]		<= 1;
+					rx_failed	<= 1;
+				end
+
+				//All good, ready for the next frame
+				else
+					rx_state	<= RX_STATE_IDLE;
 
 			end	//end RX_STATE_HEADER_1
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Sit around and wait until we get reset
+
+			RX_STATE_RESET_WAIT: begin
+			end	//end RX_STATE_RESET_WAIT
 
 		endcase
 
@@ -279,9 +304,10 @@ module JtagDebugBridge(
 	localparam TX_STATE_RESET		= 4'h0;
 	localparam TX_STATE_IDLE_0		= 4'h1;
 	localparam TX_STATE_IDLE_1		= 4'h2;
+	localparam TX_STATE_DOWN_0		= 4'h3;
+	localparam TX_STATE_DOWN_1		= 4'h4;
 
 	reg[3:0]	tx_state			= TX_STATE_IDLE_0;
-	reg[9:0]	tx_seq_num			= 0;
 	reg			tx_header_done		= 0;
 	reg			tx_header_done_adv	= 0;
 
@@ -308,7 +334,7 @@ module JtagDebugBridge(
 		case(tx_state)
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// IDLE - send idle frames until we have something else to do
+			// RESET - send a single idle frame and reset some stuff
 
 			//Send initial idle frame when we reset the link
 			TX_STATE_RESET: begin
@@ -337,8 +363,14 @@ module JtagDebugBridge(
 
 			end	//end TX_STATE_RESET
 
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// IDLE - send idle frames until we have something else to do
+
 			//Send first half of idle frame
 			TX_STATE_IDLE_0: begin
+
+				led[0]				<= 1;
+				led[1]				<= 0;
 
 				if(tx_data_needed) begin
 
@@ -349,7 +381,7 @@ module JtagDebugBridge(
 						1'b0,		//NAK flag, always 0 for now
 						tx_seq_num,	//Outbound sequence number
 						10'h3FF,	//Inbound credit counter (always max for now)
-						10'h0		//ACK sequence number
+						tx_ack_num	//ACK sequence number
 					};
 
 					//Start a new checksum
@@ -364,7 +396,7 @@ module JtagDebugBridge(
 
 				end
 
-			end	//end TX_STATE_IDLE_1
+			end	//end TX_STATE_IDLE_0
 
 			//Send second half of idle frame
 			TX_STATE_IDLE_1: begin
@@ -386,7 +418,72 @@ module JtagDebugBridge(
 					tx_crc_update		<= 1;
 					tx_header_done_adv	<= 1;
 
-					tx_state			<= TX_STATE_IDLE_0;
+					//If something bad happened, wait for link reset
+					if(rx_failed)
+						tx_state			<= TX_STATE_DOWN_0;
+
+					else
+						tx_state			<= TX_STATE_IDLE_0;
+				end
+
+			end	//end TX_STATE_IDLE_1
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// DOWN - link went down due to a loss of sync, send NAK frames forever
+
+			//Send first half of frame
+			TX_STATE_DOWN_0: begin
+
+				led[0]				<= 0;
+				led[1]				<= 1;
+
+				if(tx_data_needed) begin
+
+					tx_crc_din		<=
+					{
+						1'b0,		//ACK flag, always 0 since the link is down
+						1'b1,		//NAK flag, always 1 since the link is down
+						tx_seq_num,	//Outbound sequence number
+						10'h3FF,	//Inbound credit counter, doesn't matter what it is since the link is down
+						tx_ack_num	//ACK sequence number
+					};
+
+					//Start a new checksum
+					tx_crc_update	<= 1;
+					tx_crc_reset	<= 1;
+
+					//We sent this packet so bump the sequence number for the next one
+					tx_seq_num		<= tx_seq_num + 1'h1;
+
+					//Prepare to send second word
+					tx_state		<= TX_STATE_DOWN_1;
+
+				end
+
+			end	//end TX_STATE_DOWN_0
+
+			//Send second half of frame
+			TX_STATE_DOWN_1: begin
+
+				if(tx_data_needed) begin
+
+					//Format header
+					tx_crc_din		<=
+					{
+						1'b0,		//No payload
+						1'b0,		//No RPC payload
+						1'b0,		//No DMA payload
+						11'h0,		//Reserved
+						10'h0,		//Length
+						8'h0		//Placeholder for header checksum
+					};
+
+					//Checksum the data
+					tx_crc_update		<= 1;
+					tx_header_done_adv	<= 1;
+
+					//Stay in link-down state until reset
+					tx_state			<= TX_STATE_DOWN_0;
 				end
 
 			end	//end TX_STATE_IDLE_1
