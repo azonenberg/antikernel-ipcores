@@ -190,8 +190,17 @@ module JtagDebugBridge(
 
 	reg			rx_failed			= 1;
 
+	//Headers for the next outbound frame
+	reg			tx_ack_valid		= 0;
 	reg[9:0]	tx_seq_num			= 0;
 	reg[9:0]	tx_ack_num			= 0;
+
+	//Headers from the current inbound frame (still being parsed
+	reg			rx_flag_ack			= 0;
+	reg			rx_flag_nak			= 0;
+	reg[9:0]	rx_seq_num			= 0;
+	reg[9:0]	rx_credits			= 0;
+	reg[9:0]	rx_ack_num			= 0;
 
 	always @(posedge tap_tck_bufh) begin
 
@@ -214,7 +223,11 @@ module JtagDebugBridge(
 				//19:10 = credits
 				//9:0	= ack_seq
 				if(rx_valid) begin
-					//TODO: process ack, seq, etc
+					rx_flag_ack		<= rx_shreg[31];
+					rx_flag_nak		<= rx_shreg[30];
+					rx_seq_num		<= rx_shreg[29:20];
+					rx_credits		<= rx_shreg[19:10];
+					rx_ack_num		<= rx_shreg[9:0];
 					rx_state		<= RX_STATE_HEADER_0;
 				end
 
@@ -240,6 +253,7 @@ module JtagDebugBridge(
 				//17:8	= payload length
 				//7:0	= header checksum
 				if(rx_valid) begin
+					//TODO: Process the rest of the headers
 					rx_expected_crc	<= rx_shreg[7:0];
 					rx_state		<= RX_STATE_HEADER_1;
 				end
@@ -261,8 +275,11 @@ module JtagDebugBridge(
 				end
 
 				//All good, ready for the next frame
-				else
-					rx_state	<= RX_STATE_IDLE;
+				else begin
+					tx_ack_valid	<= 1;
+					tx_ack_num		<= rx_seq_num;
+					rx_state		<= RX_STATE_IDLE;
+				end
 
 			end	//end RX_STATE_HEADER_1
 
@@ -275,8 +292,11 @@ module JtagDebugBridge(
 		endcase
 
 		//Reset everything when the TAP reinitializes
-		if(!tap_active || tap_clear)
-			rx_state	<= RX_STATE_IDLE;
+		if(!tap_active || tap_clear) begin
+			tx_ack_valid	<= 0;
+			tx_ack_num		<= 0;
+			rx_state		<= RX_STATE_IDLE;
+		end
 
 	end
 
@@ -377,11 +397,11 @@ module JtagDebugBridge(
 					//TODO: check for tx data in fifo etc
 					tx_crc_din		<=
 					{
-						1'b0,		//ACK flag, always 0 for now
-						1'b0,		//NAK flag, always 0 for now
-						tx_seq_num,	//Outbound sequence number
-						10'h3FF,	//Inbound credit counter (always max for now)
-						tx_ack_num	//ACK sequence number
+						tx_ack_valid,	//ACK flag
+						1'b0,			//NAK flag, always 0 for now
+						tx_seq_num,		//Outbound sequence number
+						10'h3FF,		//Inbound credit counter (always max for now)
+						tx_ack_num		//ACK sequence number
 					};
 
 					//Start a new checksum
