@@ -195,12 +195,16 @@ module JtagDebugBridge(
 	reg[9:0]	tx_seq_num			= 0;
 	reg[9:0]	tx_ack_num			= 0;
 
-	//Headers from the current inbound frame (still being parsed
+	//Headers from the current inbound frame (still being parsed)
 	reg			rx_flag_ack			= 0;
 	reg			rx_flag_nak			= 0;
 	reg[9:0]	rx_seq_num			= 0;
 	reg[9:0]	rx_credits			= 0;
 	reg[9:0]	rx_ack_num			= 0;
+	reg			rx_payload_present	= 0;
+	reg			rx_payload_rpc		= 0;
+	reg			rx_payload_dma		= 0;
+	reg[9:0]	rx_payload_length	= 0;
 
 	always @(posedge tap_tck_bufh) begin
 
@@ -253,9 +257,12 @@ module JtagDebugBridge(
 				//17:8	= payload length
 				//7:0	= header checksum
 				if(rx_valid) begin
-					//TODO: Process the rest of the headers
-					rx_expected_crc	<= rx_shreg[7:0];
-					rx_state		<= RX_STATE_HEADER_1;
+					rx_payload_present	<= rx_shreg[31];
+					rx_payload_rpc		<= rx_shreg[30];
+					rx_payload_dma		<= rx_shreg[29];
+					rx_expected_crc		<= rx_shreg[7:0];
+					rx_payload_length	<= rx_shreg[17:8];
+					rx_state			<= RX_STATE_HEADER_1;
 				end
 
 			end	//end RX_STATE_HEADER_0
@@ -274,7 +281,13 @@ module JtagDebugBridge(
 					rx_failed	<= 1;
 				end
 
-				//All good, ready for the next frame
+				//Good packet with a payload? Not yet implemented, so die
+				else if(rx_payload_present) begin
+					rx_state		<= RX_STATE_RESET_WAIT;
+				end
+
+				//Header-only packet. All good, ready for the next frame
+				//TODO: process ACK numbers etc by flushing buffers
 				else begin
 					tx_ack_valid	<= 1;
 					tx_ack_num		<= rx_seq_num;
