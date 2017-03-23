@@ -192,6 +192,7 @@ module JtagDebugBridge(
 
 	//Headers for the next outbound frame
 	reg			tx_ack_valid		= 0;
+	reg			tx_nak_valid		= 0;
 	reg[9:0]	tx_seq_num			= 0;
 	reg[9:0]	tx_ack_num			= 0;
 
@@ -216,8 +217,6 @@ module JtagDebugBridge(
 			// Waiting for a packet to come in
 
 			RX_STATE_IDLE: begin
-
-				rx_failed			<= 0;
 
 				//FIRST header word is here!
 				//See https://github.com/azonenberg/antikernel/wiki/JTAG-Tunnel
@@ -276,13 +275,20 @@ module JtagDebugBridge(
 				//Eventually we can try to recover by looking for the next frame and seeing when we get a good CRC.
 				//For now, take the easy way out and just die.
 				if(rx_crc_dout != rx_expected_crc) begin
-					rx_state	<= RX_STATE_RESET_WAIT;
-					led[2]		<= 1;
-					rx_failed	<= 1;
+					led[2]			<= 1;
+					rx_failed		<= 1;
+
+					tx_ack_valid	<= 0;
+					rx_failed		<= 1;
+					tx_ack_num		<= tx_ack_num + 1'h1;
+					rx_state		<= RX_STATE_RESET_WAIT;
 				end
 
 				//Good packet with a payload? Not yet implemented, so die
 				else if(rx_payload_present) begin
+					tx_ack_valid	<= 0;
+					rx_failed		<= 1;
+					tx_ack_num		<= tx_ack_num + 1'h1;
 					rx_state		<= RX_STATE_RESET_WAIT;
 				end
 
@@ -308,6 +314,8 @@ module JtagDebugBridge(
 		if(!tap_active || tap_clear) begin
 			tx_ack_valid	<= 0;
 			tx_ack_num		<= 0;
+			tx_nak_valid	<= 0;
+			rx_failed		<= 0;
 			rx_state		<= RX_STATE_IDLE;
 		end
 
@@ -411,7 +419,7 @@ module JtagDebugBridge(
 					tx_crc_din		<=
 					{
 						tx_ack_valid,	//ACK flag
-						1'b0,			//NAK flag, always 0 for now
+						tx_nak_valid,	//NAK flag
 						tx_seq_num,		//Outbound sequence number
 						10'h3FF,		//Inbound credit counter (always max for now)
 						tx_ack_num		//ACK sequence number
@@ -477,7 +485,7 @@ module JtagDebugBridge(
 						1'b0,		//ACK flag, always 0 since the link is down
 						1'b1,		//NAK flag, always 1 since the link is down
 						tx_seq_num,	//Outbound sequence number
-						10'h3FF,	//Inbound credit counter, doesn't matter what it is since the link is down
+						10'h1FF,	//Inbound credit counter, doesn't matter what it is since the link is down
 						tx_ack_num	//ACK sequence number
 					};
 
