@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2016 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -52,20 +52,17 @@
 	 Info : tools@easics.be
 	        http://www.easics.com
  */
-module EthernetCRC32(clk, reset, update, din, crc_flipped);
+module CRC32_Ethernet(
+	input wire clk,
+	input wire reset,
+	input wire update,
+	input wire[7:0] din,
+	output wire[31:0] crc_flipped);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O declarations
-
-	input wire clk;
-	input wire reset;
-
-	input wire update;
-	input wire[7:0] din;
+	// I/O shuffling
 
 	reg[31:0] crc = 0;
-
-	output wire[31:0] crc_flipped;
 
 	wire[31:0] crc_not = ~crc;
 	assign crc_flipped =
