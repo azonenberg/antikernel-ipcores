@@ -168,7 +168,7 @@ module JtagDebugBridge(
 	reg			rx_crc_reset		= 0;
 	wire[7:0]	rx_crc_dout;
 
-	CRC8_ATM rx_crc(
+	CRC8_ATM rx_header_crc(
 		.clk(tap_tck_bufh),
 		.reset(rx_crc_reset),
 		.update(rx_valid),
@@ -177,6 +177,8 @@ module JtagDebugBridge(
 		.crc_first24(rx_crc_dout)
 		);
 
+	//TODO: Payload CRC
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX state machine
 
@@ -184,6 +186,11 @@ module JtagDebugBridge(
 	localparam RX_STATE_HEADER_0	= 4'h1;
 	localparam RX_STATE_HEADER_1	= 4'h2;
 	localparam RX_STATE_RESET_WAIT	= 4'h3;
+	localparam RX_STATE_RPC_0		= 4'h4;
+	localparam RX_STATE_RPC_1		= 4'h5;
+	localparam RX_STATE_RPC_2		= 4'h6;
+	localparam RX_STATE_RPC_3		= 4'h7;
+	localparam RX_STATE_CRC			= 4'h8;
 
 	reg[3:0]	rx_state			= RX_STATE_IDLE;
 	reg[7:0]	rx_expected_crc 	= 0;
@@ -206,6 +213,7 @@ module JtagDebugBridge(
 	reg			rx_payload_rpc		= 0;
 	reg			rx_payload_dma		= 0;
 	reg[9:0]	rx_payload_length	= 0;
+	reg[10:0]	rx_reserved			= 0;
 
 	always @(posedge tap_tck_bufh) begin
 
@@ -259,6 +267,7 @@ module JtagDebugBridge(
 					rx_payload_present	<= rx_shreg[31];
 					rx_payload_rpc		<= rx_shreg[30];
 					rx_payload_dma		<= rx_shreg[29];
+					rx_reserved			<= rx_shreg[28:18];
 					rx_expected_crc		<= rx_shreg[7:0];
 					rx_payload_length	<= rx_shreg[17:8];
 					rx_state			<= RX_STATE_HEADER_1;
@@ -274,27 +283,43 @@ module JtagDebugBridge(
 				//we can't skip it and go to the next one.
 				//Eventually we can try to recover by looking for the next frame and seeing when we get a good CRC.
 				//For now, take the easy way out and just die.
+				//Send NAKs with the expected next-sequence number so we can resume later on.
+				//Note that we can't send the actual sequence number as it may have been affected by the bit error.
 				if(rx_crc_dout != rx_expected_crc) begin
-					led[2]			<= 1;
-					rx_failed		<= 1;
-
-					tx_ack_valid	<= 0;
-					rx_failed		<= 1;
+					led				<= 4'h1;
 					tx_ack_num		<= tx_ack_num + 1'h1;
 					rx_state		<= RX_STATE_RESET_WAIT;
 				end
 
-				//Good packet with a payload? Not yet implemented, so die
-				else if(rx_payload_present) begin
-					tx_ack_valid	<= 0;
-					rx_failed		<= 1;
-					tx_ack_num		<= tx_ack_num + 1'h1;
+				//Reserved field nonzero? Asking for unsupported option, drop the link
+				else if(rx_reserved != 0) begin
+					led				<= 4'h2;
+					tx_ack_num		<= rx_seq_num;
 					rx_state		<= RX_STATE_RESET_WAIT;
+				end
+
+				//Good packet with a payload?
+				else if(rx_payload_present) begin
+
+					//If RPC is set and not DMA, we have an RPC packet
+					if(rx_payload_rpc && !rx_payload_dma) begin
+						led				<= 4'h3;
+						rx_state		<= RX_STATE_RPC_0;
+					end
+
+					//Anything else is currently unsupported, drop the link
+					else begin
+						led				<= 4'h4;
+						tx_ack_num		<= rx_seq_num;
+						rx_state		<= RX_STATE_RESET_WAIT;
+					end
+
 				end
 
 				//Header-only packet. All good, ready for the next frame
 				//TODO: process ACK numbers etc by flushing buffers
 				else begin
+					led				<= 4'h5;
 					tx_ack_valid	<= 1;
 					tx_ack_num		<= rx_seq_num;
 					rx_state		<= RX_STATE_IDLE;
@@ -306,7 +331,44 @@ module JtagDebugBridge(
 			// Sit around and wait until we get reset
 
 			RX_STATE_RESET_WAIT: begin
+				rx_failed		<= 1;
+				tx_ack_valid	<= 0;
 			end	//end RX_STATE_RESET_WAIT
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Receiving an RPC message from the host
+
+			RX_STATE_RPC_0: begin
+				if(rx_valid)
+					rx_state	<= RX_STATE_RPC_1;
+			end	//end RX_STATE_RPC_0
+
+			RX_STATE_RPC_1: begin
+				if(rx_valid)
+					rx_state	<= RX_STATE_RPC_2;
+			end	//end RX_STATE_RPC_1
+
+			RX_STATE_RPC_2: begin
+				if(rx_valid)
+					rx_state	<= RX_STATE_RPC_3;
+			end	//end RX_STATE_RPC_2
+
+			RX_STATE_RPC_3: begin
+				if(rx_valid)
+					rx_state	<= RX_STATE_CRC;
+			end	//end RX_STATE_RPC_3
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Verify the checksum on an incoming data frame
+
+			//For now, assume all is well
+			RX_STATE_CRC: begin
+				if(rx_valid) begin
+					led				<= 4'hf;
+					tx_ack_num		<= rx_seq_num;
+					rx_state		<= RX_STATE_IDLE;
+				end
+			end	//end RX_STATE_CRC
 
 		endcase
 
@@ -410,9 +472,6 @@ module JtagDebugBridge(
 			//Send first half of idle frame
 			TX_STATE_IDLE_0: begin
 
-				led[0]				<= 1;
-				led[1]				<= 0;
-
 				if(tx_data_needed) begin
 
 					//TODO: check for tx data in fifo etc
@@ -474,9 +533,6 @@ module JtagDebugBridge(
 
 			//Send first half of frame
 			TX_STATE_DOWN_0: begin
-
-				led[0]				<= 0;
-				led[1]				<= 1;
 
 				if(tx_data_needed) begin
 
@@ -550,9 +606,10 @@ module JtagDebugBridge(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug glue
 
+	/*
 	always @(posedge clk) begin
-		led[3] <= 1;
 	end
+	*/
 
 
 endmodule
