@@ -52,25 +52,21 @@
 	 Info : tools@easics.be
 	        http://www.easics.com
  */
-module CRC8_ATM(clk, reset, update, din, crc, crc_first24);
+module CRC8_ATM(
+	input wire clk,
+	input wire reset,
+	input wire update,
+	input wire[31:0] din,
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O declarations
+	//Internal CRC state (assuming we're processing all 32 input bits)
+	output reg[7:0] crc = 0,
 
-	input wire clk;
-	input wire reset;
-
-	input wire update;
-	input wire[31:0] din;
+	//Output CRC value (processing din[31:8] only)
+	output reg[7:0] crc_first24 = 0
+);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual CRC function
-
-	//Internal CRC state (assuming we're processing all 32 input bits)
-	output reg[7:0] crc = 8'h00;
-
-	//Output CRC value (processing din[31:8] only)
-	output reg[7:0] crc_first24 = 0;
 
 	wire[23:0] din_first24 = din[31:8];
 
