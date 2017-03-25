@@ -177,7 +177,13 @@ module JtagDebugBridge(
 		.crc_first24(rx_crc_dout)
 		);
 
-	//TODO: Payload CRC
+	CRC32_Ethernet_x32 rx_payload_crc(
+		.clk(tap_tck_bufh),
+		.reset(rx_crc_reset),
+		.update(rx_valid && rx_payload_rpc),
+		.din(rx_shreg),
+		.crc_flipped()
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX state machine
@@ -243,8 +249,11 @@ module JtagDebugBridge(
 				end
 
 				//We always have at least one clock in idle before a new word comes in
-				//Use that time to clear the CRC for the new packet
+				//Use that time to clear the CRC for the new packet.
+				//Also clear RPC/DMA flags so that we don't start CRC-ing too soon
 				else begin
+					rx_payload_rpc	<= 0;
+					rx_payload_dma	<= 0;
 					rx_crc_reset	<= 1;
 				end
 
