@@ -375,7 +375,7 @@ module JtagDebugBridge(
 				if(rx_valid) begin
 
 					tx_payload		<= 1;
-					tx_payload_data	<= rx_payload_crc_dout;
+					tx_payload_data	<= 32'h41414141;
 
 					//Check if the CRC is good
 					if(rx_payload_crc_dout == rx_shreg)
@@ -419,6 +419,16 @@ module JtagDebugBridge(
 		.crc_first24(tx_crc_dout)
 		);
 
+	reg			tx_payload_crc_update	= 0;
+	wire[31:0]	tx_payload_crc_dout;
+	CRC32_Ethernet_x32 tx_payload_crc(
+		.clk(tap_tck_bufh),
+		.reset(tx_crc_reset),
+		.update(tx_payload_crc_update),
+		.din(tx_crc_din),
+		.crc_flipped(tx_payload_crc_dout)
+	);
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX state machine
 
@@ -429,6 +439,7 @@ module JtagDebugBridge(
 	localparam TX_STATE_DOWN_1		= 4'h4;
 	localparam TX_STATE_PAYLOAD_0	= 4'h5;
 	localparam TX_STATE_PAYLOAD_1	= 4'h6;
+	localparam TX_STATE_PAYLOAD_2	= 4'h7;
 
 	reg[3:0]	tx_state			= TX_STATE_RESET;
 	reg			tx_header_done		= 0;
@@ -437,9 +448,10 @@ module JtagDebugBridge(
 	always @(posedge tap_tck_bufh) begin
 
 		//Clear flags
-		tx_crc_reset		<= 0;
-		tx_crc_update		<= 0;
-		tx_header_done_adv	<= 0;
+		tx_crc_reset			<= 0;
+		tx_crc_update			<= 0;
+		tx_payload_crc_update	<= 0;
+		tx_header_done_adv		<= 0;
 
 		//Save whatever we fed to the CRC (this is going to get sent out in a bit).
 		//If we just finished generating the packet header, it's CRCing this cycle so remember that.
@@ -544,10 +556,9 @@ module JtagDebugBridge(
 					tx_crc_update		<= 1;
 					tx_header_done_adv	<= 1;
 
-					//If something bad happened, wait for link reset
+					//Prepare to send the next frame unless something bad happened
 					if(rx_failed)
 						tx_state			<= TX_STATE_DOWN_0;
-
 					else
 						tx_state			<= TX_STATE_HEADER;
 				end
@@ -587,9 +598,23 @@ module JtagDebugBridge(
 					tx_crc_din				<= tx_payload_data;
 
 					//Checksum the data
-					tx_crc_update			<= 1;
+					tx_payload_crc_update	<= 1;
 
-					//If something bad happened, wait for link reset
+					//Go on to the CRC
+					//TODO: if we have multiple words of payload, stay in this state for a while
+					tx_state				<= TX_STATE_PAYLOAD_2;
+
+				end
+
+			end	//end TX_STATE_PAYLOAD_1
+
+			TX_STATE_PAYLOAD_2: begin
+
+				if(tx_data_needed) begin
+
+					tx_crc_din				<= tx_payload_crc_dout;
+
+					//Prepare to send the next frame unless something bad happened
 					if(rx_failed)
 						tx_state			<= TX_STATE_DOWN_0;
 					else
@@ -597,7 +622,7 @@ module JtagDebugBridge(
 
 				end
 
-			end	//end TX_STATE_PAYLOAD_1
+			end	//end TX_STATE_PAYLOAD_2
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// DOWN - link went down due to a loss of sync, send NAK frames forever
