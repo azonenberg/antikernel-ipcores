@@ -334,7 +334,9 @@ module RPCv3Transceiver
 	wire					rx_starting		= (rpc_rx_en && rpc_rx_ready);
 
 	//Position within the message (in DATA_WIDTH-bit units)
-	reg[CYCLE_MAX:0]		rx_count		= 0;
+	//Note that we keep it as 3 bits to avoid XST warnings, even when using wider datapaths.
+	//Unused high-side bits will be optimized out.
+	reg[2:0]				rx_count		= 0;
 
 	//True if a receive is in progress
 	wire					rx_active;
@@ -379,7 +381,7 @@ module RPCv3Transceiver
 					if(rx_starting)
 						rx_count		<= 1;
 					else
-						rx_count		<= rx_count + 1;
+						rx_count		<= rx_count + 1'h1;
 
 					//Grab whatever fields are currently on the wire
 					case(rx_count)
@@ -445,18 +447,20 @@ module RPCv3Transceiver
 								rpc_fab_rx_d2			<= rpc_rx_data;
 
 								//end of message
-								rpc_fab_rx_en		<= 1;
+								rpc_fab_rx_en			<= 1;
 							end
 							else
 								rpc_fab_rx_d0[15:0]		<= rpc_rx_data;
 						end
 
 						//If we get here we're a 16-bit message, so no more conditionals needed
-						4: rpc_fab_rx_d1[31:16]	<= rpc_rx_data;
-						5: rpc_fab_rx_d1[15:0]	<= rpc_rx_data;
-						6: rpc_fab_rx_d2[31:16]	<= rpc_rx_data;
+						//The explicit [15:0] selector is needed to prevent XST warnings when synthesizing
+						//for larger datapath widths (since this code is synthesized before being optimized out)
+						4: rpc_fab_rx_d1[31:16]	<= rpc_rx_data[15:0];
+						5: rpc_fab_rx_d1[15:0]	<= rpc_rx_data[15:0];
+						6: rpc_fab_rx_d2[31:16]	<= rpc_rx_data[15:0];
 						7: begin
-							rpc_fab_rx_d2[15:0]	<= rpc_rx_data;
+							rpc_fab_rx_d2[15:0]	<= rpc_rx_data[15:0];
 
 							//end of message
 							rpc_fab_rx_en		<= 1;

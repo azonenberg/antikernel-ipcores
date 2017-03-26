@@ -50,7 +50,7 @@ module CrossClockPacketFifo(
 	parameter DEPTH		= 11'd1024;
 
 	//number of bits in the address bus
-	`include "clog2.vh"
+	`include "../synth_helpers/clog2.vh"
 	localparam ADDR_BITS = clog2(DEPTH);
 
 	//WRITE port (all signals in wr_clk domain)
