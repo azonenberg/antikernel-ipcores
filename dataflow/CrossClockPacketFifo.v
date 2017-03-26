@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2016 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -32,7 +32,7 @@
 	@file
 	@author Andrew D. Zonenberg
 	@brief A cross-clock block RAM based FIFO with registered outputs intended for storing packetized data.
-	
+
 	Packets are pushed in one word at a time but can be read random-access at the other side and popped as a unit.
  */
 module CrossClockPacketFifo(
@@ -45,18 +45,18 @@ module CrossClockPacketFifo(
 
 	parameter WIDTH 	= 32;
 	parameter DEPTH		= 11'd1024;
-	
+
 	//number of bits in the address bus
 	`include "clog2.vh"
 	localparam ADDR_BITS = clog2(DEPTH);
-	
+
 	//WRITE port (all signals in wr_clk domain)
 	input wire					wr_clk;			//Clock for write port
 	input wire					wr_en;			//Assert wr_en and put data on wr_data to push
 	input wire[WIDTH-1:0]		wr_data;
 	input wire					wr_reset;		//Reset write side of the FIFO
 	output wire[ADDR_BITS:0]	wr_size;		//needs to be one bigger than pointers to hold fully empty size
-	
+
 	//READ port (all signals in rd_clk domain)
 	input wire					rd_clk;
 	input wire					rd_en;			//Read a word
@@ -72,58 +72,58 @@ module CrossClockPacketFifo(
 	// The actual memory block
 
 	(* RAM_STYLE="block" *) reg[WIDTH-1:0] data[DEPTH-1:0];
-	
+
 	//Initialization
 	integer i;
 	initial begin
 		for(i=0; i<DEPTH; i = i+1)
 			data[i] <= 0;
 	end
-	
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Write logic (input clock domain)
-	
+
 	reg[ADDR_BITS:0] data_wptr			= 0;							//extra bit for empty/full detect
 	wire[ADDR_BITS-1:0] data_wptr_low	= data_wptr[ADDR_BITS-1:0];		//actual pointer
-	
+
 	always @(posedge wr_clk) begin
 		if(wr_en) begin
 			data[data_wptr_low] <= wr_data;
 			data_wptr <= data_wptr + 1'h1;
 		end
-		
+
 		if(wr_reset)
 			data_wptr <= 0;
 	end
-	
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Read logic (output clock domain)
-	
+
 	reg[ADDR_BITS:0] data_rptr		= 0;							//extra bit for empty/full detect
-	
+
 	wire[ADDR_BITS-1:0] data_rptr_off	= data_rptr[ADDR_BITS-1:0] + rd_offset;
-	
+
 	//Pointer manipulation
 	always @(posedge rd_clk) begin
-	
+
 		if(rd_pop_single)
 			data_rptr <= data_rptr + 1'h1;
 		else if(rd_pop_packet)
 			data_rptr <= data_rptr + rd_packet_size;
-				
+
 		if(rd_reset)
 			data_rptr <= 0;
 	end
-	
+
 	//Read logic
 	always @(posedge rd_clk) begin
 		if(rd_en)
 			rd_data <= data[data_rptr_off];
 	end
-		
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Tail pointer synchronization from input to output clock domain
-	
+
 	//Tail pointer
 	//This is the lowest address to which writes are guaranteed to have committed.
 	reg[ADDR_BITS:0] data_tail					= 0;
@@ -143,21 +143,21 @@ module CrossClockPacketFifo(
 		.en_b(tail_rd_en),
 		.ack_b(tail_rd_en)
 	);
-	
+
 	//Write side state machine
 	reg[ADDR_BITS:0] data_tail_wdata			= 0;
 	always @(posedge wr_clk) begin
-		
+
 		tail_wr_en <= 0;
-		
+
 		//If a send isn't in progress, go send stuff
 		if(!tail_sync_busy) begin
 			data_tail_wdata <= data_wptr;
 			tail_wr_en <= 1;
 		end
-		
+
 	end
-	
+
 	//Read side
 	always @(posedge rd_clk) begin
 		if(tail_rd_en)
@@ -165,15 +165,15 @@ module CrossClockPacketFifo(
 		if(rd_reset)
 			data_tail <= 0;
 	end
-	
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Head pointer synchronization from output to input clock domain
-	
+
 	//Head pointer
 	//This is the highest address from which reads are guaranteed to have committed
 	reg[ADDR_BITS:0] data_head					= 0;
 	assign wr_size = DEPTH + data_head - data_wptr;
-	
+
 	//Synchronization stuff
 	wire head_sync_busy;
 	reg head_rd_en								= 0;
@@ -188,21 +188,21 @@ module CrossClockPacketFifo(
 		.en_b(head_wr_en),
 		.ack_b(head_wr_en)
 	);
-	
+
 	//Read side state machine
 	reg[ADDR_BITS:0] data_head_wdata			= 0;
 	always @(posedge rd_clk) begin
-		
+
 		head_rd_en <= 0;
-		
+
 		//Not waiting? Send
 		if(!head_sync_busy) begin
 			data_head_wdata <= data_rptr;
 			head_rd_en <= 1;
 		end
-		
+
 	end
-	
+
 	//Write side
 	always @(posedge wr_clk) begin
 		if(head_wr_en)
