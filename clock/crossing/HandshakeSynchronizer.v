@@ -49,21 +49,15 @@
 		Data buffer is now considered invalid, do not touch
  */
 module HandshakeSynchronizer(
-	clk_a, en_a, ack_a, busy_a,
-	clk_b, en_b, ack_b
+	input wire clk_a,
+	input wire en_a,
+	output reg ack_a = 0,
+	output wire busy_a,
+	
+	input wire clk_b,
+	output reg en_b = 0,
+	input wire ack_b
 	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O / parameter declarations
-
-	input wire clk_a;
-	input wire en_a;
-	output reg ack_a = 0;
-	output wire busy_a;
-
-	input wire clk_b;
-	output reg en_b = 0;
-	input wire ack_b;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Flag synchronizers
