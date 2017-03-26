@@ -34,6 +34,9 @@
 	@brief A cross-clock block RAM based FIFO with registered outputs intended for storing packetized data.
 
 	Packets are pushed in one word at a time but can be read random-access at the other side and popped as a unit.
+
+	Note that the FIFO does not actually store any metadata about how large the packets are. This information must be
+	transmitted in-band or using a separate FIFO.
  */
 module CrossClockPacketFifo(
 	wr_clk, wr_en, wr_data, wr_reset, wr_size,
