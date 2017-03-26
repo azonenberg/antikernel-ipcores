@@ -29,23 +29,78 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-module JtagDebugBridge(
-	input wire clk,
-	output reg[3:0] led = 0
+module JtagDebugBridge #(
+	parameter NOC_DATA_WIDTH = 32		//Data width of the NoC link (not the JTAG side)
+) (
+	//Shared by everything NoC side
+	input wire					clk,
+
+	//RPC link
+	output wire						rpc_tx_en,
+	output wire[NOC_DATA_WIDTH-1:0]	rpc_tx_data,
+	input wire						rpc_tx_ready,
+	input wire						rpc_rx_en,
+	input wire[NOC_DATA_WIDTH-1:0]	rpc_rx_data,
+	output wire						rpc_rx_ready,
+
+	//Debug stuff
+	output reg[3:0]					led = 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Buffer the main system clock
+	// NoC transceivers
 
-	wire clk_bufg;
-	ClockBuffer #(
-		.TYPE("GLOBAL"),
-		.CE("NO")
-	) sysclk_clkbuf (
-		.clkin(clk),
-		.clkout(clk_bufg),
-		.ce(1'b1)
-	);
+	reg			rpc_fab_tx_en		= 0;
+	wire		rpc_fab_tx_busy;
+	reg[15:0]	rpc_fab_tx_dst_addr	= 0;
+	reg[7:0]	rpc_fab_tx_callnum	= 0;
+	reg[2:0]	rpc_fab_tx_type		= 0;
+	reg[20:0]	rpc_fab_tx_d0		= 0;
+	reg[31:0]	rpc_fab_tx_d1		= 0;
+	reg[31:0]	rpc_fab_tx_d2		= 0;
+	wire		rpc_fab_tx_done;
+
+	reg			rpc_fab_rx_ready	= 0;
+	wire		rpc_fab_rx_busy;
+	wire		rpc_fab_rx_en;
+
+	RPCv3Transceiver #(
+		.DATA_WIDTH(NOC_DATA_WIDTH),
+		.QUIET_WHEN_IDLE(1),			//TODO: make this configurable?
+		.NODE_ADDR(16'h4141)			//TODO: allow sending from >1 host
+	) rpc_txvr (
+		.clk(clk),
+
+		//Network side
+		.rpc_tx_en(rpc_tx_en),
+		.rpc_tx_data(rpc_tx_data),
+		.rpc_tx_ready(rpc_tx_ready),
+		.rpc_rx_en(rpc_rx_en),
+		.rpc_rx_data(rpc_rx_data),
+		.rpc_rx_ready(rpc_rx_ready),
+
+		//Fabric side
+		.rpc_fab_tx_en(rpc_fab_tx_en),
+		.rpc_fab_tx_busy(rpc_fab_tx_busy),
+		.rpc_fab_tx_dst_addr(rpc_fab_tx_dst_addr),
+		.rpc_fab_tx_callnum(rpc_fab_tx_callnum),
+		.rpc_fab_tx_type(rpc_fab_tx_type),
+		.rpc_fab_tx_d0(rpc_fab_tx_d0),
+		.rpc_fab_tx_d1(rpc_fab_tx_d1),
+		.rpc_fab_tx_d2(rpc_fab_tx_d2),
+		.rpc_fab_tx_done(rpc_fab_tx_done),
+
+		.rpc_fab_rx_ready(rpc_fab_rx_ready),
+		.rpc_fab_rx_busy(rpc_fab_rx_busy),
+		.rpc_fab_rx_en(rpc_fab_rx_en),
+		.rpc_fab_rx_src_addr(),
+		.rpc_fab_rx_dst_addr(),
+		.rpc_fab_rx_callnum(),
+		.rpc_fab_rx_type(),
+		.rpc_fab_rx_d0(),
+		.rpc_fab_rx_d1(),
+		.rpc_fab_rx_d2()
+		);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The TAP interface for discovery (DEBUG_IDCODE register)
@@ -54,10 +109,12 @@ module JtagDebugBridge(
 	JtagUserIdentifier #(
 		.IDCODE_VID(24'h42445a),	//"ADZ"
 		.IDCODE_PID(8'h00)			//Antikernel NoC interface
-	) id ();
+	) id (
+
+		);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The TAP interface for Antikernel debug
+	// The TAP interface for Antikernel debug (DEBUG_DATA register)
 
 	reg[31:0]	tx_shreg = 0;
 	reg[31:0]	rx_shreg = 0;
@@ -97,6 +154,61 @@ module JtagDebugBridge(
 		.clkout(tap_tck_bufh),
 		.ce(1'b1)
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Synchronize TAP reset request over to NoC clock domain.
+	// For now, a reset of the TAP will wipe all buffers.
+
+	reg tap_reset_ff = 0;
+	reg jtag_side_reset = 0;
+	always @(posedge tap_tck_bufh) begin
+		tap_reset_ff	<= tap_reset;
+		jtag_side_reset	<= tap_reset && !tap_reset_ff;
+	end
+
+	wire	noc_side_reset;
+	HandshakeSynchronizer sync_tail(
+		.clk_a(tap_tck_bufh),
+		.en_a(jtag_side_reset),
+		.ack_a(),							//We don't need a reset acknowledgement.
+											//As long as the NoC clock isn't more than ~30x slower than the JTAG clock,
+											//the reset will complete long before anything can happen
+		.busy_a(),							//No need to check for busy state, resetting during a reset is a no-op
+
+		.clk_b(clk),
+		.en_b(noc_side_reset),
+		.ack_b(noc_side_reset)				//Acknowledge the reset as soon as we get it
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// FIFOs between the clock domains
+
+	localparam TX_FIFO_DEPTH = 11'd1024;		//Depth *in words* of transmit fifo
+
+	//Packet structure:
+	//First word: 31=RPC, 30=DMA, 10:0=length
+	//Data words
+	//Last word: 0 = crc OK
+	CrossClockPacketFifo #(
+		.WIDTH(32),
+		.DEPTH(TX_FIFO_DEPTH)
+		) tx_fifo (
+			.wr_clk(tap_tck_bufh),
+			.wr_en(),
+			.wr_data(),
+			.wr_reset(jtag_side_reset),
+			.wr_size(),
+
+			.rd_clk(clk),
+			.rd_en(),
+			.rd_offset(),
+			.rd_pop_single(),
+			.rd_pop_packet(),
+			.rd_packet_size(),
+			.rd_data(),
+			.rd_size(),
+			.rd_reset(noc_side_reset)
+		);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Convert from a stream of bits to a stream of 32-bit words
@@ -378,10 +490,12 @@ module JtagDebugBridge(
 					tx_payload_data	<= 32'h41414141;
 
 					//Check if the CRC is good
+					/*
 					if(rx_payload_crc_dout == rx_shreg)
 						led			<= 4'hf;
 					else
 						led			<= 4'he;
+					*/
 
 					tx_ack_num		<= rx_seq_num;
 					rx_state		<= RX_STATE_IDLE;
@@ -695,17 +809,5 @@ module JtagDebugBridge(
 			tx_seq_num	<= 0;
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TODO: NoC transceivers
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug glue
-
-	/*
-	always @(posedge clk) begin
-	end
-	*/
-
 
 endmodule
