@@ -54,4 +54,5 @@ RPCv3Transceiver_types:
         # The node you asked for exists, but doesn't like you
         RPC_TYPE_HOST_PROHIBITED:   6
 
-        # Value 7 reserved for future use
+        # Broadcast notification to the entire SOC
+        RPC_TYPE_BROADCAST:         7
