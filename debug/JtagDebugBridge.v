@@ -63,6 +63,13 @@ module JtagDebugBridge #(
 	reg			rpc_fab_rx_ready	= 0;
 	wire		rpc_fab_rx_busy;
 	wire		rpc_fab_rx_en;
+	wire[15:0]	rpc_fab_rx_src_addr;
+	wire[15:0]	rpc_fab_rx_dst_addr;
+	wire[7:0]	rpc_fab_rx_callnum;
+	wire[2:0]	rpc_fab_rx_type;
+	wire[20:0]	rpc_fab_rx_d0;
+	wire[31:0]	rpc_fab_rx_d1;
+	wire[31:0]	rpc_fab_rx_d2;
 
 	RPCv3Transceiver #(
 		.DATA_WIDTH(NOC_DATA_WIDTH),
@@ -93,13 +100,13 @@ module JtagDebugBridge #(
 		.rpc_fab_rx_ready(rpc_fab_rx_ready),
 		.rpc_fab_rx_busy(rpc_fab_rx_busy),
 		.rpc_fab_rx_en(rpc_fab_rx_en),
-		.rpc_fab_rx_src_addr(),
-		.rpc_fab_rx_dst_addr(),
-		.rpc_fab_rx_callnum(),
-		.rpc_fab_rx_type(),
-		.rpc_fab_rx_d0(),
-		.rpc_fab_rx_d1(),
-		.rpc_fab_rx_d2()
+		.rpc_fab_rx_src_addr(rpc_fab_rx_src_addr),
+		.rpc_fab_rx_dst_addr(rpc_fab_rx_dst_addr),
+		.rpc_fab_rx_callnum(rpc_fab_rx_callnum),
+		.rpc_fab_rx_type(rpc_fab_rx_type),
+		.rpc_fab_rx_d0(rpc_fab_rx_d0),
+		.rpc_fab_rx_d1(rpc_fab_rx_d1),
+		.rpc_fab_rx_d2(rpc_fab_rx_d2)
 		);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -183,7 +190,15 @@ module JtagDebugBridge #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// FIFOs between the clock domains
 
-	localparam TX_FIFO_DEPTH = 11'd1024;		//Depth *in words* of transmit fifo
+	`include "../synth_helpers/clog2.vh"
+
+	localparam TX_FIFO_DEPTH		= 11'd1024;						//Depth *in words* of transmit fifo
+	localparam TX_FIFO_ADDR_BITS	= clog2(TX_FIFO_DEPTH);
+	localparam TX_FIFO_SIZE_BITS	= TX_FIFO_ADDR_BITS + 1'h1;		//Number of bits for size (needs one more for empty)
+
+	reg							tx_fifo_wr_en	= 0;
+	reg[31:0]					tx_fifo_wr_data	= 0;
+	wire[TX_FIFO_SIZE_BITS-1:0]	tx_fifo_wr_size;
 
 	//Packet structure:
 	//First word: 31=RPC, 30=DMA, 10:0=length
@@ -194,10 +209,10 @@ module JtagDebugBridge #(
 		.DEPTH(TX_FIFO_DEPTH)
 		) tx_fifo (
 			.wr_clk(tap_tck_bufh),
-			.wr_en(),
-			.wr_data(),
+			.wr_en(tx_fifo_wr_en),
+			.wr_data(tx_fifo_wr_data),
 			.wr_reset(jtag_side_reset),
-			.wr_size(),
+			.wr_size(tx_fifo_wr_size),
 
 			.rd_clk(clk),
 			.rd_en(),
@@ -209,6 +224,30 @@ module JtagDebugBridge #(
 			.rd_size(),
 			.rd_reset(noc_side_reset)
 		);
+
+	//Compute credits available
+	//Credits are measured in 128-bit units, tx_fifo_wr_size is measured in 32-bit units
+	reg[9:0] credit_count = 0;
+	always @(*) begin
+
+		//If <12 bit size, we can fit full size in credit_count (10 bits plus two LSBs cut off)
+		if(TX_FIFO_SIZE_BITS <= 12)
+			credit_count		<= tx_fifo_wr_size[TX_FIFO_SIZE_BITS-1 : 2];
+
+		//Nope, have to truncate etc
+		else begin
+
+			//More than max credits available? Report max since we don't have enough bits
+			if(tx_fifo_wr_size[TX_FIFO_SIZE_BITS-1 : 12] != 0)
+				credit_count	<= 10'h3ff;
+
+			//Nope, truncate off the leading zeroes and report exact size
+			else
+				credit_count	<= tx_fifo_wr_size[11:2];
+
+		end
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Convert from a stream of bits to a stream of 32-bit words
@@ -592,12 +631,12 @@ module JtagDebugBridge #(
 				//because as soon as we enter the capture state, this data has to be available!
 				tx_crc_din		<=
 				{
-					1'b0,		//ACK flag, always 0 since we haven't seen any packets yet
-					1'b0,		//NAK flag, always 0 since we haven't seen any packets yet
-					10'h0,		//Outbound sequence number (we start from zero when the link goes up)
-					10'h3FF,	//Inbound credit counter (max, since we have an empty buffer so far)
-								//TODO
-					10'h0		//ACK sequence number (ignored since ACK/NAK aren't set)
+					1'b0,			//ACK flag, always 0 since we haven't seen any packets yet
+					1'b0,			//NAK flag, always 0 since we haven't seen any packets yet
+					10'h0,			//Outbound sequence number (we start from zero when the link goes up)
+					credit_count,	//Inbound credit counter (# free words in jtag-to-NoC FIFO)
+									//TODO
+					10'h0			//ACK sequence number (ignored since ACK/NAK aren't set)
 				};
 
 				//We sent this packet so bump the sequence number for the next one
@@ -625,7 +664,7 @@ module JtagDebugBridge #(
 						tx_ack_valid,	//ACK flag
 						tx_nak_valid,	//NAK flag
 						tx_seq_num,		//Outbound sequence number
-						10'h3FF,		//Inbound credit counter (always max for now)
+						credit_count,	//Inbound credit counter (# free words in jtag-to-NoC FIFO)
 						tx_ack_num		//ACK sequence number
 					};
 
@@ -748,11 +787,11 @@ module JtagDebugBridge #(
 
 					tx_crc_din		<=
 					{
-						1'b0,		//ACK flag, always 0 since the link is down
-						1'b1,		//NAK flag, always 1 since the link is down
-						tx_seq_num,	//Outbound sequence number
-						10'h1FF,	//Inbound credit counter, doesn't matter what it is since the link is down
-						tx_ack_num	//ACK sequence number
+						1'b0,			//ACK flag, always 0 since the link is down
+						1'b1,			//NAK flag, always 1 since the link is down
+						tx_seq_num,		//Outbound sequence number
+						credit_count,	//Inbound credit counter (# free words in jtag-to-NoC FIFO)
+						tx_ack_num		//ACK sequence number
 					};
 
 					//Start a new checksum
