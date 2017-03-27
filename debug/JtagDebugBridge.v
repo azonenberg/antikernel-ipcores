@@ -200,6 +200,8 @@ module JtagDebugBridge #(
 	reg[31:0]					tx_fifo_wr_data	= 0;
 	wire[TX_FIFO_SIZE_BITS-1:0]	tx_fifo_wr_size;
 
+	wire[TX_FIFO_SIZE_BITS-1:0]	tx_fifo_rd_size;
+
 	//Packet structure:
 	//First word: 31=RPC, 30=DMA, 10:0=length
 	//Data words
@@ -221,7 +223,7 @@ module JtagDebugBridge #(
 			.rd_pop_packet(),
 			.rd_packet_size(),
 			.rd_data(),
-			.rd_size(),
+			.rd_size(tx_fifo_rd_size),
 			.rd_reset(noc_side_reset)
 		);
 
@@ -250,7 +252,13 @@ module JtagDebugBridge #(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Convert from a stream of bits to a stream of 32-bit words
+	// NoC TX state machine
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// NoC RX state machine
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Convert JTAG data from a stream of bits to a stream of 32-bit words
 
 	reg[4:0] phase = 0;
 	always @(posedge tap_tck_bufh) begin
@@ -314,7 +322,7 @@ module JtagDebugBridge #(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// RX CRC calculation
+	// JTAG RX CRC calculation
 
 	reg			rx_crc_reset		= 0;
 	wire[7:0]	rx_crc_dout;
@@ -338,7 +346,7 @@ module JtagDebugBridge #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// RX state machine
+	// JTAG RX state machine
 
 	localparam RX_STATE_IDLE		= 4'h0;
 	localparam RX_STATE_HEADER_0	= 4'h1;
@@ -380,6 +388,7 @@ module JtagDebugBridge #(
 	always @(posedge tap_tck_bufh) begin
 
 		rx_crc_reset		<= 0;
+		tx_fifo_wr_en		<= 0;
 
 		case(rx_state)
 
@@ -443,6 +452,9 @@ module JtagDebugBridge #(
 			//One clock after the header word was fully processed. At this point the CRC is done.
 			RX_STATE_HEADER_1: begin
 
+				//TODO: If incoming sequence number is not one greater than our last packet, we have a problem.
+				//NAK this one and don't do anything with it
+
 				//If the header checksum is bad, we have a problem.
 				//Since we don't know how long this frame was (because the length might be corrupted),
 				//we can't skip it and go to the next one.
@@ -466,7 +478,21 @@ module JtagDebugBridge #(
 
 					//If RPC is set and not DMA, we have an RPC packet
 					if(rx_payload_rpc && !rx_payload_dma) begin
-						rx_state		<= RX_STATE_RPC_0;
+
+						//If there's enough space for the packet (length/type, data, OK)
+						//then start pushing data
+						if(tx_fifo_wr_size >= 6) begin
+							rx_state		<= RX_STATE_RPC_0;
+							tx_fifo_wr_en	<= 1;
+							tx_fifo_wr_data	<= {1'b1, 1'b0, 19'h0, 11'd4};	//rpc, dma, padding, length
+						end
+
+						//Not enough space, drop the link
+						else begin
+							tx_ack_num		<= rx_seq_num;
+							rx_state		<= RX_STATE_RESET_WAIT;
+						end
+
 					end
 
 					//Anything else is currently unsupported, drop the link
@@ -499,23 +525,35 @@ module JtagDebugBridge #(
 			// Receiving an RPC message from the host
 
 			RX_STATE_RPC_0: begin
-				if(rx_valid)
-					rx_state	<= RX_STATE_RPC_1;
+				if(rx_valid) begin
+					tx_fifo_wr_en	<= 1;
+					tx_fifo_wr_data	<= rx_shreg;
+					rx_state		<= RX_STATE_RPC_1;
+				end
 			end	//end RX_STATE_RPC_0
 
 			RX_STATE_RPC_1: begin
-				if(rx_valid)
-					rx_state	<= RX_STATE_RPC_2;
+				if(rx_valid) begin
+					tx_fifo_wr_en	<= 1;
+					tx_fifo_wr_data	<= rx_shreg;
+					rx_state		<= RX_STATE_RPC_2;
+				end
 			end	//end RX_STATE_RPC_1
 
 			RX_STATE_RPC_2: begin
-				if(rx_valid)
-					rx_state	<= RX_STATE_RPC_3;
+				if(rx_valid) begin
+					tx_fifo_wr_en	<= 1;
+					tx_fifo_wr_data	<= rx_shreg;
+					rx_state		<= RX_STATE_RPC_3;
+				end
 			end	//end RX_STATE_RPC_2
 
 			RX_STATE_RPC_3: begin
-				if(rx_valid)
-					rx_state	<= RX_STATE_CRC;
+				if(rx_valid) begin
+					tx_fifo_wr_en	<= 1;
+					tx_fifo_wr_data	<= rx_shreg;
+					rx_state		<= RX_STATE_CRC;
+				end
 			end	//end RX_STATE_RPC_3
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -525,17 +563,16 @@ module JtagDebugBridge #(
 			RX_STATE_CRC: begin
 				if(rx_valid) begin
 
-					tx_payload		<= 1;
-					tx_payload_data	<= 32'h41414141;
-
-					//Check if the CRC is good
-					/*
+					//Write CRC pass/fail status to the FIFO
+					tx_fifo_wr_en			<= 1;
 					if(rx_payload_crc_dout == rx_shreg)
-						led			<= 4'hf;
+						tx_fifo_wr_data		<= 32'h1;
 					else
-						led			<= 4'he;
-					*/
+						tx_fifo_wr_data		<= 32'h0;
 
+					//TODO: Send a single NAK if payload CRC is bad
+
+					//Grab ACK number and get ready to receive the next frame
 					tx_ack_num		<= rx_seq_num;
 					rx_state		<= RX_STATE_IDLE;
 				end
@@ -555,7 +592,7 @@ module JtagDebugBridge #(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TX CRC calculation
+	// JTAG TX CRC calculation
 
 	reg[31:0]	tx_crc_din	 	= 0;
 	reg[31:0]	tx_crc_din_ff	= 0;
@@ -583,7 +620,7 @@ module JtagDebugBridge #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TX state machine
+	// JTAG TX state machine
 
 	localparam TX_STATE_RESET		= 4'h0;
 	localparam TX_STATE_HEADER		= 4'h1;
@@ -847,6 +884,13 @@ module JtagDebugBridge #(
 		if(tap_reset)
 			tx_seq_num	<= 0;
 
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// DEBUG: print # words in fifo to LEDs
+
+	always @(posedge clk) begin
+		led		<= tx_fifo_rd_size[3:0];
 	end
 
 endmodule
