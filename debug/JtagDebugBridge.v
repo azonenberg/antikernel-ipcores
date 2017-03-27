@@ -200,7 +200,13 @@ module JtagDebugBridge #(
 	reg[31:0]					tx_fifo_wr_data	= 0;
 	wire[TX_FIFO_SIZE_BITS-1:0]	tx_fifo_wr_size;
 
+	reg							tx_fifo_rd_en			= 0;
+	reg[8:0]					tx_fifo_rd_offset		= 0;
+	reg							tx_fifo_rd_pop_single	= 0;
+	reg							tx_fifo_rd_pop_packet	= 0;
+	reg[9:0]					tx_fifo_rd_pop_size		= 0;
 	wire[TX_FIFO_SIZE_BITS-1:0]	tx_fifo_rd_size;
+	wire[31:0]					tx_fifo_rd_data;
 
 	//Packet structure:
 	//First word: 31=RPC, 30=DMA, 10:0=length
@@ -217,12 +223,12 @@ module JtagDebugBridge #(
 			.wr_size(tx_fifo_wr_size),
 
 			.rd_clk(clk),
-			.rd_en(),
-			.rd_offset(),
-			.rd_pop_single(),
-			.rd_pop_packet(),
-			.rd_packet_size(),
-			.rd_data(),
+			.rd_en(tx_fifo_rd_en),
+			.rd_offset(tx_fifo_rd_offset),
+			.rd_pop_single(tx_fifo_rd_pop_single),
+			.rd_pop_packet(tx_fifo_rd_pop_packet),
+			.rd_packet_size(tx_fifo_rd_pop_size),
+			.rd_data(tx_fifo_rd_data),
 			.rd_size(tx_fifo_rd_size),
 			.rd_reset(noc_side_reset)
 		);
@@ -253,6 +259,114 @@ module JtagDebugBridge #(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// NoC TX state machine
+
+	localparam NTX_STATE_IDLE				= 0;
+	localparam NTX_STATE_READ_HEADER		= 1;
+	localparam NTX_STATE_WAIT_FOR_PACKET	= 2;
+	localparam NTX_STATE_READ_CRCSTATUS		= 3;
+	localparam NTX_STATE_POP				= 4;
+
+	reg[3:0]	ntx_state					= NTX_STATE_IDLE;
+	reg[10:0]	ntx_packet_len				= 0;
+	reg			ntx_packet_rpc				= 0;
+	reg			ntx_packet_dma				= 0;
+
+	always @(posedge clk) begin
+
+		tx_fifo_rd_en			<= 0;
+		tx_fifo_rd_pop_single	<= 0;
+		tx_fifo_rd_pop_packet	<= 0;
+
+		case(ntx_state)
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Sit around and wait for data to appear in our FIFO
+
+			NTX_STATE_IDLE: begin
+
+				//If we have any data at all to read, get the header word (type and length).
+				//We don't yet know if the entire packet is in the buffer since we don't know how big it is!
+				//Pop the header word since we don't need it in the FIFO anymore.
+				if(tx_fifo_rd_size > 0) begin
+					tx_fifo_rd_en			<= 1;
+					tx_fifo_rd_offset		<= 0;
+					tx_fifo_rd_pop_single	<= 1;
+					ntx_state				<= NTX_STATE_READ_HEADER;
+				end
+
+			end	//end NTX_STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Wait for pop to occur, then move back to idle
+
+			NTX_STATE_POP: begin
+				if(!tx_fifo_rd_pop_packet && !tx_fifo_rd_pop_single)
+					ntx_state				<= NTX_STATE_POP;
+			end	//end NTX_STATE_POP
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Wait until the entire packet has been received
+
+			//Save headers, then wait for the whole packet to be ready
+			NTX_STATE_READ_HEADER: begin
+				if(!tx_fifo_rd_en) begin
+					ntx_packet_len		<= tx_fifo_rd_data[10:0];
+					ntx_packet_rpc		<= tx_fifo_rd_data[31];
+					ntx_packet_dma		<= tx_fifo_rd_data[30];
+					ntx_state			<= NTX_STATE_WAIT_FOR_PACKET;
+				end
+			end	//end NTX_STATE_READ_HEADER
+
+			//Wait for the whole packet to be in the buffer (this may take a while!)
+			NTX_STATE_WAIT_FOR_PACKET: begin
+
+				//need at least packet_len + one more for CRC status
+				if(tx_fifo_rd_size > ntx_packet_len) begin
+					tx_fifo_rd_en		<= 1;
+					tx_fifo_rd_offset	<= ntx_packet_len[8:0];
+					ntx_state			<= NTX_STATE_READ_CRCSTATUS;
+				end
+
+			end	//NTX_STATE_WAIT_FOR_PACKET
+
+			//We have the entire packet!
+			//Read the CRC pass/fail status
+			NTX_STATE_READ_CRCSTATUS: begin
+
+				if(!tx_fifo_rd_en) begin
+
+					//If CRC failure, pop the entire packet. (Was already NAK'd by JTAG clock domain)
+					if(!tx_fifo_rd_data[0]) begin
+						tx_fifo_rd_pop_packet	<= 1;
+						tx_fifo_rd_pop_size		<= ntx_packet_len[9:0];
+						ntx_state				<= NTX_STATE_POP;
+					end
+
+					//If not RPC, drop it (TODO handle DMA)
+					else if(!ntx_packet_rpc || ntx_packet_dma) begin
+						tx_fifo_rd_pop_packet	<= 1;
+						tx_fifo_rd_pop_size		<= ntx_packet_len[9:0];
+						ntx_state				<= NTX_STATE_POP;
+					end
+
+					//It's an RPC packet, process it
+					else begin
+						//TODO
+						led					<= 4'h55;
+					end
+
+					//led					<= tx_fifo_rd_data[3:0];//{2'b11, tx_fifo_rd_data[1:0]};
+				end
+
+			end //end NTX_STATE_READ_CRCSTATUS
+
+		endcase
+
+		//Reset everything when jtag link comes up
+		if(noc_side_reset)
+			ntx_state		<= NTX_STATE_IDLE;
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// NoC RX state machine
@@ -884,13 +998,6 @@ module JtagDebugBridge #(
 		if(tap_reset)
 			tx_seq_num	<= 0;
 
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// DEBUG: print # words in fifo to LEDs
-
-	always @(posedge clk) begin
-		led		<= tx_fifo_rd_size[3:0];
 	end
 
 endmodule
