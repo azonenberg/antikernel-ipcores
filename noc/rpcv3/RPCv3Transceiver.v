@@ -476,7 +476,7 @@ module RPCv3Transceiver
 		end
 
 		//Ready to receive if the fabric side is ready.
-		//Once we go ready, go un-ready when a message comes in unless we keep ready high.
+		//Once we go ready, go un-ready when a message comes in.
 		reg		rpc_rx_ready_ff	= 0;
 		always @(posedge clk) begin
 			if(rpc_rx_en)
@@ -487,10 +487,6 @@ module RPCv3Transceiver
 
 		always @(*) begin
 			rpc_rx_ready		<= rpc_rx_ready_ff;
-			if(rpc_rx_en)
-				rpc_rx_ready	<= 0;
-			if(rpc_fab_rx_ready)
-				rpc_rx_ready	<= 1;
 		end
 
 	endgenerate
