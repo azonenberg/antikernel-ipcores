@@ -52,6 +52,7 @@ module JtagDebugBridge #(
 
 	reg			rpc_fab_tx_en		= 0;
 	wire		rpc_fab_tx_busy;
+	reg[15:0]	rpc_fab_tx_src_addr	= 0;	//TODO: force us to be in a specific subnet
 	reg[15:0]	rpc_fab_tx_dst_addr	= 0;
 	reg[7:0]	rpc_fab_tx_callnum	= 0;
 	reg[2:0]	rpc_fab_tx_type		= 0;
@@ -60,7 +61,7 @@ module JtagDebugBridge #(
 	reg[31:0]	rpc_fab_tx_d2		= 0;
 	wire		rpc_fab_tx_done;
 
-	reg			rpc_fab_rx_ready	= 0;
+	reg			rpc_fab_rx_ready	= 1;	//start out ready
 	wire		rpc_fab_rx_busy;
 	wire		rpc_fab_rx_en;
 	wire[15:0]	rpc_fab_rx_src_addr;
@@ -89,6 +90,7 @@ module JtagDebugBridge #(
 		//Fabric side
 		.rpc_fab_tx_en(rpc_fab_tx_en),
 		.rpc_fab_tx_busy(rpc_fab_tx_busy),
+		.rpc_fab_tx_src_addr(rpc_fab_tx_src_addr),
 		.rpc_fab_tx_dst_addr(rpc_fab_tx_dst_addr),
 		.rpc_fab_tx_callnum(rpc_fab_tx_callnum),
 		.rpc_fab_tx_type(rpc_fab_tx_type),
@@ -233,6 +235,27 @@ module JtagDebugBridge #(
 			.rd_reset(noc_side_reset)
 		);
 
+	CrossClockPacketFifo #(
+		.WIDTH(32),
+		.DEPTH(TX_FIFO_DEPTH)
+		) rx_fifo (
+			.wr_clk(clk),
+			.wr_en(),
+			.wr_data(),
+			.wr_reset(noc_side_reset),
+			.wr_size(),
+
+			.rd_clk(tap_tck_bufh),
+			.rd_en(),
+			.rd_offset(),
+			.rd_pop_single(),
+			.rd_pop_packet(),
+			.rd_packet_size(),
+			.rd_data(),
+			.rd_size(),
+			.rd_reset(jtag_side_reset)
+		);
+
 	//Compute credits available
 	//Credits are measured in 128-bit units, tx_fifo_wr_size is measured in 32-bit units
 	reg[9:0] credit_count = 0;
@@ -265,6 +288,11 @@ module JtagDebugBridge #(
 	localparam NTX_STATE_WAIT_FOR_PACKET	= 2;
 	localparam NTX_STATE_READ_CRCSTATUS		= 3;
 	localparam NTX_STATE_POP				= 4;
+	localparam NTX_STATE_RPC_0				= 5;
+	localparam NTX_STATE_RPC_1				= 6;
+	localparam NTX_STATE_RPC_2				= 7;
+	localparam NTX_STATE_RPC_3				= 8;
+	localparam NTX_STATE_RPC_WAIT			= 9;
 
 	reg[3:0]	ntx_state					= NTX_STATE_IDLE;
 	reg[10:0]	ntx_packet_len				= 0;
@@ -276,6 +304,8 @@ module JtagDebugBridge #(
 		tx_fifo_rd_en			<= 0;
 		tx_fifo_rd_pop_single	<= 0;
 		tx_fifo_rd_pop_packet	<= 0;
+
+		rpc_fab_tx_en			<= 0;
 
 		case(ntx_state)
 
@@ -343,22 +373,81 @@ module JtagDebugBridge #(
 					end
 
 					//If not RPC, drop it (TODO handle DMA)
-					else if(!ntx_packet_rpc || ntx_packet_dma) begin
+					else if(!ntx_packet_rpc || ntx_packet_dma || (ntx_packet_len != 4)) begin
 						tx_fifo_rd_pop_packet	<= 1;
 						tx_fifo_rd_pop_size		<= ntx_packet_len[9:0];
 						ntx_state				<= NTX_STATE_POP;
 					end
 
-					//It's an RPC packet, process it
+					//It's an RPC packet, read the first data word
 					else begin
-						//TODO
-						led					<= 4'h55;
+						tx_fifo_rd_en			<= 1;
+						tx_fifo_rd_offset		<= 0;
+						ntx_state				<= NTX_STATE_RPC_0;
 					end
 
-					//led					<= tx_fifo_rd_data[3:0];//{2'b11, tx_fifo_rd_data[1:0]};
 				end
 
 			end //end NTX_STATE_READ_CRCSTATUS
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Process an RPC message
+
+			NTX_STATE_RPC_0: begin
+
+				//If we're waiting for the read of the first word, kick off the second one
+				if(tx_fifo_rd_offset == 0) begin
+					tx_fifo_rd_en		<= 1;
+					tx_fifo_rd_offset	<= 1;
+				end
+
+				//Second word's read is executing now, first word is ready.
+				//TODO: make "router" transceiver that does sram-style reads?
+				else begin
+					rpc_fab_tx_src_addr	<= tx_fifo_rd_data[31:16];
+					rpc_fab_tx_dst_addr	<= tx_fifo_rd_data[15:0];
+
+					tx_fifo_rd_en		<= 1;
+					tx_fifo_rd_offset	<= 2;
+					ntx_state			<= NTX_STATE_RPC_1;
+				end
+
+			end	//end NTX_STATE_RPC_0
+
+			NTX_STATE_RPC_1: begin
+				rpc_fab_tx_callnum	<= tx_fifo_rd_data[31:24];
+				rpc_fab_tx_type		<= tx_fifo_rd_data[23:21];
+				rpc_fab_tx_d0		<= tx_fifo_rd_data[20:0];
+
+				tx_fifo_rd_en		<= 1;
+				tx_fifo_rd_offset	<= 3;
+				ntx_state			<= NTX_STATE_RPC_2;
+			end	//end NTX_STATE_RPC_1
+
+			NTX_STATE_RPC_2: begin
+				rpc_fab_tx_d1		<= tx_fifo_rd_data;
+				ntx_state			<= NTX_STATE_RPC_3;
+			end	//end NTX_STATE_RPC_2
+
+			NTX_STATE_RPC_3: begin
+				rpc_fab_tx_d2			<= tx_fifo_rd_data;
+				ntx_state				<= NTX_STATE_RPC_WAIT;
+
+				//Pop the RPC packet from the FIFO since we're done with it now
+				//Pop 5 words (4 data + 1 CRC status)
+				tx_fifo_rd_pop_packet	<= 1;
+				tx_fifo_rd_pop_size		<= 5;
+
+				//Send the message
+				rpc_fab_tx_en			<= 1;
+
+			end	//end NTX_STATE_RPC_3
+
+			//Wait for the transmission to complete
+			NTX_STATE_RPC_WAIT: begin
+				if(rpc_fab_tx_done)
+					ntx_state			<= NTX_STATE_IDLE;
+			end	//end NTX_STATE_RPC_WAIT
 
 		endcase
 
@@ -370,6 +459,48 @@ module JtagDebugBridge #(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// NoC RX state machine
+
+	localparam NRX_STATE_IDLE				= 0;
+
+	reg[3:0]	nrx_state					= NRX_STATE_IDLE;
+
+	always @(posedge clk) begin
+
+		rpc_fab_rx_ready		<= 0;
+
+		case(nrx_state)
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// IDLE: wait for a message to come in
+
+			NRX_STATE_IDLE: begin
+
+				//TODO: handle DMA
+
+				//If a new RPC message comes in, push it into the RX FIFO
+				if(rpc_fab_rx_en) begin
+					led[3]			<= 1;
+				end
+
+				if(rpc_tx_en)
+					led[0]			<= 1;
+				if(rpc_rx_en)
+					led[1]			<= 1;
+				if(rpc_fab_rx_ready)
+					led[2]			<= 1;
+
+			end	//end NRX_STATE_IDLE
+
+		endcase
+
+		//Reset everything when jtag link comes up
+		//Note that this may result in dropping a packet if we had one half-received
+		if(noc_side_reset) begin
+			rpc_fab_rx_ready	<= 1;
+			nrx_state			<= NRX_STATE_IDLE;
+		end
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Convert JTAG data from a stream of bits to a stream of 32-bit words
