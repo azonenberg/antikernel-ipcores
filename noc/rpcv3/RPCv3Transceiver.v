@@ -46,7 +46,7 @@
 	The packet consists of eight 16-bit words. When DATA_WIDTH=16 the message is sent one word per clock.
 	Large DATA_WIDTH values send messages two, four, or eight words at a time.
 		Word 0: tx_dst_addr
-		Word 1: NODE_ADDR (automatically added)
+		Word 1: NODE_ADDR (automatically added if LEAF_NODE=1) or tx_src_addr
 		Word 2: {tx_callnum, tx_type, tx_d0[20:16]}
 		Word 3: tx_d0[15:0]
 		Word 4: tx_d1[31:16]
@@ -110,9 +110,11 @@ module RPCv3Transceiver
 	//When nonzero, force rpc_tx_data to zero when not transmitting.
 	parameter QUIET_WHEN_IDLE = 1,
 
-	//This transceiver is always a leaf (node) port, no exceptions.
-	//We always send from this address.
-	parameter NODE_ADDR = 16'h8000
+	//If this transceiver is a leaf (node) port, we send from this address
+	parameter NODE_ADDR = 16'h8000,
+
+	//True for leaf nodes, false for router nodes
+	parameter LEAF_NODE = 1
 ) (
 	//Clock for this link
 	input wire					clk,
@@ -130,6 +132,7 @@ module RPCv3Transceiver
 	//Fabric interface, outbound side
 	input wire					rpc_fab_tx_en,
 	output reg					rpc_fab_tx_busy,
+	input wire[15:0]			rpc_fab_tx_src_addr,
 	input wire[15:0]			rpc_fab_tx_dst_addr,
 	input wire[7:0]				rpc_fab_tx_callnum,
 	input wire[2:0]				rpc_fab_tx_type,
@@ -192,7 +195,7 @@ module RPCv3Transceiver
 
 	//Words of data to send
 	wire[15:0]	tx_d0				= rpc_fab_tx_dst_addr;
-	wire[15:0]	tx_d1				= NODE_ADDR;
+	wire[15:0]	tx_d1				= LEAF_NODE ? NODE_ADDR : rpc_fab_tx_src_addr;
 	wire[15:0]	tx_d2				= {rpc_fab_tx_callnum, rpc_fab_tx_type, rpc_fab_tx_d0[20:16]};
 	wire[15:0]	tx_d3				= rpc_fab_tx_d0[15:0];
 	wire[15:0]	tx_d4				= rpc_fab_tx_d1[31:16];
