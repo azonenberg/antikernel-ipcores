@@ -235,24 +235,35 @@ module JtagDebugBridge #(
 			.rd_reset(noc_side_reset)
 		);
 
+	reg							rx_fifo_wr_en	= 0;
+	reg[31:0]					rx_fifo_wr_data	= 0;
+	wire[TX_FIFO_SIZE_BITS-1:0]	rx_fifo_wr_size;
+
+	reg							rx_fifo_rd_en			= 0;
+	reg[8:0]					rx_fifo_rd_offset		= 0;
+	reg							rx_fifo_rd_pop_single	= 0;
+	reg							rx_fifo_rd_pop_packet	= 0;
+	reg[9:0]					rx_fifo_rd_pop_size		= 0;
+	wire[TX_FIFO_SIZE_BITS-1:0]	rx_fifo_rd_size;
+	wire[31:0]					rx_fifo_rd_data;
 	CrossClockPacketFifo #(
 		.WIDTH(32),
 		.DEPTH(TX_FIFO_DEPTH)
 		) rx_fifo (
 			.wr_clk(clk),
-			.wr_en(),
-			.wr_data(),
+			.wr_en(rx_fifo_wr_en),
+			.wr_data(rx_fifo_wr_data),
 			.wr_reset(noc_side_reset),
-			.wr_size(),
+			.wr_size(rx_fifo_wr_size),
 
 			.rd_clk(tap_tck_bufh),
-			.rd_en(),
-			.rd_offset(),
-			.rd_pop_single(),
-			.rd_pop_packet(),
-			.rd_packet_size(),
-			.rd_data(),
-			.rd_size(),
+			.rd_en(rx_fifo_rd_en),
+			.rd_offset(rx_fifo_rd_offset),
+			.rd_pop_single(rx_fifo_rd_pop_single),
+			.rd_pop_packet(rx_fifo_rd_pop_packet),
+			.rd_packet_size(rx_fifo_rd_pop_size),
+			.rd_data(rx_fifo_rd_data),
+			.rd_size(rx_fifo_rd_size),
 			.rd_reset(jtag_side_reset)
 		);
 
@@ -461,12 +472,19 @@ module JtagDebugBridge #(
 	// NoC RX state machine
 
 	localparam NRX_STATE_IDLE				= 0;
+	localparam NRX_STATE_RPC_0				= 1;
+	localparam NRX_STATE_RPC_1				= 2;
+	localparam NRX_STATE_RPC_2				= 3;
+	localparam NRX_STATE_RPC_3				= 4;
+	localparam NRX_STATE_RPC_4				= 5;
 
 	reg[3:0]	nrx_state					= NRX_STATE_IDLE;
 
 	always @(posedge clk) begin
 
 		rpc_fab_rx_ready		<= 0;
+
+		rx_fifo_wr_en			<= 0;
 
 		case(nrx_state)
 
@@ -478,18 +496,54 @@ module JtagDebugBridge #(
 				//TODO: handle DMA
 
 				//If a new RPC message comes in, push it into the RX FIFO
-				if(rpc_fab_rx_en) begin
-					led[3]			<= 1;
-				end
-
-				if(rpc_tx_en)
-					led[0]			<= 1;
-				if(rpc_rx_en)
-					led[1]			<= 1;
-				if(rpc_fab_rx_ready)
-					led[2]			<= 1;
+				if(rpc_fab_rx_en)
+					nrx_state	<= NRX_STATE_RPC_0;
 
 			end	//end NRX_STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// RPC: Handle RPC messages
+
+			NRX_STATE_RPC_0: begin
+
+				//Wait for there to be enough buffer space for the entire message
+				if(rx_fifo_wr_size >= 5) begin
+					rx_fifo_wr_en		<= 1;
+					rx_fifo_wr_data		<= {1'b1, 1'b0, 19'h0, 11'd4};	//rpc, dma, padding, length
+					nrx_state			<= NRX_STATE_RPC_1;
+				end
+
+			end	//end NRX_STATE_RPC_0
+
+			NRX_STATE_RPC_1: begin
+				rx_fifo_wr_en			<= 1;
+				rx_fifo_wr_data			<= {rpc_fab_rx_src_addr, rpc_fab_rx_dst_addr};
+				nrx_state				<= NRX_STATE_RPC_2;
+			end	//end NRX_STATE_RPC_1
+
+			NRX_STATE_RPC_2: begin
+				rx_fifo_wr_en			<= 1;
+				rx_fifo_wr_data			<= {rpc_fab_rx_callnum, rpc_fab_rx_type, rpc_fab_rx_d0 };
+				nrx_state				<= NRX_STATE_RPC_3;
+			end	//end NRX_STATE_RPC_2
+
+			NRX_STATE_RPC_3: begin
+				rx_fifo_wr_en			<= 1;
+				rx_fifo_wr_data			<= rpc_fab_rx_d1;
+				nrx_state				<= NRX_STATE_RPC_4;
+			end	//end NRX_STATE_RPC_3
+
+			NRX_STATE_RPC_4: begin
+				rx_fifo_wr_en			<= 1;
+				rx_fifo_wr_data			<= rpc_fab_rx_d2;
+
+				//Let the transceiver accept new messages again
+				rpc_fab_rx_ready		<= 1;
+				nrx_state				<= NRX_STATE_IDLE;
+
+				//DEBUG
+				led						<= 4'hc;
+			end	//end NRX_STATE_RPC_4
 
 		endcase
 
