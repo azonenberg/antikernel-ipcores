@@ -383,16 +383,8 @@ module RPCv3Transceiver
 					//Update word count as we move through the message
 					if(rx_starting)
 						rx_count		<= 1;
-					else begin
+					else
 						rx_count		<= rx_count + 1'h1;
-
-						//BUGFIX: Stop the counter early if we have a larger data width
-						if( (DATA_WIDTH == 64) && (rx_count == 1) )
-							rx_count	<= 0;
-						if( (DATA_WIDTH == 32) && (rx_count == 3) )
-							rx_count	<= 0;
-
-					end
 
 					//Grab whatever fields are currently on the wire
 					case(rx_count)
@@ -438,6 +430,7 @@ module RPCv3Transceiver
 
 									//end of message
 									rpc_fab_rx_en		<= 1;
+									rx_count			<= 0;
 								end
 
 							endcase
@@ -459,6 +452,7 @@ module RPCv3Transceiver
 
 								//end of message
 								rpc_fab_rx_en			<= 1;
+								rx_count				<= 0;
 							end
 							else
 								rpc_fab_rx_d0[15:0]		<= rpc_rx_data;
