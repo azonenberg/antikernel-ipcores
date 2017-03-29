@@ -75,7 +75,8 @@ module JtagDebugBridge #(
 	RPCv3Transceiver #(
 		.DATA_WIDTH(NOC_DATA_WIDTH),
 		.QUIET_WHEN_IDLE(1),			//TODO: make this configurable?
-		.NODE_ADDR(16'h4141)			//TODO: allow sending from >1 host
+		.LEAF_NODE(0)					//We can send from any address
+										//TODO: filtering to only send from one subnet
 	) rpc_txvr (
 		.clk(clk),
 
@@ -210,6 +211,7 @@ module JtagDebugBridge #(
 	wire[TX_FIFO_SIZE_BITS-1:0]	tx_fifo_rd_size;
 	wire[31:0]					tx_fifo_rd_data;
 
+	//Data from JTAG to NoC
 	//Packet structure:
 	//First word: 31=RPC, 30=DMA, 10:0=length
 	//Data words
@@ -239,6 +241,7 @@ module JtagDebugBridge #(
 	reg[31:0]					rx_fifo_wr_data	= 0;
 	wire[TX_FIFO_SIZE_BITS-1:0]	rx_fifo_wr_size;
 
+	//Data from NoC to JTAG
 	reg							rx_fifo_rd_en			= 0;
 	reg[8:0]					rx_fifo_rd_offset		= 0;
 	reg							rx_fifo_rd_pop_single	= 0;
@@ -541,8 +544,6 @@ module JtagDebugBridge #(
 				rpc_fab_rx_ready		<= 1;
 				nrx_state				<= NRX_STATE_IDLE;
 
-				//DEBUG
-				led						<= 4'hc;
 			end	//end NRX_STATE_RPC_4
 
 		endcase
@@ -679,10 +680,6 @@ module JtagDebugBridge #(
 	reg			rx_payload_dma		= 0;
 	reg[9:0]	rx_payload_length	= 0;
 	reg[10:0]	rx_reserved			= 0;
-
-	//DEBUG flags
-	reg			tx_payload			= 0;
-	reg[31:0]	tx_payload_data		= 0;
 
 	always @(posedge tap_tck_bufh) begin
 
@@ -926,13 +923,20 @@ module JtagDebugBridge #(
 	localparam TX_STATE_IDLE		= 4'h2;
 	localparam TX_STATE_DOWN_0		= 4'h3;
 	localparam TX_STATE_DOWN_1		= 4'h4;
-	localparam TX_STATE_PAYLOAD_0	= 4'h5;
-	localparam TX_STATE_PAYLOAD_1	= 4'h6;
-	localparam TX_STATE_PAYLOAD_2	= 4'h7;
+	localparam TX_STATE_RPC_0	= 4'h5;
+	localparam TX_STATE_RPC_1	= 4'h6;
+	localparam TX_STATE_RPC_2	= 4'h7;
 
 	reg[3:0]	tx_state			= TX_STATE_RESET;
 	reg			tx_header_done		= 0;
 	reg			tx_header_done_adv	= 0;
+
+	reg			tx_read_header		= 0;
+	reg			tx_is_rpc			= 0;
+	reg			tx_is_dma			= 0;
+	reg[10:0]	tx_length			= 0;
+
+	reg			rx_fifo_rd_en_ff	= 0;
 
 	always @(posedge tap_tck_bufh) begin
 
@@ -941,6 +945,9 @@ module JtagDebugBridge #(
 		tx_crc_update			<= 0;
 		tx_payload_crc_update	<= 0;
 		tx_header_done_adv		<= 0;
+		rx_fifo_rd_en			<= 0;
+		rx_fifo_rd_pop_packet	<= 0;
+		rx_fifo_rd_pop_single	<= 0;
 
 		//Save whatever we fed to the CRC (this is going to get sent out in a bit).
 		//If we just finished generating the packet header, it's CRCing this cycle so remember that.
@@ -953,6 +960,27 @@ module JtagDebugBridge #(
 			tx_data			<= { tx_crc_din_ff[31:8], tx_crc_dout };
 		else
 			tx_data			<= tx_crc_din_ff;
+
+		//If there's at least two words of data in the RX FIFO, and we aren't already looking at a packet,
+		//read the header to see what it is.
+		if(!tx_read_header && (rx_fifo_rd_size > 1) && !rx_fifo_rd_en && !rx_fifo_rd_en_ff) begin
+			rx_fifo_rd_offset	<= 0;
+			rx_fifo_rd_en		<= 1;
+		end
+
+		//Once the read completes, parse the header and pull it out of the FIFO.
+		rx_fifo_rd_en_ff			<= rx_fifo_rd_en;
+		if(!tx_read_header && rx_fifo_rd_en_ff) begin
+			tx_read_header			<= 1;
+			rx_fifo_rd_pop_single	<= 1;
+			tx_is_rpc				<= rx_fifo_rd_data[31];
+			tx_is_dma				<= rx_fifo_rd_data[30];
+			tx_length				<= rx_fifo_rd_data[10:0];
+		end
+
+		//After we pop a packet out of the FIFO, the saved headers are no longer valid
+		if(rx_fifo_rd_pop_packet)
+			tx_header_done	<= 0;
 
 		//Main state machine
 		case(tx_state)
@@ -990,7 +1018,7 @@ module JtagDebugBridge #(
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// IDLE - send idle frames until we have something else to do
 
-			//Send header (doesn't matter if idle or payload
+			//Send header (doesn't matter if idle or payload)
 			TX_STATE_HEADER: begin
 
 				if(tx_data_needed) begin
@@ -1011,12 +1039,30 @@ module JtagDebugBridge #(
 					//We sent this packet so bump the sequence number for the next one
 					tx_seq_num		<= tx_seq_num + 1'h1;
 
-					//Prepare to send second word
-					//TODO: check for tx data in fifo etc
-					if(tx_payload)
-						tx_state		<= TX_STATE_PAYLOAD_0;
-					else
-						tx_state		<= TX_STATE_IDLE;
+					//Prepare to send second word.
+					//What we do here depends on if we have a packet to forward and, if so, what it is.
+					//Default to sending an idle frame.
+					tx_state			<= TX_STATE_IDLE;
+
+					//We have a packet! May or may not be interesting at this point in time
+					if(tx_read_header) begin
+
+						//If it's a properly sized RPC frame, handle that
+						if(tx_is_rpc && !tx_is_dma && (tx_length == 4) )
+							tx_state	<= TX_STATE_RPC_0;
+
+						//TODO: If it's a properly sized DMA frame, handle that
+						//else if(tx_is_dma && !tx_is_rpc && (tx_length >= 3) ) begin
+						//end
+
+						//Packet is malformed in some way. Discard it silently and continue on our merry way.
+						//TODO: send some kind of alert to host?
+						else begin
+							rx_fifo_rd_pop_packet	<= 1;
+							rx_fifo_rd_pop_size		<= tx_length[9:0];
+						end
+
+					end
 
 				end
 
@@ -1055,19 +1101,19 @@ module JtagDebugBridge #(
 			end	//end TX_STATE_IDLE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// PAYLOAD -
+			// RPC - sending an RPC message
 
-			TX_STATE_PAYLOAD_0: begin
+			TX_STATE_RPC_0: begin
 				if(tx_data_needed) begin
 
 					//Format header
 					tx_crc_din		<=
 					{
-						1'b1,		//Payload is RPC for now
-						1'b1,		//RPC payload
-						1'b0,		//No DMA payload
-						11'h0,		//Reserved
-						10'h1,		//Length
+						1'b1,		//We have a payload
+						1'b1,		//It's RPC
+						1'b0,		//(and not DMA)
+						11'h0,		//Reserved, leave zero
+						10'h4,		//4 bytes long
 						8'h0		//Placeholder for header checksum
 					};
 
@@ -1075,43 +1121,58 @@ module JtagDebugBridge #(
 					tx_crc_update			<= 1;
 					tx_header_done_adv		<= 1;
 
-					tx_state				<= TX_STATE_PAYLOAD_1;
+					//Read the first data word
+					rx_fifo_rd_en			<= 1;
+					rx_fifo_rd_offset		<= 0;
+
+					tx_state				<= TX_STATE_RPC_1;
 
 				end
-			end	//end TX_STATE_PAYLOAD_0
+			end	//end TX_STATE_RPC_0
 
-			TX_STATE_PAYLOAD_1: begin
+			TX_STATE_RPC_1: begin
 
 				if(tx_data_needed) begin
 
-					tx_crc_din				<= tx_payload_data;
+					tx_crc_din					<= rx_fifo_rd_data;
 
 					//Checksum the data
-					tx_payload_crc_update	<= 1;
+					tx_payload_crc_update		<= 1;
 
-					//Go on to the CRC
-					//TODO: if we have multiple words of payload, stay in this state for a while
-					tx_state				<= TX_STATE_PAYLOAD_2;
+					//If we just sent the last payload word, go on to the CRC.
+					//As we do that, pop the completed packet from the RX FIFO.
+					if(rx_fifo_rd_offset == 3) begin
+						rx_fifo_rd_pop_packet	<= 1;
+						rx_fifo_rd_pop_size		<= 4;
+
+						tx_state				<= TX_STATE_RPC_2;
+					end
+
+					//Nope, read next data word
+					else begin
+						rx_fifo_rd_en			<= 1;
+						rx_fifo_rd_offset		<= rx_fifo_rd_offset + 1'h1;
+					end
 
 				end
 
-			end	//end TX_STATE_PAYLOAD_1
+			end	//end TX_STATE_RPC_1
 
-			TX_STATE_PAYLOAD_2: begin
+			TX_STATE_RPC_2: begin
 
 				if(tx_data_needed) begin
 
 					tx_crc_din				<= tx_payload_crc_dout;
 
 					//Prepare to send the next frame unless something bad happened
-					if(rx_failed)
+					if(/*rx_failed*/1)
 						tx_state			<= TX_STATE_DOWN_0;
 					else
 						tx_state			<= TX_STATE_HEADER;
 
 				end
 
-			end	//end TX_STATE_PAYLOAD_2
+			end	//end TX_STATE_RPC_2
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// DOWN - link went down due to a loss of sync, send NAK frames forever
