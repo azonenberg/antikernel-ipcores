@@ -980,7 +980,7 @@ module JtagDebugBridge #(
 
 		//After we pop a packet out of the FIFO, the saved headers are no longer valid
 		if(rx_fifo_rd_pop_packet)
-			tx_header_done	<= 0;
+			tx_read_header	<= 0;
 
 		//Main state machine
 		case(tx_state)
@@ -1165,7 +1165,7 @@ module JtagDebugBridge #(
 					tx_crc_din				<= tx_payload_crc_dout;
 
 					//Prepare to send the next frame unless something bad happened
-					if(/*rx_failed*/1)
+					if(rx_failed)
 						tx_state			<= TX_STATE_DOWN_0;
 					else
 						tx_state			<= TX_STATE_HEADER;
