@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2016 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -32,27 +32,27 @@
 	@file
 	@author Andrew D. Zonenberg
 	@brief "Ping" style test node for RPC network.
-	
+
 	All incoming messages are simply echoed back to the sender.
  */
-module RPCv2EchoNode(clk, rpc_tx_en, rpc_tx_data, rpc_tx_ack, rpc_rx_en, rpc_rx_data, rpc_rx_ack);
+module RPCv3EchoNode(clk, rpc_tx_en, rpc_tx_data, rpc_tx_ack, rpc_rx_en, rpc_rx_data, rpc_rx_ack);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// IO declarations
 	input wire clk;
-	
+
 	output wire rpc_tx_en;
 	output wire[31:0] rpc_tx_data;
 	input wire[1:0] rpc_tx_ack;
 	input wire rpc_rx_en;
 	input wire[31:0] rpc_rx_data;
 	output wire[1:0] rpc_rx_ack;
-	
+
 	parameter NOC_ADDR = 16'h0000;
-	
+
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transceiver - just simple loopback
-	
+
 	wire		rpc_fab_rx_en;
 	wire[15:0]	rpc_fab_rx_src_addr;
 	wire[7:0]	rpc_fab_rx_callnum;
@@ -61,21 +61,21 @@ module RPCv2EchoNode(clk, rpc_tx_en, rpc_tx_data, rpc_tx_ack, rpc_rx_en, rpc_rx_
 	wire[31:0]	rpc_fab_rx_d1;
 	wire[31:0]	rpc_fab_rx_d2;
 	wire		rpc_fab_rx_done;
-	
+
 	RPCv2Transceiver #(
 		.LEAF_PORT(1),
 		.LEAF_ADDR(NOC_ADDR)
 	) txvr(
 		.clk(clk),
-		
+
 		.rpc_tx_en(rpc_tx_en),
 		.rpc_tx_data(rpc_tx_data),
 		.rpc_tx_ack(rpc_tx_ack),
-		
+
 		.rpc_rx_en(rpc_rx_en),
 		.rpc_rx_data(rpc_rx_data),
 		.rpc_rx_ack(rpc_rx_ack),
-		
+
 		.rpc_fab_tx_en(rpc_fab_rx_en),
 		.rpc_fab_tx_src_addr(16'h0000),
 		.rpc_fab_tx_dst_addr(rpc_fab_rx_src_addr),
@@ -85,7 +85,7 @@ module RPCv2EchoNode(clk, rpc_tx_en, rpc_tx_data, rpc_tx_ack, rpc_rx_en, rpc_rx_
 		.rpc_fab_tx_d1(rpc_fab_rx_d1),
 		.rpc_fab_tx_d2(rpc_fab_rx_d2),
 		.rpc_fab_tx_done(rpc_fab_rx_done),
-		
+
 		.rpc_fab_rx_en(rpc_fab_rx_en),
 		.rpc_fab_rx_src_addr(rpc_fab_rx_src_addr),
 		.rpc_fab_rx_dst_addr(),
@@ -97,5 +97,5 @@ module RPCv2EchoNode(clk, rpc_tx_en, rpc_tx_data, rpc_tx_ack, rpc_rx_en, rpc_rx_
 		.rpc_fab_rx_done(rpc_fab_rx_done),
 		.rpc_fab_inbox_full()
 		);
-		
+
 endmodule
