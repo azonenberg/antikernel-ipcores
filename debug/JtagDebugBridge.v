@@ -30,17 +30,17 @@
 ***********************************************************************************************************************/
 
 module JtagDebugBridge #(
-	parameter NOC_DATA_WIDTH = 32		//Data width of the NoC link (not the JTAG side)
+	parameter NOC_WIDTH = 32		//Data width of the NoC link (not the JTAG side)
 ) (
 	//Shared by everything NoC side
 	input wire					clk,
 
 	//RPC link
 	output wire						rpc_tx_en,
-	output wire[NOC_DATA_WIDTH-1:0]	rpc_tx_data,
+	output wire[NOC_WIDTH-1:0]	rpc_tx_data,
 	input wire						rpc_tx_ready,
 	input wire						rpc_rx_en,
-	input wire[NOC_DATA_WIDTH-1:0]	rpc_rx_data,
+	input wire[NOC_WIDTH-1:0]	rpc_rx_data,
 	output wire						rpc_rx_ready,
 
 	//Debug stuff
@@ -73,7 +73,7 @@ module JtagDebugBridge #(
 	wire[31:0]	rpc_fab_rx_d2;
 
 	RPCv3Transceiver #(
-		.DATA_WIDTH(NOC_DATA_WIDTH),
+		.DATA_WIDTH(NOC_WIDTH),
 		.QUIET_WHEN_IDLE(1),			//TODO: make this configurable?
 		.LEAF_NODE(0)					//We can send from any address
 										//TODO: filtering to only send from one subnet
