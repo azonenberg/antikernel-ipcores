@@ -52,7 +52,6 @@ module RPCv3EchoNode #(
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transceiver - just simple loopback
 
-	reg			rpc_fab_rx_ready	= 1;	//start out ready
 	wire		rpc_fab_rx_busy;
 	wire		rpc_fab_rx_en;
 	wire[15:0]	rpc_fab_rx_src_addr;
@@ -90,7 +89,7 @@ module RPCv3EchoNode #(
 		.rpc_fab_tx_d2(rpc_fab_rx_d2),
 		.rpc_fab_tx_done(),
 
-		.rpc_fab_rx_ready(rpc_fab_rx_ready),
+		.rpc_fab_rx_ready(1'b1),
 		.rpc_fab_rx_busy(rpc_fab_rx_busy),
 		.rpc_fab_rx_en(rpc_fab_rx_en),
 		.rpc_fab_rx_src_addr(rpc_fab_rx_src_addr),
