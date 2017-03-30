@@ -35,67 +35,71 @@
 
 	All incoming messages are simply echoed back to the sender.
  */
-module RPCv3EchoNode(clk, rpc_tx_en, rpc_tx_data, rpc_tx_ack, rpc_rx_en, rpc_rx_data, rpc_rx_ack);
+module RPCv3EchoNode #(
+	parameter NOC_WIDTH = 32,
+	parameter NOC_ADDR = 16'h0000
+) (
+	input wire					clk,
 
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// IO declarations
-	input wire clk;
+	output wire					rpc_tx_en,
+	output wire[NOC_WIDTH-1:0]	rpc_tx_data,
+	input wire					rpc_tx_ready,
 
-	output wire rpc_tx_en;
-	output wire[31:0] rpc_tx_data;
-	input wire[1:0] rpc_tx_ack;
-	input wire rpc_rx_en;
-	input wire[31:0] rpc_rx_data;
-	output wire[1:0] rpc_rx_ack;
-
-	parameter NOC_ADDR = 16'h0000;
+	input wire					rpc_rx_en,
+	input wire[NOC_WIDTH-1:0]	rpc_rx_data,
+	output wire					rpc_rx_ready);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transceiver - just simple loopback
 
+	reg			rpc_fab_rx_ready	= 1;	//start out ready
+	wire		rpc_fab_rx_busy;
 	wire		rpc_fab_rx_en;
 	wire[15:0]	rpc_fab_rx_src_addr;
+	wire[15:0]	rpc_fab_rx_dst_addr;
 	wire[7:0]	rpc_fab_rx_callnum;
 	wire[2:0]	rpc_fab_rx_type;
 	wire[20:0]	rpc_fab_rx_d0;
 	wire[31:0]	rpc_fab_rx_d1;
 	wire[31:0]	rpc_fab_rx_d2;
-	wire		rpc_fab_rx_done;
 
-	RPCv2Transceiver #(
-		.LEAF_PORT(1),
-		.LEAF_ADDR(NOC_ADDR)
-	) txvr(
+	RPCv3Transceiver #(
+		.DATA_WIDTH(NOC_WIDTH),
+		.QUIET_WHEN_IDLE(1),
+		.NODE_ADDR(NOC_ADDR)
+	) rpc_txvr (
 		.clk(clk),
 
+		//Network side
 		.rpc_tx_en(rpc_tx_en),
 		.rpc_tx_data(rpc_tx_data),
-		.rpc_tx_ack(rpc_tx_ack),
-
+		.rpc_tx_ready(rpc_tx_ready),
 		.rpc_rx_en(rpc_rx_en),
 		.rpc_rx_data(rpc_rx_data),
-		.rpc_rx_ack(rpc_rx_ack),
+		.rpc_rx_ready(rpc_rx_ready),
 
+		//Fabric side
 		.rpc_fab_tx_en(rpc_fab_rx_en),
-		.rpc_fab_tx_src_addr(16'h0000),
+		.rpc_fab_tx_busy(),
+		.rpc_fab_tx_src_addr(rpc_fab_rx_dst_addr),
 		.rpc_fab_tx_dst_addr(rpc_fab_rx_src_addr),
 		.rpc_fab_tx_callnum(rpc_fab_rx_callnum),
 		.rpc_fab_tx_type(rpc_fab_rx_type),
 		.rpc_fab_tx_d0(rpc_fab_rx_d0),
 		.rpc_fab_tx_d1(rpc_fab_rx_d1),
 		.rpc_fab_tx_d2(rpc_fab_rx_d2),
-		.rpc_fab_tx_done(rpc_fab_rx_done),
+		.rpc_fab_tx_done(),
 
+		.rpc_fab_rx_ready(rpc_fab_rx_ready),
+		.rpc_fab_rx_busy(rpc_fab_rx_busy),
 		.rpc_fab_rx_en(rpc_fab_rx_en),
 		.rpc_fab_rx_src_addr(rpc_fab_rx_src_addr),
-		.rpc_fab_rx_dst_addr(),
+		.rpc_fab_rx_dst_addr(rpc_fab_rx_dst_addr),
 		.rpc_fab_rx_callnum(rpc_fab_rx_callnum),
 		.rpc_fab_rx_type(rpc_fab_rx_type),
 		.rpc_fab_rx_d0(rpc_fab_rx_d0),
 		.rpc_fab_rx_d1(rpc_fab_rx_d1),
-		.rpc_fab_rx_d2(rpc_fab_rx_d2),
-		.rpc_fab_rx_done(rpc_fab_rx_done),
-		.rpc_fab_inbox_full()
+		.rpc_fab_rx_d2(rpc_fab_rx_d2)
 		);
 
 endmodule
