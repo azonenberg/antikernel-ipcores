@@ -36,37 +36,26 @@
 	Note that this core uses active-high ACKs, not active-low as seen on the wire!
  */
 module I2CTransceiver(
-	clk,
-	clkdiv,
-	i2c_scl, i2c_sda,
-	tx_en, tx_ack, tx_data,
-	rx_en, rx_rdy, rx_out, rx_ack,
-	start_en, restart_en, stop_en, busy
+	input wire clk,
+	input wire[15:0] clkdiv,
+
+	output reg i2c_scl = 1,
+	inout wire i2c_sda,
+
+	input wire tx_en,
+	output reg tx_ack = 0,
+	input wire[7:0] tx_data,
+
+	input wire rx_en,
+	output reg rx_rdy = 0,
+	output reg[7:0] rx_out = 0,
+	input wire rx_ack,
+
+	input wire start_en,
+	input wire restart_en,
+	input wire stop_en,
+	output wire busy
     );
-
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// IO declarations
-
-	input wire clk;
-	input wire[15:0] clkdiv;
-
-	//I2C bus
-	output reg i2c_scl = 1;
-	inout wire i2c_sda;
-
-	//Control bus
-	input wire tx_en;
-	output reg tx_ack = 0;
-	input wire[7:0] tx_data;
-	input wire rx_en;
-	output reg rx_rdy = 0;
-	output reg[7:0] rx_out = 0;
-	input wire rx_ack;
-
-	input wire start_en;
-	input wire restart_en;
-	input wire stop_en;
-	output wire busy;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// I2C tristate processing
