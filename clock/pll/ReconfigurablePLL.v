@@ -76,76 +76,65 @@
 			Wait for reconfig_cmd_done to go high. Do not change reconfig_output_*
 				during this time.
  */
-module ReconfigurablePLL(
-	clkin, clksel,
-	clkout,
-	reset, locked,
-	busy,
-	reconfig_clk,
-	reconfig_start, reconfig_finish, reconfig_cmd_done,
-	reconfig_vco_en, reconfig_vco_mult, reconfig_vco_indiv, reconfig_vco_bandwidth,
-	reconfig_output_en, reconfig_output_idx, reconfig_output_div
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O declarations
-
-	//Input clock
-	input wire[1:0]		clkin;
-	input wire			clksel;
-
-	//Output clocks
-	output wire[5:0]	clkout;
-
-	//Control I/O
-	input wire			reset;
-	output wire			locked;
-
-	//Reconfiguration commands
-	output reg			busy				= 1;
-	input wire			reconfig_clk;
-	input wire			reconfig_start;
-	input wire			reconfig_finish;
-	output reg			reconfig_cmd_done	= 0;
-	input wire			reconfig_vco_en;
-	input wire[6:0]		reconfig_vco_mult;
-	input wire[6:0]		reconfig_vco_indiv;
-	input wire			reconfig_vco_bandwidth;
-	input wire			reconfig_output_en;
-	input wire[2:0]		reconfig_output_idx;
-	input wire[7:0]		reconfig_output_div;
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Parameter declarations
-
+module ReconfigurablePLL #(
 	//Set the corresponding bit high to gate the output when the PLL is not locked
 	//Requires OUTPUT_BUF_GLOBAL or OUTPUT_BUF_LOCAL
-	parameter			OUTPUT_GATE			= 6'b111111;
+	parameter			OUTPUT_GATE			= 6'b111111,
 
 	//Set the corresponding bit high to use a global clock buffer on the output
-	parameter			OUTPUT_BUF_GLOBAL	= 6'b111111;
+	parameter			OUTPUT_BUF_GLOBAL	= 6'b111111,
 
 	//Set the corresponding bit high to use a local clock buffer on the output
-	parameter			OUTPUT_BUF_LOCAL	= 6'b000000;
+	parameter			OUTPUT_BUF_LOCAL	= 6'b000000,
 
 	//INPUT clock periods
-	parameter			IN0_PERIOD			= 50.0;		//50 ns = 20 MHz
-	parameter			IN1_PERIOD			= 50.0;
+	parameter			IN0_PERIOD			= 50.0,		//50 ns = 20 MHz
+	parameter			IN1_PERIOD			= 50.0,
 
 	//MINIMUM clock periods for the outputs, used for static timing.
 	//Attempts to change below this will give an error.
-	parameter			OUT0_MIN_PERIOD		= 10.000;
-	parameter			OUT1_MIN_PERIOD		= 10.000;
-	parameter			OUT2_MIN_PERIOD		= 10.000;
-	parameter			OUT3_MIN_PERIOD		= 10.000;
-	parameter			OUT4_MIN_PERIOD		= 10.000;
-	parameter			OUT5_MIN_PERIOD		= 10.000;
+	parameter			OUT0_MIN_PERIOD		= 10.000,
+	parameter			OUT1_MIN_PERIOD		= 10.000,
+	parameter			OUT2_MIN_PERIOD		= 10.000,
+	parameter			OUT3_MIN_PERIOD		= 10.000,
+	parameter			OUT4_MIN_PERIOD		= 10.000,
+	parameter			OUT5_MIN_PERIOD		= 10.000,
 
 	//Set true to automatically start in Fmax state
-	parameter			ACTIVE_ON_START			= 0;
+	parameter			ACTIVE_ON_START			= 0,
 
 	//Set true to print the initial PLL configuration at synthesis
-	parameter			PRINT_CONFIG			= 1;
+	parameter			PRINT_CONFIG			= 1
+) (
+	//Input clocks
+	input wire[1:0]	clkin,
+	input wire		clksel,
+
+	//Output clocks
+	output wire[5:0] clkout,
+
+	//Status/control
+	input wire		reset,
+	output wire		locked,
+
+	//Reconfiguration: core
+	output reg		busy = 1,
+	input wire		reconfig_clk,
+	input wire		reconfig_start,
+	input wire		reconfig_finish,
+	output reg		reconfig_cmd_done = 0,
+
+	//Reconfiguration: VCO
+	input wire		reconfig_vco_en,
+	input wire[6:0]	reconfig_vco_mult,
+	input wire[6:0]	reconfig_vco_indiv,
+	input wire		reconfig_vco_bandwidth,
+
+	//Reconfiguration: Outputs
+	input wire		reconfig_output_en,
+	input wire[2:0]	reconfig_output_idx,
+	input wire[7:0]	reconfig_output_div
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Sanity checks for timing analysis
