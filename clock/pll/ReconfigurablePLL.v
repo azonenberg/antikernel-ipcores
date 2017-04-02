@@ -71,7 +71,8 @@
 			Set reconfig_output_*
 				idx = index of output (0...5 are legal)
 				div = divisor
-				Phase shifting and duty cycle changing not currently supported
+				phase = phase offset (in 1/8 VCO periods)
+				Duty cycle changing not currently supported
 			Strobe reconfig_output_en high for one cycle
 			Wait for reconfig_cmd_done to go high. Do not change reconfig_output_*
 				during this time.
@@ -133,7 +134,8 @@ module ReconfigurablePLL #(
 	//Reconfiguration: Outputs
 	input wire		reconfig_output_en,
 	input wire[2:0]	reconfig_output_idx,
-	input wire[7:0]	reconfig_output_div
+	input wire[7:0]	reconfig_output_div,
+	input wire[8:0]	reconfig_output_phase
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -699,7 +701,7 @@ module ReconfigurablePLL #(
 					reg_wdata			<= 0;
 
 					//ClkReg1 has the same bit pattern for all of the channels (whew)
-					reg_wdata[15:13]	<= 0;							//not phase shifting
+					reg_wdata[15:13]	<= reconfig_output_phase[2:0];	//Fractional part of phase shift
 					reg_wdata[11:6]		<= reconfig_output_div[6:1];	//High time (half the multiplier)
 					reg_wdata[5:0]		<= reconfig_output_div[6:1];	//Low time
 
@@ -853,7 +855,7 @@ module ReconfigurablePLL #(
 					reg_wdata[9:8]			<= 0;							//reserved, must be zero
 					reg_wdata[7]			<= reconfig_output_div[0];		//flip VCO clock edge for odd duty cycles
 					reg_wdata[6]			<= (reconfig_output_div == 1);	//disable counter for divide-by-1
-					reg_wdata[5:0]			<= 0;							//no phase offset
+					reg_wdata[5:0]			<= reconfig_output_phase[8:3];	//phase offset
 
 					//Sadly, Xilinx decided to screw with us and make the registers not all the same layout!
 					case(reconfig_output_idx)
