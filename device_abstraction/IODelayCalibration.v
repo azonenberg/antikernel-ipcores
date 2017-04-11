@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2016 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -35,18 +35,18 @@
  */
 module IODelayCalibration(refclk
 	);
-	
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O declarations
-	
+
 	//Reference clock (always 200 MHz for now)
 	input wire refclk;
-	
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Reset logic
-	
+
 	reg			delay_reset = 1;
-	
+
 	//Minimum reset pulse for Kintex-7 is 52 ns or about 11 clocks at 200 MHz.
 	//Do 32 clocks just to be safe
 	reg[4:0]	reset_count	= 1;
@@ -56,20 +56,20 @@ module IODelayCalibration(refclk
 		else
 			reset_count		<= reset_count + 5'h1;
 	end
-	
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The delay calibration block
-	
+
 	`ifdef XILINX_7SERIES
-	
+
 		IDELAYCTRL delay_control_block (
 			.REFCLK(refclk),
 			.RST(delay_reset),
 			.RDY()					//ignore status output for now
 		);
-	
+
 	`endif
-	
+
 	//TODO: Other device families
-	
+
 endmodule

@@ -2,7 +2,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2016 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -37,7 +37,7 @@
 //note that this only supports -3 and -2 speed, not 3N and 1L
 function integer s6_iodelay_val_singletap;
 	input [3:0] ntap;
-	
+
 	//Speed grade 3
 	if(SPEED_GRADE == 3) begin
 		case(ntap)
@@ -52,7 +52,7 @@ function integer s6_iodelay_val_singletap;
 			8:	s6_iodelay_val_singletap = 322;
 		endcase
 	end
-	
+
 	//Speed grade 2
 	else if(SPEED_GRADE == 2) begin
 		case(ntap)
@@ -67,21 +67,21 @@ function integer s6_iodelay_val_singletap;
 			8:	s6_iodelay_val_singletap = 424;
 		endcase
 	end
-	
+
 	else begin
 		$display("Unrecognized speed grade");
 		$finish;
 	end
-	
+
 endfunction
 
 //Compute the delay for a Spartan-6 input delay line at a given tap count
 //see DS162 table 39 note 2
 function integer s6_iodelay_val;
-	input [31:0] ntap;		
+	input [31:0] ntap;
 	s6_iodelay_val = (ntap[31:3] * s6_iodelay_val_singletap(8)) + s6_iodelay_val_singletap(ntap[2:0]);
 endfunction
-	
+
 //Compute the number of taps to use for a given target delay
 function integer s6_target_delay;
 	input [31:0] target;
@@ -89,7 +89,7 @@ function integer s6_target_delay;
 	integer remaining_delay;
 	integer current_taps;
 	begin
-	
+
 		//Get rough tap count (8 taps at a time)
 		s6_target_delay = 0;
 		current_taps = 0;
@@ -98,7 +98,7 @@ function integer s6_target_delay;
 			current_taps = 8 * (target / s6_iodelay_val_singletap(8));
 			remaining_delay = target - (s6_iodelay_val_singletap(8) * current_taps/8);
 		end
-			
+
 		//We now have close to the desired number of taps
 		//Figure out how many additional taps we can fit
 		if(s6_iodelay_val_singletap(7) > remaining_delay)

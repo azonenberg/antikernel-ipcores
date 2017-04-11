@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2016 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -32,7 +32,7 @@
 	@file
 	@author Andrew D. Zonenberg
 	@brief An I/O delay line
-	
+
 	For now, we only support synthesis-time fixed delay values (no runtime tuning).
  */
 module IODelayBlock(
@@ -40,50 +40,50 @@ module IODelayBlock(
 	o_pad, o_fabric,
 	input_en
 	);
-	
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Parameter declarations
-	
+
 	parameter WIDTH = 16;
-	
+
 	parameter INPUT_DELAY	= 100;		//picoseconds
 	parameter OUTPUT_DELAY	= 100;		//picoseconds
 	parameter DIRECTION		= "INPUT";	//INPUT or OUTPUT only support for now (no IO mode yet)
-	
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O declarations
-	
+
 	input wire[WIDTH-1 : 0]		i_pad;				//input from pad to rx datapath
 	output wire[WIDTH-1 : 0]	i_fabric;			//output from rx datapath to fabric
 	output wire[WIDTH-1 : 0]	i_fabric_serdes;	//output from rx datapath to input SERDES
-	
+
 	output wire[WIDTH-1 : 0]	o_pad;				//output from tx datapath to pad
 	input wire[WIDTH-1 : 0]		o_fabric;			//input from fabric or serdes to tx datapath
-	
+
 	input wire		input_en;						//high = input, low = output
-	
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Delay tap calculation
-	
+
 	//Look up the speed grade passed in from Splash
 	localparam SPEED_GRADE = `XILINX_SPEEDGRADE;
-	
+
 	//Pull in chip-specific speed grade info
 	`include "IODelayBlock_spartan6.vh"
-		
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual delay block
-		
+
 	genvar i;
 	generate
 		for(i=0; i<WIDTH; i = i+1) begin: delays
-	
+
 			//Fixed uncalibrated delays for Spartan-6
 			`ifdef XILINX_SPARTAN6
-			
+
 				localparam input_delay_taps = s6_target_delay(INPUT_DELAY);
 				localparam output_delay_taps = s6_target_delay(OUTPUT_DELAY);
-				
+
 				//Sanity check, max number of taps is 255
 				initial begin
 					if(input_delay_taps > 255) begin
@@ -97,7 +97,7 @@ module IODelayBlock(
 						$finish;
 					end
 				end
-				
+
 				//The actual delay block
 				//Keep it in IO mode so we can use the same module as input and output with minimal changes
 				IODELAY2 #(
@@ -127,7 +127,7 @@ module IODelayBlock(
 					.TOUT(),				//tristate not implemented
 					.DOUT(o_pad[i])
 				);
-				
+
 				//Print stats
 				initial begin
 					if(i == 0) begin
@@ -137,19 +137,19 @@ module IODelayBlock(
 							OUTPUT_DELAY, s6_iodelay_val(output_delay_taps) / 3, s6_iodelay_val(output_delay_taps));
 					end
 				end
-				
+
 			`endif
-			
+
 			//PTV-calibrated delays for 7 series
 			//For now, we only support fixed delays and assume the reference clock is 200 MHz
 			//(300/400 MHz refclk only supported in -2 and -3 speed grades for 7 series)
 			//Delays for artix7 and kintex7 are the same
 			`ifdef XILINX_7SERIES
-			
+
 				localparam tap_size				= 78;	//78.125 ps per tap at 200 MHz
 				localparam input_delay_taps 	= INPUT_DELAY / tap_size;
 				localparam output_delay_taps	= INPUT_DELAY / tap_size;
-			
+
 				//Sanity check, max number of taps is 31
 				initial begin
 					if(input_delay_taps > 31) begin
@@ -163,10 +163,10 @@ module IODelayBlock(
 						$finish;
 					end
 				end
-			
+
 				//Create the input delay
 				if(DIRECTION == "IN") begin
-				
+
 					//Create the IDELAY block
 					IDELAYE2 #(
 						.IDELAY_TYPE("FIXED"),
@@ -191,11 +191,11 @@ module IODelayBlock(
 						.DATAOUT(i_fabric[i]),
 						.CNTVALUEOUT()
 					);
-				
+
 					assign o_pad[i]				= 0;
 					assign i_fabric_serdes[i]	= i_fabric[i];
 				end
-				
+
 				else if(DIRECTION == "OUT") begin
 					//ODELAY not implemented for 7 series yet
 					/*
@@ -206,7 +206,7 @@ module IODelayBlock(
 					*/
 					assign o_pad[i]				= o_fabric[i];
 				end
-				
+
 				//Print stats
 				initial begin
 					if(i == 0) begin
@@ -216,14 +216,14 @@ module IODelayBlock(
 							OUTPUT_DELAY, input_delay_taps * tap_size);
 					end
 				end
-				
+
 			`endif
-			
+
 		end
 	endgenerate
-	
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Delay calibration during initialization
-	
+
 endmodule
 
