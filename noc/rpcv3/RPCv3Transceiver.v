@@ -253,7 +253,8 @@ module RPCv3Transceiver
 					tx_pending	<= 0;
 
 				//If we try to send when rx isn't ready, save it until they are
-				if(rpc_fab_tx_en && !rpc_tx_ready)
+				//Send requests during a transmit cycle are ignored.
+				if(rpc_fab_tx_en && !rpc_tx_ready && !tx_active)
 					tx_pending	<= 1;
 
 			end
@@ -316,8 +317,9 @@ module RPCv3Transceiver
 				if(tx_active)
 					tx_pending	<= 0;
 
-				//If we try to send when rx isn't ready, save it until they are
-				if(rpc_fab_tx_en && !rpc_tx_ready)
+				//If we try to send when rx isn't ready, save it until they are.
+				//Send requests during a transmit cycle are ignored.
+				if(rpc_fab_tx_en && !rpc_tx_ready && !tx_active)
 					tx_pending	<= 1;
 
 				//Increment word counter
