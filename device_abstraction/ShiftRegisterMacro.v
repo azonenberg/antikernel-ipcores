@@ -93,16 +93,30 @@ module ShiftRegisterPrimitiveWrapper #(
 
 	generate
 		if(DEPTH == 32) begin
-			SRLC32E #(
-				.INIT(32'h00000000)
-			) shreg (
-				.Q(dout),
-				.Q31(),		//cascade output not used yet
-				.A(addr),
-				.CE(ce),
-				.CLK(clk),
-				.D(din)
-			);
+
+			//instantiate the Xilinx primitive
+			`ifndef FORMAL
+				SRLC32E #(
+					.INIT(32'h00000000)
+				) shreg (
+					.Q(dout),
+					.Q31(),		//cascade output not used yet
+					.A(addr),
+					.CE(ce),
+					.CLK(clk),
+					.D(din)
+				);
+
+			//simple behavioral model
+			`else
+				reg[31:0] data = 0;
+				assign dout = data[addr];
+				always @(posedge clk) begin
+					if(ce)
+						data <= {data[30:0], din};
+				end
+			`endif
+
 		end
 		else begin
 			initial begin
