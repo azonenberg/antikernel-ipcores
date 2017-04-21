@@ -131,9 +131,9 @@ module SingleClockFifo(
 			//Empty? Can't do anything
 			if(empty) begin
 				underflow <= 1;
-				// synthesis translate_off
+				`ifdef SIMULATION
 				$display("[SingleClockFifo] %m WARNING: Underflow occurred!");
-				// synthesis translate_on
+				`endif
 			end
 
 			//All is well, bump stuff
@@ -149,9 +149,9 @@ module SingleClockFifo(
 			//Full? Error
 			if(full) begin
 				overflow <= 1;
-				// synthesis translate_off
+				`ifdef SIMULATION
 				$display("[SingleClockFifo] %m WARNING: Overflow occurred!");
-				// synthesis translate_on
+				`endif
 			end
 
 			//No, just write
@@ -168,6 +168,8 @@ module SingleClockFifo(
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// The memory
 
+	wire[WIDTH-1:0] porta_unused;
+
 	MemoryMacro #(
 		.WIDTH(WIDTH),
 		.DEPTH(DEPTH),
@@ -183,7 +185,7 @@ module SingleClockFifo(
 		.porta_addr(wpos[ADDR_BITS-1 : 0]),
 		.porta_we(!full),
 		.porta_din(din),
-		.porta_dout(),
+		.porta_dout(porta_unused),
 		.portb_clk(clk),
 		.portb_en(rd),
 		.portb_addr(rpos[ADDR_BITS-1 : 0]),
