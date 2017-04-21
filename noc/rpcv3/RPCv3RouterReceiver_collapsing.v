@@ -134,15 +134,26 @@ module RPCv3RouterReceiver_collapsing
 	//Number of clocks it takes to receive a message
 	localparam MESSAGE_CYCLES = 128 / IN_DATA_WIDTH;
 
+	//Number of clocks it takes to buffer a message
+	localparam OUT_CYCLES = 128 / OUT_DATA_WIDTH;
+
 	//Number of bits we need in the cycle counter
 	`include "../../synth_helpers/clog2.vh"
 	localparam CYCLE_BITS = clog2(MESSAGE_CYCLES);
 	localparam CYCLE_MAX = CYCLE_BITS ? CYCLE_BITS-1 : 0;
 
-	//Calculate the expansion ratio (number of input words per output word)
+	localparam OUT_CYCLE_BITS = clog2(OUT_CYCLES);
+	localparam OUT_CYCLE_MAX = OUT_CYCLE_BITS ? OUT_CYCLE_BITS-1 : 0;
+
+	//Calculate the expansion ratio (number of output words per input word)
 	//Always 2, 4, or 8
-	//localparam EXPANSION_RATIO = OUT_DATA_WIDTH / IN_DATA_WIDTH;
-	//localparam PHASE_BITS = clog2(EXPANSION_RATIO);
+	//localparam COLLAPSE_RATIO = OUT_DATA_WIDTH / IN_DATA_WIDTH;
+	//localparam PHASE_BITS = clog2(COLLAPSE_RATIO);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// FIFO of data being received
+
+
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main RX logic
@@ -159,17 +170,17 @@ module RPCv3RouterReceiver_collapsing
 
 	always @(posedge clk) begin
 
-		/*
-
 		rpc_fab_rx_data_valid			<= 0;
 		rpc_fab_rx_packet_done			<= 0;
 
 		//Process incoming data words
 		if(rx_active) begin
 
+			//
+
 			//Shift new data into the output register.
 			//Leftmost word comes in first, so we shift from right to left
-			rpc_fab_rx_data				<= { rpc_fab_rx_data[OUT_DATA_WIDTH-IN_DATA_WIDTH : 0], rpc_rx_data };
+			//rpc_fab_rx_data				<= { rpc_fab_rx_data[OUT_DATA_WIDTH-IN_DATA_WIDTH : 0], rpc_rx_data };
 
 			//Update word count as we move through the message
 			if(rx_starting)
@@ -178,9 +189,10 @@ module RPCv3RouterReceiver_collapsing
 				rx_count				<= rx_count + 1'h1;
 
 			//If we're at the final phase of this output word, report it
-			if(rx_count[PHASE_BITS-1:0] == {PHASE_BITS{1'b1}})
-				rpc_fab_rx_data_valid	<= 1'b1;
+			//if(rx_count[PHASE_BITS-1:0] == {PHASE_BITS{1'b1}})
+			//	rpc_fab_rx_data_valid	<= 1'b1;
 
+			/*
 			//Stop at end of message
 			//IN_DATA_WIDTH = 128 is illegal
 			if( (IN_DATA_WIDTH == 64) && (rx_count == 1) ) begin
@@ -195,10 +207,9 @@ module RPCv3RouterReceiver_collapsing
 				rpc_fab_rx_packet_done	<= 1;
 				rx_count				<= 0;
 			end
+			*/
 
 		end
-
-		*/
 
 	end
 
