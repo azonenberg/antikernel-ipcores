@@ -35,7 +35,7 @@
  */
 
 module ShiftRegisterMacro #(
-	parameter WIDTH =16,
+	parameter WIDTH = 16,
 	parameter DEPTH = 32,
 	parameter ADDR_BITS = 5
 ) (
@@ -51,8 +51,8 @@ module ShiftRegisterMacro #(
 
 	generate
 		initial begin
-			if(DEPTH != 32) begin
-				$display("ERROR - ShiftRegisterMacro only supports depth value 32 for now");
+			if(DEPTH > 32) begin
+				$display("ERROR - ShiftRegisterMacro only supports depth values less than 32 for now");
 				$finish;
 			end
 		end
@@ -61,18 +61,44 @@ module ShiftRegisterMacro #(
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// The RAM itself
 
-	genvar i;
-	generate
-		for(i=0; i<WIDTH; i = i+1) begin: shregblock
-			ShiftRegisterPrimitiveWrapper #(.DEPTH(DEPTH), .ADDR_BITS(ADDR_BITS)) shregbit (
-				.clk(clk),
-				.addr(addr),
-				.din(din[i]),
-				.ce(ce),
-				.dout(dout[i])
-				);
+	`ifndef FORMAL
+		genvar i;
+		generate
+			for(i=0; i<WIDTH; i = i+1) begin: shregblock
+				ShiftRegisterPrimitiveWrapper #(.DEPTH(32), .ADDR_BITS(ADDR_BITS)) shregbit (
+					.clk(clk),
+					.addr(addr),
+					.din(din[i]),
+					.ce(ce),
+					.dout(dout[i])
+					);
+			end
+		endgenerate
+
+	`else
+
+		//More easily constrainable behavioral simulation model
+		//We can easily constrain this with a .smtc file to match an inferred RAM, MemoryMacro, etc
+
+		integer i;
+
+		reg[WIDTH-1 : 0] storage[DEPTH-1 : 0];
+		assign dout = storage[addr];
+
+		initial begin
+			for(i=0; i<DEPTH; i=i+1)
+				storage[i] <= 0;
 		end
-	endgenerate
+
+		always @(posedge clk) begin
+			if(ce) begin
+				for(i=DEPTH-1; i>=1; i=i-1)
+					storage[i] <= storage[i-1];
+				storage[0] <= din;
+			end
+		end
+
+	`endif
 
 endmodule
 
