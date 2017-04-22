@@ -38,15 +38,9 @@
 	Note that the reset line clears the FIFO to the empty state, regardless of the power-on init value
 
 	RESOURCE COMPARISON
-		Not using rsize/wsize
-			Core/config				LUT		FF		Slice
-			RAM 32x4				52		42		21
-			SRL 32x4				37		37		12
-
-		All ports enabled
-			Core/config				LUT		FF		Slice
-			RAM 32x4				53		42		19
-			SRL 32x4				37		38		12
+		Core/config				LUT		FF		Slice
+		RAM 32x4				x
+		SRL 32x4				x
  */
 module SingleClockShiftRegisterFifo(
 	clk,
@@ -134,7 +128,7 @@ module SingleClockShiftRegisterFifo(
 	wire[ADDR_BITS:0]			drpos = rpos - 1'd1;
 
 	assign empty				= (rpos == EMPTY);			//if read pointer is at address -1, we have nothing to read
-	assign full					= (rpos == DEPTH);			//if read pointer is at far end of shreg, we're full
+	assign full					= (rpos == DEPTH - 1'b1);	//if read pointer is at far end of shreg, we're full
 
 	//The number of values currently ready to read
 	//rpos = -1			empty
@@ -147,6 +141,10 @@ module SingleClockShiftRegisterFifo(
 	//rpos = 0			DEPTH-1
 	//etc
 	assign wsize				= DEPTH[ADDR_BITS:0] - 1'd1 - rpos;
+
+	//Filtered read/write flags (only move pointer if the requested operation was legal)
+	wire rd_gated				= (rd && !empty);
+	wire wr_gated				= (wr && !full);
 
 	//Main state logic
 	always @(posedge clk) begin
@@ -170,7 +168,7 @@ module SingleClockShiftRegisterFifo(
 
 			//Read pointer goes DOWN since we now are reading earlier in the buffer (there's less stuff in it).
 			//Do *not* bump pointer if we're also writing, since then the shreg is moving and we don't have to
-			else if(!wr)
+			else if(!wr_gated)
 				rpos <= drpos;
 
 		end
@@ -188,7 +186,7 @@ module SingleClockShiftRegisterFifo(
 
 			//Read pointer goes UP since we are now reading later in the buffer (there's more stuff in it).
 			//Do *not* bump pointer if we're also reading
-			else
+			else if(!rd_gated)
 				rpos <= irpos;
 
 		end
@@ -219,13 +217,13 @@ module SingleClockShiftRegisterFifo(
 	//The actual shreg block
 	ShiftRegisterMacro #(
 		.WIDTH(WIDTH),
-		.DEPTH(32),
+		.DEPTH(DEPTH),
 		.ADDR_BITS(5)
 	) shreg (
 		.clk(clk),
 		.addr(rpos_padded[4:0]),
 		.din(din),
-		.ce(wr),
+		.ce(wr_gated),
 		.dout(dout_raw)
 	);
 

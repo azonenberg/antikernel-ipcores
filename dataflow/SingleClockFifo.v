@@ -108,7 +108,11 @@ module SingleClockFifo(
 	wire[ADDR_BITS:0]			iwpos = wpos + 1'd1;
 
 	assign empty				= (rpos == wpos);			//if write pointer is at read pointer we're empty
-	assign full					= (wpos == rpos + DEPTH);	//if write pointer is at far end of buffer, we're full
+
+	//If write pointer is at far end of buffer, we're full.
+	//Overlapping pointers are easily detected: they're equal mod DEPTH, but not equal
+	assign full					=	(wpos[ADDR_BITS-1:0] == rpos[ADDR_BITS-1:0]) &&
+									(wpos[ADDR_BITS] != rpos[ADDR_BITS]);	
 
 	//The number of values currently ready to read
 	assign rsize				= wpos - rpos;
@@ -186,6 +190,7 @@ module SingleClockFifo(
 		.porta_we(!full),
 		.porta_din(din),
 		.porta_dout(porta_unused),
+
 		.portb_clk(clk),
 		.portb_en(rd),
 		.portb_addr(rpos[ADDR_BITS-1 : 0]),
