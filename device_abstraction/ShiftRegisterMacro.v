@@ -32,6 +32,12 @@
 	@file
 	@author Andrew D. Zonenberg
 	@brief A parameterizable width / depth (addressable up to 32 bits for now) shift register.
+
+	dout_concat is a concatenated copy of the shift register elements for use in formal verification only.
+	Do not use it for synthesis.
+
+	dout_concat[n-1 : 0]	storage[0]
+	dout_concat[n*2-1 : n]	storage[1]
  */
 
 module ShiftRegisterMacro #(
@@ -44,6 +50,10 @@ module ShiftRegisterMacro #(
 	input wire[WIDTH-1 : 0] din,
 	input wire ce,
 	output wire[WIDTH-1 : 0] dout
+
+	`ifdef FORMAL
+	, output reg[WIDTH*DEPTH - 1 : 0] dout_concat
+	`endif
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
@@ -98,6 +108,16 @@ module ShiftRegisterMacro #(
 			end
 		end
 
+	`endif
+
+	////////////////////////////////////////////////////////////////////////////////////////////////
+	// Dedicated output for formal verification only
+
+	`ifdef FORMAL
+		always @(*) begin
+			for(i=0; i<DEPTH; i=i+1)
+				dout_concat[i*WIDTH +: WIDTH] <= storage[i];
+		end
 	`endif
 
 endmodule
