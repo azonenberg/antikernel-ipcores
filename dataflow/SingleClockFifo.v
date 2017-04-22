@@ -112,7 +112,7 @@ module SingleClockFifo(
 	//If write pointer is at far end of buffer, we're full.
 	//Overlapping pointers are easily detected: they're equal mod DEPTH, but not equal
 	assign full					=	(wpos[ADDR_BITS-1:0] == rpos[ADDR_BITS-1:0]) &&
-									(wpos[ADDR_BITS] != rpos[ADDR_BITS]);	
+									(wpos[ADDR_BITS] != rpos[ADDR_BITS]);
 
 	//The number of values currently ready to read
 	assign rsize				= wpos - rpos;
