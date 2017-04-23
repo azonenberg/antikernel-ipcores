@@ -47,6 +47,10 @@ module SingleClockShiftRegisterFifo(
 	wr, din,
 	rd, dout,
 	overflow, underflow, empty, full, rsize, wsize, reset
+
+	`ifdef FORMAL
+	, dout_formal
+	`endif
     );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -96,6 +100,10 @@ module SingleClockShiftRegisterFifo(
 	output wire[ADDR_BITS:0]	wsize;
 
 	input wire					reset;
+
+	`ifdef FORMAL
+	output reg[WIDTH*DEPTH-1 : 0] dout_formal;
+	`endif
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Sanity checks
@@ -214,6 +222,10 @@ module SingleClockShiftRegisterFifo(
 	//Trim off top bit and pad read address out to 5 bits as needed
 	wire[ADDR_BITS+5 : 0]		rpos_padded = {5'b0, rpos[ADDR_BITS-1:0]};
 
+	`ifdef FORMAL
+	wire[WIDTH*DEPTH-1 : 0] dout_concat;
+	`endif
+
 	//The actual shreg block
 	ShiftRegisterMacro #(
 		.WIDTH(WIDTH),
@@ -225,6 +237,33 @@ module SingleClockShiftRegisterFifo(
 		.din(din),
 		.ce(wr_gated),
 		.dout(dout_raw)
+
+		`ifdef FORMAL
+		, .dout_concat(dout_concat)
+		`endif
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Formal verification helper
+
+	`ifdef FORMAL
+
+		integer i;
+		always @(*) begin
+
+			for(i=0; i<DEPTH; i=i+1) begin
+
+				//If we're in the valid part of the memory, output it
+				if(i < rsize)
+					dout_formal[i*WIDTH +: WIDTH]	<= dout_concat[ (DEPTH - 1 - i)*WIDTH +: WIDTH];
+
+				//Nope, output zeroes
+				else
+					dout_formal[i*WIDTH +: WIDTH]	<= {WIDTH{1'b0}};
+
+			end
+		end
+
+	`endif
 
 endmodule

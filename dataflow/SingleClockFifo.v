@@ -40,6 +40,10 @@ module SingleClockFifo(
 	wr, din,
 	rd, dout,
 	overflow, underflow, empty, full, rsize, wsize, reset
+
+	`ifdef FORMAL
+	, dout_formal
+	`endif
     );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -97,6 +101,10 @@ module SingleClockFifo(
 	output wire[ADDR_BITS:0]	wsize;
 
 	input wire					reset;
+
+	`ifdef FORMAL
+	output reg[WIDTH*DEPTH-1 : 0] dout_formal;
+	`endif
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Control logic
@@ -169,10 +177,17 @@ module SingleClockFifo(
 
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The memory
 
 	wire[WIDTH-1:0] porta_unused;
+
+	`ifdef FORMAL
+	//Apply offset so dout_concat is relative to our sliding window.
+	//We want the word about to be popped to be at the MSB position.
+	wire[WIDTH*DEPTH-1 : 0] dout_concat;
+	wire[ADDR_BITS:0] read_offset = wpos;
+	`endif
 
 	MemoryMacro #(
 		.WIDTH(WIDTH),
@@ -197,6 +212,34 @@ module SingleClockFifo(
 		.portb_we(1'b0),
 		.portb_din({WIDTH{1'b0}}),
 		.portb_dout(dout)
+
+		`ifdef FORMAL
+		, .dout_concat_offset(read_offset[ADDR_BITS-1 : 0])
+		, .dout_concat(dout_concat)
+		`endif
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Formal verification helper
+
+	`ifdef FORMAL
+
+		integer i;
+		always @(*) begin
+
+			for(i=0; i<DEPTH; i=i+1) begin
+
+				//If we're in the valid part of the memory, output it
+				if(i < rsize)
+					dout_formal[i*WIDTH +: WIDTH]	<= dout_concat[ (DEPTH - 1 - i)*WIDTH +: WIDTH];
+
+				//Nope, output zeroes
+				else
+					dout_formal[i*WIDTH +: WIDTH]	<= {WIDTH{1'b0}};
+
+			end
+		end
+
+	`endif
 
 endmodule
