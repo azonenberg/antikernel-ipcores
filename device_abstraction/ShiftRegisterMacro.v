@@ -36,8 +36,8 @@
 	dout_concat is a concatenated copy of the shift register elements for use in formal verification only.
 	Do not use it for synthesis.
 
-	dout_concat[n-1 : 0]	storage[0]
-	dout_concat[n*2-1 : n]	storage[1]
+	dout_concat is LEFT aligned!
+	MSB is most recent word pushed
  */
 
 module ShiftRegisterMacro #(
@@ -116,7 +116,7 @@ module ShiftRegisterMacro #(
 	`ifdef FORMAL
 		always @(*) begin
 			for(i=0; i<DEPTH; i=i+1)
-				dout_concat[i*WIDTH +: WIDTH] <= storage[i];
+				dout_concat[i*WIDTH +: WIDTH] <= storage[DEPTH - i - 1];
 		end
 	`endif
 

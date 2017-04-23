@@ -42,13 +42,17 @@
 		INIT_ADDR
 		INIT_FILE
 		INIT_VALUE
+
+	dout_concat[n-1 : 0]	= storage[dout_concat_offset]
+	dout_concat[2*n-1 : n]	= storage[dout_concat_offset + 1]
+	etc
  */
 module MemoryMacro(
 	porta_clk, porta_en, porta_addr, porta_we, porta_din, porta_dout,
 	portb_clk, portb_en, portb_addr, portb_we, portb_din, portb_dout
 
 	`ifdef FORMAL
-	, porta_dout_comb, portb_dout_comb, dout_concat
+	, porta_dout_comb, portb_dout_comb, dout_concat, dout_concat_offset
 	`endif
 	);
 
@@ -111,11 +115,13 @@ module MemoryMacro(
 	`ifdef FORMAL
 
 	//Always-combinatorial output used by formal tools to inspect the memory
-	output wire[WIDTH-1 : 0]	porta_dout_comb;
-	output wire[WIDTH-1 : 0]	portb_dout_comb;
+	output wire[WIDTH-1 : 0]		porta_dout_comb;
+	output wire[WIDTH-1 : 0]		portb_dout_comb;
 
 	//Concatenated copy of the entire memory used by formal tools
 	output wire[WIDTH*DEPTH-1 : 0]	dout_concat;
+
+	input wire[ADDR_BITS-1 : 0]		dout_concat_offset;
 
 	`endif
 
@@ -174,7 +180,7 @@ module MemoryMacro(
 	`ifdef FORMAL
 		always @(*) begin
 			for(i=0; i<DEPTH; i=i+1)
-				dout_concat[i*WIDTH +: WIDTH] <= storage[i];
+				dout_concat[i*WIDTH +: WIDTH] <= storage[i + dout_concat_offset];
 		end
 	`endif
 
