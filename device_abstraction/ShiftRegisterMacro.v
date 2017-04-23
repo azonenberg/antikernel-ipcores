@@ -116,7 +116,7 @@ module ShiftRegisterMacro #(
 	`ifdef FORMAL
 		always @(*) begin
 			for(i=0; i<DEPTH; i=i+1)
-				dout_concat[i*WIDTH +: WIDTH] <= storage[DEPTH + i - 1];
+				dout_concat[i*WIDTH +: WIDTH] <= storage[DEPTH - i - 1];
 		end
 	`endif
 
