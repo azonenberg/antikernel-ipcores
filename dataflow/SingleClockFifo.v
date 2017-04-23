@@ -132,11 +132,6 @@ module SingleClockFifo(
 		overflow <= 0;
 		underflow <= 0;
 
-		if(reset) begin
-			rpos <= 0;
-			wpos <= 0;
-		end
-
 		//Read
 		if(rd) begin
 
@@ -174,6 +169,12 @@ module SingleClockFifo(
 		end
 
 		//read during write when empty not legal
+
+		//Reset takes precedence over everything else
+		if(reset) begin
+			rpos <= 0;
+			wpos <= 0;
+		end
 
 	end
 

@@ -160,9 +160,6 @@ module SingleClockShiftRegisterFifo(
 		overflow <= 0;
 		underflow <= 0;
 
-		if(reset)
-			rpos <= EMPTY;
-
 		//Read
 		if(rd) begin
 
@@ -200,6 +197,10 @@ module SingleClockShiftRegisterFifo(
 		end
 
 		//read during write when empty not legal
+
+		//Reset takes precedence over everything else
+		if(reset)
+			rpos <= EMPTY;
 
 	end
 
