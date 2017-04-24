@@ -220,31 +220,30 @@ module RPCv3RouterReceiver_collapsing
 		fifo_rd							<= !fifo_empty && (!fifo_dout_valid || last_word_in_buffer);
 	end
 
+	//Combinatorial muxing of the output to save a bit of time
+	always @(*) begin
+		rpc_fab_rx_data_valid			<= fifo_dout_valid;
+		rpc_fab_rx_packet_done			<= fifo_empty && last_word_in_buffer;
+
+		for(i=0; i<COLLAPSE_RATIO; i=i+1) begin
+			if(i == out_pos)
+				rpc_fab_rx_data		<= fifo_dout[OUT_DATA_WIDTH*(COLLAPSE_MAX - i) +: OUT_DATA_WIDTH];
+		end
+	end
+
 	integer i;
 	always @(posedge clk) begin
-
-		rpc_fab_rx_data_valid			<= 0;
-		rpc_fab_rx_packet_done			<= 0;
 
 		//Update status flags as we read data from the FIFO
 		if(fifo_rd)
 			fifo_dout_valid				<= 1;
 
-		//Mux the FIFO output to the output register
-		if(fifo_dout_valid) begin
-			rpc_fab_rx_data_valid		<= 1;
-
-			for(i=0; i<COLLAPSE_RATIO; i=i+1) begin
-				if(i == out_pos)
-					rpc_fab_rx_data		<= fifo_dout[OUT_DATA_WIDTH*(COLLAPSE_MAX - i) +: OUT_DATA_WIDTH];
-			end
-
+		//Keep track of position in the output word
+		if(fifo_dout_valid)
 			out_pos						<= out_pos + 1'h1;
-		end
 
-		//If we're currently processing the last word of the message, set the done flag
-		if(fifo_empty && last_word_in_buffer) begin
-			rpc_fab_rx_packet_done		<= 1;
+		//Clear state on the last word
+		if(rpc_fab_rx_packet_done) begin
 			rx_count					<= 0;
 			fifo_dout_valid				<= 0;
 			out_pos						<= 0;
