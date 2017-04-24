@@ -39,8 +39,8 @@
 
 	RESOURCE COMPARISON
 		Core/config				LUT		FF		Slice
-		RAM 32x4				x
-		SRL 32x4				x
+		RAM 32x4				42		47		15
+		SRL 32x4				39		38		13
  */
 module SingleClockShiftRegisterFifo(
 	clk,
