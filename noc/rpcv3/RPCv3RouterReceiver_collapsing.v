@@ -121,7 +121,7 @@ module RPCv3RouterReceiver_collapsing
 
 		endcase
 
-		if(IN_DATA_WIDTH > OUT_DATA_WIDTH) begin
+		if(IN_DATA_WIDTH <= OUT_DATA_WIDTH) begin
 			$display("ERROR: RPCv3RouterReceiver_collapsing IN_DATA_WIDTH must be greater than OUT_DATA_WIDTH");
 			$finish;
 		end
@@ -133,8 +133,9 @@ module RPCv3RouterReceiver_collapsing
 
 	//Number of clocks it takes to receive a message
 	localparam MESSAGE_CYCLES = 128 / IN_DATA_WIDTH;
+	localparam MESSAGE_MAX = MESSAGE_CYCLES - 1;
 
-	//Number of clocks it takes to buffer a message
+	//Number of clocks it takes to re-send a message
 	localparam OUT_CYCLES = 128 / OUT_DATA_WIDTH;
 
 	//Number of bits we need in the cycle counter
@@ -145,15 +146,48 @@ module RPCv3RouterReceiver_collapsing
 	localparam OUT_CYCLE_BITS = clog2(OUT_CYCLES);
 	localparam OUT_CYCLE_MAX = OUT_CYCLE_BITS ? OUT_CYCLE_BITS-1 : 0;
 
-	//Calculate the expansion ratio (number of output words per input word)
+	//Calculate the collapsing ratio (number of output words per input word)
 	//Always 2, 4, or 8
-	//localparam COLLAPSE_RATIO = OUT_DATA_WIDTH / IN_DATA_WIDTH;
-	//localparam PHASE_BITS = clog2(COLLAPSE_RATIO);
+	localparam COLLAPSE_RATIO = IN_DATA_WIDTH / OUT_DATA_WIDTH;
+	localparam COLLAPSE_MAX = COLLAPSE_RATIO - 1;
+	localparam COLLAPSE_BITS = clog2(COLLAPSE_RATIO);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// FIFO of data being received
 
+	wire						fifo_wr;
+	reg							fifo_rd		= 0;
 
+	wire						fifo_empty;
+
+	wire[IN_DATA_WIDTH-1:0]		fifo_dout;
+
+	wire						unused_full;
+	wire						unused_underflow;
+	wire						unused_overflow;
+	wire[CYCLE_BITS:0]			unused_rsize;
+	wire[CYCLE_BITS:0]			unused_wsize;
+
+	SingleClockShiftRegisterFifo #(
+		.WIDTH(IN_DATA_WIDTH),
+		.DEPTH(MESSAGE_CYCLES),
+		.OUT_REG(1)
+	) rx_fifo (
+		.clk(clk),
+		.wr(fifo_wr),
+		.din(rpc_rx_data),
+
+		.rd(fifo_rd),
+		.dout(fifo_dout),
+		.overflow(unused_overflow),
+		.underflow(unused_underflow),
+		.empty(fifo_empty),
+		.full(unused_full),
+		.rsize(unused_rsize),
+		.wsize(unused_wsize),
+
+		.reset(1'b0)		//never reset the fifo
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main RX logic
@@ -167,20 +201,63 @@ module RPCv3RouterReceiver_collapsing
 
 	//True if a receive is in progress
 	wire					rx_active		= (rx_count != 0) || rx_starting;
+	assign 					fifo_wr			= rx_active;
 
+	//True if fifo_dout contains a valid data word
+	reg						fifo_dout_valid	= 0;
+
+	//Position within the output word (in OUT_DATA_WIDTH-bit units)
+	reg[COLLAPSE_BITS-1:0]	out_pos		= 0;
+
+	//True if a transmit (to our host) is active
+	wire					tx_active		= (fifo_dout_valid || !fifo_empty);
+
+	//True if we are currently at the last word in fifo_dout
+	wire					last_word_in_buffer = (out_pos == COLLAPSE_MAX);
+
+	//If we have data in the FIFO, and our current word is missing or done, go read another one
+	always @(*) begin
+		fifo_rd							<= !fifo_empty && (!fifo_dout_valid || last_word_in_buffer);
+	end
+
+	integer i;
 	always @(posedge clk) begin
 
 		rpc_fab_rx_data_valid			<= 0;
 		rpc_fab_rx_packet_done			<= 0;
 
+		//Update status flags as we read data from the FIFO
+		if(fifo_rd)
+			fifo_dout_valid				<= 1;
+
+		//Mux the FIFO output to the output register
+		if(fifo_dout_valid) begin
+			rpc_fab_rx_data_valid		<= 1;
+
+			for(i=0; i<COLLAPSE_RATIO; i=i+1) begin
+				if(i == out_pos)
+					rpc_fab_rx_data		<= fifo_dout[OUT_DATA_WIDTH*(COLLAPSE_MAX - i) +: OUT_DATA_WIDTH];
+			end
+
+			out_pos						<= out_pos + 1'h1;
+		end
+
+		//If we're currently processing the last word of the message, set the done flag
+		if(fifo_empty && last_word_in_buffer) begin
+			rpc_fab_rx_packet_done		<= 1;
+			rx_count					<= 0;
+			fifo_dout_valid				<= 0;
+			out_pos						<= 0;
+		end
+
 		//Process incoming data words
 		if(rx_active) begin
 
-			//
-
-			//Shift new data into the output register.
-			//Leftmost word comes in first, so we shift from right to left
-			//rpc_fab_rx_data				<= { rpc_fab_rx_data[OUT_DATA_WIDTH-IN_DATA_WIDTH : 0], rpc_rx_data };
+			//Clear some status flags at the start of a new message
+			if(rx_starting) begin
+				out_pos					<= 0;
+				fifo_dout_valid			<= 0;
+			end
 
 			//Update word count as we move through the message
 			if(rx_starting)
@@ -188,45 +265,26 @@ module RPCv3RouterReceiver_collapsing
 			else
 				rx_count				<= rx_count + 1'h1;
 
-			//If we're at the final phase of this output word, report it
-			//if(rx_count[PHASE_BITS-1:0] == {PHASE_BITS{1'b1}})
-			//	rpc_fab_rx_data_valid	<= 1'b1;
-
-			/*
-			//Stop at end of message
-			//IN_DATA_WIDTH = 128 is illegal
-			if( (IN_DATA_WIDTH == 64) && (rx_count == 1) ) begin
-				rpc_fab_rx_packet_done	<= 1;
+			//When we hit the end of the message, stop
+			if(rx_count == MESSAGE_MAX)
 				rx_count				<= 0;
-			end
-			else if( (IN_DATA_WIDTH == 32) && (rx_count == 3) ) begin
-				rpc_fab_rx_packet_done	<= 1;
-				rx_count				<= 0;
-			end
-			else if( (IN_DATA_WIDTH == 16) && (rx_count == 7) ) begin
-				rpc_fab_rx_packet_done	<= 1;
-				rx_count				<= 0;
-			end
-			*/
 
 		end
 
 	end
 
-	/*
 	//Ready to receive if the fabric side is ready.
 	//Once we go ready, go un-ready when a message comes in.
 	reg		rpc_rx_ready_ff	= 0;
 	always @(posedge clk) begin
 		if(rpc_rx_en)
 			rpc_rx_ready_ff		<= 0;
-		if(rpc_fab_rx_space_available)
+		if(rpc_fab_rx_space_available && !rx_active && !tx_active)
 			rpc_rx_ready_ff		<= 1;
 	end
 
 	always @(*) begin
 		rpc_rx_ready			<= rpc_rx_ready_ff;
 	end
-	*/
 
 endmodule
