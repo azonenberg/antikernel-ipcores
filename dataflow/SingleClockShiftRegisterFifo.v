@@ -37,7 +37,7 @@
 
 	Note that the reset line clears the FIFO to the empty state, regardless of the power-on init value
 
-	RESOURCE COMPARISON
+	RESOURCE COMPARISON (ISE for Artix-7)
 		Core/config				LUT		FF		Slice
 		RAM 32x4				42		47		15
 		SRL 32x4				39		38		13
