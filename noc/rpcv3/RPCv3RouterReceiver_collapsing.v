@@ -225,9 +225,10 @@ module RPCv3RouterReceiver_collapsing
 		rpc_fab_rx_data_valid			<= fifo_dout_valid;
 		rpc_fab_rx_packet_done			<= fifo_empty && last_word_in_buffer;
 
+		rpc_fab_rx_data					<= 0;
 		for(i=0; i<COLLAPSE_RATIO; i=i+1) begin
 			if(i == out_pos)
-				rpc_fab_rx_data		<= fifo_dout[OUT_DATA_WIDTH*(COLLAPSE_MAX - i) +: OUT_DATA_WIDTH];
+				rpc_fab_rx_data			<= fifo_dout[OUT_DATA_WIDTH*(COLLAPSE_MAX - i) +: OUT_DATA_WIDTH];
 		end
 	end
 
