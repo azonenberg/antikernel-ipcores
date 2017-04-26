@@ -50,6 +50,24 @@ module XilinxZynq7CPU(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Unused signals (not yet implemented)
+
+	//DMA channels
+	wire[3:0] dma_rst_n;
+	wire[3:0] dma_clk			= 4'h0;
+	wire[3:0] dma_req_ready;
+	wire[3:0] dma_req_valid		= 4'h0;
+	wire[7:0] dma_req_type		= 8'h0;
+	wire[3:0] dma_req_last		= 4'h0;
+	wire[3:0] dma_ack_ready		= 4'h0;
+	wire[3:0] dma_ack_valid;
+	wire[7:0] dma_ack_type;
+
+	//CAN interfaces
+	wire[1:0] can_phy_rx		= 2'h0;
+	wire[1:0] can_phy_tx;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual CPU
 
 	PS7 cpu(
@@ -64,7 +82,7 @@ module XilinxZynq7CPU(
 		.EMIOPJTAGTDTN(),				//JTAG TDO tristate enable (not used for now)
 		.EMIOPJTAGTCK(cpu_jtag_tck),
 		.EMIOPJTAGTDI(cpu_jtag_tdi),
-		.EMIOPJTAGTMS(cpu_jtag_tms)//,
+		.EMIOPJTAGTMS(cpu_jtag_tms),
 
 		//MIO pins (why are these brought out when we have everything else?)
 		//.MIO(MIO),
@@ -115,53 +133,52 @@ module XilinxZynq7CPU(
 		.IRQP2F({IRQ_P2F_DMAC_ABORT, IRQ_P2F_DMAC7, IRQ_P2F_DMAC6, IRQ_P2F_DMAC5, IRQ_P2F_DMAC4, IRQ_P2F_DMAC3, IRQ_P2F_DMAC2, IRQ_P2F_DMAC1, IRQ_P2F_DMAC0, IRQ_P2F_SMC, IRQ_P2F_QSPI, IRQ_P2F_CTI, IRQ_P2F_GPIO, IRQ_P2F_USB0, IRQ_P2F_ENET0, IRQ_P2F_ENET_WAKE0, IRQ_P2F_SDIO0, IRQ_P2F_I2C0, IRQ_P2F_SPI0, IRQ_P2F_UART0, IRQ_P2F_CAN0, IRQ_P2F_USB1, IRQ_P2F_ENET1, IRQ_P2F_ENET_WAKE1, IRQ_P2F_SDIO1, IRQ_P2F_I2C1, IRQ_P2F_SPI1, IRQ_P2F_UART1, IRQ_P2F_CAN1}),
 		*/
 
-		//CPU DMA ports (not yet used)
-		/*
-		.DMA0DATYPE(DMA0_DATYPE ),
-		.DMA0DAVALID(DMA0_DAVALID),
-		.DMA0DRREADY(DMA0_DRREADY),
-		.DMA0RSTN(DMA0_RSTN   ),
-		.DMA1DATYPE(DMA1_DATYPE ),
-		.DMA1DAVALID(DMA1_DAVALID),
-		.DMA1DRREADY(DMA1_DRREADY),
-		.DMA1RSTN(DMA1_RSTN   ),
-		.DMA2DATYPE(DMA2_DATYPE ),
-		.DMA2DAVALID(DMA2_DAVALID),
-		.DMA2DRREADY(DMA2_DRREADY),
-		.DMA2RSTN(DMA2_RSTN   ),
-		.DMA3DATYPE(DMA3_DATYPE ),
-		.DMA3DAVALID(DMA3_DAVALID),
-		.DMA3DRREADY(DMA3_DRREADY),
-		.DMA3RSTN(DMA3_RSTN   ),
-		.DMA0ACLK(DMA0_ACLK   ),
-		.DMA0DAREADY(DMA0_DAREADY),
-		.DMA0DRLAST(DMA0_DRLAST ),
-		.DMA0DRTYPE(DMA0_DRTYPE),
-		.DMA0DRVALID(DMA0_DRVALID),
-		.DMA1ACLK(DMA1_ACLK   ),
-		.DMA1DAREADY(DMA1_DAREADY),
-		.DMA1DRLAST(DMA1_DRLAST ),
-		.DMA1DRTYPE(DMA1_DRTYPE),
-		.DMA1DRVALID(DMA1_DRVALID),
-		.DMA2ACLK(DMA2_ACLK   ),
-		.DMA2DAREADY(DMA2_DAREADY),
-		.DMA2DRLAST(DMA2_DRLAST ),
-		.DMA2DRTYPE(DMA2_DRTYPE),
-		.DMA2DRVALID(DMA2_DRVALID),
-		.DMA3ACLK(DMA3_ACLK   ),
-		.DMA3DAREADY(DMA3_DAREADY),
-		.DMA3DRLAST(DMA3_DRLAST ),
-		.DMA3DRTYPE(DMA3_DRTYPE),
-		.DMA3DRVALID(DMA3_DRVALID),
-		*/
+		//CPU DMA ports
+		.DMA0ACLK(dma_clk[0]),
+		.DMA0DRREADY(dma_req_ready[0]),
+		.DMA0DRVALID(dma_req_valid[0]),
+		.DMA0DRTYPE(dma_req_type[0*2 +: 2]),
+		.DMA0DRLAST(dma_req_last[0]),
+		.DMA0DAREADY(dma_ack_ready[0]),
+		.DMA0DAVALID(dma_ack_valid[0]),
+		.DMA0DATYPE(dma_ack_type[0*2 +: 2]),
+		.DMA0RSTN(dma_rst_n[0]),
 
-		//EMIO CAN (not yet used)
-		/*
-		.EMIOCAN0PHYTX(CAN0_PHY_TX ),
-		.EMIOCAN1PHYTX(CAN1_PHY_TX ),
-		.EMIOCAN0PHYRX(CAN0_PHY_RX),
-		.EMIOCAN1PHYRX(CAN1_PHY_RX),
-		*/
+		.DMA1ACLK(dma_clk[1]),
+		.DMA1DRREADY(dma_req_ready[1]),
+		.DMA1DRVALID(dma_req_valid[1]),
+		.DMA1DRTYPE(dma_req_type[1*2 +: 2]),
+		.DMA1DRLAST(dma_req_last[1]),
+		.DMA1DAREADY(dma_ack_ready[1]),
+		.DMA1DAVALID(dma_ack_valid[1]),
+		.DMA1DATYPE(dma_ack_type[1*2 +: 2]),
+		.DMA1RSTN(dma_rst_n[1]),
+
+		.DMA2ACLK(dma_clk[2]),
+		.DMA2DRREADY(dma_req_ready[2]),
+		.DMA2DRVALID(dma_req_valid[2]),
+		.DMA2DRTYPE(dma_req_type[2*2 +: 2]),
+		.DMA2DRLAST(dma_req_last[2]),
+		.DMA2DAREADY(dma_ack_ready[2]),
+		.DMA2DAVALID(dma_ack_valid[2]),
+		.DMA2DATYPE(dma_ack_type[2*2 +: 2]),
+		.DMA2RSTN(dma_rst_n[2]),
+
+		.DMA3ACLK(dma_clk[3]),
+		.DMA3DRREADY(dma_req_ready[3]),
+		.DMA3DRVALID(dma_req_valid[3]),
+		.DMA3DRTYPE(dma_req_type[3*2 +: 2]),
+		.DMA3DRLAST(dma_req_last[3]),
+		.DMA3DAREADY(dma_ack_ready[3]),
+		.DMA3DAVALID(dma_ack_valid[3]),
+		.DMA3DATYPE(dma_ack_type[3*2 +: 2]),
+		.DMA3RSTN(dma_rst_n[3]),
+
+		//EMIO CAN
+		.EMIOCAN0PHYTX(can_phy_tx[0]),
+		.EMIOCAN0PHYRX(can_phy_rx[0]),
+		.EMIOCAN1PHYTX(can_phy_tx[1]),
+		.EMIOCAN1PHYRX(can_phy_rx[1])//,
 
 		//EMIO Ethernet 0 (not yet used)
 		/*
