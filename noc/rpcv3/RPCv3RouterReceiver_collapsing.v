@@ -48,14 +48,17 @@
 		packet_done						Asserted by transceiver for one clock at end of message.
 										Concurrent with last assertion of data_valid.
 
+	FIXME: Doesn't synthesize for 128-bit input. We don't need the SingleClockShiftRegisterFifo for that,
+	so optimize it out into a bunch of FFs
+
 	RESOURCE USAGE (XST A7 rough estimate)
 		Width				FF			LUT			Slice
-		32 -> 16
-		64 -> 16
-		128 -> 16
-		64 -> 32
-		128 -> 32
-		128 -> 64
+		32 -> 16			40			76			43
+		64 -> 16			72			154			73
+		128 -> 16			FIXME
+		64 -> 32			71			89			39
+		128 -> 32			FIXME
+		128 -> 64			FIXME
  */
 module RPCv3RouterReceiver_collapsing
 #(
