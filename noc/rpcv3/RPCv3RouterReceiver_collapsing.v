@@ -48,17 +48,14 @@
 		packet_done						Asserted by transceiver for one clock at end of message.
 										Concurrent with last assertion of data_valid.
 
-	FIXME: Doesn't synthesize for 128-bit input. We don't need the SingleClockShiftRegisterFifo for that,
-	so optimize it out into a bunch of FFs
-
 	RESOURCE USAGE (XST A7 rough estimate)
 		Width				FF			LUT			Slice
 		32 -> 16			40			76			43
 		64 -> 16			72			154			73
-		128 -> 16			FIXME
+		128 -> 16			136			104			36
 		64 -> 32			71			89			39
-		128 -> 32			FIXME
-		128 -> 64			FIXME
+		128 -> 32			134			102			49
+		128 -> 64			132			164			68
  */
 module RPCv3RouterReceiver_collapsing
 #(
@@ -171,26 +168,50 @@ module RPCv3RouterReceiver_collapsing
 	wire[CYCLE_BITS:0]			unused_rsize;
 	wire[CYCLE_BITS:0]			unused_wsize;
 
-	SingleClockShiftRegisterFifo #(
-		.WIDTH(IN_DATA_WIDTH),
-		.DEPTH(MESSAGE_CYCLES),
-		.OUT_REG(1)
-	) rx_fifo (
-		.clk(clk),
-		.wr(fifo_wr),
-		.din(rpc_rx_data),
+	generate
+		if(IN_DATA_WIDTH < 128) begin
+			SingleClockShiftRegisterFifo #(
+				.WIDTH(IN_DATA_WIDTH),
+				.DEPTH(MESSAGE_CYCLES),
+				.OUT_REG(1)
+			) rx_fifo (
+				.clk(clk),
+				.wr(fifo_wr),
+				.din(rpc_rx_data),
 
-		.rd(fifo_rd),
-		.dout(fifo_dout),
-		.overflow(unused_overflow),
-		.underflow(unused_underflow),
-		.empty(fifo_empty),
-		.full(unused_full),
-		.rsize(unused_rsize),
-		.wsize(unused_wsize),
+				.rd(fifo_rd),
+				.dout(fifo_dout),
+				.overflow(unused_overflow),
+				.underflow(unused_underflow),
+				.empty(fifo_empty),
+				.full(unused_full),
+				.rsize(unused_rsize),
+				.wsize(unused_wsize),
 
-		.reset(1'b0)		//never reset the fifo
-	);
+				.reset(1'b0)		//never reset the fifo
+			);
+		end
+
+		//Special stuff for 128-bit link width - no fifo, just a buffer
+		else begin
+			reg[127:0] fifo_data = 0;
+			reg fifo_valid = 0;
+
+			always @(posedge clk) begin
+				if(fifo_wr) begin
+					fifo_valid	<= 1;
+					fifo_data 	<= rpc_rx_data;
+				end
+				if(fifo_rd)
+					fifo_valid	<= 0;
+			end
+
+			assign fifo_dout = fifo_data;
+			assign fifo_empty = !fifo_valid;
+
+		end
+
+	endgenerate
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main RX logic
