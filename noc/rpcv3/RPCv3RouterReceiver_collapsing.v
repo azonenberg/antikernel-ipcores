@@ -245,6 +245,7 @@ module RPCv3RouterReceiver_collapsing
 	end
 
 	//Combinatorial muxing of the output to save a bit of time
+	integer i;
 	always @(*) begin
 		rpc_fab_rx_data_valid			<= fifo_dout_valid;
 		rpc_fab_rx_packet_done			<= fifo_empty && last_word_in_buffer;
@@ -256,7 +257,6 @@ module RPCv3RouterReceiver_collapsing
 		end
 	end
 
-	integer i;
 	always @(posedge clk) begin
 
 		//Update status flags as we read data from the FIFO
