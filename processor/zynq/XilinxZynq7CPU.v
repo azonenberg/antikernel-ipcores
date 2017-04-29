@@ -67,6 +67,44 @@ module XilinxZynq7CPU(
 	wire[1:0] can_phy_rx		= 2'h0;
 	wire[1:0] can_phy_tx;
 
+	//Ethernet interfaces: data/control
+	wire[1:0]	eth_ext_int			= 2'h0;
+
+	wire[1:0]	eth_gmii_txc		= 2'h0;		//we have to externally mux the tx clock!
+	wire[1:0]	eth_gmii_tx_en;
+	wire[1:0]	eth_gmii_tx_er;
+	wire[15:0]	eth_gmii_txd;
+
+	wire[1:0]	eth_gmii_rxc		= 2'h0;
+	wire[1:0]	eth_gmii_rx_dv		= 2'h0;
+	wire[1:0]	eth_gmii_rx_er		= 2'h0;
+	wire[15:0]	eth_gmii_rxd		= 16'h0;
+	wire[1:0]	eth_gmii_rx_col		= 2'h0;
+	wire[1:0]	eth_gmii_rx_crs		= 2'h0;
+
+	wire[1:0]	eth_mgmt_mdio_out;
+	wire[1:0]	eth_mgmt_mdio_tris;
+	wire[1:0]	eth_mgmt_mdio_in	= 2'h0;
+	wire[1:0]	eth_mgmt_mdc;
+
+	//Ethernet interfaces: PTP timestamping
+	wire[1:0]	eth_ptp_rx_sof;
+	wire[1:0]	eth_ptp_rx_ptp_delay_req;
+	wire[1:0]	eth_ptp_rx_ptp_peer_delay;
+	wire[1:0]	eth_ptp_rx_ptp_peer_delay_resp;
+	wire[1:0]	eth_ptp_rx_ptp_sync;
+
+	wire[1:0]	eth_ptp_tx_sof;
+	wire[1:0]	eth_ptp_tx_ptp_delay_req;
+	wire[1:0]	eth_ptp_tx_ptp_peer_delay;
+	wire[1:0]	eth_ptp_tx_ptp_peer_delay_resp;
+	wire[1:0]	eth_ptp_tx_ptp_sync;
+
+	//GPIO interfaces
+	wire[63:0]	gpio_in		= 64'h0;
+	wire[63:0]	gpio_out;
+	wire[63:0]	gpio_tris;
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual CPU
 
@@ -178,72 +216,76 @@ module XilinxZynq7CPU(
 		.EMIOCAN0PHYTX(can_phy_tx[0]),
 		.EMIOCAN0PHYRX(can_phy_rx[0]),
 		.EMIOCAN1PHYTX(can_phy_tx[1]),
-		.EMIOCAN1PHYRX(can_phy_rx[1])//,
+		.EMIOCAN1PHYRX(can_phy_rx[1]),
 
-		//EMIO Ethernet 0 (not yet used)
-		/*
-		.EMIOENET0GMIITXD(ENET0_GMII_TXD_i ),
-		.EMIOENET0GMIITXEN(ENET0_GMII_TX_EN_i),
-		.EMIOENET0GMIITXER(ENET0_GMII_TX_ER_i),
-		.EMIOENET0MDIOMDC(ENET0_MDIO_MDC),
-		.EMIOENET0MDIOO(ENET0_MDIO_O  ),
-		.EMIOENET0MDIOTN(ENET0_MDIO_T_n  ),
-		.EMIOENET0PTPDELAYREQRX(ENET0_PTP_DELAY_REQ_RX),
-		.EMIOENET0PTPDELAYREQTX(ENET0_PTP_DELAY_REQ_TX),
-		.EMIOENET0PTPPDELAYREQRX(ENET0_PTP_PDELAY_REQ_RX),
-		.EMIOENET0PTPPDELAYREQTX(ENET0_PTP_PDELAY_REQ_TX),
-		.EMIOENET0PTPPDELAYRESPRX(ENET0_PTP_PDELAY_RESP_RX),
-		.EMIOENET0PTPPDELAYRESPTX(ENET0_PTP_PDELAY_RESP_TX),
-		.EMIOENET0PTPSYNCFRAMERX(ENET0_PTP_SYNC_FRAME_RX),
-		.EMIOENET0PTPSYNCFRAMETX(ENET0_PTP_SYNC_FRAME_TX),
-		.EMIOENET0SOFRX(ENET0_SOF_RX),
-		.EMIOENET0SOFTX(ENET0_SOF_TX),
-		.EMIOENET0EXTINTIN(ENET0_EXT_INTIN),
-		.EMIOENET0GMIICOL(ENET0_GMII_COL_i),
-		.EMIOENET0GMIICRS(ENET0_GMII_CRS_i),
-		.EMIOENET0GMIIRXCLK(ENET0_GMII_RX_CLK),
-		.EMIOENET0GMIIRXD(ENET0_GMII_RXD_i),
-		.EMIOENET0GMIIRXDV(ENET0_GMII_RX_DV_i),
-		.EMIOENET0GMIIRXER(ENET0_GMII_RX_ER_i),
-		.EMIOENET0GMIITXCLK(ENET0_GMII_TX_CLK),
-		.EMIOENET0MDIOI(ENET0_MDIO_I),
-		*/
+		//EMIO Ethernet 0
+		.EMIOENET0MDIOMDC(eth_mgmt_mdc[0]),
+		.EMIOENET0MDIOO(eth_mgmt_mdio_out[0]  ),
+		.EMIOENET0MDIOTN(eth_mgmt_mdio_tris[0]  ),
+		.EMIOENET0MDIOI(eth_mgmt_mdio_in[0]),
 
-		//EMIO Ethernet 1 (not yet used)
-		/*
-		.EMIOENET1GMIITXD(ENET1_GMII_TXD_i),
-		.EMIOENET1GMIITXEN(ENET1_GMII_TX_EN_i),
-		.EMIOENET1GMIITXER(ENET1_GMII_TX_ER_i),
-		.EMIOENET1MDIOMDC(ENET1_MDIO_MDC),
-		.EMIOENET1MDIOO(ENET1_MDIO_O  ),
-		.EMIOENET1MDIOTN(ENET1_MDIO_T_n),
-		.EMIOENET1PTPDELAYREQRX(ENET1_PTP_DELAY_REQ_RX),
-		.EMIOENET1PTPDELAYREQTX(ENET1_PTP_DELAY_REQ_TX),
-		.EMIOENET1PTPPDELAYREQRX(ENET1_PTP_PDELAY_REQ_RX),
-		.EMIOENET1PTPPDELAYREQTX(ENET1_PTP_PDELAY_REQ_TX),
-		.EMIOENET1PTPPDELAYRESPRX(ENET1_PTP_PDELAY_RESP_RX),
-		.EMIOENET1PTPPDELAYRESPTX(ENET1_PTP_PDELAY_RESP_TX),
-		.EMIOENET1PTPSYNCFRAMERX(ENET1_PTP_SYNC_FRAME_RX),
-		.EMIOENET1PTPSYNCFRAMETX(ENET1_PTP_SYNC_FRAME_TX),
-		.EMIOENET1SOFRX(ENET1_SOF_RX),
-		.EMIOENET1SOFTX(ENET1_SOF_TX),
-		.EMIOENET1EXTINTIN(ENET1_EXT_INTIN),
-		.EMIOENET1GMIICOL(ENET1_GMII_COL_i),
-		.EMIOENET1GMIICRS(ENET1_GMII_CRS_i),
-		.EMIOENET1GMIIRXCLK(ENET1_GMII_RX_CLK),
-		.EMIOENET1GMIIRXD(ENET1_GMII_RXD_i),
-		.EMIOENET1GMIIRXDV(ENET1_GMII_RX_DV_i),
-		.EMIOENET1GMIIRXER(ENET1_GMII_RX_ER_i),
-		.EMIOENET1GMIITXCLK(ENET1_GMII_TX_CLK),
-		.EMIOENET1MDIOI(ENET1_MDIO_I),
-		*/
+		.EMIOENET0GMIITXCLK(eth_gmii_txc[0]),
+		.EMIOENET0GMIITXD(eth_gmii_txd[7:0] ),
+		.EMIOENET0GMIITXEN(eth_gmii_tx_en[0]),
+		.EMIOENET0GMIITXER(eth_gmii_tx_er[0]),
 
-		//EMIO GPIO (not yet used)
-		/*
+		.EMIOENET0GMIIRXCLK(eth_gmii_rxc[0]),
+		.EMIOENET0GMIICOL(eth_gmii_rx_col[0]),
+		.EMIOENET0GMIICRS(eth_gmii_rx_crs[0]),
+		.EMIOENET0GMIIRXER(eth_gmii_rx_er[0]),
+		.EMIOENET0GMIIRXDV(eth_gmii_rx_dv[0]),
+		.EMIOENET0GMIIRXD(eth_gmii_rxd[7:0]),
+
+		.EMIOENET0SOFRX(eth_ptp_rx_sof[0]),
+		.EMIOENET0PTPDELAYREQRX(eth_ptp_rx_ptp_delay_req[0]),
+		.EMIOENET0PTPPDELAYREQRX(eth_ptp_rx_ptp_peer_delay[0]),
+		.EMIOENET0PTPPDELAYRESPRX(eth_ptp_rx_ptp_peer_delay_resp[0]),
+		.EMIOENET0PTPSYNCFRAMERX(eth_ptp_rx_ptp_sync[0]),
+
+		.EMIOENET0SOFTX(eth_ptp_tx_sof[0]),
+		.EMIOENET0PTPDELAYREQTX(eth_ptp_tx_ptp_delay_req[0]),
+		.EMIOENET0PTPPDELAYREQTX(eth_ptp_tx_ptp_peer_delay[0]),
+		.EMIOENET0PTPPDELAYRESPTX(eth_ptp_tx_ptp_peer_delay_resp[0]),
+		.EMIOENET0PTPSYNCFRAMETX(eth_ptp_tx_ptp_sync[0]),
+
+		.EMIOENET0EXTINTIN(eth_ext_int[0]),
+
+		//EMIO Ethernet 1
+		.EMIOENET1MDIOMDC(eth_mgmt_mdc[1]),
+		.EMIOENET1MDIOO(eth_mgmt_mdio_out[1]  ),
+		.EMIOENET1MDIOTN(eth_mgmt_mdio_tris[1]  ),
+		.EMIOENET1MDIOI(eth_mgmt_mdio_in[1]),
+
+		.EMIOENET1GMIITXCLK(eth_gmii_txc[1]),
+		.EMIOENET1GMIITXD(eth_gmii_txd[15:8] ),
+		.EMIOENET1GMIITXEN(eth_gmii_tx_en[1]),
+		.EMIOENET1GMIITXER(eth_gmii_tx_er[1]),
+
+		.EMIOENET1GMIIRXCLK(eth_gmii_rxc[1]),
+		.EMIOENET1GMIICOL(eth_gmii_rx_col[1]),
+		.EMIOENET1GMIICRS(eth_gmii_rx_crs[1]),
+		.EMIOENET1GMIIRXER(eth_gmii_rx_er[1]),
+		.EMIOENET1GMIIRXDV(eth_gmii_rx_dv[1]),
+		.EMIOENET1GMIIRXD(eth_gmii_rxd[15:8]),
+
+		.EMIOENET1SOFRX(eth_ptp_rx_sof[1]),
+		.EMIOENET1PTPDELAYREQRX(eth_ptp_rx_ptp_delay_req[1]),
+		.EMIOENET1PTPPDELAYREQRX(eth_ptp_rx_ptp_peer_delay[1]),
+		.EMIOENET1PTPPDELAYRESPRX(eth_ptp_rx_ptp_peer_delay_resp[1]),
+		.EMIOENET1PTPSYNCFRAMERX(eth_ptp_rx_ptp_sync[1]),
+
+		.EMIOENET1SOFTX(eth_ptp_tx_sof[1]),
+		.EMIOENET1PTPDELAYREQTX(eth_ptp_tx_ptp_delay_req[1]),
+		.EMIOENET1PTPPDELAYREQTX(eth_ptp_tx_ptp_peer_delay[1]),
+		.EMIOENET1PTPPDELAYRESPTX(eth_ptp_tx_ptp_peer_delay_resp[1]),
+		.EMIOENET1PTPSYNCFRAMETX(eth_ptp_tx_ptp_sync[1]),
+
+		.EMIOENET1EXTINTIN(eth_ext_int[1]),
+
+		//EMIO GPIO
 		.EMIOGPIOO(gpio_out),
-		.EMIOGPIOTN(gpio_out_t_n),
-		.EMIOGPIOI(gpio_in63_0  ),
-		*/
+		.EMIOGPIOTN(gpio_tris),
+		.EMIOGPIOI(gpio_in)//,
 
 		//EMIO I2C 0 (not yet used)
 		/*
