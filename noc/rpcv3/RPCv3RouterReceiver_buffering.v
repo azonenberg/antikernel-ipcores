@@ -161,7 +161,11 @@ module RPCv3RouterReceiver_buffering
 	//TODO: improve testbench to handle this better and cut our area down by a few FFs
 	always @(posedge clk) begin
 		rpc_fab_rx_data_valid			<= rx_active;
-		rpc_fab_rx_packet_done			<= (rx_count == MESSAGE_MAX);
+
+		if(IN_DATA_WIDTH == 128)
+			rpc_fab_rx_packet_done		<= rx_active;
+		else
+			rpc_fab_rx_packet_done		<= (rx_count == MESSAGE_MAX);
 
 		rpc_fab_rx_data					<= rpc_rx_data;
 	end
