@@ -276,7 +276,7 @@ module XilinxZynq7CPU(
 	wire[23:0]	master_axi_wrresp_id	= 24'h0;
 	wire[3:0]	master_axi_wrresp_resp	= 4'h0;
 
-	//Slave AXI ACP link (transactions initiated by FPGA, cache coherent, 64 bits)
+	//Slave AXI ACP links (transactions initiated by FPGA, cache coherent, 64 bits)
 	wire		acp_axi_clk				= 1'h0;
 	wire		acp_axi_rst_n;
 	wire[31:0]	acp_axi_rdreq_addr		= 32'h0;
@@ -321,6 +321,123 @@ module XilinxZynq7CPU(
 	wire[2:0]	acp_axi_wrresp_id;
 	wire[1:0]	acp_axi_wrresp_resp;
 
+	//Slave AXI general purpose links (transactions initiated by FPGA, no buffering, 32 bits)
+	wire[1:0]	slavegp_axi_clk				= 2'h0;
+	wire[1:0]	slavegp_axi_rst_n;
+	wire[63:0]	slavegp_axi_rdreq_addr		= 64'h0;
+	wire[1:0]	slavegp_axi_rdreq_valid		= 2'h0;
+	wire[1:0]	slavegp_axi_rdreq_ready;
+	wire[11:0]	slavegp_axi_rdreq_id		= 12'h0;
+	wire[3:0]	slavegp_axi_rdreq_lock		= 4'h0;
+	wire[7:0]	slavegp_axi_rdreq_cache		= 8'h0;
+	wire[5:0]	slavegp_axi_rdreq_prot		= 6'h0;
+	wire[7:0]	slavegp_axi_rdreq_len		= 8'h0;
+	wire[3:0]	slavegp_axi_rdreq_size		= 4'h0;
+	wire[3:0]	slavegp_axi_rdreq_burst		= 4'h0;
+	wire[7:0]	slavegp_axi_rdreq_qos		= 8'h0;
+	wire[63:0]	slavegp_axi_rdresp_data;
+	wire[1:0]	slavegp_axi_rdresp_valid;
+	wire[1:0]	slavegp_axi_rdresp_ready	= 2'h0;
+	wire[11:0]	slavegp_axi_rdresp_id;
+	wire[1:0]	slavegp_axi_rdresp_last;
+	wire[3:0]	slavegp_axi_rdresp_resp;
+
+	wire[63:0]	slavegp_axi_wrreq_addr		= 64'h0;
+	wire[1:0]	slavegp_axi_wrreq_valid		= 2'h0;
+	wire[1:0]	slavegp_axi_wrreq_ready;
+	wire[11:0]	slavegp_axi_wrreq_id		= 12'h0;
+	wire[3:0]	slavegp_axi_wrreq_lock		= 4'h0;
+	wire[7:0]	slavegp_axi_wrreq_cache		= 8'h0;
+	wire[5:0]	slavegp_axi_wrreq_prot		= 6'h0;
+	wire[7:0]	slavegp_axi_wrreq_len		= 8'h0;
+	wire[3:0]	slavegp_axi_wrreq_size		= 4'h0;
+	wire[3:0]	slavegp_axi_wrreq_burst		= 4'h0;
+	wire[7:0]	slavegp_axi_wrreq_qos		= 8'h0;
+	wire[63:0]	slavegp_axi_wrdat_data		= 64'h0;
+	wire[1:0]	slavegp_axi_wrdat_valid		= 2'h0;
+	wire[1:0]	slavegp_axi_wrdat_ready;
+	wire[23:0]	slavegp_axi_wrdat_id		= 24'h0;
+	wire[1:0]	slavegp_axi_wrdat_last		= 2'h0;
+	wire[7:0]	slavegp_axi_wrdat_mask		= 8'h0;
+	wire[1:0]	slavegp_axi_wrresp_valid;
+	wire[1:0]	slavegp_axi_wrresp_ready	= 2'h0;
+	wire[11:0]	slavegp_axi_wrresp_id;
+	wire[3:0]	slavegp_axi_wrresp_resp;
+
+	//Slave AXI high performance links (transactions initiated by FPGA, fifo buffering, 64 bits)
+	wire[3:0]	slavehp_axi_clk				= 4'h0;
+	wire[3:0]	slavehp_axi_rst_n;
+	wire[127:0]	slavehp_axi_rdreq_addr		= 128'h0;
+	wire[23:0]	slavehp_axi_rdreq_fifosize;
+	wire[3:0]	slavehp_axi_rdreq_valid		= 4'h0;
+	wire[3:0]	slavehp_axi_rdreq_ready;
+	wire[23:0]	slavehp_axi_rdreq_id		= 24'h0;
+	wire[7:0]	slavehp_axi_rdreq_lock		= 8'h0;
+	wire[15:0]	slavehp_axi_rdreq_cache		= 16'h0;
+	wire[11:0]	slavehp_axi_rdreq_prot		= 12'h0;
+	wire[15:0]	slavehp_axi_rdreq_len		= 16'h0;
+	wire[7:0]	slavehp_axi_rdreq_size		= 8'h0;
+	wire[7:0]	slavehp_axi_rdreq_burst		= 8'h0;
+	wire[15:0]	slavehp_axi_rdreq_qos		= 16'h0;
+	wire[255:0]	slavehp_axi_rdresp_data;
+	wire[31:0]	slavehp_axi_rdresp_fifosize;
+	wire[3:0]	slavehp_axi_rdresp_valid;
+	wire[3:0]	slavehp_axi_rdresp_ready	= 4'h0;
+	wire[23:0]	slavehp_axi_rdresp_id;
+	wire[3:0]	slavehp_axi_rdresp_last;
+	wire[7:0]	slavehp_axi_rdresp_resp;
+	wire[3:0]	slavehp_axi_rdissuecap1en	= 4'h0;		//wut is this?
+
+	wire[127:0]	slavehp_axi_wrreq_addr		= 128'h0;
+	wire[23:0]	slavehp_axi_wrreq_fifosize;
+	wire[3:0]	slavehp_axi_wrreq_valid		= 4'h0;
+	wire[3:0]	slavehp_axi_wrreq_ready;
+	wire[23:0]	slavehp_axi_wrreq_id		= 24'h0;
+	wire[7:0]	slavehp_axi_wrreq_lock		= 8'h0;
+	wire[15:0]	slavehp_axi_wrreq_cache		= 16'h0;
+	wire[11:0]	slavehp_axi_wrreq_prot		= 12'h0;
+	wire[15:0]	slavehp_axi_wrreq_len		= 16'h0;
+	wire[7:0]	slavehp_axi_wrreq_size		= 8'h0;
+	wire[7:0]	slavehp_axi_wrreq_burst		= 8'h0;
+	wire[15:0]	slavehp_axi_wrreq_qos		= 16'h0;
+	wire[255:0]	slavehp_axi_wrdat_data		= 256'h0;
+	wire[31:0]	slavehp_axi_wrdat_fifosize;
+	wire[3:0]	slavehp_axi_wrdat_valid		= 4'h0;
+	wire[3:0]	slavehp_axi_wrdat_ready;
+	wire[23:0]	slavehp_axi_wrdat_id		= 24'h0;
+	wire[3:0]	slavehp_axi_wrdat_last		= 4'h0;
+	wire[31:0]	slavehp_axi_wrdat_mask		= 32'h0;
+	wire[3:0]	slavehp_axi_wrresp_valid;
+	wire[3:0]	slavehp_axi_wrresp_ready	= 4'h0;
+	wire[23:0]	slavehp_axi_wrresp_id;
+	wire[7:0]	slavehp_axi_wrresp_resp;
+	wire[3:0]	slavehp_axi_wrissuecap1en	= 4'h0;		//wut is this?
+
+	//DDR RAM signals (TODO: break these out to top level and hook them up)
+	wire[14:0]	ddr_addr;
+	wire[2:0]	ddr_bankaddr;
+	wire		ddr_cas_n;
+	wire		ddr_cke;
+	wire		ddr_clk_n;
+	wire		ddr_clk_p;
+	wire		ddr_cs_n;
+	wire[3:0]	ddr_dm;
+	wire[31:0]	ddr_dq;
+	wire[3:0]	ddr_dqs_n;
+	wire[3:0]	ddr_dqs_p;
+	wire		ddr_reset_n;
+	wire		ddr_odt;
+	wire		ddr_ras_n;
+	wire		ddr_vr_n;
+	wire		ddr_vr_p;
+	wire		ddr_we_n;
+
+	//Muxed GPIO signals
+	wire[53:0]	muxed_gpio;
+
+	//IRQ from external SRAM
+	wire		sram_irq = 1'h0;
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual CPU
 
@@ -337,9 +454,6 @@ module XilinxZynq7CPU(
 		.EMIOPJTAGTCK(cpu_jtag_tck),
 		.EMIOPJTAGTDI(cpu_jtag_tdi),
 		.EMIOPJTAGTMS(cpu_jtag_tms),
-
-		//MIO pins (why are these brought out when we have everything else?)
-		//.MIO(MIO),
 
 		//Clocks from CPU to FPGA
 		.FCLKCLK(fabric_clock_unbuffered),
@@ -361,8 +475,6 @@ module XilinxZynq7CPU(
 		.FTMDTRACEINDATA(fpga_trace_data),
 		.FTMDTRACEINATID(fpga_trace_id),
 
-		//.EMIOSRAMINTIN(SRAM_INTIN),
-
 		//EMIO trace port
 		.EMIOTRACECLK(trace_clk),
 		.EMIOTRACECTL(trace_ctl),
@@ -383,6 +495,32 @@ module XilinxZynq7CPU(
 		//but does not specify the ordering within those four bits!
 		.IRQF2P({cpu_fiq_n, cpu_irq_n, fpga_to_cpu_irq}),
 		.IRQP2F(cpu_to_fpga_irq),
+
+		//Muxed I/O signals from hard IP
+		.MIO(muxed_gpio),
+
+		//SRAM external interrupt signal
+		.EMIOSRAMINTIN(sram_irq),
+
+		//DDR RAM
+		.DDRDRSTB(ddr_reset_n),
+		.DDRCKE(ddr_cke),
+		.DDRODT(ddr_odt),
+		.DDRCSB(ddr_cs_n),
+		.DDRVRP(ddr_vr_p),
+		.DDRVRN(ddr_vr_n),
+		.DDRCKP(ddr_clk_p),
+		.DDRCKN(ddr_clk_n),
+		.DDRA(ddr_addr),
+		.DDRBA(ddr_bankaddr),
+		.DDRARB(),			//what does this do? doesn't seem to be doc'd anywhere!
+		.DDRCASB(ddr_cas_n),
+		.DDRRASB(ddr_ras_n),
+		.DDRWEB(ddr_we_n),
+		.DDRDM(ddr_dm),
+		.DDRDQ(ddr_dq),
+		.DDRDQSP(ddr_dqs_p),
+		.DDRDQSN(ddr_dqs_n),
 
 		//CPU DMA ports
 		.DMA0ACLK(dma_clk[0]),
@@ -741,317 +879,289 @@ module XilinxZynq7CPU(
 		.SAXIACPBVALID(acp_axi_wrresp_valid ),
 		.SAXIACPBREADY(acp_axi_wrresp_ready),
 		.SAXIACPBID(acp_axi_wrresp_id),
-		.SAXIACPBRESP(acp_axi_wrresp_resp)//,
+		.SAXIACPBRESP(acp_axi_wrresp_resp),
 
-		//Slave AXI GP 0 (not yet used)
-		/*
-		.SAXIGP0ARESETN(S_AXI_GP0_ARESETN),
-		.SAXIGP0ARREADY(S_AXI_GP0_ARREADY),
-		.SAXIGP0AWREADY(S_AXI_GP0_AWREADY),
-		.SAXIGP0BID(S_AXI_GP0_BID_out),
-		.SAXIGP0BRESP(S_AXI_GP0_BRESP  ),
-		.SAXIGP0BVALID(S_AXI_GP0_BVALID ),
-		.SAXIGP0RDATA(S_AXI_GP0_RDATA  ),
-		.SAXIGP0RID(S_AXI_GP0_RID_out ),
-		.SAXIGP0RLAST(S_AXI_GP0_RLAST  ),
-		.SAXIGP0RRESP(S_AXI_GP0_RRESP  ),
-		.SAXIGP0RVALID(S_AXI_GP0_RVALID ),
-		.SAXIGP0WREADY(S_AXI_GP0_WREADY ),
-		.SAXIGP0ACLK(S_AXI_GP0_ACLK   ),
-		.SAXIGP0ARADDR(S_AXI_GP0_ARADDR ),
-		.SAXIGP0ARBURST(S_AXI_GP0_ARBURST),
-		.SAXIGP0ARCACHE(S_AXI_GP0_ARCACHE),
-		.SAXIGP0ARID(S_AXI_GP0_ARID_in   ),
-		.SAXIGP0ARLEN(S_AXI_GP0_ARLEN  ),
-		.SAXIGP0ARLOCK(S_AXI_GP0_ARLOCK ),
-		.SAXIGP0ARPROT(S_AXI_GP0_ARPROT ),
-		.SAXIGP0ARQOS(S_AXI_GP0_ARQOS  ),
-		.SAXIGP0ARSIZE(S_AXI_GP0_ARSIZE[1:0] ),
-		.SAXIGP0ARVALID(S_AXI_GP0_ARVALID),
-		.SAXIGP0AWADDR(S_AXI_GP0_AWADDR ),
-		.SAXIGP0AWBURST(S_AXI_GP0_AWBURST),
-		.SAXIGP0AWCACHE(S_AXI_GP0_AWCACHE),
-		.SAXIGP0AWID(S_AXI_GP0_AWID_in   ),
-		.SAXIGP0AWLEN(S_AXI_GP0_AWLEN  ),
-		.SAXIGP0AWLOCK(S_AXI_GP0_AWLOCK ),
-		.SAXIGP0AWPROT(S_AXI_GP0_AWPROT ),
-		.SAXIGP0AWQOS(S_AXI_GP0_AWQOS  ),
-		.SAXIGP0AWSIZE(S_AXI_GP0_AWSIZE[1:0] ),
-		.SAXIGP0AWVALID(S_AXI_GP0_AWVALID),
-		.SAXIGP0BREADY(S_AXI_GP0_BREADY ),
-		.SAXIGP0RREADY(S_AXI_GP0_RREADY ),
-		.SAXIGP0WDATA(S_AXI_GP0_WDATA  ),
-		.SAXIGP0WID(S_AXI_GP0_WID_in ),
-		.SAXIGP0WLAST(S_AXI_GP0_WLAST  ),
-		.SAXIGP0WSTRB(S_AXI_GP0_WSTRB  ),
-		.SAXIGP0WVALID(S_AXI_GP0_WVALID ),
-		*/
+		//Slave AXI GP 0
+		.SAXIGP0ACLK(slavegp_axi_clk[0]),
+		.SAXIGP0ARESETN(slavegp_axi_rst_n[0]),
+		.SAXIGP0ARADDR(slavegp_axi_rdreq_addr[31:0]),
+		.SAXIGP0ARVALID(slavegp_axi_rdreq_valid[0]),
+		.SAXIGP0ARREADY(slavegp_axi_rdreq_ready[0]),
+		.SAXIGP0ARID(slavegp_axi_rdreq_id[5:0]),
+		.SAXIGP0ARLOCK(slavegp_axi_rdreq_lock[1:0]),
+		.SAXIGP0ARCACHE(slavegp_axi_rdreq_cache[3:0]),
+		.SAXIGP0ARPROT(slavegp_axi_rdreq_prot[2:0]),
+		.SAXIGP0ARLEN(slavegp_axi_rdreq_len[3:0]),
+		.SAXIGP0ARSIZE(slavegp_axi_rdreq_size[1:0]),
+		.SAXIGP0ARBURST(slavegp_axi_rdreq_burst[1:0]),
+		.SAXIGP0ARQOS(slavegp_axi_rdreq_qos[3:0]),
+		.SAXIGP0RDATA(slavegp_axi_rdresp_data[31:0]),
+		.SAXIGP0RVALID(slavegp_axi_rdresp_valid[0]),
+		.SAXIGP0RREADY(slavegp_axi_rdresp_ready[0]),
+		.SAXIGP0RID(slavegp_axi_rdresp_id[5:0]),
+		.SAXIGP0RLAST(slavegp_axi_rdresp_last[0]),
+		.SAXIGP0RRESP(slavegp_axi_rdresp_resp[1:0]),
 
-		//Slave AXI GP 1 (not yet used)
-		/*
-		.SAXIGP1ARESETN(S_AXI_GP1_ARESETN),
-		.SAXIGP1ARREADY(S_AXI_GP1_ARREADY),
-		.SAXIGP1AWREADY(S_AXI_GP1_AWREADY),
-		.SAXIGP1BID(S_AXI_GP1_BID_out    ),
-		.SAXIGP1BRESP(S_AXI_GP1_BRESP  ),
-		.SAXIGP1BVALID(S_AXI_GP1_BVALID ),
-		.SAXIGP1RDATA(S_AXI_GP1_RDATA  ),
-		.SAXIGP1RID(S_AXI_GP1_RID_out    ),
-		.SAXIGP1RLAST(S_AXI_GP1_RLAST  ),
-		.SAXIGP1RRESP(S_AXI_GP1_RRESP  ),
-		.SAXIGP1RVALID(S_AXI_GP1_RVALID ),
-		.SAXIGP1WREADY(S_AXI_GP1_WREADY ),
-		.SAXIGP1ACLK(S_AXI_GP1_ACLK   ),
-		.SAXIGP1ARADDR(S_AXI_GP1_ARADDR ),
-		.SAXIGP1ARBURST(S_AXI_GP1_ARBURST),
-		.SAXIGP1ARCACHE(S_AXI_GP1_ARCACHE),
-		.SAXIGP1ARID(S_AXI_GP1_ARID_in   ),
-		.SAXIGP1ARLEN(S_AXI_GP1_ARLEN  ),
-		.SAXIGP1ARLOCK(S_AXI_GP1_ARLOCK ),
-		.SAXIGP1ARPROT(S_AXI_GP1_ARPROT ),
-		.SAXIGP1ARQOS(S_AXI_GP1_ARQOS  ),
-		.SAXIGP1ARSIZE(S_AXI_GP1_ARSIZE[1:0] ),
-		.SAXIGP1ARVALID(S_AXI_GP1_ARVALID),
-		.SAXIGP1AWADDR(S_AXI_GP1_AWADDR ),
-		.SAXIGP1AWBURST(S_AXI_GP1_AWBURST),
-		.SAXIGP1AWCACHE(S_AXI_GP1_AWCACHE),
-		.SAXIGP1AWID(S_AXI_GP1_AWID_in   ),
-		.SAXIGP1AWLEN(S_AXI_GP1_AWLEN  ),
-		.SAXIGP1AWLOCK(S_AXI_GP1_AWLOCK ),
-		.SAXIGP1AWPROT(S_AXI_GP1_AWPROT ),
-		.SAXIGP1AWQOS(S_AXI_GP1_AWQOS  ),
-		.SAXIGP1AWSIZE(S_AXI_GP1_AWSIZE[1:0] ),
-		.SAXIGP1AWVALID(S_AXI_GP1_AWVALID),
-		.SAXIGP1BREADY(S_AXI_GP1_BREADY ),
-		.SAXIGP1RREADY(S_AXI_GP1_RREADY ),
-		.SAXIGP1WDATA(S_AXI_GP1_WDATA  ),
-		.SAXIGP1WID(S_AXI_GP1_WID_in    ),
-		.SAXIGP1WLAST(S_AXI_GP1_WLAST  ),
-		.SAXIGP1WSTRB(S_AXI_GP1_WSTRB  ),
-		.SAXIGP1WVALID(S_AXI_GP1_WVALID ),
-		 */
+		.SAXIGP0AWADDR(slavegp_axi_wrreq_addr[31:0]),
+		.SAXIGP0AWVALID(slavegp_axi_wrreq_valid[0]),
+		.SAXIGP0AWREADY(slavegp_axi_wrreq_ready[0]),
+		.SAXIGP0AWID(slavegp_axi_wrreq_id[5:0]),
+		.SAXIGP0AWLOCK(slavegp_axi_wrreq_lock[1:0]),
+		.SAXIGP0AWCACHE(slavegp_axi_wrreq_cache[3:0]),
+		.SAXIGP0AWPROT(slavegp_axi_wrreq_prot[2:0]),
+		.SAXIGP0AWLEN(slavegp_axi_wrreq_len[3:0]),
+		.SAXIGP0AWSIZE(slavegp_axi_wrreq_size[1:0]),
+		.SAXIGP0AWBURST(slavegp_axi_wrreq_burst[1:0]),
+		.SAXIGP0AWQOS(slavegp_axi_wrreq_qos[3:0]),
+		.SAXIGP0WDATA(slavegp_axi_wrdat_data[31:0]),
+		.SAXIGP0WVALID(slavegp_axi_wrdat_valid[0]),
+		.SAXIGP0WREADY(slavegp_axi_wrdat_ready[0]),
+		.SAXIGP0WID(slavegp_axi_wrdat_id[5:0]),
+		.SAXIGP0WLAST(slavegp_axi_wrdat_last[0]),
+		.SAXIGP0WSTRB(slavegp_axi_wrdat_mask[3:0]),
+		.SAXIGP0BVALID(slavegp_axi_wrresp_valid[0]),
+		.SAXIGP0BREADY(slavegp_axi_wrresp_ready[0]),
+		.SAXIGP0BID(slavegp_axi_wrresp_id[5:0]),
+		.SAXIGP0BRESP(slavegp_axi_wrresp_resp[1:0]),
 
-		//Slave AXI HP 0 (not yet used)
-		/*
-		.SAXIHP0ARESETN(S_AXI_HP0_ARESETN),
-		.SAXIHP0ARREADY(S_AXI_HP0_ARREADY),
-		.SAXIHP0AWREADY(S_AXI_HP0_AWREADY),
-		.SAXIHP0BID(S_AXI_HP0_BID_out    ),
-		.SAXIHP0BRESP(S_AXI_HP0_BRESP  ),
-		.SAXIHP0BVALID(S_AXI_HP0_BVALID ),
-		.SAXIHP0RACOUNT(S_AXI_HP0_RACOUNT),
-		.SAXIHP0RCOUNT(S_AXI_HP0_RCOUNT),
-		.SAXIHP0RDATA(S_AXI_HP0_RDATA_out),
-		.SAXIHP0RID(S_AXI_HP0_RID_out ),
-		.SAXIHP0RLAST(S_AXI_HP0_RLAST),
-		.SAXIHP0RRESP(S_AXI_HP0_RRESP),
-		.SAXIHP0RVALID(S_AXI_HP0_RVALID),
-		.SAXIHP0WCOUNT(S_AXI_HP0_WCOUNT),
-		.SAXIHP0WACOUNT(S_AXI_HP0_WACOUNT),
-		.SAXIHP0WREADY(S_AXI_HP0_WREADY),
-		.SAXIHP0ACLK(S_AXI_HP0_ACLK   ),
-		.SAXIHP0ARADDR(S_AXI_HP0_ARADDR),
-		.SAXIHP0ARBURST(S_AXI_HP0_ARBURST),
-		.SAXIHP0ARCACHE(S_AXI_HP0_ARCACHE),
-		.SAXIHP0ARID(S_AXI_HP0_ARID_in),
-		.SAXIHP0ARLEN(S_AXI_HP0_ARLEN),
-		.SAXIHP0ARLOCK(S_AXI_HP0_ARLOCK),
-		.SAXIHP0ARPROT(S_AXI_HP0_ARPROT),
-		.SAXIHP0ARQOS(S_AXI_HP0_ARQOS),
-		.SAXIHP0ARSIZE(S_AXI_HP0_ARSIZE[1:0]),
-		.SAXIHP0ARVALID(S_AXI_HP0_ARVALID),
-		.SAXIHP0AWADDR(S_AXI_HP0_AWADDR),
-		.SAXIHP0AWBURST(S_AXI_HP0_AWBURST),
-		.SAXIHP0AWCACHE(S_AXI_HP0_AWCACHE),
-		.SAXIHP0AWID(S_AXI_HP0_AWID_in),
-		.SAXIHP0AWLEN(S_AXI_HP0_AWLEN),
-		.SAXIHP0AWLOCK(S_AXI_HP0_AWLOCK),
-		.SAXIHP0AWPROT(S_AXI_HP0_AWPROT),
-		.SAXIHP0AWQOS(S_AXI_HP0_AWQOS),
-		.SAXIHP0AWSIZE(S_AXI_HP0_AWSIZE[1:0]),
-		.SAXIHP0AWVALID(S_AXI_HP0_AWVALID),
-		.SAXIHP0BREADY(S_AXI_HP0_BREADY),
-		.SAXIHP0RDISSUECAP1EN(S_AXI_HP0_RDISSUECAP1_EN),
-		.SAXIHP0RREADY(S_AXI_HP0_RREADY),
-		.SAXIHP0WDATA(S_AXI_HP0_WDATA_in),
-		.SAXIHP0WID(S_AXI_HP0_WID_in),
-		.SAXIHP0WLAST(S_AXI_HP0_WLAST),
-		.SAXIHP0WRISSUECAP1EN(S_AXI_HP0_WRISSUECAP1_EN),
-		.SAXIHP0WSTRB(S_AXI_HP0_WSTRB_in),
-		.SAXIHP0WVALID(S_AXI_HP0_WVALID),
-		 */
+		//Slave AXI GP 1
+		.SAXIGP1ACLK(slavegp_axi_clk[1]),
+		.SAXIGP1ARESETN(slavegp_axi_rst_n[1]),
+		.SAXIGP1ARADDR(slavegp_axi_rdreq_addr[63:32]),
+		.SAXIGP1ARVALID(slavegp_axi_rdreq_valid[1]),
+		.SAXIGP1ARREADY(slavegp_axi_rdreq_ready[1]),
+		.SAXIGP1ARID(slavegp_axi_rdreq_id[11:6]),
+		.SAXIGP1ARLOCK(slavegp_axi_rdreq_lock[3:2]),
+		.SAXIGP1ARCACHE(slavegp_axi_rdreq_cache[7:4]),
+		.SAXIGP1ARPROT(slavegp_axi_rdreq_prot[5:3]),
+		.SAXIGP1ARLEN(slavegp_axi_rdreq_len[7:4]),
+		.SAXIGP1ARSIZE(slavegp_axi_rdreq_size[3:2]),
+		.SAXIGP1ARBURST(slavegp_axi_rdreq_burst[3:2]),
+		.SAXIGP1ARQOS(slavegp_axi_rdreq_qos[7:4]),
+		.SAXIGP1RDATA(slavegp_axi_rdresp_data[63:32]),
+		.SAXIGP1RVALID(slavegp_axi_rdresp_valid[1]),
+		.SAXIGP1RREADY(slavegp_axi_rdresp_ready[1]),
+		.SAXIGP1RID(slavegp_axi_rdresp_id[11:6]),
+		.SAXIGP1RLAST(slavegp_axi_rdresp_last[1]),
+		.SAXIGP1RRESP(slavegp_axi_rdresp_resp[3:2]),
 
-		//Slave AXI HP 1 (not yet used)
-		/*
-		.SAXIHP1ARESETN(S_AXI_HP1_ARESETN),
-		.SAXIHP1ARREADY(S_AXI_HP1_ARREADY),
-		.SAXIHP1AWREADY(S_AXI_HP1_AWREADY),
-		.SAXIHP1BID(S_AXI_HP1_BID_out    ),
-		.SAXIHP1BRESP(S_AXI_HP1_BRESP  ),
-		.SAXIHP1BVALID(S_AXI_HP1_BVALID ),
-		.SAXIHP1RACOUNT(S_AXI_HP1_RACOUNT ),
-		.SAXIHP1RCOUNT(S_AXI_HP1_RCOUNT ),
-		.SAXIHP1RDATA(S_AXI_HP1_RDATA_out),
-		.SAXIHP1RID(S_AXI_HP1_RID_out    ),
-		.SAXIHP1RLAST(S_AXI_HP1_RLAST  ),
-		.SAXIHP1RRESP(S_AXI_HP1_RRESP  ),
-		.SAXIHP1RVALID(S_AXI_HP1_RVALID),
-		.SAXIHP1WACOUNT(S_AXI_HP1_WACOUNT),
-		.SAXIHP1WCOUNT(S_AXI_HP1_WCOUNT),
-		.SAXIHP1WREADY(S_AXI_HP1_WREADY),
-		.SAXIHP1ACLK(S_AXI_HP1_ACLK),
-		.SAXIHP1ARADDR(S_AXI_HP1_ARADDR),
-		.SAXIHP1ARBURST(S_AXI_HP1_ARBURST),
-		.SAXIHP1ARCACHE(S_AXI_HP1_ARCACHE),
-		.SAXIHP1ARID(S_AXI_HP1_ARID_in),
-		.SAXIHP1ARLEN(S_AXI_HP1_ARLEN),
-		.SAXIHP1ARLOCK(S_AXI_HP1_ARLOCK),
-		.SAXIHP1ARPROT(S_AXI_HP1_ARPROT),
-		.SAXIHP1ARQOS(S_AXI_HP1_ARQOS),
-		.SAXIHP1ARSIZE(S_AXI_HP1_ARSIZE[1:0]),
-		.SAXIHP1ARVALID(S_AXI_HP1_ARVALID),
-		.SAXIHP1AWADDR(S_AXI_HP1_AWADDR),
-		.SAXIHP1AWBURST(S_AXI_HP1_AWBURST),
-		.SAXIHP1AWCACHE(S_AXI_HP1_AWCACHE),
-		.SAXIHP1AWID(S_AXI_HP1_AWID_in),
-		.SAXIHP1AWLEN(S_AXI_HP1_AWLEN),
-		.SAXIHP1AWLOCK(S_AXI_HP1_AWLOCK),
-		.SAXIHP1AWPROT(S_AXI_HP1_AWPROT),
-		.SAXIHP1AWQOS(S_AXI_HP1_AWQOS),
-		.SAXIHP1AWSIZE(S_AXI_HP1_AWSIZE[1:0]),
-		.SAXIHP1AWVALID(S_AXI_HP1_AWVALID),
-		.SAXIHP1BREADY(S_AXI_HP1_BREADY),
-		.SAXIHP1RDISSUECAP1EN(S_AXI_HP1_RDISSUECAP1_EN),
-		.SAXIHP1RREADY(S_AXI_HP1_RREADY),
-		.SAXIHP1WDATA(S_AXI_HP1_WDATA_in),
-		.SAXIHP1WID(S_AXI_HP1_WID_in),
-		.SAXIHP1WLAST(S_AXI_HP1_WLAST),
-		.SAXIHP1WRISSUECAP1EN(S_AXI_HP1_WRISSUECAP1_EN),
-		.SAXIHP1WSTRB(S_AXI_HP1_WSTRB_in),
-		.SAXIHP1WVALID(S_AXI_HP1_WVALID),
-		*/
+		.SAXIGP1AWADDR(slavegp_axi_wrreq_addr[63:32]),
+		.SAXIGP1AWVALID(slavegp_axi_wrreq_valid[1]),
+		.SAXIGP1AWREADY(slavegp_axi_wrreq_ready[1]),
+		.SAXIGP1AWID(slavegp_axi_wrreq_id[11:6]),
+		.SAXIGP1AWLOCK(slavegp_axi_wrreq_lock[3:2]),
+		.SAXIGP1AWCACHE(slavegp_axi_wrreq_cache[7:4]),
+		.SAXIGP1AWPROT(slavegp_axi_wrreq_prot[5:3]),
+		.SAXIGP1AWLEN(slavegp_axi_wrreq_len[7:4]),
+		.SAXIGP1AWSIZE(slavegp_axi_wrreq_size[3:2]),
+		.SAXIGP1AWBURST(slavegp_axi_wrreq_burst[3:2]),
+		.SAXIGP1AWQOS(slavegp_axi_wrreq_qos[7:4]),
+		.SAXIGP1WDATA(slavegp_axi_wrdat_data[63:32]),
+		.SAXIGP1WVALID(slavegp_axi_wrdat_valid[1]),
+		.SAXIGP1WREADY(slavegp_axi_wrdat_ready[1]),
+		.SAXIGP1WID(slavegp_axi_wrdat_id[11:6]),
+		.SAXIGP1WLAST(slavegp_axi_wrdat_last[1]),
+		.SAXIGP1WSTRB(slavegp_axi_wrdat_mask[7:4]),
+		.SAXIGP1BVALID(slavegp_axi_wrresp_valid[1]),
+		.SAXIGP1BREADY(slavegp_axi_wrresp_ready[1]),
+		.SAXIGP1BID(slavegp_axi_wrresp_id[11:6]),
+		.SAXIGP1BRESP(slavegp_axi_wrresp_resp[3:2]),
 
-		//Slave AXI HP 2 (not yet used)
-		/*
-		.SAXIHP2ARESETN(S_AXI_HP2_ARESETN),
-		.SAXIHP2ARREADY(S_AXI_HP2_ARREADY),
-		.SAXIHP2AWREADY(S_AXI_HP2_AWREADY),
-		.SAXIHP2BID(S_AXI_HP2_BID_out ),
-		.SAXIHP2BRESP(S_AXI_HP2_BRESP),
-		.SAXIHP2BVALID(S_AXI_HP2_BVALID),
-		.SAXIHP2RACOUNT(S_AXI_HP2_RACOUNT),
-		.SAXIHP2RCOUNT(S_AXI_HP2_RCOUNT),
-		.SAXIHP2RDATA(S_AXI_HP2_RDATA_out),
-		.SAXIHP2RID(S_AXI_HP2_RID_out ),
-		.SAXIHP2RLAST(S_AXI_HP2_RLAST),
-		.SAXIHP2RRESP(S_AXI_HP2_RRESP),
-		.SAXIHP2RVALID(S_AXI_HP2_RVALID),
-		.SAXIHP2WACOUNT(S_AXI_HP2_WACOUNT),
-		.SAXIHP2WCOUNT(S_AXI_HP2_WCOUNT),
-		.SAXIHP2WREADY(S_AXI_HP2_WREADY),
-		.SAXIHP2ACLK(S_AXI_HP2_ACLK),
-		.SAXIHP2ARADDR(S_AXI_HP2_ARADDR),
-		.SAXIHP2ARBURST(S_AXI_HP2_ARBURST),
-		.SAXIHP2ARCACHE(S_AXI_HP2_ARCACHE),
-		.SAXIHP2ARID(S_AXI_HP2_ARID_in),
-		.SAXIHP2ARLEN(S_AXI_HP2_ARLEN),
-		.SAXIHP2ARLOCK(S_AXI_HP2_ARLOCK),
-		.SAXIHP2ARPROT(S_AXI_HP2_ARPROT),
-		.SAXIHP2ARQOS(S_AXI_HP2_ARQOS),
-		.SAXIHP2ARSIZE(S_AXI_HP2_ARSIZE[1:0]),
-		.SAXIHP2ARVALID(S_AXI_HP2_ARVALID),
-		.SAXIHP2AWADDR(S_AXI_HP2_AWADDR),
-		.SAXIHP2AWBURST(S_AXI_HP2_AWBURST),
-		.SAXIHP2AWCACHE(S_AXI_HP2_AWCACHE),
-		.SAXIHP2AWID(S_AXI_HP2_AWID_in),
-		.SAXIHP2AWLEN(S_AXI_HP2_AWLEN),
-		.SAXIHP2AWLOCK(S_AXI_HP2_AWLOCK),
-		.SAXIHP2AWPROT(S_AXI_HP2_AWPROT),
-		.SAXIHP2AWQOS(S_AXI_HP2_AWQOS),
-		.SAXIHP2AWSIZE(S_AXI_HP2_AWSIZE[1:0]),
-		.SAXIHP2AWVALID(S_AXI_HP2_AWVALID),
-		.SAXIHP2BREADY(S_AXI_HP2_BREADY),
-		.SAXIHP2RDISSUECAP1EN(S_AXI_HP2_RDISSUECAP1_EN),
-		.SAXIHP2RREADY(S_AXI_HP2_RREADY),
-		.SAXIHP2WDATA(S_AXI_HP2_WDATA_in),
-		.SAXIHP2WID(S_AXI_HP2_WID_in),
-		.SAXIHP2WLAST(S_AXI_HP2_WLAST),
-		.SAXIHP2WRISSUECAP1EN(S_AXI_HP2_WRISSUECAP1_EN),
-		.SAXIHP2WSTRB(S_AXI_HP2_WSTRB_in),
-		.SAXIHP2WVALID(S_AXI_HP2_WVALID),
-		 */
+		//Slave AXI HP 0
+		.SAXIHP0ACLK(slavehp_axi_clk[0]),
+		.SAXIHP0RDISSUECAP1EN(slavehp_axi_rdissuecap1en[0]),
+		.SAXIHP0ARESETN(slavehp_axi_rst_n[0]),
+		.SAXIHP0ARADDR(slavehp_axi_rdreq_addr[31:0]),
+		.SAXIHP0RACOUNT(slavehp_axi_rdreq_fifosize[2:0]),
+		.SAXIHP0ARVALID(slavehp_axi_rdreq_valid[0]),
+		.SAXIHP0ARREADY(slavehp_axi_rdreq_ready[0]),
+		.SAXIHP0ARID(slavehp_axi_rdreq_id[5:0]),
+		.SAXIHP0ARLOCK(slavehp_axi_rdreq_lock[1:0]),
+		.SAXIHP0ARCACHE(slavehp_axi_rdreq_cache[3:0]),
+		.SAXIHP0ARPROT(slavehp_axi_rdreq_prot[2:0]),
+		.SAXIHP0ARLEN(slavehp_axi_rdreq_len[3:0]),
+		.SAXIHP0ARSIZE(slavehp_axi_rdreq_size[1:0]),
+		.SAXIHP0ARBURST(slavehp_axi_rdreq_burst[1:0]),
+		.SAXIHP0ARQOS(slavehp_axi_rdreq_qos[3:0]),
+		.SAXIHP0RDATA(slavehp_axi_rdresp_data[63:0]),
+		.SAXIHP0RCOUNT(slavehp_axi_rdresp_fifosize[7:0]),
+		.SAXIHP0RVALID(slavehp_axi_rdresp_valid[0]),
+		.SAXIHP0RREADY(slavehp_axi_rdresp_ready[0]),
+		.SAXIHP0RID(slavehp_axi_rdresp_id[5:0]),
+		.SAXIHP0RLAST(slavehp_axi_rdresp_last[0]),
+		.SAXIHP0RRESP(slavehp_axi_rdresp_resp[1:0]),
 
-		//Slave AXI HP 3 (not yet used)
-		/*
-		.SAXIHP3ARESETN(S_AXI_HP3_ARESETN),
-		.SAXIHP3ARREADY(S_AXI_HP3_ARREADY),
-		.SAXIHP3AWREADY(S_AXI_HP3_AWREADY),
-		.SAXIHP3BID(S_AXI_HP3_BID_out),
-		.SAXIHP3BRESP(S_AXI_HP3_BRESP),
-		.SAXIHP3BVALID(S_AXI_HP3_BVALID),
-		.SAXIHP3RACOUNT(S_AXI_HP3_RACOUNT),
-		.SAXIHP3RCOUNT(S_AXI_HP3_RCOUNT),
-		.SAXIHP3RDATA(S_AXI_HP3_RDATA_out),
-		.SAXIHP3RID(S_AXI_HP3_RID_out),
-		.SAXIHP3RLAST(S_AXI_HP3_RLAST),
-		.SAXIHP3RRESP(S_AXI_HP3_RRESP),
-		.SAXIHP3RVALID(S_AXI_HP3_RVALID),
-		.SAXIHP3WCOUNT(S_AXI_HP3_WCOUNT),
-		.SAXIHP3WACOUNT(S_AXI_HP3_WACOUNT),
-		.SAXIHP3WREADY(S_AXI_HP3_WREADY),
-		.SAXIHP3ACLK(S_AXI_HP3_ACLK),
-		.SAXIHP3ARADDR(S_AXI_HP3_ARADDR ),
-		.SAXIHP3ARBURST(S_AXI_HP3_ARBURST),
-		.SAXIHP3ARCACHE(S_AXI_HP3_ARCACHE),
-		.SAXIHP3ARID(S_AXI_HP3_ARID_in   ),
-		.SAXIHP3ARLEN(S_AXI_HP3_ARLEN),
-		.SAXIHP3ARLOCK(S_AXI_HP3_ARLOCK),
-		.SAXIHP3ARPROT(S_AXI_HP3_ARPROT),
-		.SAXIHP3ARQOS(S_AXI_HP3_ARQOS),
-		.SAXIHP3ARSIZE(S_AXI_HP3_ARSIZE[1:0]),
-		.SAXIHP3ARVALID(S_AXI_HP3_ARVALID),
-		.SAXIHP3AWADDR(S_AXI_HP3_AWADDR),
-		.SAXIHP3AWBURST(S_AXI_HP3_AWBURST),
-		.SAXIHP3AWCACHE(S_AXI_HP3_AWCACHE),
-		.SAXIHP3AWID(S_AXI_HP3_AWID_in),
-		.SAXIHP3AWLEN(S_AXI_HP3_AWLEN),
-		.SAXIHP3AWLOCK(S_AXI_HP3_AWLOCK),
-		.SAXIHP3AWPROT(S_AXI_HP3_AWPROT),
-		.SAXIHP3AWQOS(S_AXI_HP3_AWQOS),
-		.SAXIHP3AWSIZE(S_AXI_HP3_AWSIZE[1:0]),
-		.SAXIHP3AWVALID(S_AXI_HP3_AWVALID),
-		.SAXIHP3BREADY(S_AXI_HP3_BREADY),
-		.SAXIHP3RDISSUECAP1EN(S_AXI_HP3_RDISSUECAP1_EN),
-		.SAXIHP3RREADY(S_AXI_HP3_RREADY),
-		.SAXIHP3WDATA(S_AXI_HP3_WDATA_in),
-		.SAXIHP3WID(S_AXI_HP3_WID_in),
-		.SAXIHP3WLAST(S_AXI_HP3_WLAST),
-		.SAXIHP3WRISSUECAP1EN(S_AXI_HP3_WRISSUECAP1_EN),
-		.SAXIHP3WSTRB(S_AXI_HP3_WSTRB_in),
-		.SAXIHP3WVALID(S_AXI_HP3_WVALID),
-		 */
+		.SAXIHP0WRISSUECAP1EN(slavehp_axi_wrissuecap1en[0]),
+		.SAXIHP0AWADDR(slavehp_axi_wrreq_addr[31:0]),
+		.SAXIHP0WACOUNT(slavehp_axi_wrreq_fifosize[5:0]),
+		.SAXIHP0AWVALID(slavehp_axi_wrreq_valid[0]),
+		.SAXIHP0AWREADY(slavehp_axi_wrreq_ready[0]),
+		.SAXIHP0AWID(slavehp_axi_wrreq_id[5:0]),
+		.SAXIHP0AWLOCK(slavehp_axi_wrreq_lock[1:0]),
+		.SAXIHP0AWCACHE(slavehp_axi_wrreq_cache[3:0]),
+		.SAXIHP0AWPROT(slavehp_axi_wrreq_prot[2:0]),
+		.SAXIHP0AWLEN(slavehp_axi_wrreq_len[3:0]),
+		.SAXIHP0AWSIZE(slavehp_axi_wrreq_size[1:0]),
+		.SAXIHP0AWBURST(slavehp_axi_wrreq_burst[1:0]),
+		.SAXIHP0AWQOS(slavehp_axi_wrreq_qos[3:0]),
+		.SAXIHP0WDATA(slavehp_axi_wrdat_data[63:0]),
+		.SAXIHP0WCOUNT(slavehp_axi_wrdat_fifosize[7:0]),
+		.SAXIHP0WVALID(slavehp_axi_wrdat_valid[0]),
+		.SAXIHP0WREADY(slavehp_axi_wrdat_ready[0]),
+		.SAXIHP0WID(slavehp_axi_wrdat_id[5:0]),
+		.SAXIHP0WLAST(slavehp_axi_wrdat_last[0]),
+		.SAXIHP0WSTRB(slavehp_axi_wrdat_mask[7:0]),
+		.SAXIHP0BVALID(slavehp_axi_wrresp_valid[0]),
+		.SAXIHP0BREADY(slavehp_axi_wrresp_ready[0]),
+		.SAXIHP0BID(slavehp_axi_wrresp_id[5:0]),
+		.SAXIHP0BRESP(slavehp_axi_wrresp_resp[1:0]),
 
-		//DDR RAM (not yet used)
-		/*
-		.DDRARB(DDR_ARB),
-		.DDRA(DDR_Addr),
-		.DDRBA(DDR_BankAddr),
-		.DDRCASB(DDR_CAS_n),
-		.DDRCKE(DDR_CKE),
-		.DDRCKN(DDR_Clk_n),
-		.DDRCKP(DDR_Clk),
-		.DDRCSB(DDR_CS_n),
-		.DDRDM(DDR_DM),
-		.DDRDQ(DDR_DQ),
-		.DDRDQSN(DDR_DQS_n),
-		.DDRDQSP(DDR_DQS),
-		.DDRDRSTB(DDR_DRSTB),
-		.DDRODT(DDR_ODT),
-		.DDRRASB(DDR_RAS_n),
-		.DDRVRN(DDR_VRN),
-		.DDRVRP(DDR_VRP),
-		.DDRWEB(DDR_WEB),
-		 */
+		//Slave AXI HP 1
+		.SAXIHP1ACLK(slavehp_axi_clk[1]),
+		.SAXIHP1RDISSUECAP1EN(slavehp_axi_rdissuecap1en[1]),
+		.SAXIHP1ARESETN(slavehp_axi_rst_n[1]),
+		.SAXIHP1ARADDR(slavehp_axi_rdreq_addr[63:32]),
+		.SAXIHP1RACOUNT(slavehp_axi_rdreq_fifosize[5:3]),
+		.SAXIHP1ARVALID(slavehp_axi_rdreq_valid[1]),
+		.SAXIHP1ARREADY(slavehp_axi_rdreq_ready[1]),
+		.SAXIHP1ARID(slavehp_axi_rdreq_id[11:6]),
+		.SAXIHP1ARLOCK(slavehp_axi_rdreq_lock[3:2]),
+		.SAXIHP1ARCACHE(slavehp_axi_rdreq_cache[7:4]),
+		.SAXIHP1ARPROT(slavehp_axi_rdreq_prot[5:3]),
+		.SAXIHP1ARLEN(slavehp_axi_rdreq_len[7:4]),
+		.SAXIHP1ARSIZE(slavehp_axi_rdreq_size[3:2]),
+		.SAXIHP1ARBURST(slavehp_axi_rdreq_burst[3:2]),
+		.SAXIHP1ARQOS(slavehp_axi_rdreq_qos[7:4]),
+		.SAXIHP1RDATA(slavehp_axi_rdresp_data[127:64]),
+		.SAXIHP1RCOUNT(slavehp_axi_rdresp_fifosize[15:8]),
+		.SAXIHP1RVALID(slavehp_axi_rdresp_valid[1]),
+		.SAXIHP1RREADY(slavehp_axi_rdresp_ready[1]),
+		.SAXIHP1RID(slavehp_axi_rdresp_id[11:6]),
+		.SAXIHP1RLAST(slavehp_axi_rdresp_last[1]),
+		.SAXIHP1RRESP(slavehp_axi_rdresp_resp[3:2]),
+
+		.SAXIHP1WRISSUECAP1EN(slavehp_axi_wrissuecap1en[1]),
+		.SAXIHP1AWADDR(slavehp_axi_wrreq_addr[63:32]),
+		.SAXIHP1WACOUNT(slavehp_axi_wrreq_fifosize[11:6]),
+		.SAXIHP1AWVALID(slavehp_axi_wrreq_valid[1]),
+		.SAXIHP1AWREADY(slavehp_axi_wrreq_ready[1]),
+		.SAXIHP1AWID(slavehp_axi_wrreq_id[11:6]),
+		.SAXIHP1AWLOCK(slavehp_axi_wrreq_lock[3:2]),
+		.SAXIHP1AWCACHE(slavehp_axi_wrreq_cache[7:4]),
+		.SAXIHP1AWPROT(slavehp_axi_wrreq_prot[5:3]),
+		.SAXIHP1AWLEN(slavehp_axi_wrreq_len[7:4]),
+		.SAXIHP1AWSIZE(slavehp_axi_wrreq_size[3:2]),
+		.SAXIHP1AWBURST(slavehp_axi_wrreq_burst[3:2]),
+		.SAXIHP1AWQOS(slavehp_axi_wrreq_qos[7:4]),
+		.SAXIHP1WDATA(slavehp_axi_wrdat_data[127:64]),
+		.SAXIHP1WCOUNT(slavehp_axi_wrdat_fifosize[15:8]),
+		.SAXIHP1WVALID(slavehp_axi_wrdat_valid[1]),
+		.SAXIHP1WREADY(slavehp_axi_wrdat_ready[1]),
+		.SAXIHP1WID(slavehp_axi_wrdat_id[11:6]),
+		.SAXIHP1WLAST(slavehp_axi_wrdat_last[1]),
+		.SAXIHP1WSTRB(slavehp_axi_wrdat_mask[15:8]),
+		.SAXIHP1BVALID(slavehp_axi_wrresp_valid[1]),
+		.SAXIHP1BREADY(slavehp_axi_wrresp_ready[1]),
+		.SAXIHP1BID(slavehp_axi_wrresp_id[11:6]),
+		.SAXIHP1BRESP(slavehp_axi_wrresp_resp[3:2]),
+
+		//Slave AXI HP 2
+		.SAXIHP2ACLK(slavehp_axi_clk[2]),
+		.SAXIHP2RDISSUECAP1EN(slavehp_axi_rdissuecap1en[2]),
+		.SAXIHP2ARESETN(slavehp_axi_rst_n[2]),
+		.SAXIHP2ARADDR(slavehp_axi_rdreq_addr[95:64]),
+		.SAXIHP2RACOUNT(slavehp_axi_rdreq_fifosize[8:6]),
+		.SAXIHP2ARVALID(slavehp_axi_rdreq_valid[2]),
+		.SAXIHP2ARREADY(slavehp_axi_rdreq_ready[2]),
+		.SAXIHP2ARID(slavehp_axi_rdreq_id[17:12]),
+		.SAXIHP2ARLOCK(slavehp_axi_rdreq_lock[5:4]),
+		.SAXIHP2ARCACHE(slavehp_axi_rdreq_cache[11:8]),
+		.SAXIHP2ARPROT(slavehp_axi_rdreq_prot[8:6]),
+		.SAXIHP2ARLEN(slavehp_axi_rdreq_len[11:8]),
+		.SAXIHP2ARSIZE(slavehp_axi_rdreq_size[5:4]),
+		.SAXIHP2ARBURST(slavehp_axi_rdreq_burst[5:4]),
+		.SAXIHP2ARQOS(slavehp_axi_rdreq_qos[11:8]),
+		.SAXIHP2RDATA(slavehp_axi_rdresp_data[191:128]),
+		.SAXIHP2RCOUNT(slavehp_axi_rdresp_fifosize[23:16]),
+		.SAXIHP2RVALID(slavehp_axi_rdresp_valid[2]),
+		.SAXIHP2RREADY(slavehp_axi_rdresp_ready[2]),
+		.SAXIHP2RID(slavehp_axi_rdresp_id[17:12]),
+		.SAXIHP2RLAST(slavehp_axi_rdresp_last[2]),
+		.SAXIHP2RRESP(slavehp_axi_rdresp_resp[5:4]),
+
+		.SAXIHP2WRISSUECAP1EN(slavehp_axi_wrissuecap1en[2]),
+		.SAXIHP2AWADDR(slavehp_axi_wrreq_addr[95:64]),
+		.SAXIHP2WACOUNT(slavehp_axi_wrreq_fifosize[17:12]),
+		.SAXIHP2AWVALID(slavehp_axi_wrreq_valid[2]),
+		.SAXIHP2AWREADY(slavehp_axi_wrreq_ready[2]),
+		.SAXIHP2AWID(slavehp_axi_wrreq_id[17:12]),
+		.SAXIHP2AWLOCK(slavehp_axi_wrreq_lock[5:4]),
+		.SAXIHP2AWCACHE(slavehp_axi_wrreq_cache[11:8]),
+		.SAXIHP2AWPROT(slavehp_axi_wrreq_prot[8:6]),
+		.SAXIHP2AWLEN(slavehp_axi_wrreq_len[11:8]),
+		.SAXIHP2AWSIZE(slavehp_axi_wrreq_size[5:4]),
+		.SAXIHP2AWBURST(slavehp_axi_wrreq_burst[5:4]),
+		.SAXIHP2AWQOS(slavehp_axi_wrreq_qos[11:8]),
+		.SAXIHP2WDATA(slavehp_axi_wrdat_data[191:128]),
+		.SAXIHP2WCOUNT(slavehp_axi_wrdat_fifosize[23:16]),
+		.SAXIHP2WVALID(slavehp_axi_wrdat_valid[2]),
+		.SAXIHP2WREADY(slavehp_axi_wrdat_ready[2]),
+		.SAXIHP2WID(slavehp_axi_wrdat_id[17:12]),
+		.SAXIHP2WLAST(slavehp_axi_wrdat_last[2]),
+		.SAXIHP2WSTRB(slavehp_axi_wrdat_mask[23:16]),
+		.SAXIHP2BVALID(slavehp_axi_wrresp_valid[2]),
+		.SAXIHP2BREADY(slavehp_axi_wrresp_ready[2]),
+		.SAXIHP2BID(slavehp_axi_wrresp_id[17:12]),
+		.SAXIHP2BRESP(slavehp_axi_wrresp_resp[5:4]),
+
+		//Slave AXI HP 3
+		.SAXIHP3ACLK(slavehp_axi_clk[3]),
+		.SAXIHP3RDISSUECAP1EN(slavehp_axi_rdissuecap1en[3]),
+		.SAXIHP3ARESETN(slavehp_axi_rst_n[3]),
+		.SAXIHP3ARADDR(slavehp_axi_rdreq_addr[127:96]),
+		.SAXIHP3RACOUNT(slavehp_axi_rdreq_fifosize[11:9]),
+		.SAXIHP3ARVALID(slavehp_axi_rdreq_valid[3]),
+		.SAXIHP3ARREADY(slavehp_axi_rdreq_ready[3]),
+		.SAXIHP3ARID(slavehp_axi_rdreq_id[23:18]),
+		.SAXIHP3ARLOCK(slavehp_axi_rdreq_lock[7:6]),
+		.SAXIHP3ARCACHE(slavehp_axi_rdreq_cache[15:12]),
+		.SAXIHP3ARPROT(slavehp_axi_rdreq_prot[11:9]),
+		.SAXIHP3ARLEN(slavehp_axi_rdreq_len[15:12]),
+		.SAXIHP3ARSIZE(slavehp_axi_rdreq_size[7:6]),
+		.SAXIHP3ARBURST(slavehp_axi_rdreq_burst[7:6]),
+		.SAXIHP3ARQOS(slavehp_axi_rdreq_qos[15:12]),
+		.SAXIHP3RDATA(slavehp_axi_rdresp_data[255:192]),
+		.SAXIHP3RCOUNT(slavehp_axi_rdresp_fifosize[31:24]),
+		.SAXIHP3RVALID(slavehp_axi_rdresp_valid[3]),
+		.SAXIHP3RREADY(slavehp_axi_rdresp_ready[3]),
+		.SAXIHP3RID(slavehp_axi_rdresp_id[23:18]),
+		.SAXIHP3RLAST(slavehp_axi_rdresp_last[3]),
+		.SAXIHP3RRESP(slavehp_axi_rdresp_resp[7:6]),
+
+		.SAXIHP3WRISSUECAP1EN(slavehp_axi_wrissuecap1en[3]),
+		.SAXIHP3AWADDR(slavehp_axi_wrreq_addr[127:96]),
+		.SAXIHP3WACOUNT(slavehp_axi_wrreq_fifosize[23:18]),
+		.SAXIHP3AWVALID(slavehp_axi_wrreq_valid[3]),
+		.SAXIHP3AWREADY(slavehp_axi_wrreq_ready[3]),
+		.SAXIHP3AWID(slavehp_axi_wrreq_id[23:18]),
+		.SAXIHP3AWLOCK(slavehp_axi_wrreq_lock[7:6]),
+		.SAXIHP3AWCACHE(slavehp_axi_wrreq_cache[15:12]),
+		.SAXIHP3AWPROT(slavehp_axi_wrreq_prot[11:9]),
+		.SAXIHP3AWLEN(slavehp_axi_wrreq_len[15:12]),
+		.SAXIHP3AWSIZE(slavehp_axi_wrreq_size[7:6]),
+		.SAXIHP3AWBURST(slavehp_axi_wrreq_burst[7:6]),
+		.SAXIHP3AWQOS(slavehp_axi_wrreq_qos[15:12]),
+		.SAXIHP3WDATA(slavehp_axi_wrdat_data[255:192]),
+		.SAXIHP3WCOUNT(slavehp_axi_wrdat_fifosize[31:24]),
+		.SAXIHP3WVALID(slavehp_axi_wrdat_valid[3]),
+		.SAXIHP3WREADY(slavehp_axi_wrdat_ready[3]),
+		.SAXIHP3WID(slavehp_axi_wrdat_id[23:18]),
+		.SAXIHP3WLAST(slavehp_axi_wrdat_last[3]),
+		.SAXIHP3WSTRB(slavehp_axi_wrdat_mask[31:24]),
+		.SAXIHP3BVALID(slavehp_axi_wrresp_valid[3]),
+		.SAXIHP3BREADY(slavehp_axi_wrresp_ready[3]),
+		.SAXIHP3BID(slavehp_axi_wrresp_id[23:18]),
+		.SAXIHP3BRESP(slavehp_axi_wrresp_resp[7:6])
 	);
 
 endmodule
