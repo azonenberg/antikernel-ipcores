@@ -83,6 +83,43 @@ module XilinxZynq7CPU(
 	wire[1:0]	cpu_waiting_for_event;
 	wire[1:0]	cpu_waiting_for_irq;
 
+	//CPU interrupts
+	wire[15:0]	fpga_to_cpu_irq		= 16'h0;
+	wire[1:0]	cpu_fiq_n			= 2'h3;
+	wire[1:0]	cpu_irq_n			= 2'h3;
+	wire[28:0]	cpu_to_fpga_irq;			//copies of IRQs from various peripherals
+											/*{
+												IRQ_P2F_DMAC_ABORT,
+												IRQ_P2F_DMAC7,
+												IRQ_P2F_DMAC6,
+												IRQ_P2F_DMAC5,
+												IRQ_P2F_DMAC4,
+												IRQ_P2F_DMAC3,
+												IRQ_P2F_DMAC2,
+												IRQ_P2F_DMAC1,
+												IRQ_P2F_DMAC0,
+												IRQ_P2F_SMC,
+												IRQ_P2F_QSPI,
+												IRQ_P2F_CTI,
+												IRQ_P2F_GPIO,
+												IRQ_P2F_USB0,
+												IRQ_P2F_ENET0,
+												IRQ_P2F_ENET_WAKE0,
+												IRQ_P2F_SDIO0,
+												IRQ_P2F_I2C0,
+												IRQ_P2F_SPI0,
+												IRQ_P2F_UART0,
+												IRQ_P2F_CAN0,
+												IRQ_P2F_USB1,
+												IRQ_P2F_ENET1,
+												IRQ_P2F_ENET_WAKE1,
+												IRQ_P2F_SDIO1,
+												IRQ_P2F_I2C1,
+												IRQ_P2F_SPI1,
+												IRQ_P2F_UART1,
+												IRQ_P2F_CAN1
+											} */
+
 	//DMA channels
 	wire[3:0]	dma_rst_n;
 	wire[3:0]	dma_clk				= 4'h0;
@@ -196,6 +233,48 @@ module XilinxZynq7CPU(
 	//AXI bus power saving stuff
 	wire		fpga_axi_buses_idle	= 1'h0;
 
+	//Master AXI links (transactions initiated by CPU)
+	wire[1:0]	master_axi_clk			= 2'h0;
+	wire[1:0]	master_axi_rst_n;
+	wire[63:0]	master_axi_rdreq_addr;
+	wire[1:0]	master_axi_rdreq_valid;
+	wire[1:0]	master_axi_rdreq_ready	= 2'h0;
+	wire[23:0]	master_axi_rdreq_id;
+	wire[3:0]	master_axi_rdreq_lock;
+	wire[7:0]	master_axi_rdreq_cache;
+	wire[5:0]	master_axi_rdreq_prot;
+	wire[7:0]	master_axi_rdreq_len;
+	wire[3:0]	master_axi_rdreq_size;
+	wire[3:0]	master_axi_rdreq_burst;
+	wire[7:0]	master_axi_rdreq_qos;
+	wire[63:0]	master_axi_rdresp_data	= 64'h0;
+	wire[1:0]	master_axi_rdresp_valid	= 2'h0;
+	wire[1:0]	master_axi_rdresp_ready;
+	wire[23:0]	master_axi_rdresp_id	= 24'h0;
+	wire[1:0]	master_axi_rdresp_last	= 2'h0;
+	wire[3:0]	master_axi_rdresp_resp	= 2'h0;
+
+	wire[63:0]	master_axi_wrreq_addr;
+	wire[1:0]	master_axi_wrreq_valid;
+	wire[1:0]	master_axi_wrreq_ready	= 2'h0;
+	wire[23:0]	master_axi_wrreq_id;
+	wire[3:0]	master_axi_wrreq_lock;
+	wire[7:0]	master_axi_wrreq_cache;
+	wire[5:0]	master_axi_wrreq_prot;
+	wire[7:0]	master_axi_wrreq_len;
+	wire[3:0]	master_axi_wrreq_size;
+	wire[3:0]	master_axi_wrreq_burst;
+	wire[7:0]	master_axi_wrreq_qos;
+	wire[63:0]	master_axi_wrdat_data;
+	wire[1:0]	master_axi_wrdat_valid;
+	wire[1:0]	master_axi_wrdat_ready	= 2'h0;
+	wire[23:0]	master_axi_wrdat_id;
+	wire[1:0]	master_axi_wrdat_last;
+	wire[7:0]	master_axi_wrdat_mask;
+	wire[1:0]	master_axi_wrresp_valid	= 2'h0;
+	wire[1:0]	master_axi_wrresp_ready;
+	wire[23:0]	master_axi_wrresp_id	= 24'h0;
+	wire[3:0]	master_axi_wrresp_resp	= 4'h0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual CPU
@@ -248,17 +327,17 @@ module XilinxZynq7CPU(
 		.EMIOWDTRSTO(watchdog_reset_out),
 		.EMIOWDTCLKI(watchdog_clk),
 
-		//Event stuff
+		//Event handling
 		.EVENTEVENTI(cpu_event_req),
 		.EVENTEVENTO(cpu_event_ack),
 		.EVENTSTANDBYWFE(cpu_waiting_for_event),
 		.EVENTSTANDBYWFI(cpu_waiting_for_irq),
 
-		//IRQ stuff (not yet used)
-		/*
-		.IRQF2P(irq_f2p_i),
-		.IRQP2F({IRQ_P2F_DMAC_ABORT, IRQ_P2F_DMAC7, IRQ_P2F_DMAC6, IRQ_P2F_DMAC5, IRQ_P2F_DMAC4, IRQ_P2F_DMAC3, IRQ_P2F_DMAC2, IRQ_P2F_DMAC1, IRQ_P2F_DMAC0, IRQ_P2F_SMC, IRQ_P2F_QSPI, IRQ_P2F_CTI, IRQ_P2F_GPIO, IRQ_P2F_USB0, IRQ_P2F_ENET0, IRQ_P2F_ENET_WAKE0, IRQ_P2F_SDIO0, IRQ_P2F_I2C0, IRQ_P2F_SPI0, IRQ_P2F_UART0, IRQ_P2F_CAN0, IRQ_P2F_USB1, IRQ_P2F_ENET1, IRQ_P2F_ENET_WAKE1, IRQ_P2F_SDIO1, IRQ_P2F_I2C1, IRQ_P2F_SPI1, IRQ_P2F_UART1, IRQ_P2F_CAN1}),
-		*/
+		//Interrupts
+		//NOTE: Zynq TRM 2.7.2 specifies "both CPUs" for nFIQ, nIRQ as bits 19:16
+		//but does not specify the ordering within those four bits!
+		.IRQF2P({cpu_fiq_n, cpu_irq_n, fpga_to_cpu_irq}),
+		.IRQP2F(cpu_to_fpga_irq),
 
 		//CPU DMA ports
 		.DMA0ACLK(dma_clk[0]),
@@ -486,95 +565,93 @@ module XilinxZynq7CPU(
 		//EMIO USB 1
 		.EMIOUSB1PORTINDCTL(usb_indicator[3:2]),
 		.EMIOUSB1VBUSPWRSELECT(usb_pwr_select[1]),
-		.EMIOUSB1VBUSPWRFAULT(usb_pwr_fault[1])//,
+		.EMIOUSB1VBUSPWRFAULT(usb_pwr_fault[1]),
 
-		//Master AXI GP 0 (not yet used)
-		/*
-		.MAXIGP0ARADDR(M_AXI_GP0_ARADDR),
-		.MAXIGP0ARBURST(M_AXI_GP0_ARBURST),
-		.MAXIGP0ARCACHE(M_AXI_GP0_ARCACHE),
-		.MAXIGP0ARESETN(M_AXI_GP0_ARESETN),
-		.MAXIGP0ARID(M_AXI_GP0_ARID_FULL   ),
-		.MAXIGP0ARLEN(M_AXI_GP0_ARLEN  ),
-		.MAXIGP0ARLOCK(M_AXI_GP0_ARLOCK ),
-		.MAXIGP0ARPROT(M_AXI_GP0_ARPROT ),
-		.MAXIGP0ARQOS(M_AXI_GP0_ARQOS  ),
-		.MAXIGP0ARSIZE(M_AXI_GP0_ARSIZE_i ),
-		.MAXIGP0ARVALID(M_AXI_GP0_ARVALID),
-		.MAXIGP0AWADDR(M_AXI_GP0_AWADDR ),
-		.MAXIGP0AWBURST(M_AXI_GP0_AWBURST),
-		.MAXIGP0AWCACHE(M_AXI_GP0_AWCACHE),
-		.MAXIGP0AWID(M_AXI_GP0_AWID_FULL   ),
-		.MAXIGP0AWLEN(M_AXI_GP0_AWLEN  ),
-		.MAXIGP0AWLOCK(M_AXI_GP0_AWLOCK ),
-		.MAXIGP0AWPROT(M_AXI_GP0_AWPROT ),
-		.MAXIGP0AWQOS(M_AXI_GP0_AWQOS  ),
-		.MAXIGP0AWSIZE(M_AXI_GP0_AWSIZE_i ),
-		.MAXIGP0AWVALID(M_AXI_GP0_AWVALID),
-		.MAXIGP0BREADY(M_AXI_GP0_BREADY ),
-		.MAXIGP0RREADY(M_AXI_GP0_RREADY ),
-		.MAXIGP0WDATA(M_AXI_GP0_WDATA  ),
-		.MAXIGP0WID(M_AXI_GP0_WID_FULL    ),
-		.MAXIGP0WLAST(M_AXI_GP0_WLAST  ),
-		.MAXIGP0WSTRB(M_AXI_GP0_WSTRB  ),
-		.MAXIGP0WVALID(M_AXI_GP0_WVALID ),
-		.MAXIGP0ACLK(M_AXI_GP0_ACLK),
-		.MAXIGP0ARREADY(M_AXI_GP0_ARREADY),
-		.MAXIGP0AWREADY(M_AXI_GP0_AWREADY),
-		.MAXIGP0BID(M_AXI_GP0_BID_FULL    ),
-		.MAXIGP0BRESP(M_AXI_GP0_BRESP  ),
-		.MAXIGP0BVALID(M_AXI_GP0_BVALID ),
-		.MAXIGP0RDATA(M_AXI_GP0_RDATA  ),
-		.MAXIGP0RID(M_AXI_GP0_RID_FULL    ),
-		.MAXIGP0RLAST(M_AXI_GP0_RLAST  ),
-		.MAXIGP0RRESP(M_AXI_GP0_RRESP  ),
-		.MAXIGP0RVALID(M_AXI_GP0_RVALID ),
-		.MAXIGP0WREADY(M_AXI_GP0_WREADY ),
-		*/
+		//Master AXI GP 0
+		.MAXIGP0ACLK(master_axi_clk[0]),
+		.MAXIGP0ARESETN(master_axi_rst_n[0]),
+		.MAXIGP0ARADDR(master_axi_rdreq_addr[31:0]),
+		.MAXIGP0ARVALID(master_axi_rdreq_valid[0]),
+		.MAXIGP0ARREADY(master_axi_rdreq_ready[0]),
+		.MAXIGP0ARID(master_axi_rdreq_id[11:0]),
+		.MAXIGP0ARLOCK(master_axi_rdreq_lock[1:0]),
+		.MAXIGP0ARCACHE(master_axi_rdreq_cache[3:0]),
+		.MAXIGP0ARPROT(master_axi_rdreq_prot[2:0]),
+		.MAXIGP0ARLEN(master_axi_rdreq_len[3:0]),
+		.MAXIGP0ARSIZE(master_axi_rdreq_size[1:0]),
+		.MAXIGP0ARBURST(master_axi_rdreq_burst[1:0]),
+		.MAXIGP0ARQOS(master_axi_rdreq_qos[3:0]),
+		.MAXIGP0RDATA(master_axi_rdresp_data[31:0]),
+		.MAXIGP0RVALID(master_axi_rdresp_valid[0]),
+		.MAXIGP0RREADY(master_axi_rdresp_ready[0]),
+		.MAXIGP0RID(master_axi_rdresp_id[11:0]),
+		.MAXIGP0RLAST(master_axi_rdresp_last[0]),
+		.MAXIGP0RRESP(master_axi_rdresp_resp[1:0]),
 
-		//Master AXI GP 1 (not yet used)
-		/*
-		.MAXIGP1ARADDR(M_AXI_GP1_ARADDR ),
-		.MAXIGP1ARBURST(M_AXI_GP1_ARBURST),
-		.MAXIGP1ARCACHE(M_AXI_GP1_ARCACHE),
-		.MAXIGP1ARESETN(M_AXI_GP1_ARESETN),
-		.MAXIGP1ARID(M_AXI_GP1_ARID_FULL   ),
-		.MAXIGP1ARLEN(M_AXI_GP1_ARLEN  ),
-		.MAXIGP1ARLOCK(M_AXI_GP1_ARLOCK ),
-		.MAXIGP1ARPROT(M_AXI_GP1_ARPROT ),
-		.MAXIGP1ARQOS(M_AXI_GP1_ARQOS  ),
-		.MAXIGP1ARSIZE(M_AXI_GP1_ARSIZE_i ),
-		.MAXIGP1ARVALID(M_AXI_GP1_ARVALID),
-		.MAXIGP1AWADDR(M_AXI_GP1_AWADDR ),
-		.MAXIGP1AWBURST(M_AXI_GP1_AWBURST),
-		.MAXIGP1AWCACHE(M_AXI_GP1_AWCACHE),
-		.MAXIGP1AWID(M_AXI_GP1_AWID_FULL   ),
-		.MAXIGP1AWLEN(M_AXI_GP1_AWLEN  ),
-		.MAXIGP1AWLOCK(M_AXI_GP1_AWLOCK ),
-		.MAXIGP1AWPROT(M_AXI_GP1_AWPROT ),
-		.MAXIGP1AWQOS(M_AXI_GP1_AWQOS  ),
-		.MAXIGP1AWSIZE(M_AXI_GP1_AWSIZE_i ),
-		.MAXIGP1AWVALID(M_AXI_GP1_AWVALID),
-		.MAXIGP1BREADY(M_AXI_GP1_BREADY ),
-		.MAXIGP1RREADY(M_AXI_GP1_RREADY ),
-		.MAXIGP1WDATA(M_AXI_GP1_WDATA  ),
-		.MAXIGP1WID(M_AXI_GP1_WID_FULL    ),
-		.MAXIGP1WLAST(M_AXI_GP1_WLAST  ),
-		.MAXIGP1WSTRB(M_AXI_GP1_WSTRB  ),
-		.MAXIGP1WVALID(M_AXI_GP1_WVALID ),
-		.MAXIGP1ACLK(M_AXI_GP1_ACLK   ),
-		.MAXIGP1ARREADY(M_AXI_GP1_ARREADY),
-		.MAXIGP1AWREADY(M_AXI_GP1_AWREADY),
-		.MAXIGP1BID(M_AXI_GP1_BID_FULL ),
-		.MAXIGP1BRESP(M_AXI_GP1_BRESP  ),
-		.MAXIGP1BVALID(M_AXI_GP1_BVALID ),
-		.MAXIGP1RDATA(M_AXI_GP1_RDATA  ),
-		.MAXIGP1RID(M_AXI_GP1_RID_FULL    ),
-		.MAXIGP1RLAST(M_AXI_GP1_RLAST  ),
-		.MAXIGP1RRESP(M_AXI_GP1_RRESP  ),
-		.MAXIGP1RVALID(M_AXI_GP1_RVALID ),
-		.MAXIGP1WREADY(M_AXI_GP1_WREADY ),
-		*/
+		.MAXIGP0AWADDR(master_axi_wrreq_addr[31:0]),
+		.MAXIGP0AWVALID(master_axi_wrreq_valid[0]),
+		.MAXIGP0AWREADY(master_axi_wrreq_ready[0]),
+		.MAXIGP0AWID(master_axi_wrreq_id[11:0]),
+		.MAXIGP0AWLOCK(master_axi_wrreq_lock[1:0]),
+		.MAXIGP0AWCACHE(master_axi_wrreq_cache[3:0]),
+		.MAXIGP0AWPROT(master_axi_wrreq_prot[2:0]),
+		.MAXIGP0AWLEN(master_axi_wrreq_len[3:0]),
+		.MAXIGP0AWSIZE(master_axi_wrreq_size[1:0]),
+		.MAXIGP0AWBURST(master_axi_wrreq_burst[1:0]),
+		.MAXIGP0AWQOS(master_axi_wrreq_qos[3:0]),
+		.MAXIGP0WDATA(master_axi_wrdat_data[31:0]),
+		.MAXIGP0WVALID(master_axi_wrdat_valid[0]),
+		.MAXIGP0WREADY(master_axi_wrdat_ready[0]),
+		.MAXIGP0WID(master_axi_wrdat_id[11:0]),
+		.MAXIGP0WLAST(master_axi_wrdat_last[0]),
+		.MAXIGP0WSTRB(master_axi_wrdat_mask[3:0]),
+		.MAXIGP0BVALID(master_axi_wrresp_valid[0]),
+		.MAXIGP0BREADY(master_axi_wrresp_ready[0]),
+		.MAXIGP0BID(master_axi_wrresp_id[11:0]),
+		.MAXIGP0BRESP(master_axi_wrresp_resp[1:0]),
+
+		//Master AXI GP 1
+		.MAXIGP1ACLK(master_axi_clk[1]),
+		.MAXIGP1ARESETN(master_axi_rst_n[1]),
+		.MAXIGP1ARADDR(master_axi_rdreq_addr[63:32]),
+		.MAXIGP1ARVALID(master_axi_rdreq_valid[1]),
+		.MAXIGP1ARREADY(master_axi_rdreq_ready[1]),
+		.MAXIGP1ARID(master_axi_rdreq_id[23:12]),
+		.MAXIGP1ARLOCK(master_axi_rdreq_lock[3:2]),
+		.MAXIGP1ARCACHE(master_axi_rdreq_cache[7:4]),
+		.MAXIGP1ARPROT(master_axi_rdreq_prot[5:3]),
+		.MAXIGP1ARLEN(master_axi_rdreq_len[7:4]),
+		.MAXIGP1ARSIZE(master_axi_rdreq_size[3:2]),
+		.MAXIGP1ARBURST(master_axi_rdreq_burst[3:2]),
+		.MAXIGP1ARQOS(master_axi_rdreq_qos[7:4]),
+		.MAXIGP1RDATA(master_axi_rdresp_data[63:32]),
+		.MAXIGP1RVALID(master_axi_rdresp_valid[1]),
+		.MAXIGP1RREADY(master_axi_rdresp_ready[1]),
+		.MAXIGP1RID(master_axi_rdresp_id[23:12]),
+		.MAXIGP1RLAST(master_axi_rdresp_last[1]),
+		.MAXIGP1RRESP(master_axi_rdresp_resp[3:2]),
+
+		.MAXIGP1AWADDR(master_axi_wrreq_addr[63:32]),
+		.MAXIGP1AWVALID(master_axi_wrreq_valid[1]),
+		.MAXIGP1AWREADY(master_axi_wrreq_ready[1]),
+		.MAXIGP1AWID(master_axi_wrreq_id[23:12]),
+		.MAXIGP1AWLOCK(master_axi_wrreq_lock[3:2]),
+		.MAXIGP1AWCACHE(master_axi_wrreq_cache[7:4]),
+		.MAXIGP1AWPROT(master_axi_wrreq_prot[5:3]),
+		.MAXIGP1AWLEN(master_axi_wrreq_len[7:4]),
+		.MAXIGP1AWSIZE(master_axi_wrreq_size[3:2]),
+		.MAXIGP1AWBURST(master_axi_wrreq_burst[3:2]),
+		.MAXIGP1AWQOS(master_axi_wrreq_qos[7:4]),
+		.MAXIGP1WDATA(master_axi_wrdat_data[63:32]),
+		.MAXIGP1WVALID(master_axi_wrdat_valid[1]),
+		.MAXIGP1WREADY(master_axi_wrdat_ready[1]),
+		.MAXIGP1WID(master_axi_wrdat_id[23:12]),
+		.MAXIGP1WLAST(master_axi_wrdat_last[1]),
+		.MAXIGP1WSTRB(master_axi_wrdat_mask[7:4]),
+		.MAXIGP1BVALID(master_axi_wrresp_valid[1]),
+		.MAXIGP1BREADY(master_axi_wrresp_ready[1]),
+		.MAXIGP1BID(master_axi_wrresp_id[23:12]),
+		.MAXIGP1BRESP(master_axi_wrresp_resp[3:2])//,
 
 		//Slave AXI GP 0 (not yet used)
 		/*
