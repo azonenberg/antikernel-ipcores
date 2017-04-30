@@ -50,22 +50,53 @@ module XilinxZynq7CPU(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Unused signals (not yet implemented)
+	// Unused signals (tied off to default values now to avoid warnings, not yet brought out to top level)
+
+	//Clocks from CPU PLL to FPGA, plus associated resets
+	wire[3:0]	fabric_clock_unbuffered;
+	wire[3:0]	async_cpu_reset_complete;
+
+	//FPGA to CoreSight bridge signals
+	wire[31:0]	cpu_to_fpga_debug_gpioreg;
+	wire[31:0]	fpga_to_cpu_debug_gpioreg	= 32'h0;
+	wire[3:0]	cpu_to_fpga_trace_trigger;
+	wire[3:0]	cpu_to_fpga_trace_ack		= cpu_to_fpga_trace_trigger;
+	wire[3:0]	fpga_to_cpu_trace_trigger	= 4'h0;
+	wire[3:0]	fpga_to_cpu_trace_ack;
+	wire		fpga_trace_clk				= 1'h0;
+	wire		fpga_trace_valid			= 1'h0;
+	wire[31:0]	fpga_trace_data				= 32'h0;
+	wire[3:0]	fpga_trace_id				= 4'h0;
+
+	//CPU trace signals
+	wire		trace_clk			= 1'h0;
+	wire		trace_ctl;
+	wire[31:0]	trace_data;
+
+	//System watchdog timer
+	wire		watchdog_clk		= 1'h0;
+	wire		watchdog_reset_out;
+
+	//CPU events
+	wire		cpu_event_req		= 1'h0;
+	wire		cpu_event_ack;
+	wire[1:0]	cpu_waiting_for_event;
+	wire[1:0]	cpu_waiting_for_irq;
 
 	//DMA channels
-	wire[3:0] dma_rst_n;
-	wire[3:0] dma_clk			= 4'h0;
-	wire[3:0] dma_req_ready;
-	wire[3:0] dma_req_valid		= 4'h0;
-	wire[7:0] dma_req_type		= 8'h0;
-	wire[3:0] dma_req_last		= 4'h0;
-	wire[3:0] dma_ack_ready		= 4'h0;
-	wire[3:0] dma_ack_valid;
-	wire[7:0] dma_ack_type;
+	wire[3:0]	dma_rst_n;
+	wire[3:0]	dma_clk				= 4'h0;
+	wire[3:0]	dma_req_ready;
+	wire[3:0]	dma_req_valid		= 4'h0;
+	wire[7:0] 	dma_req_type		= 8'h0;
+	wire[3:0]	dma_req_last		= 4'h0;
+	wire[3:0]	dma_ack_ready		= 4'h0;
+	wire[3:0]	dma_ack_valid;
+	wire[7:0]	dma_ack_type;
 
 	//CAN interfaces
-	wire[1:0] can_phy_rx		= 2'h0;
-	wire[1:0] can_phy_tx;
+	wire[1:0]	can_phy_rx			= 2'h0;
+	wire[1:0]	can_phy_tx;
 
 	//Ethernet interfaces: data/control
 	wire[1:0]	eth_ext_int			= 2'h0;
@@ -129,6 +160,43 @@ module XilinxZynq7CPU(
 	wire[1:0]	sdio_led_en;
 	wire[5:0]	sdio_bus_voltage;
 
+	//SPI interfaces
+	wire[1:0]	spi_clk_in			= 2'h0;
+	wire[1:0]	spi_clk_out;
+	wire[1:0]	spi_clk_tris;
+	wire[1:0]	spi_mosi_in			= 2'h0;
+	wire[1:0]	spi_mosi_out;
+	wire[1:0]	spi_mosi_tris;
+	wire[1:0]	spi_miso_in			= 2'h0;
+	wire[1:0]	spi_miso_out;
+	wire[1:0]	spi_miso_tris;
+	wire[1:0]	spi_csn_in			= 2'h3;
+	wire[5:0]	spi_csn_out;
+	wire[1:0]	spi_csn_tris;
+
+	//Triple timer/counters
+	wire[5:0]	tmrcnt_clk			= 6'h0;
+	wire[5:0]	tmrcnt_wave_out;
+
+	//UARTs
+	wire[1:0]	uart_txd;
+	wire[1:0]	uart_rxd			= 2'h3;
+	wire[1:0]	uart_cts			= 2'h0;
+	wire[1:0]	uart_rts;
+	wire[1:0]	uart_dsr			= 2'h0;
+	wire[1:0]	uart_dcd			= 2'h0;
+	wire[1:0]	uart_ri				= 2'h0;
+	wire[1:0]	uart_dtr			= 2'h0;
+
+	//USB status signals. The actual ULPI data lines are hard IP and not routed to fabric.
+	wire[3:0]	usb_indicator;
+	wire[1:0]	usb_pwr_fault		= 2'h0;
+	wire[1:0]	usb_pwr_select;
+
+	//AXI bus power saving stuff
+	wire		fpga_axi_buses_idle	= 1'h0;
+
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual CPU
 
@@ -149,45 +217,42 @@ module XilinxZynq7CPU(
 		//MIO pins (why are these brought out when we have everything else?)
 		//.MIO(MIO),
 
-		/*
-		.FCLKCLK(FCLK_CLK_unbuffered),
-		.FCLKRESETN({FCLK_RESET3_N,FCLK_RESET2_N,FCLK_RESET1_N,FCLK_RESET0_N}),
-		.FCLKCLKTRIGN(fclk_clktrig_gnd),
-		.FPGAIDLEN(FPGA_IDLE_N),
-		.FTMDTRACEINATID(FTMD_TRACEIN_ATID_i),
-		.FTMDTRACEINCLOCK(FTMD_TRACEIN_CLK),
-		.FTMDTRACEINDATA(FTMD_TRACEIN_DATA_i),
-		.FTMDTRACEINVALID(FTMD_TRACEIN_VALID_i),
-		.FTMTF2PDEBUG(FTMT_F2P_DEBUG  ),
-		.FTMTF2PTRIG(FTMT_F2P_TRIG   ),
-		.FTMTP2FTRIGACK(FTMT_P2F_TRIGACK),
-		.EMIOSRAMINTIN(SRAM_INTIN),
-		.EVENTEVENTI(EVENT_EVENTI),
-		*/
+		//Clocks from CPU to FPGA
+		.FCLKCLK(fabric_clock_unbuffered),
+		.FCLKRESETN(async_cpu_reset_complete),
+		.FCLKCLKTRIGN(4'h0),						//Unimplemented, must be tied to ground per Zynq TRM 2.7.1
 
-		//EMIO trace port (not yet used)
-		/*
-		.EMIOTRACECTL(TRACE_CTL),
-		.EMIOTRACEDATA(TRACE_DATA),
-		.EMIOTRACECLK(TRACE_CLK),
-		.EMIOTTC0CLKI({TTC0_CLK2_IN, TTC0_CLK1_IN, TTC0_CLK0_IN}),
-		.EMIOTTC1CLKI({TTC1_CLK2_IN, TTC1_CLK1_IN, TTC1_CLK0_IN}),
-		.EMIOTTC0WAVEO({TTC0_WAVE2_OUT,TTC0_WAVE1_OUT,TTC0_WAVE0_OUT}),
-		.EMIOTTC1WAVEO({TTC1_WAVE2_OUT,TTC1_WAVE1_OUT,TTC1_WAVE0_OUT}),
-		*/
+		//AXI bus power management
+		.FPGAIDLEN(fpga_axi_buses_idle),
+
+		//Fabric Trace Monitor (FPGA to CoreSight bridge)
+		.FTMTF2PDEBUG(fpga_to_cpu_debug_gpioreg),
+		.FTMTP2FDEBUG(cpu_to_fpga_debug_gpioreg),
+		.FTMTF2PTRIG(fpga_to_cpu_trace_trigger),
+		.FTMTF2PTRIGACK(fpga_to_cpu_trace_ack),
+		.FTMTP2FTRIG(cpu_to_fpga_trace_trigger),
+		.FTMTP2FTRIGACK(cpu_to_fpga_trace_ack),
+		.FTMDTRACEINVALID(fpga_trace_valid),
+		.FTMDTRACEINCLOCK(fpga_trace_clk),
+		.FTMDTRACEINDATA(fpga_trace_data),
+		.FTMDTRACEINATID(fpga_trace_id),
+
+		//.EMIOSRAMINTIN(SRAM_INTIN),
+
+		//EMIO trace port
+		.EMIOTRACECLK(trace_clk),
+		.EMIOTRACECTL(trace_ctl),
+		.EMIOTRACEDATA(trace_data),
 
 		//Watchdog timer (not yet used)
-		/*
-		.EMIOWDTRSTO(WDT_RST_OUT),
-		.EMIOWDTCLKI(WDT_CLK_IN),
-		*/
+		.EMIOWDTRSTO(watchdog_reset_out),
+		.EMIOWDTCLKI(watchdog_clk),
 
-		//Event stuff? What's this for?
-		/*
-		.EVENTEVENTO(EVENT_EVENTO),
-		.EVENTSTANDBYWFE(EVENT_STANDBYWFE),
-		.EVENTSTANDBYWFI(EVENT_STANDBYWFI),
-		*/
+		//Event stuff
+		.EVENTEVENTI(cpu_event_req),
+		.EVENTEVENTO(cpu_event_ack),
+		.EVENTSTANDBYWFE(cpu_waiting_for_event),
+		.EVENTSTANDBYWFI(cpu_waiting_for_irq),
 
 		//IRQ stuff (not yet used)
 		/*
@@ -357,84 +422,71 @@ module XilinxZynq7CPU(
 		.EMIOSDIO1LED(sdio_led_en[1]),
 		.EMIOSDIO1BUSVOLT(sdio_bus_voltage[5:3]),
 		.EMIOSDIO1CDN(sdio_card_detect[1]),
-		.EMIOSDIO1WP(sdio_write_protect[1])//,
+		.EMIOSDIO1WP(sdio_write_protect[1]),
 
 		//EMIO SPI 0 (not yet used)
-		/*
-		.EMIOSPI0MO(SPI0_MOSI_O),
-		.EMIOSPI0MOTN(SPI0_MOSI_T_n),
-		.EMIOSPI0SCLKO(SPI0_SCLK_O),
-		.EMIOSPI0SCLKTN(SPI0_SCLK_T_n),
-		.EMIOSPI0SO(SPI0_MISO_O),
-		.EMIOSPI0STN(SPI0_MISO_T_n),
-		.EMIOSPI0SSON({SPI0_SS2_O,SPI0_SS1_O,SPI0_SS_O}),
-		.EMIOSPI0SSNTN(SPI0_SS_T_n),
-		.EMIOSPI0MI(SPI0_MISO_I),
-		.EMIOSPI0SCLKI(SPI0_SCLK_I),
-		.EMIOSPI0SI(SPI0_MOSI_I),
-		.EMIOSPI0SSIN(SPI0_SS_I),
-		*/
+		.EMIOSPI0SCLKO(spi_clk_out[0]),
+		.EMIOSPI0SCLKTN(spi_clk_tris[0]),
+		.EMIOSPI0SCLKI(spi_clk_in[0]),
+		.EMIOSPI0MO(spi_mosi_out[0]),
+		.EMIOSPI0MOTN(spi_mosi_tris[0]),
+		.EMIOSPI0SI(spi_mosi_in[0]),
+		.EMIOSPI0SO(spi_miso_out[0]),
+		.EMIOSPI0STN(spi_miso_tris[0]),
+		.EMIOSPI0MI(spi_miso_in[0]),
+		.EMIOSPI0SSON(spi_csn_out[2:0]),
+		.EMIOSPI0SSNTN(spi_csn_tris[0]),
+		.EMIOSPI0SSIN(spi_csn_in[0]),
 
 		//EMIO SPI 1 (not yet used)
-		/*
-		.EMIOSPI1MO(SPI1_MOSI_O),
-		.EMIOSPI1MOTN(SPI1_MOSI_T_n),
-		.EMIOSPI1SCLKO(SPI1_SCLK_O),
-		.EMIOSPI1SCLKTN(SPI1_SCLK_T_n),
-		.EMIOSPI1SO(SPI1_MISO_O),
-		.EMIOSPI1STN(SPI1_MISO_T_n),
-		.EMIOSPI1SSON({SPI1_SS2_O,SPI1_SS1_O,SPI1_SS_O}),
-		.EMIOSPI1SSNTN(SPI1_SS_T_n),
-		.EMIOSPI1MI(SPI1_MISO_I),
-		.EMIOSPI1SCLKI(SPI1_SCLK_I),
-		.EMIOSPI1SI(SPI1_MOSI_I),
-		.EMIOSPI1SSIN(SPI1_SS_I),
-		*/
+		.EMIOSPI1SCLKO(spi_clk_out[1]),
+		.EMIOSPI1SCLKTN(spi_clk_tris[1]),
+		.EMIOSPI1SCLKI(spi_clk_in[1]),
+		.EMIOSPI1MO(spi_mosi_out[1]),
+		.EMIOSPI1MOTN(spi_mosi_tris[1]),
+		.EMIOSPI1SI(spi_mosi_in[1]),
+		.EMIOSPI1SO(spi_miso_out[1]),
+		.EMIOSPI1STN(spi_miso_tris[1]),
+		.EMIOSPI1MI(spi_miso_in[1]),
+		.EMIOSPI1SSON(spi_csn_out[5:3]),
+		.EMIOSPI1SSNTN(spi_csn_tris[1]),
+		.EMIOSPI1SSIN(spi_csn_in[1]),
 
-		//EMIO UART 0 (not yet used)
-		/*
-		.EMIOUART0DTRN(UART0_DTRN),
-		.EMIOUART0RTSN(UART0_RTSN),
-		.EMIOUART0TX(UART0_TX  ),
-		.EMIOUART0CTSN(UART0_CTSN),
-		.EMIOUART0DCDN(UART0_DCDN),
-		.EMIOUART0DSRN(UART0_DSRN),
-		.EMIOUART0RIN(UART0_RIN ),
-		.EMIOUART0RX(UART0_RX  ),
-		*/
+		//Triple timer/counters
+		.EMIOTTC0CLKI(tmrcnt_clk[2:0]),
+		.EMIOTTC0WAVEO(tmrcnt_wave_out[2:0]),
+		.EMIOTTC1CLKI(tmrcnt_clk[5:3]),
+		.EMIOTTC1WAVEO(tmrcnt_wave_out[2:0]),
 
-		//EMIO UART 1 (not yet used)
-		/*
-		.EMIOUART1DTRN(UART1_DTRN),
-		.EMIOUART1RTSN(UART1_RTSN),
-		.EMIOUART1TX(UART1_TX  ),
-		.EMIOUART1CTSN(UART1_CTSN),
-		.EMIOUART1DCDN(UART1_DCDN),
-		.EMIOUART1DSRN(UART1_DSRN),
-		.EMIOUART1RIN(UART1_RIN ),
-		.EMIOUART1RX(UART1_RX  ),
-		*/
+		//EMIO UART 0
+		.EMIOUART0TX(uart_txd[0]),
+		.EMIOUART0RX(uart_rxd[0]),
+		.EMIOUART0DTRN(uart_dtr[0]),
+		.EMIOUART0DSRN(uart_dsr[0]),
+		.EMIOUART0RTSN(uart_rts[0]),
+		.EMIOUART0DCDN(uart_dcd[0]),
+		.EMIOUART0CTSN(uart_cts[0]),
+		.EMIOUART0RIN(uart_ri[0]),
 
-		//EMIO USB 0 (not yet used)
-		/*
-		.EMIOUSB0PORTINDCTL(USB0_PORT_INDCTL),
-		.EMIOUSB0VBUSPWRSELECT(USB0_VBUS_PWRSELECT),
-		.EMIOUSB0VBUSPWRFAULT(USB0_VBUS_PWRFAULT),
-		*/
+		//EMIO UART 1
+		.EMIOUART1TX(uart_txd[1]),
+		.EMIOUART1RX(uart_rxd[1]),
+		.EMIOUART1DTRN(uart_dtr[1]),
+		.EMIOUART1DSRN(uart_dsr[1]),
+		.EMIOUART1RTSN(uart_rts[1]),
+		.EMIOUART1DCDN(uart_dcd[1]),
+		.EMIOUART1CTSN(uart_cts[1]),
+		.EMIOUART1RIN(uart_ri[1]),
 
-		//EMIO USB 1 (not yet used)
-		/*
-		.EMIOUSB1PORTINDCTL(USB1_PORT_INDCTL),
-		.EMIOUSB1VBUSPWRSELECT(USB1_VBUS_PWRSELECT),
-		.EMIOUSB1VBUSPWRFAULT(USB1_VBUS_PWRFAULT),
-		*/
+		//EMIO USB 0
+		.EMIOUSB0PORTINDCTL(usb_indicator[1:0]),
+		.EMIOUSB0VBUSPWRSELECT(usb_pwr_select[0]),
+		.EMIOUSB0VBUSPWRFAULT(usb_pwr_fault[0]),
 
-		//What's this?
-		/*
-		.FTMTF2PTRIGACK(FTMT_F2P_TRIGACK),
-		.FTMTP2FDEBUG(FTMT_P2F_DEBUG  ),
-		.FTMTP2FTRIG(FTMT_P2F_TRIG   ),
-		*/
+		//EMIO USB 1
+		.EMIOUSB1PORTINDCTL(usb_indicator[3:2]),
+		.EMIOUSB1VBUSPWRSELECT(usb_pwr_select[1]),
+		.EMIOUSB1VBUSPWRFAULT(usb_pwr_fault[1])//,
 
 		//Master AXI GP 0 (not yet used)
 		/*
