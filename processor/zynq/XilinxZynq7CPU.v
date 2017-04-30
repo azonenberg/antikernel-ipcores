@@ -233,7 +233,7 @@ module XilinxZynq7CPU(
 	//AXI bus power saving stuff
 	wire		fpga_axi_buses_idle	= 1'h0;
 
-	//Master AXI links (transactions initiated by CPU)
+	//Master AXI links (transactions initiated by CPU, 32 bits)
 	wire[1:0]	master_axi_clk			= 2'h0;
 	wire[1:0]	master_axi_rst_n;
 	wire[63:0]	master_axi_rdreq_addr;
@@ -275,6 +275,51 @@ module XilinxZynq7CPU(
 	wire[1:0]	master_axi_wrresp_ready;
 	wire[23:0]	master_axi_wrresp_id	= 24'h0;
 	wire[3:0]	master_axi_wrresp_resp	= 4'h0;
+
+	//Slave AXI ACP link (transactions initiated by FPGA, cache coherent, 64 bits)
+	wire		acp_axi_clk				= 1'h0;
+	wire		acp_axi_rst_n;
+	wire[31:0]	acp_axi_rdreq_addr		= 32'h0;
+	wire		acp_axi_rdreq_valid		= 1'h0;
+	wire		acp_axi_rdreq_ready;
+	wire[2:0]	acp_axi_rdreq_id		= 3'h0;
+	wire[4:0]	acp_axi_rdreq_user		= 5'h0;
+	wire[1:0]	acp_axi_rdreq_lock		= 2'h0;
+	wire[3:0]	acp_axi_rdreq_cache		= 4'h0;
+	wire[2:0]	acp_axi_rdreq_prot		= 3'h0;
+	wire[3:0]	acp_axi_rdreq_len		= 4'h0;
+	wire[1:0]	acp_axi_rdreq_size		= 2'h0;
+	wire[1:0]	acp_axi_rdreq_burst		= 2'h0;
+	wire[3:0]	acp_axi_rdreq_qos		= 4'h0;
+	wire[63:0]	acp_axi_rdresp_data;
+	wire		acp_axi_rdresp_valid;
+	wire		acp_axi_rdresp_ready	= 1'h0;
+	wire[2:0]	acp_axi_rdresp_id		= 3'h0;
+	wire		acp_axi_rdresp_last;
+	wire[1:0]	acp_axi_rdresp_resp;
+
+	wire[31:0]	acp_axi_wrreq_addr		= 32'h0;
+	wire		acp_axi_wrreq_valid		= 1'h0;
+	wire		acp_axi_wrreq_ready;
+	wire[2:0]	acp_axi_wrreq_id		= 3'h0;
+	wire[4:0]	acp_axi_wrreq_user		= 5'h0;
+	wire[1:0]	acp_axi_wrreq_lock		= 2'h0;
+	wire[3:0]	acp_axi_wrreq_cache		= 4'h0;
+	wire[2:0]	acp_axi_wrreq_prot		= 3'h0;
+	wire[3:0]	acp_axi_wrreq_len		= 4'h0;
+	wire[1:0]	acp_axi_wrreq_size		= 2'h0;
+	wire[1:0]	acp_axi_wrreq_burst		= 2'h0;
+	wire[3:0]	acp_axi_wrreq_qos		= 4'h0;
+	wire[63:0]	acp_axi_wrdat_data		= 64'h0;
+	wire		acp_axi_wrdat_valid		= 1'h0;
+	wire		acp_axi_wrdat_ready		= 1'h0;
+	wire[2:0]	acp_axi_wrdat_id		= 3'h0;
+	wire		acp_axi_wrdat_last		= 1'h0;
+	wire[7:0]	acp_axi_wrdat_mask		= 8'h0;
+	wire		acp_axi_wrresp_valid;
+	wire		acp_axi_wrresp_ready	= 1'h0;
+	wire[2:0]	acp_axi_wrresp_id;
+	wire[1:0]	acp_axi_wrresp_resp;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual CPU
@@ -651,7 +696,52 @@ module XilinxZynq7CPU(
 		.MAXIGP1BVALID(master_axi_wrresp_valid[1]),
 		.MAXIGP1BREADY(master_axi_wrresp_ready[1]),
 		.MAXIGP1BID(master_axi_wrresp_id[23:12]),
-		.MAXIGP1BRESP(master_axi_wrresp_resp[3:2])//,
+		.MAXIGP1BRESP(master_axi_wrresp_resp[3:2]),
+
+		//Slave AXI ACP (not yet used)
+		.SAXIACPACLK(acp_axi_clk),
+		.SAXIACPARESETN(acp_axi_rst_n),
+		.SAXIACPARADDR(acp_axi_rdreq_addr),
+		.SAXIACPARVALID(acp_axi_rdreq_valid),
+		.SAXIACPARREADY(acp_axi_rdreq_ready),
+		.SAXIACPRID(acp_axi_rdreq_id),
+		.SAXIACPARUSER(acp_axi_rdreq_user ),
+		.SAXIACPARLOCK(acp_axi_rdreq_lock),
+		.SAXIACPARCACHE(acp_axi_rdreq_cache),
+		.SAXIACPARPROT(acp_axi_rdreq_prot),
+		.SAXIACPARLEN(acp_axi_rdreq_len),
+		.SAXIACPARSIZE(acp_axi_rdreq_size),
+		.SAXIACPARBURST(acp_axi_rdreq_burst),
+		.SAXIACPARQOS(acp_axi_rdreq_qos),
+		.SAXIACPRDATA(acp_axi_rdresp_data),
+		.SAXIACPRVALID(acp_axi_rdresp_valid),
+		.SAXIACPRREADY(acp_axi_rdresp_ready),
+		.SAXIACPARID(acp_axi_rdresp_id),
+		.SAXIACPRLAST(acp_axi_rdresp_last),
+		.SAXIACPRRESP(acp_axi_rdresp_resp),
+
+		.SAXIACPAWADDR(acp_axi_wrreq_addr ),
+		.SAXIACPAWVALID(acp_axi_wrreq_valid),
+		.SAXIACPAWREADY(acp_axi_wrreq_ready),
+		.SAXIACPAWID(acp_axi_wrreq_id),
+		.SAXIACPAWUSER(acp_axi_wrreq_user),
+		.SAXIACPAWLOCK(acp_axi_wrreq_lock),
+		.SAXIACPAWCACHE(acp_axi_wrreq_cache),
+		.SAXIACPAWPROT(acp_axi_wrreq_prot),
+		.SAXIACPAWLEN(acp_axi_wrreq_len),
+		.SAXIACPAWSIZE(acp_axi_wrreq_size),
+		.SAXIACPAWBURST(acp_axi_wrreq_burst),
+		.SAXIACPAWQOS(acp_axi_wrreq_qos),
+		.SAXIACPWDATA(acp_axi_wrdat_data),
+		.SAXIACPWVALID(acp_axi_wrdat_valid ),
+		.SAXIACPWREADY(acp_axi_wrdat_ready),
+		.SAXIACPWID(acp_axi_wrdat_id),
+		.SAXIACPWLAST(acp_axi_wrdat_last),
+		.SAXIACPWSTRB(acp_axi_wrdat_mask),
+		.SAXIACPBVALID(acp_axi_wrresp_valid ),
+		.SAXIACPBREADY(acp_axi_wrresp_ready),
+		.SAXIACPBID(acp_axi_wrresp_id),
+		.SAXIACPBRESP(acp_axi_wrresp_resp)//,
 
 		//Slave AXI GP 0 (not yet used)
 		/*
@@ -739,52 +829,6 @@ module XilinxZynq7CPU(
 		.SAXIGP1WLAST(S_AXI_GP1_WLAST  ),
 		.SAXIGP1WSTRB(S_AXI_GP1_WSTRB  ),
 		.SAXIGP1WVALID(S_AXI_GP1_WVALID ),
-		 */
-
-		//Slave AXI ACP (not yet used)
-		/*
-		.SAXIACPARESETN(S_AXI_ACP_ARESETN),
-		.SAXIACPARREADY(SAXIACPARREADY_W),
-		.SAXIACPAWREADY(SAXIACPAWREADY_W),
-		.SAXIACPBID(S_AXI_ACP_BID_out    ),
-		.SAXIACPBRESP(SAXIACPBRESP_W  ),
-		.SAXIACPBVALID(SAXIACPBVALID_W ),
-		.SAXIACPRDATA(SAXIACPRDATA_W  ),
-		.SAXIACPRID(S_AXI_ACP_RID_out),
-		.SAXIACPRLAST(SAXIACPRLAST_W  ),
-		.SAXIACPRRESP(SAXIACPRRESP_W  ),
-		.SAXIACPRVALID(SAXIACPRVALID_W ),
-		.SAXIACPWREADY(SAXIACPWREADY_W ),
-		.SAXIACPACLK(S_AXI_ACP_ACLK   ),
-		.SAXIACPARADDR(SAXIACPARADDR_W ),
-		.SAXIACPARBURST(SAXIACPARBURST_W),
-		.SAXIACPARCACHE(SAXIACPARCACHE_W),
-		.SAXIACPARID(S_AXI_ACP_ARID_in   ),
-		.SAXIACPARLEN(SAXIACPARLEN_W  ),
-		.SAXIACPARLOCK(SAXIACPARLOCK_W ),
-		.SAXIACPARPROT(SAXIACPARPROT_W ),
-		.SAXIACPARQOS(S_AXI_ACP_ARQOS  ),
-		.SAXIACPARSIZE(SAXIACPARSIZE_W[1:0] ),
-		.SAXIACPARUSER(SAXIACPARUSER_W ),
-		.SAXIACPARVALID(SAXIACPARVALID_W),
-		.SAXIACPAWADDR(SAXIACPAWADDR_W ),
-		.SAXIACPAWBURST(SAXIACPAWBURST_W),
-		.SAXIACPAWCACHE(SAXIACPAWCACHE_W),
-		.SAXIACPAWID(S_AXI_ACP_AWID_in   ),
-		.SAXIACPAWLEN(SAXIACPAWLEN_W  ),
-		.SAXIACPAWLOCK(SAXIACPAWLOCK_W ),
-		.SAXIACPAWPROT(SAXIACPAWPROT_W ),
-		.SAXIACPAWQOS(S_AXI_ACP_AWQOS  ),
-		.SAXIACPAWSIZE(SAXIACPAWSIZE_W[1:0] ),
-		.SAXIACPAWUSER(SAXIACPAWUSER_W ),
-		.SAXIACPAWVALID(SAXIACPAWVALID_W),
-		.SAXIACPBREADY(SAXIACPBREADY_W ),
-		.SAXIACPRREADY(SAXIACPRREADY_W ),
-		.SAXIACPWDATA(SAXIACPWDATA_W  ),
-		.SAXIACPWID(S_AXI_ACP_WID_in    ),
-		.SAXIACPWLAST(SAXIACPWLAST_W  ),
-		.SAXIACPWSTRB(SAXIACPWSTRB_W  ),
-		.SAXIACPWVALID(SAXIACPWVALID_W ),
 		 */
 
 		//Slave AXI HP 0 (not yet used)
