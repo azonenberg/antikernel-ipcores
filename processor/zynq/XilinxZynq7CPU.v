@@ -101,9 +101,33 @@ module XilinxZynq7CPU(
 	wire[1:0]	eth_ptp_tx_ptp_sync;
 
 	//GPIO interfaces
-	wire[63:0]	gpio_in		= 64'h0;
+	wire[63:0]	gpio_in				= 64'h0;
 	wire[63:0]	gpio_out;
 	wire[63:0]	gpio_tris;
+
+	//I2C interfaces
+	wire[1:0]	i2c_scl_in			= 2'h0;
+	wire[1:0]	i2c_scl_out;
+	wire[1:0]	i2c_scl_tris;
+
+	wire[1:0]	i2c_sda_in			= 2'h0;
+	wire[1:0]	i2c_sda_out;
+	wire[1:0]	i2c_sda_tris;
+
+	//SD/SDIO interfaces
+	wire[1:0]	sdio_clk;
+	wire[1:0]	sdio_clkfb			= sdio_clk;
+	wire[1:0]	sdio_cmd_in			= 2'h0;
+	wire[1:0]	sdio_cmd_out;
+	wire[1:0]	sdio_cmd_tris;
+	wire[7:0]	sdio_data_in		= 8'h0;
+	wire[7:0]	sdio_data_out;
+	wire[7:0]	sdio_data_tris;
+	wire[1:0]	sdio_card_detect	= 2'h0;
+	wire[1:0]	sdio_write_protect	= 2'h0;
+	wire[1:0]	sdio_power_en;
+	wire[1:0]	sdio_led_en;
+	wire[5:0]	sdio_bus_voltage;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual CPU
@@ -285,61 +309,55 @@ module XilinxZynq7CPU(
 		//EMIO GPIO
 		.EMIOGPIOO(gpio_out),
 		.EMIOGPIOTN(gpio_tris),
-		.EMIOGPIOI(gpio_in)//,
+		.EMIOGPIOI(gpio_in),
 
-		//EMIO I2C 0 (not yet used)
-		/*
-		.EMIOI2C0SCLO(I2C0_SCL_O),
-		.EMIOI2C0SCLTN(I2C0_SCL_T_n),
-		.EMIOI2C0SDAO(I2C0_SDA_O),
-		.EMIOI2C0SDATN(I2C0_SDA_T_n),
-		.EMIOI2C0SCLI(I2C0_SCL_I),
-		.EMIOI2C0SDAI(I2C0_SDA_I),
-		*/
+		//EMIO I2C 0
+		.EMIOI2C0SCLO(i2c_scl_out[0]),
+		.EMIOI2C0SCLTN(i2c_scl_tris[0]),
+		.EMIOI2C0SCLI(i2c_scl_in[0]),
 
-		//EMIO I2C 1 (not yet used)
-		/*
-		.EMIOI2C1SCLO(I2C1_SCL_O),
-		.EMIOI2C1SCLTN(I2C1_SCL_T_n),
-		.EMIOI2C1SDAO(I2C1_SDA_O),
-		.EMIOI2C1SDATN(I2C1_SDA_T_n),
-		.EMIOI2C1SCLI(I2C1_SCL_I),
-		.EMIOI2C1SDAI(I2C1_SDA_I),
-		*/
+		.EMIOI2C0SDAO(i2c_sda_out[0]),
+		.EMIOI2C0SDATN(i2c_sda_tris[0]),
+		.EMIOI2C0SDAI(i2c_sda_in[0]),
 
-		//EMIO SD 0 (not yet used)
-		/*
-		.EMIOSDIO0BUSPOW(SDIO0_BUSPOW),
-		.EMIOSDIO0CLK(SDIO0_CLK   ),
-		.EMIOSDIO0CMDO(SDIO0_CMD_O ),
-		.EMIOSDIO0CMDTN(SDIO0_CMD_T_n ),
-		.EMIOSDIO0DATAO(SDIO0_DATA_O),
-		.EMIOSDIO0DATATN(SDIO0_DATA_T_n),
-		.EMIOSDIO0LED(SDIO0_LED),
-		.EMIOSDIO0BUSVOLT(SDIO0_BUSVOLT),
-		.EMIOSDIO0CDN(SDIO0_CDN),
-		.EMIOSDIO0CLKFB(SDIO0_CLK_FB  ),
-		.EMIOSDIO0CMDI(SDIO0_CMD_I   ),
-		.EMIOSDIO0DATAI(SDIO0_DATA_I  ),
-		.EMIOSDIO0WP(SDIO0_WP),
-		*/
+		//EMIO I2C 1
+		.EMIOI2C1SCLO(i2c_scl_out[1]),
+		.EMIOI2C1SCLTN(i2c_scl_tris[1]),
+		.EMIOI2C1SCLI(i2c_scl_in[1]),
 
-		//EMIO SD 1 (not yet used)
-		/*
-		.EMIOSDIO1BUSPOW(SDIO1_BUSPOW),
-		.EMIOSDIO1CLK(SDIO1_CLK   ),
-		.EMIOSDIO1CMDO(SDIO1_CMD_O ),
-		.EMIOSDIO1CMDTN(SDIO1_CMD_T_n ),
-		.EMIOSDIO1DATAO(SDIO1_DATA_O),
-		.EMIOSDIO1DATATN(SDIO1_DATA_T_n),
-		.EMIOSDIO1LED(SDIO1_LED),
-		.EMIOSDIO1BUSVOLT(SDIO1_BUSVOLT),
-		.EMIOSDIO1CDN(SDIO1_CDN),
-		.EMIOSDIO1CLKFB(SDIO1_CLK_FB  ),
-		.EMIOSDIO1CMDI(SDIO1_CMD_I   ),
-		.EMIOSDIO1DATAI(SDIO1_DATA_I  ),
-		.EMIOSDIO1WP(SDIO1_WP),
-		*/
+		.EMIOI2C1SDAO(i2c_sda_out[1]),
+		.EMIOI2C1SDATN(i2c_sda_tris[1]),
+		.EMIOI2C1SDAI(i2c_sda_in[1]),
+
+		//EMIO SD 0
+		.EMIOSDIO0CLK(sdio_clk[0]),
+		.EMIOSDIO0CLKFB(sdio_clkfb[0]),
+		.EMIOSDIO0CMDO(sdio_cmd_out[0]),
+		.EMIOSDIO0CMDTN(sdio_cmd_tris[0]),
+		.EMIOSDIO0CMDI(sdio_cmd_in[0]),
+		.EMIOSDIO0DATAO(sdio_data_out[3:0]),
+		.EMIOSDIO0DATATN(sdio_data_tris[3:0]),
+		.EMIOSDIO0DATAI(sdio_data_in[3:0]),
+		.EMIOSDIO0BUSPOW(sdio_power_en[0]),
+		.EMIOSDIO0LED(sdio_led_en[0]),
+		.EMIOSDIO0BUSVOLT(sdio_bus_voltage[2:0]),
+		.EMIOSDIO0CDN(sdio_card_detect[0]),
+		.EMIOSDIO0WP(sdio_write_protect[0]),
+
+		//EMIO SD 1
+		.EMIOSDIO1CLK(sdio_clk[1]),
+		.EMIOSDIO1CLKFB(sdio_clkfb[1]),
+		.EMIOSDIO1CMDO(sdio_cmd_out[1]),
+		.EMIOSDIO1CMDTN(sdio_cmd_tris[1]),
+		.EMIOSDIO1CMDI(sdio_cmd_in[1]),
+		.EMIOSDIO1DATAO(sdio_data_out[7:4]),
+		.EMIOSDIO1DATATN(sdio_data_tris[7:4]),
+		.EMIOSDIO1DATAI(sdio_data_in[7:4]),
+		.EMIOSDIO1BUSPOW(sdio_power_en[1]),
+		.EMIOSDIO1LED(sdio_led_en[1]),
+		.EMIOSDIO1BUSVOLT(sdio_bus_voltage[5:3]),
+		.EMIOSDIO1CDN(sdio_card_detect[1]),
+		.EMIOSDIO1WP(sdio_write_protect[1])//,
 
 		//EMIO SPI 0 (not yet used)
 		/*
