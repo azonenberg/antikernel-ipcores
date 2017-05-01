@@ -107,7 +107,7 @@ module RPCv3RouterReceiver
 				.rpc_rx_data(rpc_rx_data),
 				.rpc_rx_ready(rpc_rx_ready),
 
-				.rpc_fab_rx_space_available(rpc_fab_rx_ready),
+				.rpc_fab_rx_space_available(rpc_fab_rx_space_available),
 				.rpc_fab_rx_packet_start(rpc_fab_rx_packet_start),
 				.rpc_fab_rx_data_valid(rpc_fab_rx_data_valid),
 				.rpc_fab_rx_data(rpc_fab_rx_data),
@@ -126,7 +126,7 @@ module RPCv3RouterReceiver
 				.rpc_rx_data(rpc_rx_data),
 				.rpc_rx_ready(rpc_rx_ready),
 
-				.rpc_fab_rx_space_available(rpc_fab_rx_ready),
+				.rpc_fab_rx_space_available(rpc_fab_rx_space_available),
 				.rpc_fab_rx_packet_start(rpc_fab_rx_packet_start),
 				.rpc_fab_rx_data_valid(rpc_fab_rx_data_valid),
 				.rpc_fab_rx_data(rpc_fab_rx_data),
@@ -145,7 +145,7 @@ module RPCv3RouterReceiver
 				.rpc_rx_data(rpc_rx_data),
 				.rpc_rx_ready(rpc_rx_ready),
 
-				.rpc_fab_rx_space_available(rpc_fab_rx_ready),
+				.rpc_fab_rx_space_available(rpc_fab_rx_space_available),
 				.rpc_fab_rx_packet_start(rpc_fab_rx_packet_start),
 				.rpc_fab_rx_data_valid(rpc_fab_rx_data_valid),
 				.rpc_fab_rx_data(rpc_fab_rx_data),
