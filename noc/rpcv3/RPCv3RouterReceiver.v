@@ -65,7 +65,7 @@
 		128 -> 64			132			164			68
 		128 -> 128			131			30			28
  */
-module RPCv3RouterReceiver_expanding
+module RPCv3RouterReceiver
 #(
 	parameter OUT_DATA_WIDTH = 32,
 	parameter IN_DATA_WIDTH = 16
