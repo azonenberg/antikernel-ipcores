@@ -70,11 +70,11 @@ module RPCv3RouterTransmitter_buffering
 	input wire						rpc_tx_ready,
 
 	//Router interface, inbound side
-	output wire[4:0]				rpc_fab_tx_fifo_size;
+	output wire[5:0]				rpc_fab_tx_fifo_size,
 	input wire						rpc_fab_tx_packet_start,
-	input wire						rpc_fab_tx_wr_en;
-	input wire[IN_DATA_WIDTH-1:0]	rpc_fab_tx_wr_data;
-	output reg						rpc_fab_tx_packet_done	= 0;
+	input wire						rpc_fab_tx_wr_en,
+	input wire[IN_DATA_WIDTH-1:0]	rpc_fab_tx_wr_data,
+	output reg						rpc_fab_tx_packet_done	= 0
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -150,7 +150,14 @@ module RPCv3RouterTransmitter_buffering
 	reg						fifo_rd					= 0;
 	reg						fifo_rd_ff				= 0;
 	wire					fifo_empty;
-	wire[IN_DATA_WIDTH:0]	fifo_rd;
+
+	wire					fifo_rdata_packet_start;
+	wire[IN_DATA_WIDTH-1:0]	fifo_rdata_data;
+
+	wire					unused_overflow;
+	wire					unused_underflow;
+	wire					unused_full;
+	wire[5:0]				unused_rsize;
 
 	SingleClockShiftRegisterFifo #(
 		.WIDTH(IN_DATA_WIDTH + 1),
@@ -161,14 +168,13 @@ module RPCv3RouterTransmitter_buffering
 		.wr(rpc_fab_tx_wr_en),
 		.din({rpc_fab_tx_packet_start, rpc_fab_tx_wr_data}),
 
-		/*
 		.rd(fifo_rd),
-		.dout(fifo_dout),
+		.dout({fifo_rdata_packet_start, fifo_rdata_data}),
 		.overflow(unused_overflow),
 		.underflow(unused_underflow),
 		.empty(fifo_empty),
 		.full(unused_full),
-		.rsize(unused_rsize),*/
+		.rsize(unused_rsize),
 		.wsize(rpc_fab_tx_fifo_size),
 
 		.reset(1'b0)		//never reset the fifo
