@@ -180,6 +180,10 @@ module RPCv3RouterTransmitter_buffering
 		.reset(1'b0)		//never reset the fifo
 	);
 
+	always @(posedge clk) begin
+		fifo_rd_ff		<= fifo_rd;
+	end
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main state machine
 
@@ -198,15 +202,14 @@ module RPCv3RouterTransmitter_buffering
 	//True if a transmit is in progress
 	//wire		tx_active			= (tx_count != 0) || tx_starting;
 
-	//If we have data ready to read, read it
+	//If we have data ready to read, and the bus isn't otherwise occupied, read it
 	always @(*) begin
-		//if(!fifo_empty &&
+		fifo_rd	<= (!fifo_empty && rpc_tx_ready);
 	end
 
 	always @(posedge clk) begin
 
 		//Since input and output data width are equal, we can begin sending as soon as there's any data in the fifo
-
 
 		/*
 		//One little bit of stateful logic, though :)
