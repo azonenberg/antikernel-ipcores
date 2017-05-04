@@ -148,7 +148,6 @@ module RPCv3RouterTransmitter_buffering
 
 	reg						fifo_rdata_valid		= 0;
 	reg						fifo_rd					= 0;
-	reg						fifo_rd_ff				= 0;
 	wire					fifo_empty;
 
 	wire					fifo_rdata_packet_start;
@@ -180,52 +179,46 @@ module RPCv3RouterTransmitter_buffering
 		.reset(1'b0)		//never reset the fifo
 	);
 
-	always @(posedge clk) begin
-		fifo_rd_ff		<= fifo_rd;
-	end
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main state machine
-
-	//If we couldn't send the first cycle, remember that we have a send queued up
-	//reg			tx_pending			= 0;
-
-	//True if we want to send (either current or queued transmit request)
-	//wire		tx_request			= tx_pending || rpc_fab_tx_en;
-
-	//True if we're starting a transmit this cycle (whether queued or fresh)
-	//wire		tx_starting			= tx_request && rpc_tx_ready;
 
 	//Position within the message (in DATA_WIDTH-bit units)
 	reg[CYCLE_MAX:0] tx_count		= 0;
 
-	//True if a transmit is in progress
-	//wire		tx_active			= (tx_count != 0) || tx_starting;
+	//True if we're starting a transmit this cycle
+	wire		tx_starting			= fifo_rdata_valid && (tx_count == 0) && rpc_tx_ready;
 
-	//If we have data ready to read, and the bus isn't otherwise occupied, read it
+	//True if a transmit is in progress
+	wire		tx_active			= (tx_count != 0) || tx_starting;
+
+	//True if we're ending a transmit this cycle.
+	//The AND of tx_active is important to avoid staying high with 128-bit data width
+	wire		tx_ending			= (tx_count == CYCLE_MAX) && tx_active;
+
+	//If we have data ready to read, read it.
+	//If we already have data in the outbox, don't read unless we're actively sending (and ready for more next clock)
 	always @(*) begin
-		fifo_rd	<= (!fifo_empty && rpc_tx_ready);
+		fifo_rd	<= (!fifo_empty && (!fifo_rdata_valid || tx_active) && !tx_ending );
 	end
 
+	//Push fifo output to the network
+	always @(*) begin
+		rpc_tx_en		<= tx_starting;
+		rpc_tx_data		<= fifo_rdata_data;
+	end
+
+	//Keep track of position in the message
 	always @(posedge clk) begin
+		if(tx_active)
+			tx_count			<= tx_count + 1'h1;
 
-		//Since input and output data width are equal, we can begin sending as soon as there's any data in the fifo
+		//Read data is not valid after the end of the packet
+		if(tx_ending)
+			fifo_rdata_valid	<= 0;
 
-		/*
-		//One little bit of stateful logic, though :)
-		always @(posedge clk) begin
-
-			//Clear pending messages once sent
-			if(tx_starting)
-				tx_pending	<= 0;
-
-			//If we try to send when rx isn't ready, save it until they are
-			//Send requests during a transmit cycle are ignored.
-			if(rpc_fab_tx_en && !rpc_tx_ready && !tx_active)
-				tx_pending	<= 1;
-
-		end
-		*/
+		//Read data is valid next cycle if we're reading this cycle
+		if(fifo_rd)
+			fifo_rdata_valid	<= 1;
 
 	end
 
