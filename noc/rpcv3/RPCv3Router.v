@@ -72,6 +72,8 @@ module RPCv3Router
 
 	//Coordinates of this router in the grid.
 	//The base address of this router is {X_POS, Y_POS, 8'h00}.
+	//North = positive Y
+	//East = positive X
 	parameter X_POS 						= 4'h0,
 	parameter Y_POS 						= 4'h0
 )
