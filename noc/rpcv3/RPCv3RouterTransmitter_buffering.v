@@ -75,6 +75,10 @@ module RPCv3RouterTransmitter_buffering
 	input wire						rpc_fab_tx_wr_en,
 	input wire[IN_DATA_WIDTH-1:0]	rpc_fab_tx_wr_data,
 	output reg						rpc_fab_tx_packet_done	= 0
+
+	`ifdef FORMAL
+	, output fifo_rdata_valid
+	`endif
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -193,7 +197,7 @@ module RPCv3RouterTransmitter_buffering
 
 	//True if we're ending a transmit this cycle.
 	//The AND of tx_active is important to avoid staying high with 128-bit data width
-	wire		tx_ending			= (tx_count == CYCLE_MAX) && tx_active;
+	wire		tx_ending			= (tx_count == MESSAGE_MAX) && tx_active;
 
 	//If we have data ready to read, read it.
 	//If we already have data in the outbox, don't read unless we're actively sending (and ready for more next clock)
@@ -203,8 +207,9 @@ module RPCv3RouterTransmitter_buffering
 
 	//Push fifo output to the network
 	always @(*) begin
-		rpc_tx_en		<= tx_starting;
-		rpc_tx_data		<= fifo_rdata_data;
+		rpc_tx_en				<= tx_starting;
+		rpc_tx_data				<= fifo_rdata_data;
+		rpc_fab_tx_packet_done	<= tx_ending;
 	end
 
 	//Keep track of position in the message
