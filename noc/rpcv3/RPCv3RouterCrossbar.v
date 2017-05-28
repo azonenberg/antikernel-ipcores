@@ -64,7 +64,6 @@ module RPCv3RouterCrossbar
 	parameter NEIGHBOR_DATA_WIDTH 			= 32'h20202020,
 
 	//Coordinates of this router in the grid.
-	//The base address of this router is {X_POS, Y_POS, 8'h00}.
 	parameter X_POS 						= 4'h0,
 	parameter Y_POS 						= 4'h0
 )
@@ -102,28 +101,48 @@ module RPCv3RouterCrossbar
 	//Number of clocks it takes us to process a message
 	localparam MESSAGE_WORDS 	= 128 / CORE_DATA_WIDTH;
 
+	//Our base address
+	localparam BASE_ADDR		= {X_POS, Y_POS, 8'h00};
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Pull out the destination address for each port
 
+	//Note, this is COMBINATORIAL and only valid during RX_STATE_ADDR_VALID on the source port!
+	reg[16*TOTAL_PORTS - 1 : 0]	rx_port_dst_addr;
 
+	integer i;
+	always @(*) begin
+		for(i=0; i<TOTAL_PORTS; i=i+1)
+			rx_port_dst_addr[i*16 +: 16]		<= rx_fifo_dout[( (i+1)*CORE_DATA_WIDTH - 1) -: 16];
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Main port state machine
+	// For each destination port, figure out who wants to send to them
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Main RX port state machine
 
 	localparam RX_STATE_IDLE		= 3'h0;
 	localparam RX_STATE_RD_ADDR		= 3'h1;
 	localparam RX_STATE_ADDR_VALID	= 3'h2;
 	localparam RX_STATE_PACKET_BODY	= 3'h3;
 
-	reg[2:0]	rx_port_state[TOTAL_PORTS-1:0];
+	reg[2:0]				rx_port_state[TOTAL_PORTS-1:0];
 
 	//Clear state
-	integer i;
 	initial begin
 		for(i=0; i<TOTAL_PORTS; i=i+1)
 			rx_port_state[i]		<= RX_STATE_IDLE;
 	end
 
+	//Figure out when the address is valid
+	reg[TOTAL_PORTS-1:0]	rx_addr_valid;
+	always @(*) begin
+		for(i=0; i<TOTAL_PORTS; i=i+1)
+			rx_addr_valid[i]	<= (rx_port_state[i] == RX_STATE_ADDR_VALID);
+	end
+
+	//Main state logic
 	always @(posedge clk) begin
 
 		//Clear flags
@@ -163,6 +182,14 @@ module RPCv3RouterCrossbar
 		end
 
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Main TX port state machine
+
+	//TX pulls from RX through the crossbar, not the other way around.
+	//This easily avoids conflicts when multiple sources want to send to one destination.
+
+	//Round-robin arbitration: bump counter every time a packet is forwarded
 
 
 endmodule
