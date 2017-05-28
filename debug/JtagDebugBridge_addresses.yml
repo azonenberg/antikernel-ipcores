@@ -32,6 +32,7 @@ JtagDebugBridge_addresses:
     width: 16
 
     # Address range assigned to the debug bridge
+    # This MUST be a /8, although the upper 8 bits can change
     values:
         DEBUG_LOW_ADDR:		ff00
         DEBUG_HIGH_ADDR:	ffff

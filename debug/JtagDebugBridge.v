@@ -48,6 +48,11 @@ module JtagDebugBridge #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Configuration
+
+	`include "JtagDebugBridge_addresses_constants_localparam.vh";
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// NoC transceivers
 
 	reg			rpc_fab_tx_en		= 0;
@@ -416,9 +421,10 @@ module JtagDebugBridge #(
 				end
 
 				//Second word's read is executing now, first word is ready.
+				//Patch the source address of the packet so it's always from our debug subnet
 				//TODO: make "router" transceiver that does sram-style reads?
 				else begin
-					rpc_fab_tx_src_addr	<= tx_fifo_rd_data[31:16];
+					rpc_fab_tx_src_addr	<= {DEBUG_LOW_ADDR[15:8], tx_fifo_rd_data[23:16]};
 					rpc_fab_tx_dst_addr	<= tx_fifo_rd_data[15:0];
 
 					tx_fifo_rd_en		<= 1;
