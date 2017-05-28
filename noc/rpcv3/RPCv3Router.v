@@ -63,7 +63,7 @@ module RPCv3Router
 	//Bit indicating if we have a neighbor in each direction. The transceiver is optimized out, and we return
 	//RPC_TYPE_HOST_UNREACH to any traffic sent in that direction.
 	//Concatenated {north, south, east, west}
-	parameter NEIGHBOR_PRESENT 				= {4'b0000},
+	parameter NEIGHBOR_PRESENT 				= {4'b1111},
 
 	//Width of the bus going to each router, or zero if no router in that direction.
 	//8 bits per link, must be 16/32/64/128.
@@ -101,6 +101,12 @@ module RPCv3Router
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Compute a few useful constants
+
+	//Number of clocks in one message through the core
+	localparam CORE_WORD_COUNT = 128 / CORE_DATA_WIDTH;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Synthesis-time sanity checking
 
 	initial begin
@@ -122,24 +128,106 @@ module RPCv3Router
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Receivers for neighbor ports
+	// Receivers and FIFOs for neighbor ports
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Receiver FIFOs for neighbor ports
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Receivers for child ports
-
-	wire[CHILD_COUNT-1:0]					rpc_fab_rx_space_available;
-	wire[CHILD_COUNT-1:0]					rpc_fab_rx_packet_start;
-	wire[CHILD_COUNT-1:0]					rpc_fab_rx_data_valid;
-	wire[CHILD_COUNT*CORE_DATA_WIDTH-1:0]	rpc_fab_rx_data;
-	wire[CHILD_COUNT-1:0]					rpc_fab_rx_packet_done;
+	wire[3:0]						neighbor_fifo_rd;
+	wire[3:0]						neighbor_fifo_empty;
+	wire[CORE_DATA_WIDTH*4 - 1:0]	neighbor_fifo_dout;
+	wire[23:0]						neighbor_fifo_rsize;
 
 	genvar i;
 	generate
-		for(i=0; i<CHILD_COUNT; i=i+1) begin : rxvrs
+		for(i=0; i<4; i=i+1) begin : neighbor_rxs
 
+			if(NEIGHBOR_PRESENT[i]) begin
+
+				//Bus from receiver to FIFO
+				wire						fifo_space_available;
+				wire[5:0]					fifo_wr_size;
+				wire						fifo_wr_en;
+				wire[CORE_DATA_WIDTH-1:0]	fifo_wr_data;
+
+				//True if there is enough room in the FIFO for one entire packet
+				assign fifo_space_available	= (fifo_wr_size >= CORE_WORD_COUNT);
+
+				//Receiver pushes data directly to FIFO.
+				//Ignore packet start/done signals, we only care about the data bus.
+				//Receiver is proven to never send partial packets, so we can't lose sync!
+				RPCv3RouterReceiver #(
+					.IN_DATA_WIDTH(NEIGHBOR_DATA_WIDTH[i*8 +: 8]),
+					.OUT_DATA_WIDTH(CORE_DATA_WIDTH)
+				) rxvr (
+					.clk(clk),
+					.rpc_rx_en(neighbor_rx_en[i]),
+					.rpc_rx_data(neighbor_rx_data[i*128 +: NEIGHBOR_DATA_WIDTH[i*8 +: 8] ] ),
+					.rpc_rx_ready(neighbor_rx_ready[i]),
+
+					.rpc_fab_rx_space_available(fifo_space_available),
+					.rpc_fab_rx_packet_start(),
+					.rpc_fab_rx_data_valid(fifo_wr_en),
+					.rpc_fab_rx_data(fifo_wr_data),
+					.rpc_fab_rx_packet_done()
+				);
+
+				SingleClockShiftRegisterFifo #(
+					.WIDTH(CORE_DATA_WIDTH),
+					.DEPTH(32),
+					.OUT_REG(1)
+				) rx_fifo (
+
+					.clk(clk),
+
+					.wr(fifo_wr_en),
+					.din(fifo_wr_data),
+
+					.rd(neighbor_fifo_rd[i]),
+					.dout(neighbor_fifo_dout[i*CORE_DATA_WIDTH +: CORE_DATA_WIDTH]),
+					.overflow(),			//ignored, can never under/overflow b/c of receiver flow control
+					.underflow(),
+					.empty(neighbor_fifo_empty[i]),
+					.full(),
+					.rsize(neighbor_fifo_rsize[6*i +: 6]),
+					.wsize(fifo_wr_size),
+
+					.reset(1'b0)		//never reset the fifo
+				);
+
+
+			end
+
+			//No neighbor? Tie everything off to zero
+			else begin
+				assign	neighbor_fifo_empty[i] = 1;
+				assign	neighbor_fifo_rsize[i*6 +: 6] = 0;
+				assign	neighbor_fifo_dout[i*CORE_DATA_WIDTH +: CORE_DATA_WIDTH] = 0;
+			end
+
+		end
+	endgenerate
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Receivers and FIFOs for child ports
+
+	wire[CHILD_COUNT-1:0]						child_fifo_rd;
+	wire[CHILD_COUNT-1:0]						child_fifo_empty;
+	wire[CHILD_COUNT*CORE_DATA_WIDTH - 1:0]		child_fifo_dout;
+	wire[CHILD_COUNT*6-1:0]						child_fifo_rsize;
+
+	generate
+		for(i=0; i<CHILD_COUNT; i=i+1) begin : child_rxs
+
+			//Bus from receiver to FIFO
+			wire						fifo_space_available;
+			wire[5:0]					fifo_wr_size;
+			wire						fifo_wr_en;
+			wire[CORE_DATA_WIDTH-1:0]	fifo_wr_data;
+
+			//True if there is enough room in the FIFO for one entire packet
+			assign fifo_space_available	= (fifo_wr_size >= CHILD_DATA_WIDTH[i*8 +: 8]);
+
+			//Receiver pushes data directly to FIFO.
+			//Ignore packet start/done signals, we only care about the data bus.
+			//Receiver is proven to never send partial packets, so we can't lose sync!
 			RPCv3RouterReceiver #(
 				.IN_DATA_WIDTH(CHILD_DATA_WIDTH[i*8 +: 8]),
 				.OUT_DATA_WIDTH(CORE_DATA_WIDTH)
@@ -149,18 +237,40 @@ module RPCv3Router
 				.rpc_rx_data(child_rx_data[i*128 +: CHILD_DATA_WIDTH[i*8 +: 8] ] ),
 				.rpc_rx_ready(child_rx_ready[i]),
 
-				.rpc_fab_rx_space_available(rpc_fab_rx_space_available[i]),
-				.rpc_fab_rx_packet_start(rpc_fab_rx_packet_start[i]),
-				.rpc_fab_rx_data_valid(rpc_fab_rx_data_valid[i]),
-				.rpc_fab_rx_data(rpc_fab_rx_data[i*CORE_DATA_WIDTH +: CORE_DATA_WIDTH]),
-				.rpc_fab_rx_packet_done(rpc_fab_rx_packet_done[i])
+				.rpc_fab_rx_space_available(fifo_space_available),
+				.rpc_fab_rx_packet_start(),
+				.rpc_fab_rx_data_valid(fifo_wr_en),
+				.rpc_fab_rx_data(fifo_wr_data),
+				.rpc_fab_rx_packet_done()
 			);
 
-		end
-	endgenerate
+			SingleClockShiftRegisterFifo #(
+				.WIDTH(CORE_DATA_WIDTH),
+				.DEPTH(32),
+				.OUT_REG(1)
+			) rx_fifo (
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Receiver FIFOs for child ports
+				.clk(clk),
+
+				.wr(fifo_wr_en),
+				.din(fifo_wr_data),
+
+				.rd(child_fifo_rd[i]),
+				.dout(child_fifo_dout[i*CORE_DATA_WIDTH +: CORE_DATA_WIDTH]),
+				.overflow(),			//ignored, can never under/overflow b/c of receiver flow control
+				.underflow(),
+				.empty(child_fifo_empty[i]),
+				.full(),
+				.rsize(child_fifo_rsize[6*i +: 6]),
+				.wsize(fifo_wr_size),
+
+				.reset(1'b0)			//never reset the fifo
+			);
+
+
+		end
+
+	endgenerate
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transmitters for neighbor ports
