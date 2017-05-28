@@ -103,15 +103,64 @@ module RPCv3RouterCrossbar
 	localparam MESSAGE_WORDS 	= 128 / CORE_DATA_WIDTH;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Figure out where each port wants to send.
+	// Pull out the destination address for each port
 
-	reg[TOTAL_PORTS-1:0]	fifo_dout_valid		= 0;
 
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Main port state machine
+
+	localparam RX_STATE_IDLE		= 3'h0;
+	localparam RX_STATE_RD_ADDR		= 3'h1;
+	localparam RX_STATE_ADDR_VALID	= 3'h2;
+	localparam RX_STATE_PACKET_BODY	= 3'h3;
+
+	reg[2:0]	rx_port_state[TOTAL_PORTS-1:0];
+
+	//Clear state
 	integer i;
+	initial begin
+		for(i=0; i<TOTAL_PORTS; i=i+1)
+			rx_port_state[i]		<= RX_STATE_IDLE;
+	end
+
 	always @(posedge clk) begin
 
-		//If there is at least one full message in the RX FIFO, but we don't have a header ready yet,
-		//we can pop the address header word and go from there.
+		//Clear flags
+		rx_fifo_rd		<= 0;
+
+		for(i=0; i<TOTAL_PORTS; i=i+1) begin
+
+			case(rx_port_state[i])
+
+				//If there is at least one full message in the RX FIFO,
+				//we can pop the address header word and go from there.
+				RX_STATE_IDLE: begin
+
+					if(rx_fifo_rsize[i*6 +: 6] >= MESSAGE_WORDS) begin
+						rx_fifo_rd[i]		<= 1;
+						rx_port_state[i]	<= RX_STATE_RD_ADDR;
+					end
+
+				end	//end RX_STATE_IDLE
+
+				//Wait for read
+				RX_STATE_RD_ADDR: begin
+					rx_port_state[i]		<= RX_STATE_ADDR_VALID;
+				end	//end RX_STATE_RD_ADDR
+
+				//Address is valid, figure out where to route
+				RX_STATE_ADDR_VALID: begin
+					//TODO: handle "move on"
+				end	//end RX_STATE_ADDR_VALID
+
+				//In the packet body, don't look at the headers for dest address anymore
+				RX_STATE_PACKET_BODY: begin
+				end	//end RX_STATE_PACKET_BODY
+
+			endcase
+
+		end
 
 	end
 
