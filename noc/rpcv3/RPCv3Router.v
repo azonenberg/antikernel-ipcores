@@ -60,8 +60,8 @@ module RPCv3Router
 	//8 bits per link, must be 16/32/64/128.
 	parameter CHILD_DATA_WIDTH				= 32'h20202020,
 
-	//Bit indicating if we have a neighbor in each direction. The transceiver is optimized out, and we return
-	//RPC_TYPE_HOST_UNREACH to any traffic sent in that direction.
+	//Bit indicating if we have a neighbor in each direction. The transceiver is optimized out.
+	//TODO: Return RPC_TYPE_HOST_UNREACH to any traffic sent in that direction
 	//Concatenated {north, south, east, west}
 	parameter NEIGHBOR_PRESENT 				= {4'b1111},
 
@@ -280,6 +280,24 @@ module RPCv3Router
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual switch crossbar
+
+	RPCv3RouterCrossbar #(
+		.CORE_DATA_WIDTH(CORE_DATA_WIDTH),
+		.CHILD_IS_TRUNK(CHILD_IS_TRUNK),
+		.CHILD_COUNT(CHILD_COUNT),
+		.CHILD_DATA_WIDTH(CHILD_DATA_WIDTH),
+		.NEIGHBOR_PRESENT(NEIGHBOR_PRESENT),
+		.NEIGHBOR_DATA_WIDTH(NEIGHBOR_DATA_WIDTH),
+		.X_POS(X_POS),
+		.Y_POS(Y_POS)
+	) crossbar (
+		.clk(clk),
+
+		.rx_fifo_rd({child_fifo_rd, neighbor_fifo_rd}),
+		.rx_fifo_empty({child_fifo_empty, neighbor_fifo_empty}),
+		.rx_fifo_dout({child_fifo_dout, neighbor_fifo_dout}),
+		.rx_fifo_rsize({child_fifo_rsize, neighbor_fifo_rsize})
+	);
 
 endmodule
 
