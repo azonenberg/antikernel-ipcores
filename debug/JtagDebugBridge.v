@@ -305,18 +305,21 @@ module JtagDebugBridge #(
 	localparam NTX_STATE_IDLE				= 0;
 	localparam NTX_STATE_READ_HEADER		= 1;
 	localparam NTX_STATE_WAIT_FOR_PACKET	= 2;
-	localparam NTX_STATE_READ_CRCSTATUS		= 3;
-	localparam NTX_STATE_POP				= 4;
-	localparam NTX_STATE_RPC_0				= 5;
-	localparam NTX_STATE_RPC_1				= 6;
-	localparam NTX_STATE_RPC_2				= 7;
-	localparam NTX_STATE_RPC_3				= 8;
-	localparam NTX_STATE_RPC_WAIT			= 9;
+	localparam NTX_STATE_READ_CRCSTATUS_0	= 3;
+	localparam NTX_STATE_READ_CRCSTATUS_1	= 4;
+	localparam NTX_STATE_POP				= 5;
+	localparam NTX_STATE_RPC_0				= 6;
+	localparam NTX_STATE_RPC_1				= 7;
+	localparam NTX_STATE_RPC_2				= 8;
+	localparam NTX_STATE_RPC_3				= 9;
+	localparam NTX_STATE_RPC_WAIT			= 10;
 
 	reg[3:0]	ntx_state					= NTX_STATE_IDLE;
 	reg[10:0]	ntx_packet_len				= 0;
 	reg			ntx_packet_rpc				= 0;
 	reg			ntx_packet_dma				= 0;
+
+	reg[31:0]	tx_fifo_rd_data_ff			= 0;
 
 	always @(posedge clk) begin
 
@@ -325,6 +328,7 @@ module JtagDebugBridge #(
 		tx_fifo_rd_pop_packet	<= 0;
 
 		rpc_fab_tx_en			<= 0;
+		tx_fifo_rd_data_ff		<= tx_fifo_rd_data;
 
 		case(ntx_state)
 
@@ -336,9 +340,9 @@ module JtagDebugBridge #(
 				//If we have any data at all to read, get the header word (type and length).
 				//We don't yet know if the entire packet is in the buffer since we don't know how big it is!
 				//Pop the header word since we don't need it in the FIFO anymore.
+				tx_fifo_rd_offset		<= 0;
 				if(tx_fifo_rd_size > 0) begin
 					tx_fifo_rd_en			<= 1;
-					tx_fifo_rd_offset		<= 0;
 					tx_fifo_rd_pop_single	<= 1;
 					ntx_state				<= NTX_STATE_READ_HEADER;
 				end
@@ -370,44 +374,45 @@ module JtagDebugBridge #(
 			NTX_STATE_WAIT_FOR_PACKET: begin
 
 				//need at least packet_len + one more for CRC status
+				tx_fifo_rd_offset	<= ntx_packet_len[8:0];
 				if(tx_fifo_rd_size > ntx_packet_len) begin
 					tx_fifo_rd_en		<= 1;
-					tx_fifo_rd_offset	<= ntx_packet_len[8:0];
-					ntx_state			<= NTX_STATE_READ_CRCSTATUS;
+					ntx_state			<= NTX_STATE_READ_CRCSTATUS_0;
 				end
 
 			end	//NTX_STATE_WAIT_FOR_PACKET
 
 			//We have the entire packet!
 			//Read the CRC pass/fail status
-			NTX_STATE_READ_CRCSTATUS: begin
+			NTX_STATE_READ_CRCSTATUS_0: begin
+				if(!tx_fifo_rd_en)
+					ntx_state			<= NTX_STATE_READ_CRCSTATUS_1;
+			end	//end NTX_STATE_READ_CRCSTATUS_0
 
-				if(!tx_fifo_rd_en) begin
+			NTX_STATE_READ_CRCSTATUS_1: begin
 
-					//If CRC failure, pop the entire packet. (Was already NAK'd by JTAG clock domain)
-					if(!tx_fifo_rd_data[0]) begin
-						tx_fifo_rd_pop_packet	<= 1;
-						tx_fifo_rd_pop_size		<= ntx_packet_len[9:0];
-						ntx_state				<= NTX_STATE_POP;
-					end
-
-					//If not RPC, drop it (TODO handle DMA)
-					else if(!ntx_packet_rpc || ntx_packet_dma || (ntx_packet_len != 4)) begin
-						tx_fifo_rd_pop_packet	<= 1;
-						tx_fifo_rd_pop_size		<= ntx_packet_len[9:0];
-						ntx_state				<= NTX_STATE_POP;
-					end
-
-					//It's an RPC packet, read the first data word
-					else begin
-						tx_fifo_rd_en			<= 1;
-						tx_fifo_rd_offset		<= 0;
-						ntx_state				<= NTX_STATE_RPC_0;
-					end
-
+				//If CRC failure, pop the entire packet. (Was already NAK'd by JTAG clock domain)
+				if(!tx_fifo_rd_data_ff[0]) begin
+					tx_fifo_rd_pop_packet	<= 1;
+					tx_fifo_rd_pop_size		<= ntx_packet_len[9:0];
+					ntx_state				<= NTX_STATE_POP;
 				end
 
-			end //end NTX_STATE_READ_CRCSTATUS
+				//If not RPC, drop it (TODO handle DMA)
+				else if(!ntx_packet_rpc || ntx_packet_dma || (ntx_packet_len != 4)) begin
+					tx_fifo_rd_pop_packet	<= 1;
+					tx_fifo_rd_pop_size		<= ntx_packet_len[9:0];
+					ntx_state				<= NTX_STATE_POP;
+				end
+
+				//It's an RPC packet, read the first data word
+				else begin
+					tx_fifo_rd_en			<= 1;
+					tx_fifo_rd_offset		<= 0;
+					ntx_state				<= NTX_STATE_RPC_0;
+				end
+
+			end //end NTX_STATE_READ_CRCSTATUS_1
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Process an RPC message
@@ -489,11 +494,16 @@ module JtagDebugBridge #(
 
 	reg[3:0]	nrx_state					= NRX_STATE_IDLE;
 
+	//True if there's space for another RPC message in the buffer
+	reg			rx_fifo_can_fit_rpc			= 0;
+
 	always @(posedge clk) begin
 
 		rpc_fab_rx_ready		<= 0;
 
 		rx_fifo_wr_en			<= 0;
+
+		rx_fifo_can_fit_rpc		<= (rx_fifo_wr_size >= 5);
 
 		case(nrx_state)
 
@@ -505,8 +515,10 @@ module JtagDebugBridge #(
 				//TODO: handle DMA
 
 				//If a new RPC message comes in, push it into the RX FIFO
-				if(rpc_fab_rx_en)
-					nrx_state	<= NRX_STATE_RPC_0;
+				if(rpc_fab_rx_en) begin
+					rx_fifo_wr_data		<= {1'b1, 1'b0, 19'h0, 11'd4};	//rpc, dma, padding, length
+					nrx_state			<= NRX_STATE_RPC_0;
+				end
 
 			end	//end NRX_STATE_IDLE
 
@@ -515,10 +527,9 @@ module JtagDebugBridge #(
 
 			NRX_STATE_RPC_0: begin
 
-				//Wait for there to be enough buffer space for the entire message
-				if(rx_fifo_wr_size >= 5) begin
+				//Wait for there to be enough buffer space for the entire message before pushing the header
+				if(rx_fifo_can_fit_rpc) begin
 					rx_fifo_wr_en		<= 1;
-					rx_fifo_wr_data		<= {1'b1, 1'b0, 19'h0, 11'd4};	//rpc, dma, padding, length
 					nrx_state			<= NRX_STATE_RPC_1;
 				end
 
