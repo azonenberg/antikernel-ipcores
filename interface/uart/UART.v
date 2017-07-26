@@ -28,13 +28,6 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-//Define this to slightly increase gate count while improving noise immunity
-//by oversampling.
-`define UART_OVERSAMPLE
-
-//Define this for raw printing of UART output (rather than [UART] tags)
-`define UART_PRINT_RAW
-
 /**
 	@file
 	@author Andrew D. Zonenberg
@@ -56,46 +49,53 @@
 	@param rxrdy	Goes high for one clk when valid data is present on rxout
 	@param rxactive	Indicates if reciever is busy
  */
-module UART(clk, clkdiv, tx, txin, txrdy, txactive, rx, rxout, rxrdy, rxactive, overflow);
+module UART(
+	input wire			clk,
+	input wire[15:0]	clkdiv,
 
-	input wire clk;
-	input wire[15:0] clkdiv;
-	input wire rx;
+	input wire			rx,
+	output reg			rxactive	= 0,
+	output reg[7:0]		rxout		= 0,
+	output reg			rxrdy		= 0,
+
+	output reg			tx			= 1,
+	input wire[7:0]		txin,
+	input wire			txrdy,
+	output reg			txactive	= 0);
 
 	//1/4 of the clock divisor (for 90 degree phase offset)
 	wire[14:0] clkdiv_offset;
 	assign clkdiv_offset = clkdiv[15:2];
 
 	///////////////////////////////////////////////////////////////////////////////////////////////
-	//Receiver
-	reg[15:0] rxbrg;
-	output reg rxactive;
-	reg[4:0] rxbitcount;
-	reg[7:0] rxbuf;
-	output reg[7:0] rxout;
-	output reg rxrdy;
-	initial begin
-		rxbrg <= 0;
-		rxactive <= 0;
-		rxbitcount <= 0;
-		rxbuf <= 0;
-		rxout <= 0;
-		rxrdy <= 0;
-	end
+	// Receiver
+
+	reg[15:0]	rxbrg		= 0;
+	reg[4:0]	rxbitcount	= 0;
+	reg[7:0]	rxbuf		= 0;
+
+	//Enable this to slightly increase gate count while improving noise immunity
+	//by oversampling.
+	parameter OVERSAMPLE	= 0;
 
 	wire oversampled_rx;								//Oversampled value
-	`ifdef UART_OVERSAMPLE
-		reg[4:0] oversamples = 5'h1f;					//buffer of over oversamples
+	generate
 
-		UART_MajorityVoter mvoter(.din(oversamples), .dout(oversampled_rx));
+		if(UART_OVERSAMPLE) begin
+			reg[4:0] oversamples = 5'h1f;				//buffer of over oversamples
 
-		//5-bit shift register going into oversampler
-		always @(posedge clk) begin
-			oversamples <= {rx, oversamples[4:1]};
-		end
-	`else
-		assign oversampled_rx = rx;
-	`endif
+			UART_MajorityVoter mvoter(
+				.din(oversamples),
+				.dout(oversampled_rx));
+
+			//5-bit shift register going into oversampler
+			always @(posedge clk) begin
+				oversamples <= {rx, oversamples[4:1]};
+			end
+		else
+			assign oversampled_rx = rx;
+
+	endgenerate
 
 	always @(posedge clk) begin
 
@@ -125,7 +125,8 @@ module UART(clk, clkdiv, tx, txin, txrdy, txactive, rx, rxout, rxrdy, rxactive, 
 			//Time to sample a new bit
 			if(rxbrg == 0) begin
 
-				//If we are on bits 0 through 7 (not the stop bit) read the bit into the rxbuf and bump the bit count, then reset the baud generator
+				//If we are on bits 0 through 7 (not the stop bit)
+				//read the bit into the rxbuf and bump the bit count, then reset the baud generator
 				if(rxbitcount < 8) begin
 					rxbuf <= {rx, rxbuf[7:1]};
 					rxbitcount <= rxbitcount + 5'd1;
@@ -136,11 +137,10 @@ module UART(clk, clkdiv, tx, txin, txrdy, txactive, rx, rxout, rxrdy, rxactive, 
 				else begin
 
 					//Should always be 1, print warning in sim if this isnt the case
-					if(rx != 1) begin
-						// synthesis translate_off
+					`ifdef XILINX_ISIM
+					if(rx != 1)
 						$display("[UART] Warning - stop bit isn't zero");
-						// synthesis translate_on
-					end
+					`endif
 
 					//We're done reading
 					rxbitcount <= 0;
@@ -150,9 +150,9 @@ module UART(clk, clkdiv, tx, txin, txrdy, txactive, rx, rxout, rxrdy, rxactive, 
 					rxout <= rxbuf;
 					rxrdy <= 1;
 
-					// synthesis translate_off
+					`ifdef XILINX_ISIM
 					$display("[UART] Read byte 0x%02x - '%c'", rxbuf, rxbuf);
-					// synthesis translate_on
+					`endif
 				end
 
 			end
@@ -163,23 +163,10 @@ module UART(clk, clkdiv, tx, txin, txrdy, txactive, rx, rxout, rxrdy, rxactive, 
 
 	///////////////////////////////////////////////////////////////////////////////////////////////
 	//Transmitter
-	output reg tx;
-	input wire txrdy;
-	input wire [7:0] txin;
-	output reg overflow;
 
-	reg[15:0] txbrg;
-	reg[7:0] txbuf;
-	output reg txactive;
-	reg [3:0] txbitcount;
-	initial begin
-		tx <= 1;
-		txbuf <= 0;
-		txactive <= 0;
-		txbrg <= 0;
-		txbitcount <= 0;
-		overflow <= 0;
-	end
+	reg[15:0]	txbrg		= 0;
+	reg[7:0] 	txbuf		= 0;
+	reg [3:0]	txbitcount	= 0;
 
 	always @(posedge clk) begin
 
@@ -189,15 +176,14 @@ module UART(clk, clkdiv, tx, txin, txrdy, txactive, rx, rxout, rxrdy, rxactive, 
 			//Already transmitting? Drop the byte, nothing we can do here.
 			//External FIFO required to handle stuff
 			if(txactive) begin
-				// synthesis translate_off
+				`ifdef XILINX_ISIM
 				$display("[UART] Warning - transmit buffer overflow, byte dropped");
-				// synthesis translate_on
-				overflow <= 1;
+				`endif
 			end
 
 			//Nope, set up a transmission
 			else begin
-				// synthesis translate_off
+				/*
 				`ifdef UART_PRINT_RAW
 					$write("%c", txin);
 				`else
@@ -208,15 +194,15 @@ module UART(clk, clkdiv, tx, txin, txrdy, txactive, rx, rxout, rxrdy, rxactive, 
 						$display("[UART] sending byte 0x%02x", txin);
 					end
 				`endif
-				// synthesis translate_on
-				txbuf <= txin;
-				txactive <= 1;
-				txbitcount <= 0;
+				*/
+
+				txbuf		<= txin;
+				txactive	<= 1;
+				txbitcount	<= 0;
 
 				//Send the start bit immediately
-				tx <= 0;
-				txbrg <= clkdiv;
-				overflow <= 0;
+				tx			<= 0;
+				txbrg		<= clkdiv;
 			end
 
 		end
@@ -230,31 +216,31 @@ module UART(clk, clkdiv, tx, txin, txrdy, txactive, rx, rxout, rxrdy, rxactive, 
 				//Are we still sending normal data bits?
 				//Send the next data bit (LSB first)
 				if(txbitcount < 8) begin
-					txbitcount <= txbitcount + 4'd1;
-					tx <= txbuf[0];
-					txbuf <= {1'b0, txbuf[7:1]};
-					txbrg <= clkdiv;
+					txbitcount	<= txbitcount + 4'd1;
+					tx			<= txbuf[0];
+					txbuf		<= {1'b0, txbuf[7:1]};
+					txbrg		<= clkdiv;
 				end
 
 				//Time to send the stop bit?
 				//Send it
 				else if(txbitcount == 8) begin
-					txbitcount <= 9;
-					tx <= 1;
-					txbrg <= clkdiv;
+					txbitcount	<= 9;
+					tx			<= 1;
+					txbrg		<= clkdiv;
 				end
 
 				//Done sending? Reset stuff
 				else if(txbitcount == 9) begin
-					txbitcount <= 0;
-					txactive <= 0;
+					txbitcount	<= 0;
+					txactive	<= 0;
 				end
 
 			end
 
 			//Nope, just keep count
 			else begin
-				txbrg <= txbrg - 16'd1;
+				txbrg			<= txbrg - 16'd1;
 			end
 
 		end
