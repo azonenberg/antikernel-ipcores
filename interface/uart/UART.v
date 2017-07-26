@@ -36,17 +36,17 @@
 	This is the raw UART and does not have a FIFO etc. The parent module must read
 	data the cycle after it becomes available and process or store it.
 
-	@param clk		Input lock signal
+	@param clk		Input clock signal
 	@param clkdiv	Clock divisor for baud rate generator (115200 baud = 174 @ 20 MHz)
 
 	@param tx		Outbound serial data line
-	@param txin		8-bit wide bus containing data to be transmitted
-	@param txrdy	Bring high for 1 clk when data is ready to be transmitted
+	@param tx_data	8-bit wide bus containing data to be transmitted
+	@param tx_en	Bring high for 1 clk when data is ready to be transmitted
 	@param txactive	Indicates if transmitter is busy
 
 	@param rx		Inbound serial data line
-	@param rxout	8-bit wide bus containing data recieved
-	@param rxrdy	Goes high for one clk when valid data is present on rxout
+	@param rx_data	8-bit wide bus containing data recieved
+	@param rx_en	Goes high for one clk when valid data is present on rx_data
 	@param rxactive	Indicates if reciever is busy
  */
 module UART(
@@ -55,12 +55,12 @@ module UART(
 
 	input wire			rx,
 	output reg			rxactive	= 0,
-	output reg[7:0]		rxout		= 0,
-	output reg			rxrdy		= 0,
+	output reg[7:0]		rx_data		= 0,
+	output reg			rx_en		= 0,
 
 	output reg			tx			= 1,
-	input wire[7:0]		txin,
-	input wire			txrdy,
+	input wire[7:0]		tx_data,
+	input wire			tx_en,
 	output reg			txactive	= 0);
 
 	//1/4 of the clock divisor (for 90 degree phase offset)
@@ -100,9 +100,9 @@ module UART(
 	always @(posedge clk) begin
 
 		//Clear data from output after one clock
-		if(rxrdy) begin
-			rxrdy <= 0;
-			rxout <= 0;
+		if(rx_en) begin
+			rx_en <= 0;
+			rx_data <= 0;
 		end
 
 		//If not currently recieving, look for falling edge on RX (start bit).
@@ -147,8 +147,8 @@ module UART(
 					rxactive <= 0;
 
 					//Data is ready
-					rxout <= rxbuf;
-					rxrdy <= 1;
+					rx_data <= rxbuf;
+					rx_en <= 1;
 
 					`ifdef XILINX_ISIM
 					$display("[UART] Read byte 0x%02x - '%c'", rxbuf, rxbuf);
@@ -171,7 +171,7 @@ module UART(
 	always @(posedge clk) begin
 
 		//Time to start sending a new byte?
-		if(txrdy) begin
+		if(tx_en) begin
 
 			//Already transmitting? Drop the byte, nothing we can do here.
 			//External FIFO required to handle stuff
@@ -185,18 +185,18 @@ module UART(
 			else begin
 				/*
 				`ifdef UART_PRINT_RAW
-					$write("%c", txin);
+					$write("%c", tx_data);
 				`else
-					if(txin > 8'h20) begin
-						$display("[UART] sending byte 0x%02x - '%c'", txin, txin);
+					if(tx_data > 8'h20) begin
+						$display("[UART] sending byte 0x%02x - '%c'", tx_data, tx_data);
 					end
 					else begin
-						$display("[UART] sending byte 0x%02x", txin);
+						$display("[UART] sending byte 0x%02x", tx_data);
 					end
 				`endif
 				*/
 
-				txbuf		<= txin;
+				txbuf		<= tx_data;
 				txactive	<= 1;
 				txbitcount	<= 0;
 

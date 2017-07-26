@@ -74,16 +74,14 @@ module #(
 		.clkdiv(UART_CLKDIV[15:0]),
 
 		.tx(uart_txd),
-		.txin(uart_tx_data),
-		.txrdy(uart_tx_en),
+		.tx_data(uart_tx_data),
+		.tx_en(uart_tx_en),
 		.txactive(uart_tx_active),
 
 		.rx(uart_rxd),
-		.rxout(uart_rx_data),
-		.rxrdy(uart_rx_en),
-		.rxactive(),
-
-		.overflow()
+		.rx_data(uart_rx_data),
+		.rx_en(uart_rx_en),
+		.rxactive()
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
