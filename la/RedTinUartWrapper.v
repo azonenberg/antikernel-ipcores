@@ -99,10 +99,78 @@ module #(
 
 	end
 
+	reg			symbol_rd_en	= 0;
+	reg[10:0]	symbol_rd_addr	= 0;
+	reg[7:0]	symbol_rd_data	= 0;
+
+	always @(posedge clk) begin
+		if(symbol_rd_en)
+			symbol_rd_data		<= symbols[symbol_rd_addr];
+	end
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual LA
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// UART command engine
+
+	`include "RedTin_opcodes_localparam.vh"
+
+	localparam STATE_IDLE		= 4'h0;
+	localparam STATE_SYMTAB_0	= 4'h1;
+	localparam STATE_SYMTAB_1	= 4'h2;
+
+	reg[3:0]	state			= STATE_IDLE;
+
+	always @(posedge clk) begin
+
+		symbol_rd_en	<= 0;
+		uart_tx_en		<= 8'h0;
+
+		case(state)
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// IDLE - sit around and wait for the opcode byte to come in
+
+			STATE_IDLE: begin
+
+				case(uart_rx_data)
+
+					//Read symbol table - dump out the ROM
+					REDTIN_READ_SYMTAB: begin
+						symbol_rd_en		<= 1;
+						symbol_rd_addr		<= 0;
+						state				<= STATE_SYMTAB_0;
+					end	//end REDTIN_READ_SYMTAB
+
+					//Unknown opcode? Ignore it
+					default: begin
+					end
+				endcase
+
+			end	//end STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// SYMTAB - just spam the symbol table out the UART
+
+			//Wait for read, then send it
+			STATE_SYMTAB_0: begin
+				if(!symbol_rd_en) begin
+					uart_tx_en		<= 1;
+					uart_tx_data	<= symbol_rd_data;
+					state			<= STATE_SYMTAB_1;
+				end
+			end	//end STATE_SYMTAB_0
+
+			//Wait for send, then read
+			STATE_SYMTAB_1: begin
+				if(!uart_tx_active) begin
+
+				end
+			end
+
+		endcase
+
+	end
 
 endmodule
