@@ -81,7 +81,7 @@ module UART(
 	wire oversampled_rx;								//Oversampled value
 	generate
 
-		if(UART_OVERSAMPLE) begin
+		if(OVERSAMPLE) begin
 			reg[4:0] oversamples = 5'h1f;				//buffer of over oversamples
 
 			UART_MajorityVoter mvoter(
@@ -92,6 +92,7 @@ module UART(
 			always @(posedge clk) begin
 				oversamples <= {rx, oversamples[4:1]};
 			end
+		end
 		else
 			assign oversampled_rx = rx;
 
