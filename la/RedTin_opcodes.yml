@@ -35,3 +35,9 @@ RedTin_opcodes:
 
         # Read the symbol table
         REDTIN_READ_SYMTAB:         00
+
+        # Load LUT equations for the trigger block
+        REDTIN_LOAD_TRIGGER:        01
+
+        # Notification that a trigger happened
+        REDTIN_TRIGGER_NOTIF:       02

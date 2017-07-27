@@ -59,8 +59,22 @@ module RedTinUartWrapper #(
 
 		//Bus to host PC
 		input wire				uart_rx,
-		output wire				uart_tx
+		output wire				uart_tx,
+
+		//DEBUG
+		output reg[3:0]			led = 0
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Do some math to figure out how much data we need to move
+
+	`include "../synth_helpers/clog2.vh"
+
+	//The trigger data is one block of 32 32-bit words per 64 channels.
+	//This is a total of 128 bytes per 64 channels or 2 bytes per channel.
+	localparam BITSTREAM_SIZE = 2*WIDTH;
+	localparam BITSTREAM_END = BITSTREAM_SIZE - 2;
+	localparam BITSTREAM_ABITS = clog2(BITSTREAM_SIZE);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The UART
@@ -71,7 +85,9 @@ module RedTinUartWrapper #(
 	wire		uart_tx_active;
 	wire		uart_rx_en;
 	wire[7:0]	uart_rx_data;
-	UART uart(
+	UART #(
+		.OVERSAMPLE(1)
+	) uart(
 		.clk(clk),
 		.clkdiv(UART_CLKDIV[15:0]),
 
@@ -111,21 +127,72 @@ module RedTinUartWrapper #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual LA
 
+	localparam 			ADDR_BITS = clog2(DEPTH);
+
+	reg[31:0]			reconfig_din	= 0;
+	reg					reconfig_ce		= 0;
+	reg					reconfig_finish	= 0;
+
+	reg					read_en			= 0;
+	reg[ADDR_BITS-1:0]	read_addr		= 0;
+	wire[WIDTH-1:0]		read_data;
+	wire[31:0]			read_timestamp;
+
+	reg					la_reset		= 0;
+	wire				capture_done;
+
+	RedTinLogicAnalyzer #(
+		.DEPTH(DEPTH),
+		.DATA_WIDTH(WIDTH)
+	) la (
+
+		//Capture bus
+		.capture_clk(capture_clk),
+		.din(din),
+
+		//Trigger bus
+		.reconfig_clk(clk),
+		.reconfig_din(reconfig_din),
+		.reconfig_ce(reconfig_ce),
+		.reconfig_finish(reconfig_finish),
+
+		//Readout bus
+		.read_clk(clk),
+		.read_en(read_en),
+		.read_addr(read_addr),
+		.read_data(read_data),
+		.read_timestamp(read_timestamp),
+
+		//Command bus
+		.done(capture_done),
+		.reset(la_reset)
+	);
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// UART command engine
 
 	`include "RedTin_opcodes_localparam.vh"
 
-	localparam STATE_IDLE		= 4'h0;
-	localparam STATE_SYMTAB_0	= 4'h1;
-	localparam STATE_SYMTAB_1	= 4'h2;
+	localparam STATE_IDLE				= 4'h0;
+	localparam STATE_SYMTAB_0			= 4'h1;
+	localparam STATE_SYMTAB_1			= 4'h2;
+	localparam STATE_RECONFIGURE		= 4'h3;
+	localparam STATE_RECONFIGURE_FINISH	= 4'h4;
+	localparam STATE_TRIGGERED			= 4'h5;
 
-	reg[3:0]	state			= STATE_IDLE;
+	reg[3:0]					state 	= STATE_IDLE;
+	reg[BITSTREAM_ABITS-1:0]	bitpos	= 0;
+
+	reg							notif_sent	= 0;
 
 	always @(posedge clk) begin
 
 		symbol_rd_en	<= 0;
 		uart_tx_en		<= 8'h0;
+
+		reconfig_ce		<= 0;
+		reconfig_finish	<= 0;
+		la_reset		<= 0;
 
 		case(state)
 
@@ -144,11 +211,26 @@ module RedTinUartWrapper #(
 							state				<= STATE_SYMTAB_0;
 						end	//end REDTIN_READ_SYMTAB
 
+						//Load trigger - take a bunch of LUT equations and shove them into the LA
+						REDTIN_LOAD_TRIGGER: begin
+							la_reset			<= 1;
+							bitpos				<= 0;
+							state				<= STATE_RECONFIGURE;
+						end	//end REDTIN_LOAD_TRIGGER
+
 						//Unknown opcode? Ignore it
 						default: begin
 						end
 					endcase
 
+				end
+
+				//Scope just triggered! Send out an alert
+				if(capture_done && !notif_sent) begin
+					led[3]						<= 1;
+					uart_tx_en					<= 1;
+					uart_tx_data				<= REDTIN_TRIGGER_NOTIF;
+					notif_sent					<= 1;
 				end
 
 			end	//end STATE_IDLE
@@ -181,7 +263,35 @@ module RedTinUartWrapper #(
 						state			<= STATE_IDLE;
 
 				end
-			end
+			end	//end STATE_SYMTAB_1
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// RECONFIGURE - load new trigger config
+
+			STATE_RECONFIGURE: begin
+				if(uart_rx_en) begin
+					led[0]				<= 1;
+					bitpos				<= bitpos + 1'h1;
+
+					reconfig_din		<= { reconfig_din[23:0], uart_rx_data };
+
+					//We read 3 bytes, 4th is just arriving now
+					if(bitpos[1:0] == 2'd2)
+						reconfig_ce		<= 1;
+
+					//Just got last byte? Go tell it to commit the changes
+					if(bitpos == BITSTREAM_END)
+						state			<= STATE_RECONFIGURE_FINISH;
+
+				end
+			end	//end STATE_RECONFIGURE
+
+			STATE_RECONFIGURE_FINISH: begin
+				led[1]					<= 1;
+				reconfig_finish			<= 1;
+				notif_sent				<= 0;
+				state					<= STATE_IDLE;
+			end	//end STATE_RECONFIGURE_FINISH
 
 		endcase
 
