@@ -35,8 +35,11 @@
 	@brief UART wrapper for RED TIN logic analyzer
 
 	SIGNAL_ROM format:
-		{ 16384'h0 },					//Padding to ensure ROM is always 16Kbits in size
+		16384'h0,						//Padding to ensure ROM is always 16Kbits in size
 		{ "DEBUGROM" }	,				//Magic header to indicate start of ROM
+		32'd10000,						//Timebase, in picoseconds
+		32'd512,						//Capture depth, in samples
+		32'd128,						//Capture width, in samples
 		{ "uart_tx_en\0", 8'h1, 8'h0 },	//name, width, format TBD (reserved zero)
 		{ "uart_txd\0", 8'h8, 8'h0 },
  */
