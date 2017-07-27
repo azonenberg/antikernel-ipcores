@@ -52,7 +52,7 @@ module RedTinLogicAnalyzer(
 	input wire 					read_clk;
 
 	//Parameterizable depth
-	`include "../util/clog2.vh"
+	`include "../synth_helpers/clog2.vh"
 	parameter					DEPTH = 512;
 	localparam 					ADDR_BITS = clog2(DEPTH);
 

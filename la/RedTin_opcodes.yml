@@ -34,4 +34,4 @@ RedTin_opcodes:
     values:
 
         # Read the symbol table
-        REDTIN_READ_SYMTAB:         0
+        REDTIN_READ_SYMTAB:         00

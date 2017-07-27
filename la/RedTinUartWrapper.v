@@ -40,13 +40,12 @@
 		{ "uart_tx_en\0", 8'h1, 8'h0 },	//name, width, format TBD (reserved zero)
 		{ "uart_txd\0", 8'h8, 8'h0 },
  */
-module #(
-		parameter WIDTH = 128,
-		parameter DEPTH = 512,
-		parameter SYMBOL_ROM = 16384'h0,
-		parameter UART_CLKDIV = 16'd868			//115200 baud @ 100 MHz
-		)
-	RedTinUartWrapper(
+module RedTinUartWrapper #(
+	parameter WIDTH = 128,
+	parameter DEPTH = 512,
+	parameter SYMBOL_ROM = 16384'h0,
+	parameter UART_CLKDIV = 16'd868			//115200 baud @ 100 MHz
+	)(
 
 		//Internal clock, not necessarily used for capturing
 		input wire				clk,
@@ -73,12 +72,12 @@ module #(
 		.clk(clk),
 		.clkdiv(UART_CLKDIV[15:0]),
 
-		.tx(uart_txd),
+		.tx(uart_tx),
 		.tx_data(uart_tx_data),
 		.tx_en(uart_tx_en),
 		.txactive(uart_tx_active),
 
-		.rx(uart_rxd),
+		.rx(uart_rx),
 		.rx_data(uart_rx_data),
 		.rx_en(uart_rx_en),
 		.rxactive()
@@ -132,19 +131,22 @@ module #(
 
 			STATE_IDLE: begin
 
-				case(uart_rx_data)
+				if(uart_rx_en) begin
+					case(uart_rx_data)
 
-					//Read symbol table - dump out the ROM
-					REDTIN_READ_SYMTAB: begin
-						symbol_rd_en		<= 1;
-						symbol_rd_addr		<= 0;
-						state				<= STATE_SYMTAB_0;
-					end	//end REDTIN_READ_SYMTAB
+						//Read symbol table - dump out the ROM
+						REDTIN_READ_SYMTAB: begin
+							symbol_rd_en		<= 1;
+							symbol_rd_addr		<= 0;
+							state				<= STATE_SYMTAB_0;
+						end	//end REDTIN_READ_SYMTAB
 
-					//Unknown opcode? Ignore it
-					default: begin
-					end
-				endcase
+						//Unknown opcode? Ignore it
+						default: begin
+						end
+					endcase
+
+				end
 
 			end	//end STATE_IDLE
 
@@ -162,7 +164,18 @@ module #(
 
 			//Wait for send, then read
 			STATE_SYMTAB_1: begin
-				if(!uart_tx_active) begin
+				if(!uart_tx_active && !uart_tx_en) begin
+
+					//Not done? Keep going
+					if(symbol_rd_addr != 'd2047) begin
+						symbol_rd_en	<= 1;
+						symbol_rd_addr	<= symbol_rd_addr + 1'h1;
+						state			<= STATE_SYMTAB_0;
+					end
+
+					//Done, move along
+					else
+						state			<= STATE_IDLE;
 
 				end
 			end
