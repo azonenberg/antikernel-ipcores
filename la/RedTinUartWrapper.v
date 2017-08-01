@@ -73,7 +73,7 @@ module RedTinUartWrapper #(
 	//The trigger data is one block of 32 32-bit words per 64 channels.
 	//This is a total of 128 bytes per 64 channels or 2 bytes per channel.
 	localparam BITSTREAM_SIZE = 2*WIDTH;
-	localparam BITSTREAM_END = BITSTREAM_SIZE - 2;
+	localparam BITSTREAM_END = BITSTREAM_SIZE - 1;
 	localparam BITSTREAM_ABITS = clog2(BITSTREAM_SIZE);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -138,6 +138,17 @@ module RedTinUartWrapper #(
 	wire[WIDTH-1:0]		read_data;
 	wire[31:0]			read_timestamp;
 
+	//Number of bits required to count bytes in WIDTH
+	localparam			BLOCK_BITS	 	= clog2(WIDTH) - 3;
+
+	//Highest value for read_nbyte during readout
+	localparam			BLOCK_MAX		= (WIDTH / 8) - 1;
+
+	//Highest value for read_addr during readout
+	localparam			ADDR_MAX		= DEPTH - 1'h1;
+
+	reg[BLOCK_BITS-1:0]	read_nbyte		= 0;
+
 	reg					la_reset		= 0;
 	wire				capture_done;
 
@@ -179,11 +190,22 @@ module RedTinUartWrapper #(
 	localparam STATE_RECONFIGURE		= 4'h3;
 	localparam STATE_RECONFIGURE_FINISH	= 4'h4;
 	localparam STATE_TRIGGERED			= 4'h5;
+	localparam STATE_READOUT_WAIT		= 4'h6;
+	localparam STATE_READOUT_TIMESTAMP	= 4'h7;
+	localparam STATE_READOUT_DATA		= 4'h8;
+	localparam STATE_READOUT_FLOW		= 4'h9;
 
 	reg[3:0]					state 	= STATE_IDLE;
 	reg[BITSTREAM_ABITS-1:0]	bitpos	= 0;
 
 	reg							notif_sent	= 0;
+
+	//DEBUG
+	reg[7:0]					ff_count = 0;
+	reg[7:0]					sf_count = 0;
+	reg[7:0]					zero_count = 0;
+	reg[7:0]					other_count = 0;
+	reg[7:0]					total_count = 0;
 
 	always @(posedge clk) begin
 
@@ -193,6 +215,19 @@ module RedTinUartWrapper #(
 		reconfig_ce		<= 0;
 		reconfig_finish	<= 0;
 		la_reset		<= 0;
+		read_en			<= 0;
+
+		if(reconfig_ce) begin
+			total_count	<= total_count + 1'h1;
+			if(reconfig_din == 32'h00000000)
+				zero_count <= zero_count + 1'h1;
+			else if(reconfig_din == 32'hffffffff)
+				ff_count <= ff_count + 1'h1;
+			else if(reconfig_din == 32'h7fffffff)
+				sf_count <= sf_count + 1'h1;
+			else
+				other_count <= other_count + 1'h1;
+		end
 
 		case(state)
 
@@ -218,6 +253,14 @@ module RedTinUartWrapper #(
 							state				<= STATE_RECONFIGURE;
 						end	//end REDTIN_LOAD_TRIGGER
 
+						//Read data - take the stuff in the LA's buffer and spam it out to the host
+						REDTIN_READ_DATA: begin
+							read_en				<= 1;
+							read_addr			<= 0;
+							read_nbyte			<= 0;
+							state				<= STATE_READOUT_WAIT;
+						end	//end REDTIN_READ_DATA
+
 						//Unknown opcode? Ignore it
 						default: begin
 						end
@@ -227,7 +270,6 @@ module RedTinUartWrapper #(
 
 				//Scope just triggered! Send out an alert
 				if(capture_done && !notif_sent) begin
-					led[3]						<= 1;
 					uart_tx_en					<= 1;
 					uart_tx_data				<= REDTIN_TRIGGER_NOTIF;
 					notif_sent					<= 1;
@@ -268,15 +310,15 @@ module RedTinUartWrapper #(
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// RECONFIGURE - load new trigger config
 
+			//When rx_en is high, we have bitpos bytes ALREADY processed, plus a new one inbound right now
 			STATE_RECONFIGURE: begin
 				if(uart_rx_en) begin
-					led[0]				<= 1;
 					bitpos				<= bitpos + 1'h1;
 
 					reconfig_din		<= { reconfig_din[23:0], uart_rx_data };
 
-					//We read 3 bytes, 4th is just arriving now
-					if(bitpos[1:0] == 2'd2)
+					//We read 3 bytes already, 4th is just arriving now
+					if(bitpos[1:0] == 2'd3)
 						reconfig_ce		<= 1;
 
 					//Just got last byte? Go tell it to commit the changes
@@ -287,11 +329,75 @@ module RedTinUartWrapper #(
 			end	//end STATE_RECONFIGURE
 
 			STATE_RECONFIGURE_FINISH: begin
-				led[1]					<= 1;
 				reconfig_finish			<= 1;
 				notif_sent				<= 0;
+				uart_tx_data			<= REDTIN_LOAD_TRIGGER;
+				uart_tx_en				<= 1;
 				state					<= STATE_IDLE;
 			end	//end STATE_RECONFIGURE_FINISH
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// READOUT - dump data from the buffer out to the UART
+
+			//Wait for read, then kick first timestamp byte out
+			//(little endian order for easier processing on x86 hosts)
+			STATE_READOUT_WAIT: begin
+				if(!read_en) begin
+					uart_tx_en			<= 1;
+					uart_tx_data		<= read_timestamp[7:0];
+					read_nbyte			<= 1;
+					state				<= STATE_READOUT_TIMESTAMP;
+				end
+			end	//end STATE_READOUT_WAIT
+
+			//Continue sending timestamp blocks
+			STATE_READOUT_TIMESTAMP: begin
+				if(!uart_tx_active && !uart_tx_en) begin
+					uart_tx_en			<= 1;
+					uart_tx_data		<= read_timestamp[read_nbyte[1:0]*8 +: 8];
+
+					read_nbyte			<= read_nbyte + 1'h1;
+
+					//If done with timestamp, start processing data
+					if(read_nbyte >= 3) begin
+						read_nbyte		<= 0;
+						state			<= STATE_READOUT_DATA;
+					end
+
+				end
+			end	//end STATE_READOUT_TIMESTAMP
+
+			//Send the row of actual capture data
+			STATE_READOUT_DATA: begin
+				if(!uart_tx_active && !uart_tx_en) begin
+					uart_tx_en			<= 1;
+					uart_tx_data		<= read_data[read_nbyte*8 +: 8];
+					read_nbyte			<= read_nbyte + 1'h1;
+
+					//Done with the current row, time to go on to the next
+					if(read_nbyte >= BLOCK_MAX) begin
+
+						//Last row? We're done
+						if(read_addr == ADDR_MAX) begin
+							state		<= STATE_IDLE;
+						end
+
+						//Nope, read next row
+						else
+							state		<= STATE_READOUT_FLOW;
+
+					end
+				end
+			end	//end STATE_READOUT_DATA
+
+			//Wait for the read command to get re-sent, so we can synchronize for flow control
+			STATE_READOUT_FLOW: begin
+				if(uart_rx_en) begin
+					read_en		<= 1;
+					read_addr	<= read_addr + 1'h1;
+					state		<= STATE_READOUT_WAIT;
+				end
+			end	//end STATE_READOUT_FLOW
 
 		endcase
 

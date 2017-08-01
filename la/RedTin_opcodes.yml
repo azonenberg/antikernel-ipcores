@@ -41,3 +41,6 @@ RedTin_opcodes:
 
         # Notification that a trigger happened
         REDTIN_TRIGGER_NOTIF:       02
+
+        # Request to read data out
+        REDTIN_READ_DATA:           03
