@@ -75,6 +75,12 @@ module RedTinLogicAnalyzer(
 	input wire					reset;
 	output wire					done;
 
+	//Maximum number of clocks to wait between samples when there's no edges.
+	//After this number of cycles, we write a "keyframe" regardless of if any inputs have toggled.
+	//If we get a few short pulses then the system stabilizes,
+	//the capture won't finish until we've captured DEPTH keyframes.
+	parameter KEYFRAME_INTERVAL		= 32'h00080000;
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Trigger logic
 
@@ -122,9 +128,9 @@ module RedTinLogicAnalyzer(
 	//True if an edge was found
 	//TODO: re-use high half of trigger logic to do this
 	wire sample_edge;
-	assign sample_edge = (din_buf2 != din_buf3) ||			//sample has changed
-						(timestamp_offset > 'h00080000) ||	//limit depth of capture to avoid hanging on short pulses
-						(state == 2'b00);					//capture all the time in the idle state
+	assign sample_edge = (din_buf2 != din_buf3) ||					//sample has changed
+						(timestamp_offset > KEYFRAME_INTERVAL) ||	//limit depth of capture to avoid hanging
+						(state == 2'b00);							//capture all the time in the idle state
 
 	//Registered write stuff
 	reg					sample_we_ff		= 0;

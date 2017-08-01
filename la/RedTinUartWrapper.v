@@ -44,10 +44,11 @@
 		{ "uart_txd\0", 8'h8, 8'h0 },
  */
 module RedTinUartWrapper #(
-	parameter WIDTH = 128,
-	parameter DEPTH = 512,
-	parameter SYMBOL_ROM = 16384'h0,
-	parameter UART_CLKDIV = 16'd868			//115200 baud @ 100 MHz
+	parameter WIDTH 				= 128,
+	parameter DEPTH 				= 512,
+	parameter SYMBOL_ROM 			= 16384'h0,
+	parameter UART_CLKDIV 			= 16'd868,		//115200 baud @ 100 MHz
+	parameter KEYFRAME_INTERVAL		= 32'h00080000
 	)(
 
 		//Internal clock, not necessarily used for capturing
@@ -154,7 +155,8 @@ module RedTinUartWrapper #(
 
 	RedTinLogicAnalyzer #(
 		.DEPTH(DEPTH),
-		.DATA_WIDTH(WIDTH)
+		.DATA_WIDTH(WIDTH),
+		.KEYFRAME_INTERVAL(KEYFRAME_INTERVAL)
 	) la (
 
 		//Capture bus
