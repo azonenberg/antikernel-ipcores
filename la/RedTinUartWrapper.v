@@ -36,7 +36,9 @@
 
 	SIGNAL_ROM format:
 		16384'h0,						//Padding to ensure ROM is always 16Kbits in size
-		{ "DEBUGROM" }	,				//Magic header to indicate start of ROM
+		"DEBUGROM\0", 8'h01, 8'h00,		//Magic header to indicate start of ROM
+										//The 0-1-0 is sometimes flipped to 1-0-0 by Vivado synthesis,
+										//for reasons unknown. If we see this, we know to flip all subsequent symbols
 		32'd10000,						//Timebase, in picoseconds
 		32'd512,						//Capture depth, in samples
 		32'd128,						//Capture width, in samples
@@ -62,8 +64,8 @@ module RedTinUartWrapper #(
 		input wire				uart_rx,
 		output wire				uart_tx,
 
-		//DEBUG
-		output reg[3:0]			led = 0
+		//Indicates we're ready to start capturing (trigger input, etc)
+		output reg				la_ready = 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -112,7 +114,7 @@ module RedTinUartWrapper #(
 	initial begin
 
 		for(i=0; i<2048; i=i+1)
-			symbols[i] <= SYMBOL_ROM[(2047 - i)*8 +: 8];
+			symbols[i] <= SYMBOL_ROM[i*8 +: 8];
 
 	end
 
@@ -251,6 +253,7 @@ module RedTinUartWrapper #(
 						//Load trigger - take a bunch of LUT equations and shove them into the LA
 						REDTIN_LOAD_TRIGGER: begin
 							la_reset			<= 1;
+							la_ready			<= 0;
 							bitpos				<= 0;
 							state				<= STATE_RECONFIGURE;
 						end	//end REDTIN_LOAD_TRIGGER
@@ -333,6 +336,7 @@ module RedTinUartWrapper #(
 			STATE_RECONFIGURE_FINISH: begin
 				reconfig_finish			<= 1;
 				notif_sent				<= 0;
+				la_ready				<= 1;
 				uart_tx_data			<= REDTIN_LOAD_TRIGGER;
 				uart_tx_en				<= 1;
 				state					<= STATE_IDLE;
