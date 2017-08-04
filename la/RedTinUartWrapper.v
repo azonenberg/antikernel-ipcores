@@ -35,15 +35,19 @@
 	@brief UART wrapper for RED TIN logic analyzer
 
 	SIGNAL_ROM format:
-		16384'h0,						//Padding to ensure ROM is always 16Kbits in size
-		"DEBUGROM\0", 8'h01, 8'h00,		//Magic header to indicate start of ROM
-										//The 0-1-0 is sometimes flipped to 1-0-0 by Vivado synthesis,
-										//for reasons unknown. If we see this, we know to flip all subsequent symbols
-		32'd10000,						//Timebase, in picoseconds
-		32'd512,						//Capture depth, in samples
-		32'd128,						//Capture width, in samples
-		{ "uart_tx_en\0", 8'h1, 8'h0 },	//name, width, format TBD (reserved zero)
-		{ "uart_txd\0", 8'h8, 8'h0 },
+		NOTE: Strings are null terminated. Use {"a", 8'h0} instead of the more concise "a\0" if you're targeting Vivado
+		due to a bug re handling of embedded nulls:
+		https://forums.xilinx.com/t5/Synthesis/Incorrect-synthesis-of-strings-containing-0x00-bytes-in-Vivado/td-p/783629
+
+		16384'h0,							//Padding to ensure ROM is always 16Kbits in size
+		"DEBUGROM", 8'h0, 8'h01, 8'h00,		//Magic header to indicate start of ROM
+											//The 0-1-0 is sometimes flipped to 1-0-0 by Vivado synthesis,
+											//for reasons unknown. If we see this, we know to flip all subsequent symbols
+		32'd10000,							//Timebase, in picoseconds
+		32'd512,							//Capture depth, in samples
+		32'd128,							//Capture width, in samples
+		{ "uart_tx_en", 8'h0, 8'h1, 8'h0 },	//name, width, format TBD (reserved zero)
+		{ "uart_txd", 8'h0, 8'h8, 8'h0 },
  */
 module RedTinUartWrapper #(
 	parameter WIDTH 				= 128,
