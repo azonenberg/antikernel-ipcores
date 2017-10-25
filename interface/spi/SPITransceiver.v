@@ -84,15 +84,15 @@ module SPITransceiver(
 
 		//Wait for a start request
 		if(shift_en) begin
-			active <= 1;
-			clkcount <= 0;
+			active		<= 1;
+			clkcount	<= 0;
 
 			if(SAMPLE_EDGE == "FALLING") begin
-				count <= 1;
+				count	<= 1;
 				spi_sck <= 1;
 			end
 			else begin
-				count <= 0;
+				count	<= 0;
 				spi_sck <= 0;
 			end
 
@@ -101,7 +101,7 @@ module SPITransceiver(
 		end
 
 		//Toggle processing
-		if(active) begin
+		else if(active) begin
 			clkcount <= clkcount + 15'h1;
 			if(clkcount == clkdiv[15:1]) begin
 
@@ -145,6 +145,7 @@ module SPITransceiver(
 
 			end
 		end
+
 	end
 
 endmodule
