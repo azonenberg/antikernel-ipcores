@@ -68,25 +68,168 @@ module SFDPParser(
 	localparam XILINX_7SERIES_CCLK_WORKAROUND	= 1;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Main internal state machine
+    // Flash read-request logic
 
-	//List of JEDEC standard SPI flash instructions
+    //List of JEDEC standard SPI flash instructions
 	localparam INST_READ_SFDP		= 8'h5a;
-	localparam INST_READ_JEDEC_ID	= 8'h9f;
 
-	localparam STATE_BOOT_WAIT			= 0;
-	localparam STATE_BOOT_DUMMY			= 1;
-	localparam STATE_BOOT_HEADER_SEL	= 2;
-	localparam STATE_BOOT_HEADER_READ_0	= 3;
-	localparam STATE_BOOT_HEADER_READ_1	= 4;
-	localparam STATE_BOOT_HEADER_PARSE	= 5;
+	//Indicates we're busy and not able to accept commands
+    reg			read_busy				= 1;
 
-	localparam STATE_BOOT_READ_BASIC	= 6;
+	//Request a read from the given address
+    reg			read_request			= 0;
+    reg[23:0]	read_addr				= 0;
 
-	localparam STATE_BOOT_HANG			= 255;
+	//Request termination of the read
+	//(it's done when read_busy goes low)
+    reg			read_finish_request		= 0;
+    reg			read_finish_pending		= 0;
+
+	//Read state machine
+    localparam	READ_STATE_INIT_0		= 0;
+    localparam	READ_STATE_INIT_1		= 1;
+    localparam	READ_STATE_IDLE			= 2;
+    localparam	READ_STATE_COMMAND		= 3;
+    localparam	READ_STATE_ADDR			= 4;
+    localparam	READ_STATE_DUMMY		= 5;
+    localparam	READ_STATE_DATA			= 6;
+
+	reg[8:0]	count					= 0;
+	reg			read_done				= 0;
+	reg[7:0]	read_data				= 0;
+    reg[2:0]	read_state				= READ_STATE_INIT_0;
+
+    always @(posedge clk) begin
+		shift_en		<= 0;
+		read_done		<= 0;
+
+		if(read_finish_request)
+			read_finish_pending		<= 1;
+
+		case(read_state)
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// INIT - get ready to do stuff (FPGA-specific bug workarounds)
+
+			READ_STATE_INIT_0: begin
+
+				//Send a dummy byte with CS high to correctly initialize the CCLK output buffer.
+				//This is required for 7 series and is harmless in other chips so we do it no matter what.
+				//See https://www.xilinx.com/support/answers/52626.html
+				if(XILINX_7SERIES_CCLK_WORKAROUND) begin
+					shift_en		<= 1;
+					read_state		<= READ_STATE_INIT_1;
+				end
+
+				//Never going to target 7 series? Skip those states and make the logic a tad bit simpler
+				else begin
+					read_state		<= READ_STATE_IDLE;
+					read_busy		<= 0;
+				end
+
+			end	//end READ_STATE_INIT_0
+
+			READ_STATE_INIT_1: begin
+				if(shift_done) begin
+					read_busy		<= 0;
+					read_state		<= READ_STATE_IDLE;
+				end
+			end	//end READ_STATE_INIT_1
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// IDLE - sit around and wait for commands
+
+			READ_STATE_IDLE: begin
+
+				if(read_request) begin
+					spi_cs_n		<= 0;
+					read_busy		<= 1;
+					read_state		<= READ_STATE_COMMAND;
+				end
+
+			end	//end READ_STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// COMMAND / ADDR / DUMMY - send the "read SFDP" instruction followed by the address and a dummy word
+
+			READ_STATE_COMMAND: begin
+
+				shift_en			<= 1;
+				spi_tx_data			<= INST_READ_SFDP;
+				read_state			<= READ_STATE_ADDR;
+				count				<= 0;
+
+			end	//end READ_STATE_COMMAND
+
+			READ_STATE_ADDR: begin
+				if(shift_done) begin
+
+					count			<= count + 1'h1;
+
+					shift_en		<= 1;
+
+					case(count)
+						0:	spi_tx_data		<= read_addr[23:16];
+						1:	spi_tx_data		<= read_addr[15:8];
+						2:	spi_tx_data		<= read_addr[7:0];
+						3:	spi_tx_data		<= 0;	//dummy word
+					endcase
+
+					if(count == 3)
+						read_state	<= READ_STATE_DUMMY;
+
+				end
+			end	//end READ_STATE_ADDR
+
+			READ_STATE_DUMMY: begin
+				if(shift_done) begin
+					shift_en		<= 1;
+					spi_tx_data		<= 0;
+					read_state		<= READ_STATE_DATA;
+				end
+			end	//end READ_STATE_DUMMY
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// DATA - push out zeroes while waiting for data to come back
+
+			READ_STATE_DATA: begin
+
+				if(shift_done) begin
+
+					read_done			<= 1;
+					read_data			<= spi_rx_data;
+
+					if(read_finish_pending) begin
+						spi_cs_n			<= 1;
+						read_busy			<= 0;
+						read_finish_pending	<= 0;
+						read_state			<= READ_STATE_IDLE;
+					end
+
+					else begin
+						shift_en		<= 1;
+						spi_tx_data		<= 0;
+					end
+				end
+
+			end	//end READ_STATE_DATA
+
+		endcase
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Master state machine: read header then each block we care about
+
+	localparam STATE_BOOT_WAIT		= 0;
+	localparam STATE_HEADER_PARSE	= 1;
+	localparam STATE_READ_BASIC		= 2;
+	localparam STATE_PARSE_BASIC	= 3;
+
+	localparam STATE_HANG			= 255;
 
 	reg[7:0]	state		= STATE_BOOT_WAIT;
-	reg[8:0]	count		= 0;
+	reg[7:0]	bytecount	= 0;
 
 	reg			sfdp_avail	= 0;
 	reg[8:0]	sfdp_addr	= 0;
@@ -101,6 +244,13 @@ module SFDPParser(
 	reg[23:0]	basic_params_offset		= 0;
 	reg[7:0]	basic_params_len		= 0;
 
+	wire[5:0]	phdr_num			= sfdp_addr[8:3] - 6'd1;
+	wire[2:0]	phdr_boff			= sfdp_addr[2:0];
+
+	//A few helpers from the top-level state machine
+	wire		parsing_master_header	= (state == STATE_HEADER_PARSE);
+	wire		parsing_basic_params	= (state == STATE_PARSE_BASIC);
+
 	//Reasons why we failed to parse the descriptor table
 	reg			sfdp_bad			= 0;
 	reg[7:0]	sfdp_fail_reason	= 0;
@@ -109,8 +259,9 @@ module SFDPParser(
 	localparam SFDP_REASON_BAD_MAJOR_VERSION	= 8'h2;
 
     always @(posedge clk) begin
-		shift_en	<= 0;
-		sfdp_avail	<= 0;
+		sfdp_avail			<= 0;
+		read_request		<= 0;
+		read_finish_request	<= 0;
 
 		case(state)
 
@@ -121,102 +272,82 @@ module SFDPParser(
 			//This is required for 7 series and is harmless in other chips so we do it no matter what.
 			//See https://www.xilinx.com/support/answers/52626.html
 			STATE_BOOT_WAIT: begin
-				if(la_ready) begin
-					if(XILINX_7SERIES_CCLK_WORKAROUND) begin
-						shift_en		<= 1;
-						state			<= STATE_BOOT_DUMMY;
-					end
-					else
-						state			<= STATE_BOOT_HEADER_SEL;
+				if(la_ready && !read_busy) begin
+					read_request		<= 1;
+					read_addr			<= 0;
+					sfdp_addr			<= 9'h1ff;		//max, will overflow to zero
+					state				<= STATE_HEADER_PARSE;
 				end
 			end	//end STATE_BOOT_WAIT
 
-			//Wait for the dummy send to finish
-			STATE_BOOT_DUMMY: begin
-				if(shift_done)
-					state				<= STATE_BOOT_HEADER_SEL;
-			end	//end STATE_BOOT_DUMMY
-
-			//TODO
-
-			//Select the flash
-			STATE_BOOT_HEADER_SEL: begin
-				count				<= count + 1'h1;
-				if(count == 15)
-					spi_cs_n		<= 0;
-				if(count == 31) begin
-					count			<= 0;
-					state			<= STATE_BOOT_HEADER_READ_0;
-				end
-			end	//end STATE_BOOT_HEADER_SEL
-
-			//Send the read command
-			STATE_BOOT_HEADER_READ_0: begin
-				shift_en		<= 1;
-				spi_tx_data		<= INST_READ_SFDP;
-
-				state			<= STATE_BOOT_HEADER_READ_1;
-			end	//end STATE_BOOT_HEADER_READ_0
-
-			//When the command finishes, send a dummy word so we can read the response
-			STATE_BOOT_HEADER_READ_1: begin
-				if(shift_done) begin
-					spi_tx_data	<= 0;
-					shift_en	<= 1;
-					state		<= STATE_BOOT_HEADER_PARSE;
-				end
-			end	//end STATE_BOOT_HEADER_READ_1
-
-			//Done
-			STATE_BOOT_HEADER_PARSE: begin
-				if(shift_done) begin
+			STATE_HEADER_PARSE: begin
+				if(read_done) begin
 
 					//Send this word on to get analyzed
-					if(count >= 4) begin
-						sfdp_addr	<= count - 8'd4;			//remove the four dummy bytes
-						sfdp_data	<= spi_rx_data;
-						sfdp_avail	<= 1;
+					sfdp_addr	<= sfdp_addr + 1'h1;
+					sfdp_data	<= read_data;
+					sfdp_avail	<= 1;
+
+					//If we got a bad PHDR, die
+					if(sfdp_bad) begin
+						state				<= STATE_HANG;
+						read_finish_request	<= 1;
 					end
 
-					//Go on to the next word
-					count		<= count + 1'h1;
-
-					//If we overran the available PHDR space, or got a bad PHDR, die
-					if( (sfdp_addr == 8'hff) || sfdp_bad ) begin
-						spi_cs_n	<= 1;
-						state		<= STATE_BOOT_HANG;
-					end
-
-					//If we're done reading the parameter headers, move on
-					else if(phdrs_done) begin
-						state		<= STATE_BOOT_READ_BASIC;
-					end
-
-					//Nope, read another byte of stuff
-					else begin
-						spi_tx_data	<= 0;
-						shift_en	<= 1;
-					end
 				end
+
+				//If we're done reading the parameter headers, move on
+				if( (phdr_num == sfdp_num_phdrs ) && (phdr_boff == 7) ) begin
+					read_finish_request	<= 1;
+					state				<= STATE_READ_BASIC;
+				end
+
 			end	//end STATE_BOOT_HEADER_PARSE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Read basic parameters
 
-			STATE_BOOT_READ_BASIC: begin
-			end	//end STATE_BOOT_READ_BASIC
+			STATE_READ_BASIC: begin
+				if(!read_busy) begin
+					read_request		<= 1;
+					read_addr			<= basic_params_offset;
+					bytecount			<= 0;
+					state				<= STATE_PARSE_BASIC;
+
+					sfdp_addr			<= 9'h1ff;
+				end
+			end	//end STATE_READ_BASIC
+
+			STATE_PARSE_BASIC: begin
+				if(read_done) begin
+
+					sfdp_addr			<= sfdp_addr + 1'h1;
+					sfdp_data			<= read_data;
+					sfdp_avail			<= 1;
+
+					bytecount			<= bytecount + 1'h1;
+
+					//If we just read the last byte of the descriptor, we're done.
+					//Note that basic_params_len is a count of DWORDs so we have to multiply by 4!
+					if( (basic_params_len == sfdp_addr[8:2]) && (sfdp_addr[1:0] == 2'h3) ) begin
+						read_finish_request	<= 1;
+						state				<= STATE_HANG;
+					end
+
+				end
+			end	//end STATE_PARSE_BASIC
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// HANG - bad SFDP info, we can't do anything
 
-			STATE_BOOT_HANG: begin
-			end	//end STATE_BOOT_HANG
+			STATE_HANG: begin
+			end	//end STATE_HANG
 
 		endcase
     end
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // Crunch the SFDP data as it comes in
+    // Parse the parameter headers
 
 	//SFDP header data. Probably not useful outside this state machine
 	reg[7:0]	sfdp_minor_rev			= 0;
@@ -224,6 +355,8 @@ module SFDPParser(
 
 	//List of parameter IDs
 	localparam	PARAM_ID_JEDEC_BASIC			= 16'hff00;	//JEDEC basic SPI flash parameters
+	localparam	PARAM_ID_JEDEC_SECTOR_MAP		= 16'hff81;	//TODO
+	localparam	PARAM_ID_JEDEC_FOUR_BYTE		= 16'hff84;	//TODO
 
 	//The SFDP parameter table currently being parsed
 	reg			sfdp_param_valid		= 0;
@@ -232,161 +365,280 @@ module SFDPParser(
 	reg[7:0]	sfdp_param_len			= 0;
 	reg[23:0]	sfdp_param_offset		= 0;
 
-	wire[5:0]	phdr_num			= sfdp_addr[8:3] - 6'd1;
-	wire[2:0]	phdr_boff			= sfdp_addr[2:0];
-
 	localparam SFDP_STATE_READ_HEADER			= 0;
 	localparam SFDP_STATE_READ_PHDR				= 1;
-	localparam SFDP_STATE_READ_JEDEC_DESC		= 2;
 
 	reg[2:0]	sfdp_state			= SFDP_STATE_READ_HEADER;
 
     always @(posedge clk) begin
 
-		phdrs_done			<= 0;
 		sfdp_param_valid	<= 0;
 
-		//As parameters become valid, see what they are.
-		if(sfdp_param_valid) begin
+		if(parsing_master_header) begin
 
-			case(sfdp_current_param)
+			//As parameters become valid, see what they are.
+			if(sfdp_param_valid) begin
 
-				//It's JEDEC Basic Flash Parameters
-				PARAM_ID_JEDEC_BASIC: begin
+				case(sfdp_current_param)
 
-					//Major rev must be 1, we only support this.
-					//Ignore anything higher.
-					if(sfdp_param_rev[15:8] == 8'h1) begin
+					//It's JEDEC Basic Flash Parameters
+					PARAM_ID_JEDEC_BASIC: begin
 
-						//If rev is higher than what we had, this is better.
-						if(sfdp_param_rev > basic_params_rev) begin
-							basic_params_len	<= sfdp_param_len;
-							basic_params_offset	<= sfdp_param_offset;
-							basic_params_rev	<= sfdp_param_rev;
+						//Major rev must be 1, we only support this.
+						//Ignore anything higher.
+						if(sfdp_param_rev[15:8] == 8'h1) begin
+
+							//If rev is higher than what we had, this is better.
+							if(sfdp_param_rev > basic_params_rev) begin
+								basic_params_len	<= sfdp_param_len;
+								basic_params_offset	<= sfdp_param_offset;
+								basic_params_rev	<= sfdp_param_rev;
+							end
+
 						end
 
-					end
+					end	//end PARAM_ID_JEDEC_BASIC
 
-				end	//end PARAM_ID_JEDEC_BASIC
+				endcase
 
-			endcase
+			end
+
+			if(sfdp_avail) begin
+
+				case(sfdp_state)
+
+					////////////////////////////////////////////////////////////////////////////////////////////////////////
+					// Master header for the entire SFDP image
+					SFDP_STATE_READ_HEADER: begin
+
+						case(sfdp_addr)
+
+							//Signature: "SFDP"
+							0: begin
+								if(sfdp_data != "S") begin
+									sfdp_bad			<= 1;
+									sfdp_fail_reason	<= SFDP_REASON_BAD_HEADER;
+								end
+							end
+
+							1: begin
+								if(sfdp_data != "F") begin
+									sfdp_bad			<= 1;
+									sfdp_fail_reason	<= SFDP_REASON_BAD_HEADER;
+								end
+							end
+
+							2: begin
+								if(sfdp_data != "D") begin
+									sfdp_bad			<= 1;
+									sfdp_fail_reason	<= SFDP_REASON_BAD_HEADER;
+								end
+							end
+
+							3: begin
+								if(sfdp_data != "P") begin
+									sfdp_bad			<= 1;
+									sfdp_fail_reason	<= SFDP_REASON_BAD_HEADER;
+								end
+							end
+
+							//SFDP spec minor revision
+							4: begin
+								sfdp_minor_rev			<= sfdp_data;
+							end
+
+							//SFDP spec major revision
+							5: begin
+								if(sfdp_data != 8'h1) begin
+									sfdp_bad			<= 1;
+									sfdp_fail_reason	<= SFDP_REASON_BAD_MAJOR_VERSION;
+								end
+							end
+
+							//Number of parameter headers
+							6: begin
+								sfdp_num_phdrs		<= sfdp_data;
+							end
+
+							//Reserved field, ignore (but move on to the parameter headers)
+							7: begin
+								sfdp_state			<= SFDP_STATE_READ_PHDR;
+							end
+
+						endcase
+
+					end	//end SFDP_STATE_READ_HEADER
+
+					////////////////////////////////////////////////////////////////////////////////////////////////////////
+					// Read and parse the parameter headers
+
+					SFDP_STATE_READ_PHDR: begin
+
+						//Crunch parameter headers
+
+						case(phdr_boff)
+
+							//Byte 0: PHDR ID (LSB)
+							0:	sfdp_current_param[7:0]		<= sfdp_data;
+
+							//Byte 1/2: PHDR minor/major rev
+							1:	sfdp_param_rev[7:0]			<= sfdp_data;
+							2:	sfdp_param_rev[15:8]		<= sfdp_data;
+
+							//Byte 3: Length of this parameter table (in DWORDs)
+							3:	sfdp_param_len				<= sfdp_data;
+
+							//Byte 4/5/6: parameter offset
+							4:	sfdp_param_offset[7:0]		<= sfdp_data;
+							5:	sfdp_param_offset[15:8]		<= sfdp_data;
+							6:	sfdp_param_offset[23:16]	<= sfdp_data;
+
+							//Byte 7: PHDR ID (MSB)
+							7: begin
+								sfdp_param_valid			<= 1;
+								sfdp_current_param[15:8]	<= sfdp_data;
+							end
+
+						endcase
+
+					end	//end SFDP_STATE_READ_PHDR
+
+				endcase
+
+			end
 
 		end
 
-		if(sfdp_avail) begin
+	end
 
-			case(sfdp_state)
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // What we've all been waiting for: the actual output of the parsing!
 
-				////////////////////////////////////////////////////////////////////////////////////////////////////////
-				// Master header for the entire SFDP image
-				SFDP_STATE_READ_HEADER: begin
+    reg			has_114_read		= 0;
+    reg[7:0]	insn_114_read		= 0;
+    reg[2:0]	modeclk_114_read	= 0;
+    reg[4:0]	dummyclk_114_read	= 0;
 
-					case(sfdp_addr)
+    reg			has_144_read		= 0;
+    reg[7:0]	insn_144_read		= 0;
+    reg[2:0]	modeclk_144_read	= 0;
+    reg[4:0]	dummyclk_144_read	= 0;
 
-						//Signature: "SFDP"
+    reg			has_444_read		= 0;
+    reg[7:0]	insn_444_read		= 0;
+    reg[2:0]	modeclk_444_read	= 0;
+    reg[4:0]	dummyclk_444_read	= 0;
+
+    //we don't care about dual, go quad or go home!
+    reg			has_ddr_mode		= 0;
+    reg			has_3byte_addr		= 0;
+    reg			has_4byte_addr		= 0;
+
+    reg[15:0]	capacity_mbits		= 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Parse the basic flash parameter table
+
+    reg[31:0]	basic_dword			= 0;
+    reg			basic_dword_valid	= 0;
+
+    wire[6:0]	basic_dword_addr	= sfdp_addr[8:2];
+
+	always @(posedge clk) begin
+
+		basic_dword_valid			<= 0;
+
+		//Shove bytes into 32-bit chunks
+		if(parsing_basic_params && sfdp_avail) begin
+
+			basic_dword	<= {sfdp_data, basic_dword[31:8]};
+			if(sfdp_addr[1:0] == 3)
+				basic_dword_valid	<= 1;
+
+		end
+
+		//Parse the data in 32-bit chunks
+		if(basic_dword_valid) begin
+
+			case(basic_dword_addr)
+
+				0: begin
+
+					//bits 7:0: mostly legacy, ignore
+					//TODO: parse this in case of an old SFDP version?
+					//bits 15:8: 4KB erase instruction, ignore
+					//bits 23:16
+					has_114_read	<= basic_dword[22];
+					has_144_read	<= basic_dword[21];
+					//1-2-2 fast read, ignore
+					has_ddr_mode	<= basic_dword[19];
+					case(basic_dword[18:17])
 						0: begin
-							if(sfdp_data != "S") begin
-								sfdp_bad			<= 1;
-								sfdp_fail_reason	<= SFDP_REASON_BAD_HEADER;
-							end
+							has_3byte_addr	<= 1;
+							has_4byte_addr	<= 0;
 						end
 
 						1: begin
-							if(sfdp_data != "F") begin
-								sfdp_bad			<= 1;
-								sfdp_fail_reason	<= SFDP_REASON_BAD_HEADER;
-							end
+							has_3byte_addr	<= 1;
+							has_4byte_addr	<= 1;
 						end
 
 						2: begin
-							if(sfdp_data != "D") begin
-								sfdp_bad			<= 1;
-								sfdp_fail_reason	<= SFDP_REASON_BAD_HEADER;
-							end
+							has_3byte_addr	<= 0;
+							has_4byte_addr	<= 1;
 						end
-
-						3: begin
-							if(sfdp_data != "P") begin
-								sfdp_bad			<= 1;
-								sfdp_fail_reason	<= SFDP_REASON_BAD_HEADER;
-							end
-						end
-
-						//SFDP spec minor revision
-						4: begin
-							sfdp_minor_rev			<= sfdp_data;
-						end
-
-						//SFDP spec major revision
-						5: begin
-							if(sfdp_data != 8'h1) begin
-								sfdp_bad			<= 1;
-								sfdp_fail_reason	<= SFDP_REASON_BAD_MAJOR_VERSION;
-							end
-						end
-
-						//Number of parameter headers
-						6: begin
-							sfdp_num_phdrs		<= sfdp_data;
-						end
-
-						//Reserved field, ignore (but move on to the parameter headers)
-						7: begin
-							sfdp_state			<= SFDP_STATE_READ_PHDR;
-						end
-
 					endcase
 
-				end	//end SFDP_STATE_READ_HEADER
+					//16: 1-1-2 fast read, ignore
 
-				////////////////////////////////////////////////////////////////////////////////////////////////////////
-				// Read and parse the parameter headers
+					//bits 31:24: reserved, ignore
+				end
 
-				SFDP_STATE_READ_PHDR: begin
+				//dword 1: memory capacity, in bits or log bits
+				1: begin
 
-					//Crunch parameter headers
+					//Bit 31 = log mode
+					if(basic_dword[31])
+						capacity_mbits	<= basic_dword[31:19];
+					else
+						capacity_mbits	<= basic_dword[30:20] + 1;
 
-					case(phdr_boff)
+				end
 
-						//Byte 0: PHDR ID (LSB)
-						0:	sfdp_current_param[7:0]		<= sfdp_data;
+				//Dword 2: Quad mode config for x1 instruction
+				2: begin
 
-						//Byte 1/2: PHDR minor/major rev
-						1:	sfdp_param_rev[7:0]			<= sfdp_data;
-						2:	sfdp_param_rev[15:8]		<= sfdp_data;
+					insn_114_read		<= basic_dword[31:24];
+					modeclk_114_read	<= basic_dword[23:21];
+					dummyclk_114_read	<= basic_dword[20:16];
 
-						//Byte 3: Length of this parameter table (in DWORDs)
-						3:	sfdp_param_len				<= sfdp_data;
+					insn_144_read		<= basic_dword[15:8];
+					modeclk_144_read	<= basic_dword[7:5];
+					dummyclk_144_read	<= basic_dword[4:0];
 
-						//Byte 4/5/6: parameter offset
-						4:	sfdp_param_offset[7:0]		<= sfdp_data;
-						5:	sfdp_param_offset[15:8]		<= sfdp_data;
-						6:	sfdp_param_offset[23:16]	<= sfdp_data;
+				end
 
-						//Byte 7: PHDR ID (MSB)
-						7: begin
-							sfdp_param_valid			<= 1;
-							sfdp_current_param[15:8]	<= sfdp_data;
-						end
+				//Dword 3: Dual mode config for x1 instruction (ignore)
 
-					endcase
+				//Dword 4: almost all reserved, but a few bits for quad mode with x4 instruction
+				4: begin
+					has_444_read		<= basic_dword[4];
+				end
 
-					//If we just read the last byte of the last parameter header,
-					//get ready to read the actual PHDR data.
-					//Note, sfdp_num_phdrs is 0-based per JESD216 6.2.2!
-					if( (phdr_num == sfdp_num_phdrs ) && (phdr_boff == 7) ) begin
-						sfdp_state			<= SFDP_STATE_READ_JEDEC_DESC;
-					end
+				//Dword 5: Dual mode config for x2 instruction (ignore)
 
-				end	//end SFDP_STATE_READ_PHDR
+				//Dword 6: Quad mode config for x4 instruction
+				6: begin
+					insn_444_read		<= basic_dword[31:24];
+					modeclk_444_read	<= basic_dword[23:21];
+					dummyclk_444_read	<= basic_dword[20:16];
+				end
 
-				SFDP_STATE_READ_JEDEC_DESC: begin
-				end	//end SFDP_STATE_READ_JEDEC_DESC
+				//Dword 7: Erase configuration
 
 			endcase
 
 		end
-
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -405,50 +657,76 @@ module SFDPParser(
 				32'd15037,			//period of internal clock, in ps
 				32'd2048,			//Capture depth (TODO auto-patch this?)
 				32'd256,			//Capture width (TODO auto-patch this?)
-				{ "sfdp_avail",				8'h0, 8'h1,  8'h0 },
+				{ "parsing_master_header",	8'h0, 8'h1,  8'h0 },
+				{ "parsing_basic_params",	8'h0, 8'h1,  8'h0 },
 				{ "sfdp_data",				8'h0, 8'h8,  8'h0 },
-				{ "state",					8'h0, 8'h8,  8'h0 },
+				{ "sfdp_addr",				8'h0, 8'h9,  8'h0 },
 				{ "sfdp_bad",				8'h0, 8'h1,  8'h0 },
-				{ "sfdp_fail_reason",		8'h0, 8'h8,  8'h0 },
-				{ "sfdp_minor_rev",			8'h0, 8'h8,  8'h0 },
-				{ "sfdp_num_phdrs",			8'h0, 8'h8,  8'h0 },
 				{ "phdr_num",				8'h0, 8'h6,  8'h0 },
 				{ "phdr_boff",				8'h0, 8'h3,  8'h0 },
 				{ "sfdp_state",				8'h0, 8'h3,  8'h0 },
-				{ "sfdp_param_valid",		8'h0, 8'h1,  8'h0 },
 				{ "sfdp_current_param",		8'h0, 8'h10,  8'h0 },
 				{ "sfdp_param_rev",			8'h0, 8'h10,  8'h0 },
 				{ "sfdp_param_len",			8'h0, 8'h8,  8'h0 },
 				{ "sfdp_param_offset",		8'h0, 8'h18,  8'h0 },
-				{ "basic_params_rev",		8'h0, 8'h10,  8'h0 },
-				{ "basic_params_len",		8'h0, 8'h8,  8'h0 },
-				{ "basic_params_offset",	8'h0, 8'h18,  8'h0 }
+				{ "basic_dword_valid",		8'h0, 8'h1,  8'h0 },
+				{ "basic_dword_addr",		8'h0, 8'h7,  8'h0 },
+				{ "basic_dword",			8'h0, 8'h20, 8'h0 },
+				{ "has_114_read",			8'h0, 8'h1,  8'h0 },
+				{ "insn_114_read",			8'h0, 8'h8,  8'h0 },
+				{ "modeclk_114_read",		8'h0, 8'h3,  8'h0 },
+				{ "dummyclk_114_read",		8'h0, 8'h5,  8'h0 },
+				{ "has_144_read",			8'h0, 8'h1,  8'h0 },
+				{ "insn_144_read",			8'h0, 8'h8,  8'h0 },
+				{ "modeclk_144_read",		8'h0, 8'h3,  8'h0 },
+				{ "dummyclk_144_read",		8'h0, 8'h5,  8'h0 },
+				{ "has_444_read",			8'h0, 8'h1,  8'h0 },
+				{ "insn_444_read",			8'h0, 8'h8,  8'h0 },
+				{ "modeclk_444_read",		8'h0, 8'h3,  8'h0 },
+				{ "dummyclk_444_read",		8'h0, 8'h5,  8'h0 },
+				{ "has_ddr_mode",			8'h0, 8'h1,  8'h0 },
+				{ "has_3byte_addr",			8'h0, 8'h1,  8'h0 },
+				{ "has_4byte_addr",			8'h0, 8'h1,  8'h0 },
+				{ "capacity_mbits",			8'h0, 8'h10,  8'h0 }
 			}
 		)
 	) analyzer (
 		.clk(clk),
 		.capture_clk(clk),
 		.din({
-				sfdp_avail,				//1
+				parsing_master_header,	//1
+				parsing_basic_params,	//1
 				sfdp_data,				//8
-				state,					//8
+				sfdp_addr,				//9
 				sfdp_bad,				//1
-				sfdp_fail_reason,		//8
-				sfdp_minor_rev,			//8
-				sfdp_num_phdrs,			//8
 				phdr_num,				//6
 				phdr_boff,				//3
 				sfdp_state,				//3
-				sfdp_param_valid,		//1
 				sfdp_current_param,		//16
 				sfdp_param_rev,			//16
 				sfdp_param_len,			//8
 				sfdp_param_offset,		//24
-				basic_params_rev,		//16
-				basic_params_len,		//8
-				basic_params_offset,	//24
+				basic_dword_valid,		//1
+				basic_dword_addr,		//7
+				basic_dword,			//32
+				has_114_read,			//1
+				insn_114_read,			//8
+				modeclk_114_read,		//3
+				dummyclk_114_read,		//5
+				has_144_read,			//1
+				insn_144_read,			//8
+				modeclk_144_read,		//3
+				dummyclk_144_read,		//5
+				has_444_read,			//1
+				insn_444_read,			//8
+				modeclk_444_read,		//3
+				dummyclk_444_read,		//5
+				has_ddr_mode,			//1
+				has_3byte_addr,			//1
+				has_4byte_addr,			//1
+				capacity_mbits,			//16
 
-				89'h0					//padding
+				50'h0					//padding
 			}),
 		.uart_rx(uart_rxd),
 		.uart_tx(uart_txd),
