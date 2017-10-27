@@ -221,10 +221,12 @@ module SFDPParser(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Master state machine: read header then each block we care about
 
-	localparam STATE_BOOT_WAIT		= 0;
-	localparam STATE_HEADER_PARSE	= 1;
-	localparam STATE_READ_BASIC		= 2;
-	localparam STATE_PARSE_BASIC	= 3;
+	localparam STATE_BOOT_WAIT			= 0;
+	localparam STATE_HEADER_PARSE		= 1;
+	localparam STATE_READ_BASIC			= 2;
+	localparam STATE_PARSE_BASIC		= 3;
+	localparam STATE_READ_SECTOR_MAP	= 4;
+	localparam STATE_PARSE_SECTOR_MAP	= 5;
 
 	localparam STATE_HANG			= 255;
 
@@ -239,6 +241,12 @@ module SFDPParser(
 	reg[23:0]	basic_params_offset		= 0;
 	reg[7:0]	basic_params_len		= 0;
 
+	//Sector map (TODO: handle devices without one)
+	reg			has_sector_map			= 0;
+	reg[15:0]	sector_map_rev			= 0;
+	reg[23:0]	sector_map_offset		= 0;
+	reg[7:0]	sector_map_len			= 0;
+
 	reg[8:0]	sfdp_addr			= 0;
 	wire[5:0]	phdr_num			= sfdp_addr[8:3] - 6'd1;
 	wire[2:0]	phdr_boff			= sfdp_addr[2:0];
@@ -246,6 +254,7 @@ module SFDPParser(
 	//A few helpers from the top-level state machine
 	wire		parsing_master_header	= (state == STATE_HEADER_PARSE);
 	wire		parsing_basic_params	= (state == STATE_PARSE_BASIC);
+	wire		parsing_sector_map		= (state == STATE_PARSE_SECTOR_MAP);
 
 	//Reasons why we failed to parse the descriptor table
 	reg			sfdp_bad			= 0;
@@ -318,11 +327,50 @@ module SFDPParser(
 					//Note that basic_params_len is a count of DWORDs so we have to multiply by 4!
 					if( (basic_params_len == sfdp_addr[8:2]) && (sfdp_addr[1:0] == 2'h3) ) begin
 						read_finish_request	<= 1;
-						state				<= STATE_HANG;
+
+						//Read the sector map, if we have one
+						if(has_sector_map)
+							state				<= STATE_READ_SECTOR_MAP;
+						else
+							state				<= STATE_HANG;
+							
 					end
 
 				end
 			end	//end STATE_PARSE_BASIC
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Read sector map
+
+			STATE_READ_SECTOR_MAP: begin
+				if(!read_busy) begin
+					read_request		<= 1;
+					read_addr			<= sector_map_offset;
+					state				<= STATE_PARSE_SECTOR_MAP;
+
+					sfdp_addr			<= 9'h0;
+				end
+			end	//end STATE_READ_SECTOR_MAP
+
+			STATE_PARSE_SECTOR_MAP: begin
+
+				if(read_done) begin
+
+					sfdp_addr			<= sfdp_addr + 1'h1;
+
+					//If we just read the last byte of the descriptor, we're done.
+					//Note that basic_params_len is a count of DWORDs so we have to multiply by 4!
+					if( (sector_map_len == sfdp_addr[8:2]) && (sfdp_addr[1:0] == 2'h3) ) begin
+						read_finish_request	<= 1;
+
+						//Done
+						state				<= STATE_HANG;
+
+					end
+
+				end
+			
+			end	//end STATE_PARSE_SECTOR_MAP
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// HANG - bad SFDP info, we can't do anything
@@ -342,7 +390,7 @@ module SFDPParser(
 
 	//List of parameter IDs
 	localparam	PARAM_ID_JEDEC_BASIC			= 16'hff00;	//JEDEC basic SPI flash parameters
-	localparam	PARAM_ID_JEDEC_SECTOR_MAP		= 16'hff81;	//TODO
+	localparam	PARAM_ID_JEDEC_SECTOR_MAP		= 16'hff81;	//JEDEC sector map
 	localparam	PARAM_ID_JEDEC_FOUR_BYTE		= 16'hff84;	//TODO
 
 	//The SFDP parameter table currently being parsed
@@ -385,6 +433,25 @@ module SFDPParser(
 						end
 
 					end	//end PARAM_ID_JEDEC_BASIC
+
+					//It's a JEDEC sector map
+					PARAM_ID_JEDEC_SECTOR_MAP: begin
+
+						//Major rev must be 1, we only support this.
+						//Ignore anything higher.
+						if(sfdp_param_rev[15:8] == 8'h1) begin
+							has_sector_map			<= 1;
+
+							//If rev is higher than what we had, this is better.
+							if(sfdp_param_rev > sector_map_rev) begin
+								sector_map_len		<= sfdp_param_len;
+								sector_map_offset	<= sfdp_param_offset;
+								sector_map_rev		<= sfdp_param_rev;
+							end
+
+						end
+					
+					end	//end PARAM_ID_JEDEC_SECTOR_MAP
 
 				endcase
 
@@ -629,66 +696,75 @@ module SFDPParser(
 	reg			sr1_mixed_06	= 0;		//mixed volatile and nonvolatile bits, WE with 0x06
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Helpers for 32-bit-wide table indexing
+
+	reg[6:0]	table_dword_addr	= 0;
+    reg[31:0]	table_dword			= 0;
+    reg			basic_dword_valid	= 0;
+    reg			sector_dword_valid	= 0;
+
+    always @(posedge clk) begin
+		basic_dword_valid			<= 0;
+		sector_dword_valid			<= 0;
+
+		//Shove bytes into 32-bit chunks
+		if( (parsing_basic_params || parsing_sector_map) && read_done) begin
+
+			table_dword				<= {read_data, table_dword[31:8]};
+			
+			if(sfdp_addr[1:0] == 3) begin
+				table_dword_addr	<= sfdp_addr[8:2];
+				basic_dword_valid	<= parsing_basic_params;
+				sector_dword_valid	<= parsing_sector_map;
+			end
+
+		end
+    end
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Parse the basic flash parameter table
 
-	reg[6:0]	basic_dword_addr	= 0;
-    reg[31:0]	basic_dword			= 0;
-    reg			basic_dword_valid	= 0;
-
 	//Carve out a few bytes and name them
-    wire[7:0]	basic_dword_b3		= basic_dword[23:16];
-    wire[7:0]	basic_dword_b0		= basic_dword[7:0];
+    wire[7:0]	table_dword_b3		= table_dword[23:16];
+    wire[7:0]	table_dword_b0		= table_dword[7:0];
 
 	//Subtract 10 with saturation to zero (for erase block info)
-    reg[7:0]	basic_dword_b3_m10	= 0;
-    reg[7:0]	basic_dword_b0_m10	= 0;
+    reg[7:0]	table_dword_b3_m10	= 0;
+    reg[7:0]	table_dword_b0_m10	= 0;
     always @(*) begin
-		if(basic_dword_b3 < 10)
-			basic_dword_b3_m10		<= 0;
+		if(table_dword_b3 < 10)
+			table_dword_b3_m10		<= 0;
 		else
-			basic_dword_b3_m10		<= basic_dword_b3 - 7'd10;
+			table_dword_b3_m10		<= table_dword_b3 - 7'd10;
 
-		if(basic_dword_b0 < 10)
-			basic_dword_b0_m10		<= 0;
+		if(table_dword_b0 < 10)
+			table_dword_b0_m10		<= 0;
 		else
-			basic_dword_b0_m10		<= basic_dword_b0 - 7'd10;
+			table_dword_b0_m10		<= table_dword_b0 - 7'd10;
 
     end
 
 	always @(posedge clk) begin
 
-		basic_dword_valid			<= 0;
-
-		//Shove bytes into 32-bit chunks
-		if(parsing_basic_params && read_done) begin
-
-			basic_dword	<= {read_data, basic_dword[31:8]};
-			if(sfdp_addr[1:0] == 3) begin
-				basic_dword_addr	<= sfdp_addr[8:2];
-				basic_dword_valid	<= 1;
-			end
-
-		end
-
 		//Parse the data in 32-bit chunks
 		if(basic_dword_valid) begin
 
-			case(basic_dword_addr)
+			case(table_dword_addr)
 
 				0: begin
 
 					insn_114_read	<= 8'haa;
-					insn_444_read	<= basic_dword[7:0];	//FIXME
+					insn_444_read	<= table_dword[7:0];	//FIXME
 
 					//bits 7:0: mostly legacy, ignore
 					//TODO: parse this in case of an old SFDP version?
 					//bits 15:8: 4KB erase instruction, ignore
 					//bits 23:16
-					has_114_read	<= basic_dword[22];
-					has_144_read	<= basic_dword[21];
+					has_114_read	<= table_dword[22];
+					has_144_read	<= table_dword[21];
 					//1-2-2 fast read, ignore
-					has_ddr_mode	<= basic_dword[19];
-					case(basic_dword[18:17])
+					has_ddr_mode	<= table_dword[19];
+					case(table_dword[18:17])
 						0: begin
 							has_3byte_addr	<= 1;
 							has_4byte_addr	<= 0;
@@ -715,26 +791,26 @@ module SFDPParser(
 
 					//Bit 31 = log mode
 					//Capacity is 2^n *bits*
-					if(basic_dword[31])
-						capacity_mbits	<= 1'b1 << (basic_dword[15:0] - 20);
+					if(table_dword[31])
+						capacity_mbits	<= 1'b1 << (table_dword[15:0] - 20);
 
 					//Not log mode
 					//Capacity is num_bits - 1
 					else
-						capacity_mbits	<= basic_dword[30:20] + 1;
+						capacity_mbits	<= table_dword[30:20] + 1;
 
 				end
 
 				//Dword 2: Quad mode config for x1 instruction
 				2: begin
 
-					insn_114_read		<= basic_dword[31:24];
-					modeclk_114_read	<= basic_dword[23:21];
-					dummyclk_114_read	<= basic_dword[20:16];
+					insn_114_read		<= table_dword[31:24];
+					modeclk_114_read	<= table_dword[23:21];
+					dummyclk_114_read	<= table_dword[20:16];
 
-					insn_144_read		<= basic_dword[15:8];
-					modeclk_144_read	<= basic_dword[7:5];
-					dummyclk_144_read	<= basic_dword[4:0];
+					insn_144_read		<= table_dword[15:8];
+					modeclk_144_read	<= table_dword[7:5];
+					dummyclk_144_read	<= table_dword[4:0];
 
 				end
 
@@ -742,16 +818,16 @@ module SFDPParser(
 
 				//Dword 4: almost all reserved, but a few bits for quad mode with x4 instruction
 				4: begin
-					has_444_read		<= basic_dword[4];
+					has_444_read		<= table_dword[4];
 				end
 
 				//Dword 5: Dual mode config for x2 instruction (ignore)
 
 				//Dword 6: Quad mode config for x4 instruction
 				6: begin
-					insn_444_read		<= basic_dword[31:24];
-					modeclk_444_read	<= basic_dword[23:21];
-					dummyclk_444_read	<= basic_dword[20:16];
+					insn_444_read		<= table_dword[31:24];
+					modeclk_444_read	<= table_dword[23:21];
+					dummyclk_444_read	<= table_dword[20:16];
 				end
 
 				//Dword 7: Erase configuration
@@ -759,56 +835,56 @@ module SFDPParser(
 				//2^(n-10) = kbytes
 				//2^(n-7) = kbits
 				7: begin
-					erase_type2_insn	<= basic_dword[31:24];
-					if(basic_dword_b3_m10[3:0])
-						erase_type2_kbits	<= 1'b1 << basic_dword_b3_m10[3:0];
-					erase_type1_insn	<= basic_dword[15:8];
-					if(basic_dword_b0_m10[3:0])
-						erase_type1_kbits	<= 1'b1 << basic_dword_b0_m10[3:0];
+					erase_type2_insn	<= table_dword[31:24];
+					if(table_dword_b3_m10[3:0])
+						erase_type2_kbits	<= 1'b1 << table_dword_b3_m10[3:0];
+					erase_type1_insn	<= table_dword[15:8];
+					if(table_dword_b0_m10[3:0])
+						erase_type1_kbits	<= 1'b1 << table_dword_b0_m10[3:0];
 				end
 
 				//Dword 8: Erase configuration
 				8: begin
-					erase_type4_insn	<= basic_dword[31:24];
-					if(basic_dword_b3_m10[3:0])
-						erase_type4_kbits	<= 1'b1 << basic_dword_b3_m10[3:0];
-					erase_type3_insn	<= basic_dword[15:8];
-					if(basic_dword_b0_m10[3:0])
-						erase_type3_kbits	<= 1'b1 << basic_dword_b0_m10[3:0];
+					erase_type4_insn	<= table_dword[31:24];
+					if(table_dword_b3_m10[3:0])
+						erase_type4_kbits	<= 1'b1 << table_dword_b3_m10[3:0];
+					erase_type3_insn	<= table_dword[15:8];
+					if(table_dword_b0_m10[3:0])
+						erase_type3_kbits	<= 1'b1 << table_dword_b0_m10[3:0];
 				end
 
 				//Dword 9: Erase run times
 				9: begin
 
-					case(basic_dword[31:30])
-						0:	erase_type4_ms	<= basic_dword[29:25];
-						1:	erase_type4_ms	<= {basic_dword[29:25], 4'h0};
-						2:	erase_type4_ms	<= {basic_dword[29:25], 7'h0};
-						3:	erase_type4_ms	<= {basic_dword[29:25], 10'h0};
+					case(table_dword[31:30])
+						0:	erase_type4_ms	<= table_dword[29:25];
+						1:	erase_type4_ms	<= {table_dword[29:25], 4'h0};
+						2:	erase_type4_ms	<= {table_dword[29:25], 7'h0};
+						3:	erase_type4_ms	<= {table_dword[29:25], 10'h0};
 					endcase
 
-					case(basic_dword[24:23])
-						0:	erase_type3_ms	<= basic_dword[22:18];
-						1:	erase_type3_ms	<= {basic_dword[22:18], 4'h0};
-						2:	erase_type3_ms	<= {basic_dword[22:18], 7'h0};
-						3:	erase_type3_ms	<= {basic_dword[22:18], 10'h0};
+					case(table_dword[24:23])
+						0:	erase_type3_ms	<= table_dword[22:18];
+						1:	erase_type3_ms	<= {table_dword[22:18], 4'h0};
+						2:	erase_type3_ms	<= {table_dword[22:18], 7'h0};
+						3:	erase_type3_ms	<= {table_dword[22:18], 10'h0};
 					endcase
 
-					case(basic_dword[17:16])
-						0:	erase_type2_ms	<= basic_dword[15:11];
-						1:	erase_type2_ms	<= {basic_dword[15:11], 4'h0};
-						2:	erase_type2_ms	<= {basic_dword[15:11], 7'h0};
-						3:	erase_type2_ms	<= {basic_dword[15:11], 10'h0};
+					case(table_dword[17:16])
+						0:	erase_type2_ms	<= table_dword[15:11];
+						1:	erase_type2_ms	<= {table_dword[15:11], 4'h0};
+						2:	erase_type2_ms	<= {table_dword[15:11], 7'h0};
+						3:	erase_type2_ms	<= {table_dword[15:11], 10'h0};
 					endcase
 
-					case(basic_dword[10:9])
-						0:	erase_type1_ms	<= basic_dword[8:4];
-						1:	erase_type1_ms	<= {basic_dword[8:4], 4'h0};
-						2:	erase_type1_ms	<= {basic_dword[8:4], 7'h0};
-						3:	erase_type1_ms	<= {basic_dword[8:4], 10'h0};
+					case(table_dword[10:9])
+						0:	erase_type1_ms	<= table_dword[8:4];
+						1:	erase_type1_ms	<= {table_dword[8:4], 4'h0};
+						2:	erase_type1_ms	<= {table_dword[8:4], 7'h0};
+						3:	erase_type1_ms	<= {table_dword[8:4], 10'h0};
 					endcase
 
-					erase_typ_to_max		<= { basic_dword[3:0], 1'b1 };
+					erase_typ_to_max		<= { table_dword[3:0], 1'b1 };
 
 				end
 
@@ -816,34 +892,34 @@ module SFDPParser(
 				10: begin
 
 					//Full chip erase run time
-					case(basic_dword[30:29])
-						0:	erase_chip_ms	<= {basic_dword[28:24], 4'h0};
-						1:	erase_chip_ms	<= {basic_dword[28:24], 8'h0};
-						2:	erase_chip_ms	<= {basic_dword[28:24], 12'h0};
-						3:	erase_chip_ms	<= {basic_dword[28:24], 16'h0};
+					case(table_dword[30:29])
+						0:	erase_chip_ms	<= {table_dword[28:24], 4'h0};
+						1:	erase_chip_ms	<= {table_dword[28:24], 8'h0};
+						2:	erase_chip_ms	<= {table_dword[28:24], 12'h0};
+						3:	erase_chip_ms	<= {table_dword[28:24], 16'h0};
 					endcase
 
 					//Time to program one byte after the first byte
-					if(basic_dword[23])
-						program_per_byte_us	<= {basic_dword[22:19], 3'h0};
+					if(table_dword[23])
+						program_per_byte_us	<= {table_dword[22:19], 3'h0};
 					else
-						program_per_byte_us	<= basic_dword[22:19];
+						program_per_byte_us	<= table_dword[22:19];
 
 					//Time to program the first byte in a block
-					if(basic_dword[18])
-						program_first_byte_us	<= {basic_dword[17:14], 3'h0};
+					if(table_dword[18])
+						program_first_byte_us	<= {table_dword[17:14], 3'h0};
 					else
-						program_first_byte_us	<= basic_dword[17:14];
+						program_first_byte_us	<= table_dword[17:14];
 
 					//Time to program a whole page
-					if(basic_dword[13])
-						program_page_us			<= {basic_dword[12:8], 6'h0};
+					if(table_dword[13])
+						program_page_us			<= {table_dword[12:8], 6'h0};
 					else
-						program_page_us			<= {basic_dword[12:8], 3'h0};
+						program_page_us			<= {table_dword[12:8], 3'h0};
 
-					page_size_bytes				<= 1'b1 << basic_dword[7:4];
+					page_size_bytes				<= 1'b1 << table_dword[7:4];
 
-					program_typ_to_max			<= { basic_dword[3:0], 1'b1 };
+					program_typ_to_max			<= { table_dword[3:0], 1'b1 };
 				end
 
 				//Dword 11: Suspend stuff
@@ -860,28 +936,28 @@ module SFDPParser(
 				13: begin
 					//Power down config stuff
 
-					busy_poll_via_flagstatreg	<= basic_dword[3];
-					busy_poll_via_statreg		<= basic_dword[2];
+					busy_poll_via_flagstatreg	<= table_dword[3];
+					busy_poll_via_statreg		<= table_dword[2];
 				end
 
 				//Dword 14: More config stuff
 				14: begin
 					//Hold/reset disable TODO
 
-					quad_enable_type			<= basic_dword[22:20];
+					quad_enable_type			<= table_dword[22:20];
 
 					//0-4-4 XIP mode: not used, ignore
 
 					//4-4-4 mode enable
-					quad_qe_38					<= basic_dword[4];
-					quad_38						<= basic_dword[5];
-					quad_35						<= basic_dword[6];
-					quad_6571					<= basic_dword[7];
-					quad_6561					<= basic_dword[8];
-					qexit_ff					<= basic_dword[0];
-					qexit_f5					<= basic_dword[1];
-					qexit_6571					<= basic_dword[2];
-					qexit_reset					<= basic_dword[3];
+					quad_qe_38					<= table_dword[4];
+					quad_38						<= table_dword[5];
+					quad_35						<= table_dword[6];
+					quad_6571					<= table_dword[7];
+					quad_6561					<= table_dword[8];
+					qexit_ff					<= table_dword[0];
+					qexit_f5					<= table_dword[1];
+					qexit_6571					<= table_dword[2];
+					qexit_reset					<= table_dword[3];
 				end
 
 				//Dword 15: 4-byte-address mode config
@@ -890,30 +966,49 @@ module SFDPParser(
 					//Exit 4-byte mode not supported.
 					//If the device has a 4-byte mode we always use it for the duration of our run.
 
-					enter_4b_b7					<= basic_dword[24];
-					enter_4b_we_b7				<= basic_dword[25];
-					enter_4b_nvcr				<= basic_dword[28];
-					enter_4b_dedicated			<= basic_dword[29];
-					enter_4b_always				<= basic_dword[30];
+					enter_4b_b7					<= table_dword[24];
+					enter_4b_we_b7				<= table_dword[25];
+					enter_4b_nvcr				<= table_dword[28];
+					enter_4b_dedicated			<= table_dword[29];
+					enter_4b_always				<= table_dword[30];
 
-					reset_f_8clk				<= basic_dword[8];
-					reset_f_10clk				<= basic_dword[9];
-					reset_f_16clk				<= basic_dword[10];
-					reset_f0					<= basic_dword[11];
-					reset_66_99					<= basic_dword[12];
+					reset_f_8clk				<= table_dword[8];
+					reset_f_10clk				<= table_dword[9];
+					reset_f_16clk				<= table_dword[10];
+					reset_f0					<= table_dword[11];
+					reset_66_99					<= table_dword[12];
 
 					//Methods of accessing SR1, and volatile/nonvolatile mode
 					//(page 35 bottom)
-					sr1_nv_06					<= basic_dword[0];
-					sr1_v_06					<= basic_dword[1];
-					sr1_v_50					<= basic_dword[2];
-					sr1_vnv						<= basic_dword[3];
-					sr1_mixed_06				<= basic_dword[4];
+					sr1_nv_06					<= table_dword[0];
+					sr1_v_06					<= table_dword[1];
+					sr1_v_50					<= table_dword[2];
+					sr1_vnv						<= table_dword[3];
+					sr1_mixed_06				<= table_dword[4];
 
 				end
 
 			endcase
 
+		end
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    // Parse the sector map
+
+    always @(posedge clk) begin
+
+		//Parse the data in 32-bit chunks
+		if(sector_dword_valid) begin
+
+			case(table_dword_addr)
+
+				0: begin
+					//TODO
+				end
+				
+			endcase
+			
 		end
 	end
 
@@ -935,26 +1030,12 @@ module SFDPParser(
 				32'd384,			//Capture width (TODO auto-patch this?)
 				{ "parsing_master_header",	8'h0, 8'h1,  8'h0 },
 				{ "parsing_basic_params",	8'h0, 8'h1,  8'h0 },
-				{ "has_3byte_addr",			8'h0, 8'h1,  8'h0 },
-				{ "has_4byte_addr",			8'h0, 8'h1,  8'h0 },
+				{ "parsing_sector_map"	,	8'h0, 8'h1,  8'h0 },
+				{ "has_sector_map"	,		8'h0, 8'h1,  8'h0 },
 				{ "basic_dword_valid",		8'h0, 8'h1,  8'h0 },
-				{ "enter_4b_b7",			8'h0, 8'h1,  8'h0 },
-				{ "enter_4b_we_b7",			8'h0, 8'h1,  8'h0 },
-				{ "enter_4b_nvcr",			8'h0, 8'h1,  8'h0 },
-				{ "enter_4b_dedicated",		8'h0, 8'h1,  8'h0 },
-				{ "enter_4b_always",		8'h0, 8'h1,  8'h0 },
-
-				{ "reset_f_8clk",			8'h0, 8'h1,  8'h0 },
-				{ "reset_f_10clk",			8'h0, 8'h1,  8'h0 },
-				{ "reset_f_16clk",			8'h0, 8'h1,  8'h0 },
-				{ "reset_f0",				8'h0, 8'h1,  8'h0 },
-				{ "reset_66_99",			8'h0, 8'h1,  8'h0 },
-
-				{ "sr1_nv_06",				8'h0, 8'h1,  8'h0 },
-				{ "sr1_v_06",				8'h0, 8'h1,  8'h0 },
-				{ "sr1_v_50",				8'h0, 8'h1,  8'h0 },
-				{ "sr1_vnv",				8'h0, 8'h1,  8'h0 },
-				{ "sr1_mixed_06",			8'h0, 8'h1,  8'h0 }
+				{ "sector_dword_valid",		8'h0, 8'h1,  8'h0 },
+				{ "table_dword_addr",		8'h0, 8'h7,  8'h0 },
+				{ "table_dword",			8'h0, 8'h20,  8'h0 }				
 			}
 		)
 	) analyzer (
@@ -963,26 +1044,14 @@ module SFDPParser(
 		.din({
 				parsing_master_header,	//1
 				parsing_basic_params,	//1
-				has_3byte_addr,			//1
-				has_4byte_addr,			//1
+				parsing_sector_map,		//1
+				has_sector_map,			//1
 				basic_dword_valid,		//1
-				enter_4b_b7,			//1
-				enter_4b_we_b7,			//1
-				enter_4b_nvcr,			//1
-				enter_4b_dedicated,		//1
-				enter_4b_always,		//1
-				reset_f_8clk,			//1
-				reset_f_10clk,			//1
-				reset_f_16clk,			//1
-				reset_f0,				//1
-				reset_66_99,			//1
-				sr1_nv_06,				//1
-				sr1_v_06,				//1
-				sr1_v_50,				//1
-				sr1_vnv,				//1
-				sr1_mixed_06,			//1
+				sector_dword_valid,		//1
+				table_dword_addr,		//7
+				table_dword,			//32
 
-				364'h0					//padding
+				339'h0					//padding
 			}),
 		.uart_rx(uart_rxd),
 		.uart_tx(uart_txd),
