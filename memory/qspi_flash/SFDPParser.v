@@ -604,6 +604,30 @@ module SFDPParser(
     reg			qexit_reset	= 0;			//Issue 0x66/99 to reset
     reg			qexit_6571	= 0;			//Issue 0x65/address then 71/address read-modify-write
 
+    //Methods of entering 4-byte mode
+    reg			enter_4b_b7	= 0;			//Issue 0xb7
+    reg			enter_4b_we_b7 = 0;			//Issue WE (0x06) then 0xb7
+    //extended address register not supported
+    //bank register not supported
+    reg			enter_4b_nvcr	= 0;		//Enter 4-byte mode by writing to NVCR with B5/B1
+    reg			enter_4b_dedicated = 0;		//no switch, use separate instructions
+    reg			enter_4b_always = 0;		//always 4-byte mode
+
+    //Methods of resetting the device
+    reg			reset_f_8clk	= 0;		//drive 0xf on all lines for 8 clocks
+    reg			reset_f_10clk	= 0;		//drive 0xf on all lines for 10 clocks
+    reg			reset_f_16clk	= 0;		//drive 0xf on all lines for 16 clocks
+    reg			reset_f0		= 0;		//issue 0xf0
+    reg			reset_66_99		= 0;		//issue 0x66, 0x99
+
+    //Methods of accessing status register 1
+    reg			sr1_nv_06		= 0;		//nonvolatile status register, WE with 0x06
+    reg			sr1_v_06		= 0;		//volatile status register, WE with 0x06
+    reg			sr1_v_50		= 0;		//volatile status register, WE with 0x50
+    reg			sr1_vnv			= 0;		//nonvolatile status register with volatile shadow
+											//WE with 0x06 NV, 50 V
+	reg			sr1_mixed_06	= 0;		//mixed volatile and nonvolatile bits, WE with 0x06
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Parse the basic flash parameter table
 
@@ -864,7 +888,27 @@ module SFDPParser(
 				15: begin
 
 					//Exit 4-byte mode not supported.
-					//If the device has a 4-byte mode we always use it.
+					//If the device has a 4-byte mode we always use it for the duration of our run.
+
+					enter_4b_b7					<= basic_dword[24];
+					enter_4b_we_b7				<= basic_dword[25];
+					enter_4b_nvcr				<= basic_dword[28];
+					enter_4b_dedicated			<= basic_dword[29];
+					enter_4b_always				<= basic_dword[30];
+
+					reset_f_8clk				<= basic_dword[8];
+					reset_f_10clk				<= basic_dword[9];
+					reset_f_16clk				<= basic_dword[10];
+					reset_f0					<= basic_dword[11];
+					reset_66_99					<= basic_dword[12];
+
+					//Methods of accessing SR1, and volatile/nonvolatile mode
+					//(page 35 bottom)
+					sr1_nv_06					<= basic_dword[0];
+					sr1_v_06					<= basic_dword[1];
+					sr1_v_50					<= basic_dword[2];
+					sr1_vnv						<= basic_dword[3];
+					sr1_mixed_06				<= basic_dword[4];
 
 				end
 
@@ -891,40 +935,26 @@ module SFDPParser(
 				32'd384,			//Capture width (TODO auto-patch this?)
 				{ "parsing_master_header",	8'h0, 8'h1,  8'h0 },
 				{ "parsing_basic_params",	8'h0, 8'h1,  8'h0 },
-				{ "phdr_num",				8'h0, 8'h6,  8'h0 },
 				{ "has_3byte_addr",			8'h0, 8'h1,  8'h0 },
 				{ "has_4byte_addr",			8'h0, 8'h1,  8'h0 },
-				{ "erase_type1_insn",		8'h0, 8'h8,  8'h0 },
-				{ "erase_type1_mbits",		8'h0, 8'h10, 8'h0 },
-				{ "erase_type1_ms",			8'h0, 8'h10, 8'h0 },
-				{ "erase_type2_insn",		8'h0, 8'h8,  8'h0 },
-				{ "erase_type2_kbits",		8'h0, 8'h10, 8'h0 },
-				{ "erase_type2_ms",			8'h0, 8'h10, 8'h0 },
-				{ "erase_type3_insn",		8'h0, 8'h8,  8'h0 },
-				{ "erase_type3_kbits",		8'h0, 8'h10, 8'h0 },
-				{ "erase_type3_ms",			8'h0, 8'h10, 8'h0 },
-				{ "erase_type4_insn",		8'h0, 8'h8,  8'h0 },
-				{ "erase_type4_kbits",		8'h0, 8'h10, 8'h0 },
-				{ "erase_type4_ms",			8'h0, 8'h10, 8'h0 },
-				{ "erase_typ_to_max",		8'h0, 8'h5,  8'h0 },
-				{ "erase_chip_ms",			8'h0, 8'h20, 8'h0 },
-				{ "program_first_byte_us",	8'h0, 8'h7,  8'h0 },
-				{ "program_per_byte_us",	8'h0, 8'h7,  8'h0 },
-				{ "program_page_us",		8'h0, 8'h10, 8'h0 },
-				{ "page_size_bytes",		8'h0, 8'h10, 8'h0 },
-				{ "program_typ_to_max",		8'h0, 8'h5, 8'h0 },
-				{ "busy_poll_via_flagstatreg", 8'h0, 8'h1,  8'h0 },
-				{ "busy_poll_via_statreg",  8'h0, 8'h1,  8'h0 },
-				{ "quad_enable_type",		8'h0, 8'h3,  8'h0 },
-				{ "quad_qe_38",				8'h0, 8'h1,  8'h0 },
-				{ "quad_38",				8'h0, 8'h1,  8'h0 },
-				{ "quad_35",				8'h0, 8'h1,  8'h0 },
-				{ "quad_6561",				8'h0, 8'h1,  8'h0 },
-				{ "quad_6571",				8'h0, 8'h1,  8'h0 },
-				{ "qexit_ff",				8'h0, 8'h1,  8'h0 },
-				{ "qexit_f5",				8'h0, 8'h1,  8'h0 },
-				{ "qexit_6571",				8'h0, 8'h1,  8'h0 },
-				{ "qexit_reset",			8'h0, 8'h1,  8'h0 }
+				{ "basic_dword_valid",		8'h0, 8'h1,  8'h0 },
+				{ "enter_4b_b7",			8'h0, 8'h1,  8'h0 },
+				{ "enter_4b_we_b7",			8'h0, 8'h1,  8'h0 },
+				{ "enter_4b_nvcr",			8'h0, 8'h1,  8'h0 },
+				{ "enter_4b_dedicated",		8'h0, 8'h1,  8'h0 },
+				{ "enter_4b_always",		8'h0, 8'h1,  8'h0 },
+
+				{ "reset_f_8clk",			8'h0, 8'h1,  8'h0 },
+				{ "reset_f_10clk",			8'h0, 8'h1,  8'h0 },
+				{ "reset_f_16clk",			8'h0, 8'h1,  8'h0 },
+				{ "reset_f0",				8'h0, 8'h1,  8'h0 },
+				{ "reset_66_99",			8'h0, 8'h1,  8'h0 },
+
+				{ "sr1_nv_06",				8'h0, 8'h1,  8'h0 },
+				{ "sr1_v_06",				8'h0, 8'h1,  8'h0 },
+				{ "sr1_v_50",				8'h0, 8'h1,  8'h0 },
+				{ "sr1_vnv",				8'h0, 8'h1,  8'h0 },
+				{ "sr1_mixed_06",			8'h0, 8'h1,  8'h0 }
 			}
 		)
 	) analyzer (
@@ -933,42 +963,26 @@ module SFDPParser(
 		.din({
 				parsing_master_header,	//1
 				parsing_basic_params,	//1
-				phdr_num,				//6
 				has_3byte_addr,			//1
 				has_4byte_addr,			//1
-				erase_type1_insn,		//8
-				erase_type1_kbits,		//16
-				erase_type1_ms,			//16
-				erase_type2_insn,		//8
-				erase_type2_kbits,		//16
-				erase_type2_ms,			//16
-				erase_type3_insn,		//8
-				erase_type3_kbits,		//16
-				erase_type3_ms,			//16
-				erase_type4_insn,		//8
-				erase_type4_kbits,		//16
-				erase_type4_ms,			//16
-				erase_typ_to_max,		//5
-				erase_chip_ms,			//32
-				program_first_byte_us,	//7
-				program_per_byte_us,	//7
-				program_page_us,		//16
-				page_size_bytes,		//16
-				program_typ_to_max,		//5
-				busy_poll_via_flagstatreg,	//1
-				busy_poll_via_statreg,		//1
-				quad_enable_type,		//3
-				quad_qe_38,				//1
-				quad_38,				//1
-				quad_35,				//1
-				quad_6561,				//1
-				quad_6571,				//1
-				qexit_ff,				//1
-				qexit_f5,				//1
-				qexit_6571,				//1
-				qexit_reset,			//1
+				basic_dword_valid,		//1
+				enter_4b_b7,			//1
+				enter_4b_we_b7,			//1
+				enter_4b_nvcr,			//1
+				enter_4b_dedicated,		//1
+				enter_4b_always,		//1
+				reset_f_8clk,			//1
+				reset_f_10clk,			//1
+				reset_f_16clk,			//1
+				reset_f0,				//1
+				reset_66_99,			//1
+				sr1_nv_06,				//1
+				sr1_v_06,				//1
+				sr1_v_50,				//1
+				sr1_vnv,				//1
+				sr1_mixed_06,			//1
 
-				112'h0					//padding
+				364'h0					//padding
 			}),
 		.uart_rx(uart_rxd),
 		.uart_tx(uart_txd),
