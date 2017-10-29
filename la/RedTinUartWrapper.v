@@ -54,7 +54,8 @@ module RedTinUartWrapper #(
 	parameter DEPTH 				= 512,
 	parameter SYMBOL_ROM 			= 16384'h0,
 	parameter UART_CLKDIV 			= 16'd868,		//115200 baud @ 100 MHz
-	parameter KEYFRAME_INTERVAL		= 32'h00080000
+	parameter KEYFRAME_INTERVAL		= 32'h00080000,
+	parameter USE_EXT_TRIG			= 0
 	)(
 
 		//Internal clock, not necessarily used for capturing
@@ -63,6 +64,7 @@ module RedTinUartWrapper #(
 		//Data being sniffed
 		input wire				capture_clk,
 		input wire[WIDTH-1:0]	din,
+		input wire				ext_trig,
 
 		//Bus to host PC
 		input wire				uart_rx,
@@ -162,12 +164,14 @@ module RedTinUartWrapper #(
 	RedTinLogicAnalyzer #(
 		.DEPTH(DEPTH),
 		.DATA_WIDTH(WIDTH),
-		.KEYFRAME_INTERVAL(KEYFRAME_INTERVAL)
+		.KEYFRAME_INTERVAL(KEYFRAME_INTERVAL),
+		.USE_EXT_TRIG(USE_EXT_TRIG)
 	) la (
 
 		//Capture bus
 		.capture_clk(capture_clk),
 		.din(din),
+		.ext_trig(ext_trig),
 
 		//Trigger bus
 		.reconfig_clk(clk),

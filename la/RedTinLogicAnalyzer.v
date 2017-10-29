@@ -35,7 +35,7 @@
 	@brief Top level module of the Red Tin logic analyzer
  */
 module RedTinLogicAnalyzer(
-	capture_clk, din,
+	capture_clk, din, ext_trig,
 
 	reconfig_clk, reconfig_din, reconfig_ce, reconfig_finish,
 
@@ -50,6 +50,7 @@ module RedTinLogicAnalyzer(
 	input wire 					capture_clk;
 	input wire 					reconfig_clk;
 	input wire 					read_clk;
+	input wire					ext_trig;
 
 	//Parameterizable depth
 	`include "../synth_helpers/clog2.vh"
@@ -97,21 +98,34 @@ module RedTinLogicAnalyzer(
 		din_buf3 <= din_buf2;
 	end
 
-	//The actual reconfigurable trigger logic (refactored into a separate module)
+	parameter USE_EXT_TRIG = 0;
+
 	wire	trigger;
-	RedTinLogicAnalyzer_trigger #(
-		.DATA_WIDTH(DATA_WIDTH)
-	) trigger_system (
-		.capture_clk(capture_clk),
-		.din_buf2(din_buf2),
-		.din_buf3(din_buf3),
-		.reset(reset),
-		.reconfig_clk(reconfig_clk),
-		.reconfig_din(reconfig_din),
-		.reconfig_ce(reconfig_ce),
-		.reconfig_finish(reconfig_finish),
-		.trigger(trigger)
-	);
+
+	generate
+		if(USE_EXT_TRIG)
+			assign trigger = ext_trig;
+
+		else begin
+
+			//The actual reconfigurable trigger logic (refactored into a separate module)
+			RedTinLogicAnalyzer_trigger #(
+				.DATA_WIDTH(DATA_WIDTH)
+			) trigger_system (
+				.capture_clk(capture_clk),
+				.din_buf2(din_buf2),
+				.din_buf3(din_buf3),
+				.reset(reset),
+				.reconfig_clk(reconfig_clk),
+				.reconfig_din(reconfig_din),
+				.reconfig_ce(reconfig_ce),
+				.reconfig_finish(reconfig_finish),
+				.trigger(trigger)
+			);
+
+		end
+
+	endgenerate
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Shared state used by everything
@@ -215,8 +229,8 @@ module RedTinLogicAnalyzer(
 	wire reset_sync;
 	reg reset_ack = 0;
 	HandshakeSynchronizer sync_reset
-		(.clk_a(reconfig_clk),		.en_a(reset), 		.ack_a(), .busy_a(),
-		 .clk_b(capture_clk), 		.en_b(reset_sync),	.ack_b(reset_ack));
+		(.clk_a(reconfig_clk),		.en_a(reset), 		.ack_a(),			.busy_a(),
+		 .clk_b(capture_clk), 		.en_b(reset_sync),	.ack_b(reset_ack),	.busy_b());
 
 	always @(posedge capture_clk) begin
 
