@@ -45,8 +45,9 @@ module SFDPParser(
 	input wire		clk,
 
 	//Scan interface
-	//input wire		scan_start,
-	output reg		scan_done = 0,
+	input wire		scan_start,
+	output reg		scan_done	= 0,
+	output reg		sfdp_bad	= 0,
 
 	//SPI interface
 	output reg		shift_en	= 0,
@@ -55,7 +56,16 @@ module SFDPParser(
 	input wire[7:0]	spi_rx_data,
 	output reg		spi_cs_n	= 1,
 
-	//TODO: parsed fields with config info
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+	//Address size info
+    output reg		has_3byte_addr	= 0,
+    output reg		has_4byte_addr	= 0,
+    
+    output reg		enter_4b_b7	= 0,			//Issue 0xb7
+    output reg		enter_4b_we_b7 = 0,			//Issue WE (0x06) then 0xb7
+    output reg		enter_4b_nvcr	= 0,		//Enter 4-byte mode by writing to NVCR with B5/B1
+    output reg		enter_4b_dedicated = 0,		//no switch, use separate instructions
 
 	//DEBUG LA
 	input wire		uart_rxd,
@@ -247,9 +257,9 @@ module SFDPParser(
 	reg[23:0]	sector_map_offset		= 0;
 	reg[7:0]	sector_map_len			= 0;
 
-	reg[8:0]	sfdp_addr			= 0;
-	wire[5:0]	phdr_num			= sfdp_addr[8:3] - 6'd1;
-	wire[2:0]	phdr_boff			= sfdp_addr[2:0];
+	reg[8:0]	sfdp_addr				= 0;
+	wire[5:0]	phdr_num				= sfdp_addr[8:3] - 6'd1;
+	wire[2:0]	phdr_boff				= sfdp_addr[2:0];
 
 	//A few helpers from the top-level state machine
 	wire		parsing_master_header	= (state == STATE_HEADER_PARSE);
@@ -257,7 +267,6 @@ module SFDPParser(
 	wire		parsing_sector_map		= (state == STATE_PARSE_SECTOR_MAP);
 
 	//Reasons why we failed to parse the descriptor table
-	reg			sfdp_bad			= 0;
 	reg[7:0]	sfdp_fail_reason	= 0;
 
 	localparam SFDP_REASON_BAD_HEADER			= 8'h1;
@@ -373,9 +382,10 @@ module SFDPParser(
 			end	//end STATE_PARSE_SECTOR_MAP
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// HANG - bad SFDP info, we can't do anything
+			// HANG - done
 
 			STATE_HANG: begin
+				scan_done					<= 1;
 			end	//end STATE_HANG
 
 		endcase
@@ -568,10 +578,6 @@ module SFDPParser(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // What we've all been waiting for: the actual output of the parsing!
 
-    //Addressing
-    reg			has_3byte_addr		= 0;
-    reg			has_4byte_addr		= 0;
-
 	//Clocking
     reg			has_ddr_mode		= 0;
 
@@ -672,12 +678,8 @@ module SFDPParser(
     reg			qexit_6571	= 0;			//Issue 0x65/address then 71/address read-modify-write
 
     //Methods of entering 4-byte mode
-    reg			enter_4b_b7	= 0;			//Issue 0xb7
-    reg			enter_4b_we_b7 = 0;			//Issue WE (0x06) then 0xb7
     //extended address register not supported
     //bank register not supported
-    reg			enter_4b_nvcr	= 0;		//Enter 4-byte mode by writing to NVCR with B5/B1
-    reg			enter_4b_dedicated = 0;		//no switch, use separate instructions
     reg			enter_4b_always = 0;		//always 4-byte mode
 
     //Methods of resetting the device
@@ -1014,7 +1016,7 @@ module SFDPParser(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // The LA
-
+	/*
 	//intclk is 66.5 MHz for current prototype at last measurement
 	RedTinUartWrapper #(
 		.WIDTH(384),
@@ -1035,7 +1037,12 @@ module SFDPParser(
 				{ "basic_dword_valid",		8'h0, 8'h1,  8'h0 },
 				{ "sector_dword_valid",		8'h0, 8'h1,  8'h0 },
 				{ "table_dword_addr",		8'h0, 8'h7,  8'h0 },
-				{ "table_dword",			8'h0, 8'h20,  8'h0 }				
+				{ "table_dword",			8'h0, 8'h20,  8'h0 },
+				{ "has_3byte_addr",			8'h0, 8'h1,  8'h0 },
+				{ "has_4byte_addr",			8'h0, 8'h1,  8'h0 },
+				{ "state",					8'h0, 8'h8,  8'h0 },
+				{ "scan_done",				8'h0, 8'h1,  8'h0 },
+				{ "sfdp_bad",				8'h0, 8'h1,  8'h0 }
 			}
 		)
 	) analyzer (
@@ -1050,12 +1057,19 @@ module SFDPParser(
 				sector_dword_valid,		//1
 				table_dword_addr,		//7
 				table_dword,			//32
+				has_3byte_addr,			//1
+				has_4byte_addr,			//1
+				state,					//8
+				scan_done,				//1
+				sfdp_bad,				//1
 
-				339'h0					//padding
+				327'h0					//padding
 			}),
 		.uart_rx(uart_rxd),
 		.uart_tx(uart_txd),
 		.la_ready(la_ready)
-	);
+	);*/
+
+	assign la_ready = scan_start;
 
 endmodule
