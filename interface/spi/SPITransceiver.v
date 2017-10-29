@@ -62,14 +62,41 @@ module SPITransceiver(
 	//INVERTED = opposite
 	parameter LOCAL_EDGE = "NORMAL";
 
+	//Set true to gate transitions on rx_data during a shift operation
+	//and only update when shift_done goes high. Adds one cycle of latency
+	parameter CHANGE_ON_DONE	= 0;
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main state machine
 
-	reg active = 0;
-	reg[3:0] count = 0;
-	reg[14:0] clkcount = 0;
+	reg			active		= 0;
+	reg[3:0]	count		= 0;
+	reg[14:0]	clkcount	= 0;
 
-	reg[6:0] tx_shreg = 0;
+	reg[6:0]	tx_shreg		= 0;
+
+	reg[7:0]	rx_shreg		= 0;
+	reg			shift_done_adv	= 0;
+
+	//Optionally: Only update output at end of a shift operation
+	generate
+		if(CHANGE_ON_DONE) begin
+			always @(posedge clk) begin
+				shift_done		<= 0;
+				if(shift_done_adv) begin
+					rx_data		<= rx_shreg;
+					shift_done	<= 1;
+				end
+			end
+		end
+
+		else begin
+			always @(*) begin
+				rx_data		<= rx_shreg;
+				shift_done	<= shift_done_adv;
+			end
+		end
+	endgenerate
 
 	initial begin
 		if( (SAMPLE_EDGE != "RISING") && (SAMPLE_EDGE != "FALLING") ) begin
@@ -80,7 +107,7 @@ module SPITransceiver(
 
 	reg almost_done	= 0;
 	always @(posedge clk) begin
-		shift_done <= 0;
+		shift_done_adv	<= 0;
 
 		//Wait for a start request
 		if(shift_en) begin
@@ -111,10 +138,10 @@ module SPITransceiver(
 
 				//Make the done flag wait half a bit period if necessary
 				if(almost_done) begin
-					spi_sck		<= 0;
-					shift_done	<= 1;
-					active		<= 0;
-					almost_done	<= 0;
+					spi_sck			<= 0;
+					shift_done_adv	<= 1;
+					active			<= 0;
+					almost_done		<= 0;
 				end
 
 				//ACTIVE EDGE
@@ -124,7 +151,7 @@ module SPITransceiver(
 					tx_shreg <= {tx_shreg[5:0], 1'b0};
 
 					if(LOCAL_EDGE == "INVERTED")
-						rx_data <= {rx_data[6:0], spi_miso};
+						rx_shreg <= {rx_shreg[6:0], spi_miso};
 
 				end
 
@@ -133,7 +160,7 @@ module SPITransceiver(
 					count <= count + 4'h1;
 
 					if(LOCAL_EDGE == "NORMAL")
-						rx_data <= {rx_data[6:0], spi_miso};
+						rx_shreg <= {rx_shreg[6:0], spi_miso};
 
 					//Stop on the last inactive edge
 					if( (count == 'd8) ) begin
