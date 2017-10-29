@@ -49,14 +49,15 @@
 		Data buffer is now considered invalid, do not touch
  */
 module HandshakeSynchronizer(
-	input wire clk_a,
-	input wire en_a,
-	output reg ack_a = 0,
+	input wire	clk_a,
+	input wire	en_a,
+	output reg	ack_a = 0,
 	output wire busy_a,
 	
-	input wire clk_b,
-	output reg en_b = 0,
-	input wire ack_b
+	input wire	clk_b,
+	output reg	en_b = 0,
+	input wire	ack_b,
+	output wire	busy_b
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -117,6 +118,8 @@ module HandshakeSynchronizer(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Control logic, receive side
+
+	assign busy_b = state_b[1];
 
 	reg[1:0] state_b = 0;
 	always @(posedge clk_b) begin
