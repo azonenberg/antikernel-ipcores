@@ -59,17 +59,21 @@ module SFDPParser(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	//Address size info
-    output reg		has_3byte_addr	= 0,
-    output reg		has_4byte_addr	= 0,
+    output reg			has_3byte_addr		= 0,
+    output reg			has_4byte_addr		= 0,
     
-    output reg		enter_4b_b7	= 0,			//Issue 0xb7
-    output reg		enter_4b_we_b7 = 0,			//Issue WE (0x06) then 0xb7
-    output reg		enter_4b_nvcr	= 0,		//Enter 4-byte mode by writing to NVCR with B5/B1
-    output reg		enter_4b_dedicated = 0,		//no switch, use separate instructions
+    output reg			enter_4b_b7			= 0,	//Issue 0xb7
+    output reg			enter_4b_we_b7		= 0,	//Issue WE (0x06) then 0xb7
+    output reg			enter_4b_nvcr		= 0,	//Enter 4-byte mode by writing to NVCR with B5/B1
+    output reg			enter_4b_dedicated	= 0,	//no switch, use separate instructions
+
+    //Erase configuration
+    output reg[7:0]		erase_type2_insn	= 0,
+    output reg[15:0]	erase_type2_kbits	= 0,
 
 	//DEBUG LA
-	input wire		uart_rxd,
-    output wire		uart_txd
+	input wire			uart_rxd,
+    output wire			uart_txd
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -385,7 +389,8 @@ module SFDPParser(
 			// HANG - done
 
 			STATE_HANG: begin
-				scan_done					<= 1;
+				if(!read_busy)
+					scan_done					<= 1;
 			end	//end STATE_HANG
 
 		endcase
@@ -607,8 +612,6 @@ module SFDPParser(
     reg[15:0]	erase_type1_kbits	= 0;
     reg[15:0]	erase_type1_ms		= 0;	//typical delay
 
-    reg[7:0]	erase_type2_insn	= 0;
-    reg[15:0]	erase_type2_kbits	= 0;
     reg[15:0]	erase_type2_ms		= 0;
 
     reg[7:0]	erase_type3_insn	= 0;
