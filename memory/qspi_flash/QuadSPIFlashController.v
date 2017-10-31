@@ -75,6 +75,9 @@ module QuadSPIFlashController(
 	output reg				write_ready,
 	output wire				busy,
 
+	//Useful info
+	output wire[15:0]		capacity_mbits,
+
 	//DEBUG
 	input wire				uart_rxd,
 	output wire				uart_txd,
@@ -148,7 +151,7 @@ module QuadSPIFlashController(
     SFDPParser parser(
 		.clk(clk),
 
-		.scan_start(/*la_ready*/1'b1),
+		.scan_start(1'b1),
 		.scan_done(sfdp_scan_done),
 
 		.shift_en(sfdp_shift_en),
@@ -156,6 +159,8 @@ module QuadSPIFlashController(
 		.spi_tx_data(sfdp_tx_data),
 		.spi_rx_data(spi_rx_data),
 		.spi_cs_n(sfdp_cs_n),
+
+		.capacity_mbits(capacity_mbits),
 
 		.has_3byte_addr(has_3byte_addr),
 		.has_4byte_addr(has_4byte_addr),
@@ -180,8 +185,9 @@ module QuadSPIFlashController(
 														//Some have 512 byte etc page size
 	localparam		OP_READ_SR1			= 8'h05;		//Read status register 1
 	localparam		OP_WRITE_ENABLE		= 8'h06;		//Enable write operations
+	localparam		OP_FAST_READ		= 8'h0b;		//Fast read with dummy byte before data
 	localparam		OP_WRITE_SR3		= 8'h11;		//Write status register 3
-    localparam		OP_FAST_READ		= 8'h0b;		//Fast read with dummy byte before data
+	localparam		OP_BULK_ERASE		= 8'h60;		//Full-chip erase
     localparam		OP_SECTOR_ERASE		= 8'hd8;		//Sector erase (size variable)
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -204,8 +210,7 @@ module QuadSPIFlashController(
 	localparam		STATE_WRITE			= 5'h9;
 	localparam		STATE_WRITE_ENABLE	= 5'ha;
 
-	localparam		STATE_READ_WAIT		= 5'h1a;
-    localparam		STATE_READ_DUMMY	= 5'h1b;
+	localparam		STATE_READ_WAIT		= 5'h1b;
     localparam		STATE_READ			= 5'h1c;
 
 	localparam		STATE_ADDRESS		= 5'h1d;
@@ -258,7 +263,7 @@ module QuadSPIFlashController(
 					spi_tx_data				<= sfdp_tx_data;
 				end
 
-				if(sfdp_scan_done && la_ready) begin
+				if(sfdp_scan_done /*&& la_ready*/) begin
 
 					//Default to being done
 					state				<= STATE_IDLE;
@@ -372,6 +377,17 @@ module QuadSPIFlashController(
 
 						end	//end FLASH_OP_PROGRAM
 
+						FLASH_OP_WIPE: begin
+
+							//Send the write-enable command
+							spi_cs_n			<= 0;
+							spi_tx_data			<= OP_WRITE_ENABLE;
+							shift_en			<= 1;
+							state				<= STATE_WAIT;
+							state_ret			<= STATE_WRITE_ENABLE;
+
+						end	//end FLASH_OP_WIPE
+
 					endcase
 
 				end
@@ -407,6 +423,15 @@ module QuadSPIFlashController(
 						state_ret			<= STATE_ERASE_WAIT;
 
 					end	//end FLASH_OP_ERASE
+
+					FLASH_OP_WIPE: begin
+
+						spi_tx_data			<= OP_BULK_ERASE;
+						shift_en			<= 1;
+
+						state				<= STATE_ERASE_WAIT;
+
+					end	//end FLASH_OP_WIPE
 
 					FLASH_OP_PROGRAM: begin
 
@@ -493,26 +518,17 @@ module QuadSPIFlashController(
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// READ - read data bytes
 
-			//Wait for the last address byte to be sent
+			//Wait for the last address byte to be sent, then send the dummy byte
 			STATE_READ_WAIT: begin
 
 				if(shift_done) begin
 					count				<= 0;
 					spi_tx_data			<= 0;
 					shift_en			<= 1;
-					state				<= STATE_READ_DUMMY;
+					state				<= STATE_READ;
 				end
 
 			end	//end STATE_READ_WAIT
-
-			//Send the dummy byte
-			STATE_READ_DUMMY: begin
-				if(shift_done) begin
-					spi_tx_data			<= 0;
-					shift_en			<= 1;
-					state				<= STATE_READ;
-				end
-			end	//end STATE_READ_DUMMY
 
 			//Do the actual read
 			STATE_READ: begin
@@ -638,7 +654,7 @@ module QuadSPIFlashController(
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Our logic analyzer
-
+	/*
     //intclk is 66.5 MHz for current prototype at last measurement
 	RedTinUartWrapper #(
 		.WIDTH(128),
@@ -720,7 +736,7 @@ module QuadSPIFlashController(
 		.uart_tx(uart_txd),
 		.la_ready(la_ready)
 	);
-
+	*/
 	//assign la_ready = start;
 
 endmodule

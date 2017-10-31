@@ -34,10 +34,13 @@ QuadSPIFlashController_opcodes:
     values:
 
         # Memory read
-        FLASH_OP_READ:     00
+        FLASH_OP_READ:      00
 
         # Sector erase (size varies)
-        FLASH_OP_ERASE:    01
+        FLASH_OP_ERASE:     01
 
         # Program a page of data (up to 256 bytes)
-        FLASH_OP_PROGRAM:  02
+        FLASH_OP_PROGRAM:   02
+
+        # Erase the entire device
+        FLASH_OP_WIPE:      03

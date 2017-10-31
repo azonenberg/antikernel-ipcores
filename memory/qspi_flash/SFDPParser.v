@@ -58,6 +58,9 @@ module SFDPParser(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+	//Memory metadata
+	output reg[15:0]	capacity_mbits		= 0,
+
 	//Address size info
     output reg			has_3byte_addr		= 0,
     output reg			has_4byte_addr		= 0,
@@ -585,9 +588,6 @@ module SFDPParser(
 
 	//Clocking
     reg			has_ddr_mode		= 0;
-
-	//Memory size
-    reg[15:0]	capacity_mbits		= 0;
 
 	//Fast read (1-1-4)
     reg			has_114_read		= 0;
