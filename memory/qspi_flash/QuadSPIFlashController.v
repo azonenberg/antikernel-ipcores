@@ -78,6 +78,9 @@ module QuadSPIFlashController(
 	//Useful info
 	output wire[15:0]		capacity_mbits,
 
+	//Debug status
+	output wire				sfdp_bad,
+
 	//DEBUG
 	input wire				uart_rxd,
 	output wire				uart_txd,
@@ -153,6 +156,7 @@ module QuadSPIFlashController(
 
 		.scan_start(1'b1),
 		.scan_done(sfdp_scan_done),
+		.sfdp_bad(sfdp_bad),
 
 		.shift_en(sfdp_shift_en),
 		.shift_done(shift_done),
@@ -173,8 +177,8 @@ module QuadSPIFlashController(
 		.erase_type2_insn(erase_type2_insn),
 		.erase_type2_kbits(erase_type2_kbits),
 
-		.uart_rxd(/*uart_rxd*/),
-		.uart_txd(/*uart_txd*/)
+		.uart_rxd(uart_rxd),
+		.uart_txd(uart_txd)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

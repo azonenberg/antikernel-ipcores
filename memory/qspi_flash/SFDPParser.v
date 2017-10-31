@@ -64,7 +64,7 @@ module SFDPParser(
 	//Address size info
     output reg			has_3byte_addr		= 0,
     output reg			has_4byte_addr		= 0,
-    
+
     output reg			enter_4b_b7			= 0,	//Issue 0xb7
     output reg			enter_4b_we_b7		= 0,	//Issue WE (0x06) then 0xb7
     output reg			enter_4b_nvcr		= 0,	//Enter 4-byte mode by writing to NVCR with B5/B1
@@ -240,12 +240,14 @@ module SFDPParser(
 
 	localparam STATE_BOOT_WAIT			= 0;
 	localparam STATE_HEADER_PARSE		= 1;
-	localparam STATE_READ_BASIC			= 2;
-	localparam STATE_PARSE_BASIC		= 3;
-	localparam STATE_READ_SECTOR_MAP	= 4;
-	localparam STATE_PARSE_SECTOR_MAP	= 5;
+	localparam STATE_HEADER_FINISH_0	= 2;
+	localparam STATE_HEADER_FINISH_1	= 3;
+	localparam STATE_READ_BASIC			= 4;
+	localparam STATE_PARSE_BASIC		= 5;
+	localparam STATE_READ_SECTOR_MAP	= 6;
+	localparam STATE_PARSE_SECTOR_MAP	= 7;
 
-	localparam STATE_HANG			= 255;
+	localparam STATE_HANG				= 255;
 
 	reg[7:0]	state		= STATE_BOOT_WAIT;
 
@@ -269,7 +271,7 @@ module SFDPParser(
 	wire[2:0]	phdr_boff				= sfdp_addr[2:0];
 
 	//A few helpers from the top-level state machine
-	wire		parsing_master_header	= (state == STATE_HEADER_PARSE);
+	wire		parsing_master_header	= (state == STATE_HEADER_PARSE) || (state == STATE_HEADER_FINISH_0);
 	wire		parsing_basic_params	= (state == STATE_PARSE_BASIC);
 	wire		parsing_sector_map		= (state == STATE_PARSE_SECTOR_MAP);
 
@@ -316,10 +318,21 @@ module SFDPParser(
 				//If we're done reading the parameter headers, move on
 				if( (phdr_num == sfdp_num_phdrs ) && (phdr_boff == 7) ) begin
 					read_finish_request	<= 1;
-					state				<= STATE_READ_BASIC;
+					state				<= STATE_HEADER_FINISH_0;
 				end
 
-			end	//end STATE_BOOT_HEADER_PARSE
+			end	//end STATE_HEADER_PARSE
+
+			//Once we ask for the read to stop, wait for it to actually do so
+			STATE_HEADER_FINISH_0: begin
+				if(!read_busy)
+					state				<= STATE_HEADER_FINISH_1;
+			end	//end STATE_HEADER_FINISH_0
+
+			//Wait one more clock to parse the last parameter header
+			STATE_HEADER_FINISH_1: begin
+				state		<= STATE_READ_BASIC;
+			end	//end STATE_HEADER_FINISH_0
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Read basic parameters
@@ -349,7 +362,7 @@ module SFDPParser(
 							state				<= STATE_READ_SECTOR_MAP;
 						else
 							state				<= STATE_HANG;
-							
+
 					end
 
 				end
@@ -385,7 +398,7 @@ module SFDPParser(
 					end
 
 				end
-			
+
 			end	//end STATE_PARSE_SECTOR_MAP
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -427,53 +440,53 @@ module SFDPParser(
 
 		sfdp_param_valid	<= 0;
 
+		//As parameters become valid, see what they are.
+		if(sfdp_param_valid) begin
+
+			case(sfdp_current_param)
+
+				//It's JEDEC Basic Flash Parameters
+				PARAM_ID_JEDEC_BASIC: begin
+
+					//Major rev must be 1, we only support this.
+					//Ignore anything higher.
+					if(sfdp_param_rev[15:8] == 8'h1) begin
+
+						//If rev is higher than what we had, this is better.
+						if(sfdp_param_rev > basic_params_rev) begin
+							basic_params_len	<= sfdp_param_len;
+							basic_params_offset	<= sfdp_param_offset;
+							basic_params_rev	<= sfdp_param_rev;
+						end
+
+					end
+
+				end	//end PARAM_ID_JEDEC_BASIC
+
+				//It's a JEDEC sector map
+				PARAM_ID_JEDEC_SECTOR_MAP: begin
+
+					//Major rev must be 1, we only support this.
+					//Ignore anything higher.
+					if(sfdp_param_rev[15:8] == 8'h1) begin
+						has_sector_map			<= 1;
+
+						//If rev is higher than what we had, this is better.
+						if(sfdp_param_rev > sector_map_rev) begin
+							sector_map_len		<= sfdp_param_len;
+							sector_map_offset	<= sfdp_param_offset;
+							sector_map_rev		<= sfdp_param_rev;
+						end
+
+					end
+
+				end	//end PARAM_ID_JEDEC_SECTOR_MAP
+
+			endcase
+
+		end
+
 		if(parsing_master_header) begin
-
-			//As parameters become valid, see what they are.
-			if(sfdp_param_valid) begin
-
-				case(sfdp_current_param)
-
-					//It's JEDEC Basic Flash Parameters
-					PARAM_ID_JEDEC_BASIC: begin
-
-						//Major rev must be 1, we only support this.
-						//Ignore anything higher.
-						if(sfdp_param_rev[15:8] == 8'h1) begin
-
-							//If rev is higher than what we had, this is better.
-							if(sfdp_param_rev > basic_params_rev) begin
-								basic_params_len	<= sfdp_param_len;
-								basic_params_offset	<= sfdp_param_offset;
-								basic_params_rev	<= sfdp_param_rev;
-							end
-
-						end
-
-					end	//end PARAM_ID_JEDEC_BASIC
-
-					//It's a JEDEC sector map
-					PARAM_ID_JEDEC_SECTOR_MAP: begin
-
-						//Major rev must be 1, we only support this.
-						//Ignore anything higher.
-						if(sfdp_param_rev[15:8] == 8'h1) begin
-							has_sector_map			<= 1;
-
-							//If rev is higher than what we had, this is better.
-							if(sfdp_param_rev > sector_map_rev) begin
-								sector_map_len		<= sfdp_param_len;
-								sector_map_offset	<= sfdp_param_offset;
-								sector_map_rev		<= sfdp_param_rev;
-							end
-
-						end
-					
-					end	//end PARAM_ID_JEDEC_SECTOR_MAP
-
-				endcase
-
-			end
 
 			if(read_done) begin
 
@@ -716,7 +729,7 @@ module SFDPParser(
 		if( (parsing_basic_params || parsing_sector_map) && read_done) begin
 
 			table_dword				<= {read_data, table_dword[31:8]};
-			
+
 			if(sfdp_addr[1:0] == 3) begin
 				table_dword_addr	<= sfdp_addr[8:2];
 				basic_dword_valid	<= parsing_basic_params;
@@ -1011,9 +1024,9 @@ module SFDPParser(
 				0: begin
 					//TODO
 				end
-				
+
 			endcase
-			
+
 		end
 	end
 
@@ -1026,6 +1039,7 @@ module SFDPParser(
 		.DEPTH(2048),
 		//.UART_CLKDIV(16'd868),	//115200 @ 100 MHz
 		.UART_CLKDIV(16'd577),		//115200 @ 66.5 MHz
+		.USE_EXT_TRIG(1),
 		.SYMBOL_ROM(
 			{
 				16384'h0,
@@ -1033,46 +1047,83 @@ module SFDPParser(
 				32'd15037,			//period of internal clock, in ps
 				32'd2048,			//Capture depth (TODO auto-patch this?)
 				32'd384,			//Capture width (TODO auto-patch this?)
+
 				{ "parsing_master_header",	8'h0, 8'h1,  8'h0 },
-				{ "parsing_basic_params",	8'h0, 8'h1,  8'h0 },
-				{ "parsing_sector_map"	,	8'h0, 8'h1,  8'h0 },
-				{ "has_sector_map"	,		8'h0, 8'h1,  8'h0 },
-				{ "basic_dword_valid",		8'h0, 8'h1,  8'h0 },
-				{ "sector_dword_valid",		8'h0, 8'h1,  8'h0 },
-				{ "table_dword_addr",		8'h0, 8'h7,  8'h0 },
-				{ "table_dword",			8'h0, 8'h20,  8'h0 },
-				{ "has_3byte_addr",			8'h0, 8'h1,  8'h0 },
-				{ "has_4byte_addr",			8'h0, 8'h1,  8'h0 },
 				{ "state",					8'h0, 8'h8,  8'h0 },
+				{ "sfdp_state",				8'h0, 8'h3,  8'h0 },
+				{ "spi_cs_n",				8'h0, 8'h1,  8'h0 },
+				{ "shift_en",				8'h0, 8'h1,  8'h0 },
+				{ "spi_tx_data",			8'h0, 8'h8,  8'h0 },
+				{ "read_data",				8'h0, 8'h8,  8'h0 },
+				{ "read_done",				8'h0, 8'h1,  8'h0 },
+				{ "read_busy",				8'h0, 8'h1,  8'h0 },
+				{ "read_finish_request",	8'h0, 8'h1,  8'h0 },
+
 				{ "scan_done",				8'h0, 8'h1,  8'h0 },
-				{ "sfdp_bad",				8'h0, 8'h1,  8'h0 }
+				{ "sfdp_bad",				8'h0, 8'h1,  8'h0 },
+				{ "sfdp_fail_reason",		8'h0, 8'h8,  8'h0 },
+
+				{ "sfdp_addr",				8'h0, 8'h9,  8'h0 },
+				{ "sfdp_minor_rev",			8'h0, 8'h8,  8'h0 },
+
+				{ "basic_params_rev",		8'h0, 8'h10,  8'h0 },
+				{ "basic_params_offset",	8'h0, 8'h18,  8'h0 },
+				{ "sfdp_num_phdrs",			8'h0, 8'h8,  8'h0 },
+
+				{ "phdr_boff",				8'h0, 8'h3,  8'h0 },
+				{ "sfdp_param_valid",		8'h0, 8'h1,  8'h0 },
+				{ "sfdp_current_param",		8'h0, 8'h10,  8'h0 },
+				{ "sfdp_param_rev",			8'h0, 8'h10,  8'h0 },
+				{ "sfdp_param_len",			8'h0, 8'h8,  8'h0 },
+				{ "sfdp_param_offset",		8'h0, 8'h18,  8'h0 },
+
+				{ "capacity_mbits",			8'h0, 8'h10,  8'h0 }
 			}
 		)
 	) analyzer (
 		.clk(clk),
 		.capture_clk(clk),
+		.ext_trig(read_request),
 		.din({
 				parsing_master_header,	//1
-				parsing_basic_params,	//1
-				parsing_sector_map,		//1
-				has_sector_map,			//1
-				basic_dword_valid,		//1
-				sector_dword_valid,		//1
-				table_dword_addr,		//7
-				table_dword,			//32
-				has_3byte_addr,			//1
-				has_4byte_addr,			//1
 				state,					//8
+				sfdp_state,				//3
+				spi_cs_n,				//1
+				shift_en,				//1
+				spi_tx_data,			//8
+				read_data,				//8
+				read_done,				//1
+				read_busy,				//1
+				read_finish_request,	//1
+
 				scan_done,				//1
 				sfdp_bad,				//1
+				sfdp_fail_reason,		//8
 
-				327'h0					//padding
+				sfdp_addr,				//9
+
+				sfdp_minor_rev,			//8
+
+				basic_params_rev,		//16
+				basic_params_offset,	//24
+				sfdp_num_phdrs,			//8
+
+				phdr_boff,				//3
+				sfdp_param_valid,		//1
+				sfdp_current_param,		//16
+				sfdp_param_rev,			//16
+				sfdp_param_len,			//8
+				sfdp_param_offset,		//24
+
+				capacity_mbits,			//16
+
+				192'h0					//padding
 			}),
 		.uart_rx(uart_rxd),
 		.uart_tx(uart_txd),
 		.la_ready(la_ready)
-	);*/
-
+	);
+	*/
 	assign la_ready = scan_start;
 
 endmodule
