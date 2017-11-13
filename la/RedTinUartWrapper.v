@@ -64,7 +64,11 @@ module RedTinUartWrapper #(
 		//Data being sniffed
 		input wire				capture_clk,
 		input wire[WIDTH-1:0]	din,
+
+		//Trigger/status signals
 		input wire				ext_trig,
+		output wire				trig_out,
+		output wire				capture_done,
 
 		//Bus to host PC
 		input wire				uart_rx,
@@ -159,7 +163,6 @@ module RedTinUartWrapper #(
 	reg[BLOCK_BITS-1:0]	read_nbyte		= 0;
 
 	reg					la_reset		= 0;
-	wire				capture_done;
 
 	RedTinLogicAnalyzer #(
 		.DEPTH(DEPTH),
@@ -172,6 +175,7 @@ module RedTinUartWrapper #(
 		.capture_clk(capture_clk),
 		.din(din),
 		.ext_trig(ext_trig),
+		.trig_out(trig_out),
 
 		//Trigger bus
 		.reconfig_clk(clk),
@@ -206,6 +210,7 @@ module RedTinUartWrapper #(
 	localparam STATE_READOUT_TIMESTAMP	= 4'h7;
 	localparam STATE_READOUT_DATA		= 4'h8;
 	localparam STATE_READOUT_FLOW		= 4'h9;
+	localparam STATE_ACK_WAIT			= 4'ha;
 
 	reg[3:0]					state 	= STATE_IDLE;
 	reg[BITSTREAM_ABITS-1:0]	bitpos	= 0;
@@ -347,8 +352,13 @@ module RedTinUartWrapper #(
 				la_ready				<= 1;
 				uart_tx_data			<= REDTIN_LOAD_TRIGGER;
 				uart_tx_en				<= 1;
-				state					<= STATE_IDLE;
+				state					<= STATE_ACK_WAIT;
 			end	//end STATE_RECONFIGURE_FINISH
+
+			STATE_ACK_WAIT: begin
+				if(!uart_tx_active && !uart_tx_en)
+					state				<= STATE_IDLE;
+			end	//end STATE_ACK_WAIT
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// READOUT - dump data from the buffer out to the UART

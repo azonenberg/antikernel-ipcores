@@ -35,7 +35,7 @@
 	@brief Top level module of the Red Tin logic analyzer
  */
 module RedTinLogicAnalyzer(
-	capture_clk, din, ext_trig,
+	capture_clk, din, ext_trig, trig_out,
 
 	reconfig_clk, reconfig_din, reconfig_ce, reconfig_finish,
 
@@ -50,7 +50,10 @@ module RedTinLogicAnalyzer(
 	input wire 					capture_clk;
 	input wire 					reconfig_clk;
 	input wire 					read_clk;
+
+	//Trigger control
 	input wire					ext_trig;
+	output wire					trig_out;
 
 	//Parameterizable depth
 	`include "../synth_helpers/clog2.vh"
@@ -101,6 +104,7 @@ module RedTinLogicAnalyzer(
 	parameter USE_EXT_TRIG = 0;
 
 	wire	trigger;
+	assign trig_out = trigger;
 
 	generate
 		if(USE_EXT_TRIG)
