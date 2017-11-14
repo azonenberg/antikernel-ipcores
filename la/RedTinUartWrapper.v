@@ -209,8 +209,7 @@ module RedTinUartWrapper #(
 	localparam STATE_READOUT_WAIT		= 4'h6;
 	localparam STATE_READOUT_TIMESTAMP	= 4'h7;
 	localparam STATE_READOUT_DATA		= 4'h8;
-	localparam STATE_READOUT_FLOW		= 4'h9;
-	localparam STATE_ACK_WAIT			= 4'ha;
+	localparam STATE_TX_WAIT			= 4'h9;
 
 	reg[3:0]					state 	= STATE_IDLE;
 	reg[BITSTREAM_ABITS-1:0]	bitpos	= 0;
@@ -279,6 +278,18 @@ module RedTinUartWrapper #(
 							state				<= STATE_READOUT_WAIT;
 						end	//end REDTIN_READ_DATA
 
+						//Continue an existing readout operation
+						REDTIN_READ_CONTINUE: begin
+							read_en				<= 1;
+							state				<= STATE_READOUT_WAIT;
+						end	//end REDTIN_READ_DATA
+
+						REDTIN_PING: begin
+							uart_tx_en			<= 1;
+							uart_tx_data		<= REDTIN_PING;
+							state				<= STATE_TX_WAIT;
+						end
+
 						//Unknown opcode? Ignore it
 						default: begin
 						end
@@ -291,6 +302,7 @@ module RedTinUartWrapper #(
 					uart_tx_en					<= 1;
 					uart_tx_data				<= REDTIN_TRIGGER_NOTIF;
 					notif_sent					<= 1;
+					state						<= STATE_TX_WAIT;
 				end
 
 			end	//end STATE_IDLE
@@ -352,13 +364,13 @@ module RedTinUartWrapper #(
 				la_ready				<= 1;
 				uart_tx_data			<= REDTIN_LOAD_TRIGGER;
 				uart_tx_en				<= 1;
-				state					<= STATE_ACK_WAIT;
+				state					<= STATE_TX_WAIT;
 			end	//end STATE_RECONFIGURE_FINISH
 
-			STATE_ACK_WAIT: begin
+			STATE_TX_WAIT: begin
 				if(!uart_tx_active && !uart_tx_en)
 					state				<= STATE_IDLE;
-			end	//end STATE_ACK_WAIT
+			end	//end STATE_TX_WAIT
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// READOUT - dump data from the buffer out to the UART
@@ -394,34 +406,19 @@ module RedTinUartWrapper #(
 			//Send the row of actual capture data
 			STATE_READOUT_DATA: begin
 				if(!uart_tx_active && !uart_tx_en) begin
+
 					uart_tx_en			<= 1;
 					uart_tx_data		<= read_data[read_nbyte*8 +: 8];
 					read_nbyte			<= read_nbyte + 1'h1;
 
-					//Done with the current row, time to go on to the next
+					//Done with the current row? Bump address and go back to idle until the PC asks for another word
 					if(read_nbyte >= BLOCK_MAX) begin
-
-						//Last row? We're done
-						if(read_addr == ADDR_MAX) begin
-							state		<= STATE_IDLE;
-						end
-
-						//Nope, read next row
-						else
-							state		<= STATE_READOUT_FLOW;
-
+						state		<= STATE_TX_WAIT;
+						read_addr	<= read_addr + 1'h1;
 					end
+
 				end
 			end	//end STATE_READOUT_DATA
-
-			//Wait for the read command to get re-sent, so we can synchronize for flow control
-			STATE_READOUT_FLOW: begin
-				if(uart_rx_en) begin
-					read_en		<= 1;
-					read_addr	<= read_addr + 1'h1;
-					state		<= STATE_READOUT_WAIT;
-				end
-			end	//end STATE_READOUT_FLOW
 
 		endcase
 

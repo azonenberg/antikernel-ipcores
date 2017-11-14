@@ -44,3 +44,9 @@ RedTin_opcodes:
 
         # Request to read data out
         REDTIN_READ_DATA:           03
+
+        # Ping to make sure we're synced
+        REDTIN_PING:                04
+
+        # Continue reading data
+        REDTIN_READ_CONTINUE:       05
