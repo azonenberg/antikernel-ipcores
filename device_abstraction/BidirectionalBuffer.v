@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2016 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -32,30 +32,35 @@
 	@file
 	@author Andrew D. Zonenberg
 	@brief Tristate I/O to two bidirectional buses
-	
-	din and dout names are from circuit's perspective, not buffer's
+
+	OE_INVERT (default true) means OE=1 output, OE=0 input
  */
-module IobufMacro(din, dout, oe, io);
-	 
+module BidirectionalBuffer(fabric_in, fabric_out, oe, pad);
+
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O and parameter declarations
 
 	parameter WIDTH = 8;
-	
-	output wire[WIDTH-1:0] din;
-	input wire[WIDTH-1:0] dout;
-	inout wire[WIDTH-1:0] io;
+
+	output wire[WIDTH-1:0] fabric_in;
+	input wire[WIDTH-1:0] fabric_out;
+	inout wire[WIDTH-1:0] pad;
 	input wire oe;
-	
+
 	parameter OE_INVERT = 1;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// The IO buffers
-	
+
 	genvar i;
 	generate
 		for(i=0; i<WIDTH; i = i+1) begin: buffers
-			IOBUF iobuf(.I(dout[i]), .IO(io[i]), .O(din[i]), .T(OE_INVERT ? (!oe) : (oe)));
+			IOBUF iobuf(
+				.I(fabric_out[i]),
+				.IO(pad[i]),
+				.O(fabric_in[i]),
+				.T(OE_INVERT ? (!oe) : (oe))
+			);
 		end
 	endgenerate
 
