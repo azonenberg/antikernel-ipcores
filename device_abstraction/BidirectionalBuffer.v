@@ -35,19 +35,15 @@
 
 	OE_INVERT (default true) means OE=1 output, OE=0 input
  */
-module BidirectionalBuffer(fabric_in, fabric_out, oe, pad);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O and parameter declarations
-
-	parameter WIDTH = 8;
-
-	output wire[WIDTH-1:0] fabric_in;
-	input wire[WIDTH-1:0] fabric_out;
-	inout wire[WIDTH-1:0] pad;
-	input wire oe;
-
-	parameter OE_INVERT = 1;
+module BidirectionalBuffer #(
+	parameter WIDTH 	= 1,
+	parameter OE_INVERT	= 1
+) (
+	output wire[WIDTH-1:0]	fabric_in,
+	input wire[WIDTH-1:0]	fabric_out,
+	inout wire[WIDTH-1:0]	pad,
+	input wire				oe
+);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// The IO buffers
