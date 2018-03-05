@@ -44,43 +44,23 @@
 		Wait for mgmt_busy_fwd to be cleared
 		Read phy_rd_data;
  */
-module EthernetMDIOTransceiver(
-	clk_125mhz,
-	mdio, mdc,
-	mgmt_busy_fwd, phy_reg_addr, phy_wr_data, phy_rd_data, phy_reg_wr, phy_reg_rd
-	);
+module EthernetMDIOTransceiver #(
+	parameter PHY_MD_ADDR = 5'b00001
+) (
+	input	wire		clk_125mhz,
 
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O declarations
+	output	reg			mdio_tx_data	= 0,
+	output	reg			mdio_tx_en		= 0,
+	input	wire		mdio_rx_data,
 
-	input	wire		clk_125mhz;
+	output	reg			mdc			 	= 0,
 
-	inout	wire		mdio;
-	output	reg			mdc = 0;
-
-	output	wire		mgmt_busy_fwd;
-	input	wire[4:0]	phy_reg_addr;
-	input	wire[15:0]	phy_wr_data;
-	output	reg[15:0]	phy_rd_data = 0;
-	input	wire		phy_reg_wr;
-	input	wire		phy_reg_rd;
-
-	parameter PHY_MD_ADDR = 5'b00001;
-
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O tristates
-
-	reg mdio_tx_en = 0;
-	reg mdio_tx_data = 0;
-	wire mdio_rx_data;
-
-	IobufMacro #(
-		.WIDTH(1)
-	) mdio_tristate (
-		.din(mdio_rx_data),
-		.dout(mdio_tx_data),
-		.oe(mdio_tx_en),
-		.io(mdio)
+	output	wire		mgmt_busy_fwd,
+	input	wire[4:0]	phy_reg_addr,
+	input	wire[15:0]	phy_wr_data,
+	output	reg[15:0]	phy_rd_data		= 0,
+	input	wire		phy_reg_wr,
+	input	wire		phy_reg_rd
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
@@ -182,7 +162,7 @@ module EthernetMDIOTransceiver(
 
 					mgmt_count		<= mgmt_count + 6'h1;
 
-					if(mgmt_count == 'd32) begin
+					if(mgmt_count == 'd48) begin		//send extra long preamble just in case
 						mgmt_state	<= MGMT_STATE_ST;
 						mgmt_count	<= 0;
 					end
