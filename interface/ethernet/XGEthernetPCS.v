@@ -57,12 +57,32 @@ module XGEthernetPCS(
 	output reg[3:0]		xgmii_rxc	= 0,
 	output reg[31:0]	xgmii_rxd	= 0,
 
-	//TODO: TX XGMII interface
+	//TX XGMII interface
+	//Note that we source the TX clock rather than having it come from the MAC
+	output wire			xgmii_tx_clk,
+	input wire[3:0]		xgmii_txc,
+	input wire[31:0]	xgmii_txd,
 
 	//Link state etc signals
 	output reg			block_sync_good,	//indicates valid 64/66b synchronization
+	output reg			link_up,
 	output reg			remote_fault
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Clock loopback
+
+	//TODO: omit these ports since they serve no real purpose other than convenient naming?
+	assign xgmii_rx_clk	= rx_clk;
+	assign xgmii_tx_clk	= tx_clk;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Link state calculation
+
+	//TODO: detect invalid code groups etc and drop the link after too many
+	always @(*) begin
+		link_up		<= block_sync_good && !remote_fault;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Ethernet protocol constants
@@ -168,6 +188,8 @@ module XGEthernetPCS(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX 64-bit block reassembly and byte reordering
+
+	//todo: can we make this combinatorial?
 
 	reg			rx_block_valid		= 0;
 	reg			rx_block_is_control	= 0;
@@ -554,23 +576,85 @@ module XGEthernetPCS(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// LA runs in SERDES RX clock domain
+	// TX 64-bit block generation and byte reordering
 
+	reg[1:0]		tx_header_next	= 2'h2;
+	reg[63:0]		tx_64b_data		= 64'h1e000000_00000000;	//idles
+
+	//Pull out the right 32-bit word and twiddle bit odering
+	//We have two cycle latency through the line coding block right now, so send the leftmost block
+	//when tx_header_valid is about to go high
+	reg[31:0]		tx_32b_data		= 0;
+	always @(posedge tx_clk) begin
+
+		if(!tx_header_valid) begin
+			tx_32b_data[7:0]		<= tx_64b_data[63:56];
+			tx_32b_data[15:8]		<= tx_64b_data[55:48];
+			tx_32b_data[23:16]		<= tx_64b_data[47:40];
+			tx_32b_data[31:24]		<= tx_64b_data[39:32];
+		end
+
+		else begin
+			tx_32b_data[7:0]		<= tx_64b_data[31:24];
+			tx_32b_data[15:8]		<= tx_64b_data[23:16];
+			tx_32b_data[23:16]		<= tx_64b_data[15:8];
+			tx_32b_data[31:24]		<= tx_64b_data[7:0];
+		end
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX scrambling and bit reordering
+
+	reg[57:0] 	tx_scramble = 0;
+
+	reg			tx_scramble_temp;
+
+	always @(posedge tx_clk) begin
+
+		tx_header					<= tx_header_next;
+		tx_header_valid				<= !tx_header_valid;
+
+		for(i=0; i<32; i=i+1) begin
+			tx_scramble_temp			= tx_32b_data[i] ^ tx_scramble[38] ^ tx_scramble[57];
+
+			tx_data[31-i]				= tx_scramble_temp;
+			tx_scramble					= { tx_scramble[56:0], tx_scramble_temp };
+		end
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// LA runs in SERDES TX clock domain
+
+	/*
 	ila_0 ila(
-		.clk(rx_clk),
-		.probe0(rx_header_valid),
-		.probe1(rx_header),
-		.probe2(rx_data_descrambled),
-		.probe3(xgmii_rxc),
-		.probe4(xgmii_rxd),
-		.probe5(block_sync_good),
-		.probe6(remote_fault),
-		.probe7(rx_block_valid),
-		.probe8(rx_block_is_control),
-		.probe9(rx_block_data)
+		.clk(xgmii_rx_clk),
+
+		.probe0(xgmii_rxc),
+		.probe1(xgmii_rxd),
+		.probe2(rx_block_valid),
+		.probe3(rx_block_is_control),
+		.probe4(rx_block_data),
+		.probe5(last_frame_was_fault)
+	);*/
+
+	/*
+	ila_0 ila(
+		.clk(tx_clk),
+
+		.probe0(tx_header),
+		.probe1(tx_header_next),
+		.probe2(tx_64b_data),
+		.probe3(tx_data),
+		.probe4(tx_32b_data),
+		.probe5(tx_header_valid),
+		.probe6(xgmii_txc),
+		.probe7(xgmii_txd)
 
 		//.trig_out(trig_out),
 		//.trig_out_ack(trig_out_ack)
 	);
+	*/
 
 endmodule
