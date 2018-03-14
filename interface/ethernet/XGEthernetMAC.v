@@ -38,14 +38,22 @@
  */
 module XGEthernetMAC(
 
-	//RX bus
+	//XMGII bus
 	input wire			xgmii_rx_clk,
 	input wire[3:0]		xgmii_rxc,
 	input wire[31:0]	xgmii_rxd,
 
 	//Link state flags (reset stuff as needed when link is down)
-	input wire			link_up
+	input wire			link_up,
 
+	//Data bus to host
+	//Streaming bus, don't act on this data until rx_frame_commit goes high
+	output reg			rx_frame_start			= 0,
+	output reg			rx_frame_data_valid		= 0,
+	output reg[2:0]		rx_frame_bytes_valid	= 0,
+	output reg[31:0]	rx_frame_data			= 0,
+	output reg			rx_frame_commit			= 0,
+	output reg			rx_frame_drop			= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -79,13 +87,9 @@ module XGEthernetMAC(
 	localparam STATE_IDLE		= 0;
 	localparam STATE_PREAMBLE	= 1;
 	localparam STATE_BODY		= 2;
+	localparam STATE_FCS		= 3;
 
-	reg			frame_starting	= 0;
 	reg[3:0]	rx_state		= 0;
-
-	reg[31:0]	xgmii_rxd_ff	= 0;
-
-	reg[2:0]	crc_count		= 0;
 
 	reg			last_was_preamble	= 0;
 
@@ -93,10 +97,12 @@ module XGEthernetMAC(
 	reg[31:0]	crc_expected;
 	reg[31:0]	crc_expected_ff;
 
-	//Combinatorially figure out how many bytes of data have to be CRC'd
+	//Combinatorially figure out how many bytes of data in the current block are valid
 	always @(*) begin
-		crc_count		<= 0;
-		crc_expected	<= 0;
+		rx_frame_bytes_valid			<= 0;
+		crc_expected					<= 0;
+
+		rx_frame_data_valid				<= 0;
 
 		if(rx_state == STATE_BODY) begin
 
@@ -104,37 +110,45 @@ module XGEthernetMAC(
 			//(except for the FCS)
 			if(lane_has_end[3]) begin
 				//entire rxd_ff is FCS, don't crc it at all
-				crc_expected	<= xgmii_rxd_ff;
+				crc_expected			<= rx_frame_data;
 			end
 			else if(lane_has_end[2]) begin
-				crc_count		<= 1;
-				crc_expected	<= { xgmii_rxd_ff[23:0], xgmii_rxd[31:24] };
+				rx_frame_bytes_valid	<= 1;
+				crc_expected			<= { rx_frame_data[23:0], xgmii_rxd[31:24] };
 			end
 			else if(lane_has_end[1]) begin
-				crc_count		<= 2;
-				crc_expected	<= { xgmii_rxd_ff[15:0], xgmii_rxd[31:16] };
+				rx_frame_bytes_valid	<= 2;
+				rx_frame_data_valid		<= 1;
+				crc_expected			<= { rx_frame_data[15:0], xgmii_rxd[31:16] };
 			end
 			else if(lane_has_end[0]) begin
-				crc_count		<= 3;
-				crc_expected	<= { xgmii_rxd_ff[7:0], xgmii_rxd[31:8] };
+				rx_frame_bytes_valid	<= 3;
+				rx_frame_data_valid		<= 1;
+				crc_expected			<= { rx_frame_data[7:0], xgmii_rxd[31:8] };
 			end
 
 			//Packet is NOT ending this block. Feed the last 4 bytes to the CRC engine.
 			//(We can't feed the current 4 bytes in yet, as they might be part of the crc!)
 			//Also, make sure not to hash the preamble or SFD!
-			else if(!last_was_preamble)
-				crc_count	<= 4;
-
+			else if(!last_was_preamble) begin
+				rx_frame_bytes_valid	<= 4;
+				rx_frame_data_valid		<= 1;
+			end
 		end
 
 	end
 
 	always @(posedge xgmii_rx_clk) begin
 
-		frame_starting	<= 0;
+		rx_frame_start		<= 0;
 
-		xgmii_rxd_ff	<= xgmii_rxd;
-		crc_expected_ff	<= crc_expected;
+		last_was_preamble	<= 0;
+
+		rx_frame_data		<= xgmii_rxd;
+		crc_expected_ff		<= crc_expected;
+
+		rx_frame_commit		<= 0;
+		rx_frame_drop		<= 0;
 
 		case(rx_state)
 
@@ -146,7 +160,7 @@ module XGEthernetMAC(
 				//Ignore idles and errors
 				//Look for start of frame (can only occur in leftmost XGMII lane)
 				if(xgmii_rxc[3] && (xgmii_rxd[31:24] == XGMII_CTL_START) ) begin
-					frame_starting	<= 1;
+					rx_frame_start	<= 1;
 					rx_state		<= STATE_PREAMBLE;
 				end
 
@@ -175,23 +189,30 @@ module XGEthernetMAC(
 
 			STATE_BODY: begin
 
-				last_was_preamble	<= 0;
-
-				//Handle errors in the middle of the packet (just drop it)
-				if(lane_has_error) begin
-					//TODO: send "drop packet" flag to host
-					rx_state		<= STATE_IDLE;
-				end
-
 				//If we hit the end of the packet, stop
 				//This can happen in any lane as packet lengths are not guaranteed to be 32-bit aligned
-				if(lane_has_end) begin
-					rx_state		<= STATE_IDLE;
-				end
+				if(lane_has_end)
+					rx_state		<= STATE_FCS;
 
 			end	//end STATE_BODY
 
+			STATE_FCS: begin
+				if(crc_expected_ff == crc_dout)
+					rx_frame_commit	<= 1;
+				else
+					rx_frame_drop	<= 1;
+
+				rx_state			<= STATE_IDLE;
+			end
+
 		endcase
+
+		//Handle errors in the middle of the packet (just drop it)
+		//This overrides and any all other processing
+		if(lane_has_error && (rx_state != STATE_IDLE) ) begin
+			rx_state		<= STATE_IDLE;
+			rx_frame_drop	<= 1;
+		end
 
 	end
 
@@ -201,10 +222,10 @@ module XGEthernetMAC(
 	CRC32_Ethernet_x32_variable rx_crc(
 
 		.clk(xgmii_rx_clk),
-		.reset(frame_starting),
+		.reset(rx_frame_start),
 
-		.din_len(crc_count),
-		.din(xgmii_rxd_ff),
+		.din_len(rx_frame_bytes_valid),
+		.din(rx_frame_data),
 		.crc_out(crc_dout)
 	);
 
@@ -217,14 +238,17 @@ module XGEthernetMAC(
 		.probe0(xgmii_rxc),
 		.probe1(xgmii_rxd),
 		.probe2(rx_state),
-		.probe3(frame_starting),
-		.probe4(crc_count),
-		.probe5(xgmii_rxd_ff),
+		.probe3(rx_frame_start),
+		.probe4(rx_frame_bytes_valid),
+		.probe5(rx_frame_data),
 		.probe6(crc_dout),
 		.probe7(last_was_preamble),
 		.probe8(lane_has_end),
 		.probe9(lane_has_error),
-		.probe10(crc_expected_ff)
+		.probe10(crc_expected_ff),
+		.probe11(rx_frame_data_valid),
+		.probe12(rx_frame_commit),
+		.probe13(rx_frame_drop)
 	);
 
 endmodule
