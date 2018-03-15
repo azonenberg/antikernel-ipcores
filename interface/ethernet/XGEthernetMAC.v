@@ -35,6 +35,11 @@
 	@brief 10-Gigabit Ethernet MAC
 
 	Pretty simple, just convert control codes to status flags and insert/verify checksums
+
+	Conventions
+		rx_frame_start is asserted before, not simultaneous with, first assertion of rx_frame_data_valid
+		rx_frame_bytes_valid is always 4 until last word in the packet, at which point it may take any value
+		rx_frame_commit is asserted after, not simultaneous with, last assertion of rx_frame_data_valid
  */
 module XGEthernetMAC(
 
@@ -232,6 +237,7 @@ module XGEthernetMAC(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug logic analyzer
 
+	/*
 	ila_0 ila(
 		.clk(xgmii_rx_clk),
 
@@ -250,5 +256,6 @@ module XGEthernetMAC(
 		.probe12(rx_frame_commit),
 		.probe13(rx_frame_drop)
 	);
+	*/
 
 endmodule
