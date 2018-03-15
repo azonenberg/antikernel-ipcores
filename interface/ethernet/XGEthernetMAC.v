@@ -119,15 +119,18 @@ module XGEthernetMAC(
 			end
 			else if(lane_has_end[2]) begin
 				rx_frame_bytes_valid	<= 1;
+				rx_frame_data_valid		<= 1;
 				crc_expected			<= { rx_frame_data[23:0], xgmii_rxd[31:24] };
 			end
 			else if(lane_has_end[1]) begin
 				rx_frame_bytes_valid	<= 2;
 				rx_frame_data_valid		<= 1;
+				rx_frame_data_valid		<= 1;
 				crc_expected			<= { rx_frame_data[15:0], xgmii_rxd[31:16] };
 			end
 			else if(lane_has_end[0]) begin
 				rx_frame_bytes_valid	<= 3;
+				rx_frame_data_valid		<= 1;
 				rx_frame_data_valid		<= 1;
 				crc_expected			<= { rx_frame_data[7:0], xgmii_rxd[31:8] };
 			end
