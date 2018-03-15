@@ -60,7 +60,7 @@ module Ethernet2TypeDecoder(
 	output reg			rx_l2_drop				= 0,
 	output reg[47:0]	rx_l2_dst_mac			= 0,
 	output reg[47:0]	rx_l2_src_mac			= 0,
-	output reg			rx_l2_headers_valid	= 0,
+	output reg			rx_l2_headers_valid		= 0,
 	output reg[15:0]	rx_l2_ethertype			= 0,
 	output reg			rx_l2_ethertype_is_ipv4	= 0,
 	output reg			rx_l2_ethertype_is_ipv6	= 0,
@@ -232,42 +232,5 @@ module Ethernet2TypeDecoder(
 		end
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// LA for sniffing things
-
-	ila_0 ila(
-		.clk(rx_clk),
-
-		.probe0(rx_frame_start),
-		.probe1(rx_frame_bytes_valid),
-		.probe2(rx_frame_data),
-		.probe3(rx_frame_commit),
-		.probe4(rx_frame_drop),
-
-		.probe5(rx_l2_start),
-		.probe6(rx_l2_data_valid),
-		.probe7(rx_l2_bytes_valid),
-		.probe8(rx_l2_data),
-		.probe9(rx_l2_commit),
-		.probe10(rx_l2_drop),
-
-		.probe11(rx_l2_dst_mac),
-		.probe12(rx_l2_src_mac),
-		.probe13(rx_l2_ethertype),
-		.probe14(rx_l2_ethertype_is_ipv4),
-		.probe15(rx_l2_ethertype_is_ipv6),
-		.probe16(rx_l2_ethertype_is_arp),
-		.probe17(rx_l2_vlan_id),
-
-		.probe18(rx_count),
-		.probe19(rx_active),
-		.probe20(rx_frame_has_vlan),
-		.probe21(rx_temp_buf),
-		.probe22(rx_l2_drop_eligible),
-		.probe23(rx_l2_headers_valid),
-		.probe24(rx_temp_valid),
-		.probe25(rx_frame_data_valid)
-	);
 
 endmodule
