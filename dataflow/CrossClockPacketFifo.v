@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -39,7 +39,7 @@
 	transmitted in-band or using a separate FIFO.
  */
 module CrossClockPacketFifo(
-	wr_clk, wr_en, wr_data, wr_reset, wr_size,
+	wr_clk, wr_en, wr_data, wr_reset, wr_size, wr_commit, wr_rollback,
 	rd_clk, rd_en, rd_offset, rd_pop_single, rd_pop_packet, rd_packet_size, rd_data, rd_size, rd_reset
 	);
 
@@ -59,14 +59,16 @@ module CrossClockPacketFifo(
 	input wire[WIDTH-1:0]		wr_data;
 	input wire					wr_reset;		//Reset write side of the FIFO
 	output wire[ADDR_BITS:0]	wr_size;		//needs to be one bigger than pointers to hold fully empty size
+	input wire					wr_commit;		//Assert this to say "everything we've written is legal to read"
+	input wire					wr_rollback;	//Assert this to discard everything pushed since the last commit
 
 	//READ port (all signals in rd_clk domain)
 	input wire					rd_clk;
 	input wire					rd_en;			//Read a word
-	input wire[8:0]				rd_offset;		//Offset from packet start for random access reads
+	input wire[ADDR_BITS-1:0]	rd_offset;		//Offset from packet start for random access reads
 	input wire					rd_pop_single;	//Pop one word (exclusive with rd_pop_packet)
 	input wire					rd_pop_packet;	//Pop an entire packet (exclusive with rd_pop_single)
-	input wire[9:0]				rd_packet_size;	//Size of the packet to pop
+	input wire[ADDR_BITS:0]		rd_packet_size;	//Size of the packet to pop
 	output reg[WIDTH-1:0]		rd_data	= 0;
 	output wire[ADDR_BITS:0]	rd_size;
 	input wire					rd_reset;
@@ -86,14 +88,24 @@ module CrossClockPacketFifo(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Write logic (input clock domain)
 
-	reg[ADDR_BITS:0] data_wptr			= 0;							//extra bit for empty/full detect
-	wire[ADDR_BITS-1:0] data_wptr_low	= data_wptr[ADDR_BITS-1:0];		//actual pointer
+	reg[ADDR_BITS:0] 	data_wptr			= 0;							//extra bit for empty/full detect
+	wire[ADDR_BITS-1:0] data_wptr_low		= data_wptr[ADDR_BITS-1:0];		//actual pointer
+
+	reg[ADDR_BITS:0]	data_wptr_committed	= 0;
 
 	always @(posedge wr_clk) begin
+
 		if(wr_en) begin
 			data[data_wptr_low] <= wr_data;
-			data_wptr <= data_wptr + 1'h1;
+			data_wptr 			<= data_wptr + 1'h1;
 		end
+
+		//commit/rollback have higher precedence than writes
+		//but lower than resets
+		if(wr_commit)
+			data_wptr_committed	<= data_wptr;
+		if(wr_rollback)
+			data_wptr			<= data_wptr_committed;
 
 		if(wr_reset)
 			data_wptr <= 0;
@@ -155,7 +167,7 @@ module CrossClockPacketFifo(
 
 		//If a send isn't in progress, go send stuff
 		if(!tail_sync_busy) begin
-			data_tail_wdata <= data_wptr;
+			data_tail_wdata <= data_wptr_committed;
 			tail_wr_en <= 1;
 		end
 
