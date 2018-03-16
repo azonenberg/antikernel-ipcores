@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -216,6 +216,12 @@ module JtagDebugBridge #(
 	wire[TX_FIFO_SIZE_BITS-1:0]	tx_fifo_rd_size;
 	wire[31:0]					tx_fifo_rd_data;
 
+	//commit writes one cycle after they happen
+	reg							tx_fifo_wr_commit		= 0;
+	always @(posedge tap_tck_bufh) begin
+		tx_fifo_wr_commit		<= tx_fifo_wr_en;
+	end
+
 	//Data from JTAG to NoC
 	//Packet structure:
 	//First word: 31=RPC, 30=DMA, 10:0=length
@@ -230,6 +236,8 @@ module JtagDebugBridge #(
 			.wr_data(tx_fifo_wr_data),
 			.wr_reset(jtag_side_reset),
 			.wr_size(tx_fifo_wr_size),
+			.wr_commit(tx_fifo_wr_commit),
+			.wr_rollback(1'b0),
 
 			.rd_clk(clk),
 			.rd_en(tx_fifo_rd_en),
@@ -245,6 +253,12 @@ module JtagDebugBridge #(
 	reg							rx_fifo_wr_en	= 0;
 	reg[31:0]					rx_fifo_wr_data	= 0;
 	wire[TX_FIFO_SIZE_BITS-1:0]	rx_fifo_wr_size;
+
+	//commit writes one cycle after they happen
+	reg							rx_fifo_wr_commit		= 0;
+	always @(posedge clk) begin
+		rx_fifo_wr_commit		<= rx_fifo_wr_en;
+	end
 
 	//Data from NoC to JTAG
 	reg							rx_fifo_rd_en			= 0;
@@ -263,6 +277,8 @@ module JtagDebugBridge #(
 			.wr_data(rx_fifo_wr_data),
 			.wr_reset(noc_side_reset),
 			.wr_size(rx_fifo_wr_size),
+			.wr_commit(rx_fifo_commit),
+			.wr_rollback(1'b0),
 
 			.rd_clk(tap_tck_bufh),
 			.rd_en(rx_fifo_rd_en),
