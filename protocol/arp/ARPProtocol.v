@@ -311,6 +311,12 @@ module ARPProtocol(
 			//(ARP is below the Ethernet MTU so we need some trailing padding)
 			RX_STATE_COMMIT: begin
 
+				//Is the packet asking for somebody else other than us? Drop it
+				if(rx_target_ip_addr != our_ip_address) begin
+					rx_state		<= RX_STATE_IDLE;
+					tx_l2_drop	<= 1;
+				end
+
 				//Valid, well-formed packet? Go ahead and send our reply
 				if(rx_l2_commit) begin
 					rx_state		<= RX_STATE_IDLE;
