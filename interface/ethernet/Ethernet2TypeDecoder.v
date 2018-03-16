@@ -51,6 +51,10 @@ module Ethernet2TypeDecoder(
 	input wire			rx_frame_commit,
 	input wire			rx_frame_drop,
 
+	//Destination MAC filtering
+	input wire[47:0]	our_mac_address,
+	input wire			promisc_mode,
+
 	//Outbound data
 	output reg			rx_l2_start				= 0,
 	output reg			rx_l2_data_valid		= 0,
@@ -68,6 +72,8 @@ module Ethernet2TypeDecoder(
 	output reg[11:0]	rx_l2_vlan_id			= 1,
 	output reg[2:0]		rx_l2_priority			= 0,
 	output reg			rx_l2_drop_eligible		= 0
+
+	//TODO: performance counters
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -154,7 +160,14 @@ module Ethernet2TypeDecoder(
 						rx_l2_ethertype_is_ipv4	<= (rx_frame_data[31:16] == ETHERTYPE_IPV4);
 						rx_l2_ethertype_is_ipv6	<= (rx_frame_data[31:16] == ETHERTYPE_IPV6);
 						rx_l2_ethertype_is_arp	<= (rx_frame_data[31:16] == ETHERTYPE_ARP);
-						rx_l2_headers_valid	<= 1;
+						rx_l2_headers_valid		<= 1;
+					end
+
+					//If not in promiscuous mode, and we get a unicast that's not for us, drop it
+					//(accept all multicasts)
+					if(!promisc_mode && !rx_l2_src_mac[40] && (rx_l2_src_mac != our_mac_address) ) begin
+						rx_l2_drop				<= 1;
+						rx_active				<= 0;
 					end
 
 				end
