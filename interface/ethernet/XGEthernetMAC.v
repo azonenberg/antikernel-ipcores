@@ -59,6 +59,8 @@ module XGEthernetMAC(
 	output reg[31:0]	rx_frame_data			= 0,
 	output reg			rx_frame_commit			= 0,
 	output reg			rx_frame_drop			= 0
+
+	//TODO: performance counters
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -92,15 +94,15 @@ module XGEthernetMAC(
 	localparam STATE_IDLE		= 0;
 	localparam STATE_PREAMBLE	= 1;
 	localparam STATE_BODY		= 2;
-	localparam STATE_FCS		= 3;
 
-	reg[3:0]	rx_state		= 0;
+	reg[1:0]	rx_state		= 0;
 
 	reg			last_was_preamble	= 0;
 
 	wire[31:0]	crc_dout;
 	reg[31:0]	crc_expected;
 	reg[31:0]	crc_expected_ff;
+	reg[31:0]	crc_expected_ff2;
 
 	//Combinatorially figure out how many bytes of data in the current block are valid
 	always @(*) begin
@@ -146,6 +148,9 @@ module XGEthernetMAC(
 
 	end
 
+	reg						fcs_pending_0	= 0;
+	reg						fcs_pending_1	= 0;
+
 	always @(posedge xgmii_rx_clk) begin
 
 		rx_frame_start		<= 0;
@@ -154,9 +159,22 @@ module XGEthernetMAC(
 
 		rx_frame_data		<= xgmii_rxd;
 		crc_expected_ff		<= crc_expected;
+		crc_expected_ff2	<= crc_expected_ff;
 
 		rx_frame_commit		<= 0;
 		rx_frame_drop		<= 0;
+
+		fcs_pending_0		<= 0;
+		fcs_pending_1		<= fcs_pending_0;
+
+		//Pipeline checksum processing by two cycles for timing.
+		//This buys us some time, but we have to be careful when packets are at minimum spacing.
+		if(fcs_pending_1) begin
+			if(crc_expected_ff2 == crc_dout)
+				rx_frame_commit	<= 1;
+			else
+				rx_frame_drop	<= 1;
+		end
 
 		case(rx_state)
 
@@ -167,10 +185,8 @@ module XGEthernetMAC(
 
 				//Ignore idles and errors
 				//Look for start of frame (can only occur in leftmost XGMII lane)
-				if(xgmii_rxc[3] && (xgmii_rxd[31:24] == XGMII_CTL_START) ) begin
-					rx_frame_start	<= 1;
+				if(xgmii_rxc[3] && (xgmii_rxd[31:24] == XGMII_CTL_START) )
 					rx_state		<= STATE_PREAMBLE;
-				end
 
 			end	//end STATE_IDLE
 
@@ -178,6 +194,10 @@ module XGEthernetMAC(
 			// PREAMBLE - Ethernet preamble, but no data for upper layers yet
 
 			STATE_PREAMBLE: begin
+
+				//Delay rx_frame_start by one cycle
+				//to give checksum calculation a chance to complete
+				rx_frame_start		<= 1;
 
 				//We should have exactly one XGMII clock in this stage
 				//and it should be data 55 55 55 D5. Anything else is an error, drop the frame.
@@ -199,19 +219,12 @@ module XGEthernetMAC(
 
 				//If we hit the end of the packet, stop
 				//This can happen in any lane as packet lengths are not guaranteed to be 32-bit aligned
-				if(lane_has_end)
-					rx_state		<= STATE_FCS;
+				if(lane_has_end) begin
+					fcs_pending_0	<= 1;
+					rx_state		<= STATE_IDLE;
+				end
 
 			end	//end STATE_BODY
-
-			STATE_FCS: begin
-				if(crc_expected_ff == crc_dout)
-					rx_frame_commit	<= 1;
-				else
-					rx_frame_drop	<= 1;
-
-				rx_state			<= STATE_IDLE;
-			end
 
 		endcase
 
@@ -220,6 +233,9 @@ module XGEthernetMAC(
 		if(lane_has_error && (rx_state != STATE_IDLE) ) begin
 			rx_state		<= STATE_IDLE;
 			rx_frame_drop	<= 1;
+
+			fcs_pending_0	<= 0;
+			fcs_pending_1	<= 0;
 		end
 
 	end
@@ -227,13 +243,22 @@ module XGEthernetMAC(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Receive CRC32
 
+	//Pipeline CRC input by one cycle to improve timing
+	reg[2:0]		rx_frame_bytes_valid_ff	= 0;
+	reg[31:0]		rx_frame_data_ff		= 0;
+
+	always @(posedge xgmii_rx_clk) begin
+		rx_frame_bytes_valid_ff	<= rx_frame_bytes_valid;
+		rx_frame_data_ff		<= rx_frame_data;
+	end
+
 	CRC32_Ethernet_x32_variable rx_crc(
 
 		.clk(xgmii_rx_clk),
 		.reset(rx_frame_start),
 
-		.din_len(rx_frame_bytes_valid),
-		.din(rx_frame_data),
+		.din_len(rx_frame_bytes_valid_ff),
+		.din(rx_frame_data_ff),
 		.crc_out(crc_dout)
 	);
 
@@ -241,6 +266,13 @@ module XGEthernetMAC(
 	// Debug logic analyzer
 
 	/*
+	wire	trig_out;
+	reg		trig_out_ack	= 0;
+
+	always @(posedge xgmii_rx_clk) begin
+		trig_out_ack	<= trig_out;
+	end
+
 	ila_0 ila(
 		.clk(xgmii_rx_clk),
 
@@ -255,9 +287,15 @@ module XGEthernetMAC(
 		.probe8(lane_has_end),
 		.probe9(lane_has_error),
 		.probe10(crc_expected_ff),
-		.probe11(rx_frame_data_valid),
-		.probe12(rx_frame_commit),
-		.probe13(rx_frame_drop)
+		.probe11(crc_expected_ff2),
+		.probe12(rx_frame_data_valid),
+		.probe13(rx_frame_commit),
+		.probe14(rx_frame_drop),
+		.probe15(fcs_pending_0),
+		.probe16(fcs_pending_1),
+
+		.trig_out(trig_out),
+		.trig_out_ack(trig_out_ack)
 	);
 	*/
 
