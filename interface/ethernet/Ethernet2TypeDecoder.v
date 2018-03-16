@@ -165,7 +165,7 @@ module Ethernet2TypeDecoder(
 
 					//If not in promiscuous mode, and we get a unicast that's not for us, drop it
 					//(accept all multicasts)
-					if(!promisc_mode && !rx_l2_src_mac[40] && (rx_l2_src_mac != our_mac_address) ) begin
+					if(!promisc_mode && !rx_l2_dst_mac[40] && (rx_l2_dst_mac != our_mac_address) ) begin
 						rx_l2_drop				<= 1;
 						rx_active				<= 0;
 					end
