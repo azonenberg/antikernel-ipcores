@@ -130,12 +130,15 @@ module EthernetTransmitElasticBuffer(
 
 	reg						header_pop			= 0;
 	reg						header_rd_en		= 0;
+	reg						header_rd_en_ff		= 0;
 
 	wire[HEADER_BITS:0]		header_rd_size;
 	wire[77:0]				header_rd_data;
-	wire[13:0]				header_rd_framelen	= header_rd_data[77:64];
-	wire[15:0]				header_rd_ethertype	= header_rd_data[63:48];
-	wire[47:0]				header_rd_dstmac	= header_rd_data[47:0];
+	reg[77:0]				header_rd_data_ff	= 0;
+
+	wire[13:0]				header_rd_framelen	= header_rd_data_ff[77:64];
+	wire[15:0]				header_rd_ethertype	= header_rd_data_ff[63:48];
+	wire[47:0]				header_rd_dstmac	= header_rd_data_ff[47:0];
 
 	CrossClockPacketFifo #(
 		.WIDTH(78),
@@ -262,12 +265,14 @@ module EthernetTransmitElasticBuffer(
 
 		fifo_rd_data_ff			<= fifo_rd_data;
 		fifo_rd_data_ff2		<= fifo_rd_data_ff;
+		header_rd_en_ff			<= header_rd_en;
+		header_rd_data_ff		<= header_rd_data;
 
 		//Wait for new frames to be ready to send
 		if(!tx_active) begin
 
 			//If we are currently reading headers, they'll be ready next cycle
-			if(header_rd_en) begin
+			if(header_rd_en_ff) begin
 				tx_count		<= 0;
 				tx_active		<= 1;
 				tx_frame_start	<= 1;
@@ -275,6 +280,11 @@ module EthernetTransmitElasticBuffer(
 				//Pop the header so we have buffer space for the next packet
 				header_pop		<= 1;
 
+			end
+
+			//wait for read
+			else if(header_rd_en) begin
+				//no action needed, just wait
 			end
 
 			//If there's headers and data ready to go, read them.
