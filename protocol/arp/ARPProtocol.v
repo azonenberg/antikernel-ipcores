@@ -348,47 +348,4 @@ module ARPProtocol(
 
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// LA for debugging things
-
-	/*
-	wire	trig_out;
-
-	reg		trig_out_ack 	= 0;
-	always @(posedge clk) begin
-		trig_out_ack	<= trig_out;
-	end
-
-	ila_0 ila(
-		.clk(clk),
-
-		.probe0(rx_l2_start),
-		.probe1(rx_l2_data_valid),
-		.probe2(rx_l2_bytes_valid),
-		.probe3(rx_l2_data),
-		.probe4(rx_l2_commit),
-		.probe5(rx_l2_drop),
-		.probe6(rx_l2_headers_valid),
-		.probe7(rx_l2_ethertype_is_arp),
-
-		.probe8(tx_l2_start),
-		.probe9(tx_l2_data_valid),
-		.probe10(tx_l2_bytes_valid),
-		.probe11(tx_l2_data),
-		.probe12(tx_l2_commit),
-		.probe13(tx_l2_drop),
-		.probe14(tx_l2_dst_mac),
-
-		.probe15(rx_state),
-		.probe16(rx_packet_is_request),
-		.probe17(rx_sender_mac_addr),
-		.probe18(rx_sender_ip_addr),
-		.probe19(rx_target_mac_addr),
-		.probe20(rx_target_ip_addr),
-
-		.trig_out(trig_out),
-		.trig_out_ack(trig_out_ack)
-	);
-	*/
-
 endmodule
