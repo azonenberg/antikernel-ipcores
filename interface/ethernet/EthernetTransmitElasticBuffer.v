@@ -34,7 +34,7 @@
 	@author Andrew D. Zonenberg
 	@brief Elastic buffer for matching RX and TX clock domains
 
-	Also, build the layer-2 header (FCS is added by the MAC)
+	Also, build the layer-2 headers (FCS and padding, if any, are added by the MAC)
  */
 module EthernetTransmitElasticBuffer(
 
@@ -56,9 +56,7 @@ module EthernetTransmitElasticBuffer(
 	output reg			tx_frame_start			= 0,
 	output reg			tx_frame_data_valid		= 0,
 	output reg[2:0]		tx_frame_bytes_valid	= 0,
-	output reg[31:0]	tx_frame_data			= 0,
-	output reg			tx_frame_commit			= 0,
-	output reg			tx_frame_drop			= 0
+	output reg[31:0]	tx_frame_data			= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -87,7 +85,6 @@ module EthernetTransmitElasticBuffer(
 
 	reg						fifo_rd_en			= 0;
 	reg[PACKET_BITS-1:0]	fifo_rd_offset		= 0;
-	reg						fifo_pop_single		= 0;
 	reg						fifo_pop_packet		= 0;
 	reg[PACKET_BITS:0]		fifo_pop_size		= 0;
 	wire[31:0]				fifo_rd_data;
@@ -108,7 +105,7 @@ module EthernetTransmitElasticBuffer(
 		.rd_clk(xgmii_tx_clk),
 		.rd_en(fifo_rd_en),
 		.rd_offset(fifo_rd_offset),
-		.rd_pop_single(fifo_pop_single),
+		.rd_pop_single(1'b0),
 		.rd_pop_packet(fifo_pop_packet),
 		.rd_packet_size(fifo_pop_size),
 		.rd_data(fifo_rd_data),
@@ -136,7 +133,7 @@ module EthernetTransmitElasticBuffer(
 
 	wire[HEADER_BITS:0]		header_rd_size;
 	wire[77:0]				header_rd_data;
-	wire[13:0]				header_rd_len		= header_rd_data[77:64];
+	wire[13:0]				header_rd_framelen	= header_rd_data[77:64];
 	wire[15:0]				header_rd_ethertype	= header_rd_data[63:48];
 	wire[47:0]				header_rd_dstmac	= header_rd_data[47:0];
 
@@ -242,42 +239,160 @@ module EthernetTransmitElasticBuffer(
 
 	end
 
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// LA for debugging things
+	// Read control logic
 
-	wire	trig_out;
+	reg			tx_active			= 0;
 
-	reg		trig_out_ack 	= 0;
-	always @(posedge tx_l2_clk) begin
-		trig_out_ack	<= trig_out;
+	reg[13:0]	tx_bytes_left		= 0;
+	reg[2:0]	tx_count			= 0;
+	reg[31:0]	fifo_rd_data_ff		= 0;
+	reg[31:0]	fifo_rd_data_ff2	= 0;
+
+	always @(posedge xgmii_tx_clk) begin
+
+		tx_frame_start			<= 0;
+		tx_frame_data_valid		<= 0;
+		tx_frame_bytes_valid	<= 0;
+
+		fifo_rd_en				<= 0;
+		fifo_pop_packet			<= 0;
+		header_pop				<= 0;
+		header_rd_en			<= 0;
+
+		fifo_rd_data_ff			<= fifo_rd_data;
+		fifo_rd_data_ff2		<= fifo_rd_data_ff;
+
+		//Wait for new frames to be ready to send
+		if(!tx_active) begin
+
+			//If we are currently reading headers, they'll be ready next cycle
+			if(header_rd_en) begin
+				tx_count		<= 0;
+				tx_active		<= 1;
+				tx_frame_start	<= 1;
+
+				//Pop the header so we have buffer space for the next packet
+				header_pop		<= 1;
+
+			end
+
+			//If there's headers and data ready to go, read them.
+			else if( (header_rd_size > 0) && (fifo_rd_size > 0) )
+				header_rd_en	<= 1;
+
+		end
+
+		//Currently forwarding a frame
+		else begin
+
+			case(tx_count)
+
+				//Send first 4 bytes of dest MAC
+				0: begin
+					tx_frame_data_valid		<= 1;
+					tx_frame_bytes_valid	<= 4;
+					tx_frame_data			<= header_rd_dstmac[47:16];
+
+					//Request read of the first message data word so it's ready when we need it
+					fifo_rd_en				<= 1;
+					fifo_rd_offset			<= 0;
+
+					tx_count				<= 1;
+				end
+
+				//Send last 2 bytes of dest MAC and first two of source
+				1: begin
+					tx_frame_data_valid		<= 1;
+					tx_frame_bytes_valid	<= 4;
+					tx_frame_data			<=
+					{
+						header_rd_dstmac[15:0],
+						our_mac_address[47:32]
+					};
+
+					//Request read of the second message data word so it's ready when we need it
+					fifo_rd_en				<= 1;
+					fifo_rd_offset			<= fifo_rd_offset + 1'h1;
+
+					tx_count				<= 2;
+				end
+
+				//Send last 4 bytes of source MAC
+				2: begin
+					tx_frame_data_valid		<= 1;
+					tx_frame_bytes_valid	<= 4;
+					tx_frame_data			<= our_mac_address[31:0];
+
+					//Request read of the third message data word so it's ready when we need it
+					fifo_rd_en				<= 1;
+					fifo_rd_offset			<= fifo_rd_offset + 1'h1;
+
+					tx_count				<= 3;
+				end
+
+				//Send ethertype plus first two data bytes
+				//TODO: support insertion of 802.1q tags here
+				3: begin
+
+					tx_frame_data_valid		<= 1;
+					tx_frame_bytes_valid	<= 4;
+					tx_frame_data			<= { header_rd_ethertype, fifo_rd_data_ff[31:16] };
+
+					//We sent two bytes but the rest are still coming
+					tx_bytes_left			<= header_rd_framelen - 14'd2;
+
+					//Request read of the fourth message data word so it's ready when we need it
+					fifo_rd_en				<= 1;
+					fifo_rd_offset			<= fifo_rd_offset + 1'h1;
+
+					tx_count				<= 4;
+
+				end
+
+				//Send subsequent data bytes
+				4: begin
+
+					tx_frame_data_valid			<= 1;
+					tx_frame_data				<= { fifo_rd_data_ff2[15:0], fifo_rd_data_ff[31:16] };
+
+					if(tx_bytes_left < 4) begin
+						tx_frame_bytes_valid	<= tx_bytes_left;
+						tx_bytes_left			<= 0;
+
+						//Pop the FIFO.
+						//Round size up to words
+						fifo_pop_packet			<= 1;
+						if(header_rd_framelen[1:0])
+							fifo_pop_size		<= header_rd_framelen[13:2] + 1'h1;
+						else
+							fifo_pop_size		<= header_rd_framelen[13:2];
+
+						tx_active				<= 0;
+						tx_count				<= 0;
+					end
+
+					//Send the next 4 bytes
+					else begin
+
+						tx_frame_bytes_valid	<= 4;
+						tx_bytes_left			<= tx_bytes_left - 14'h4;
+
+						//Read the next FIFO block if we need more data
+						//If we have six bytes or less left, though, stop
+						if(tx_bytes_left >= 6) begin
+							fifo_rd_en			<= 1;
+							fifo_rd_offset		<= fifo_rd_offset + 1'h1;
+						end
+
+					end
+
+				end
+
+			endcase
+
+		end
+
 	end
-
-	ila_0 ila(
-		.clk(tx_l2_clk),
-
-		.probe0(tx_l2_start),
-		.probe1(tx_l2_data_valid),
-		.probe2(tx_l2_bytes_valid),
-		.probe3(tx_l2_data),
-		.probe4(tx_l2_commit),
-		.probe5(tx_l2_drop),
-		.probe6(tx_l2_dst_mac),
-		.probe7(tx_l2_ethertype),
-
-		.probe8(packet_active),
-		.probe9(fifo_wr_en),
-		.probe10(fifo_wr_data),
-		.probe11(fifo_wr_size),
-		.probe12(header_wr_en),
-		.probe13(packet_wr_len),
-		.probe14(header_wr_size),
-		.probe15(fifo_wr_commit),
-		.probe16(fifo_wr_rollback),
-		.probe17(header_wr_en_ff),
-
-		.trig_out(trig_out),
-		.trig_out_ack(trig_out_ack)
-	);
 
 endmodule
