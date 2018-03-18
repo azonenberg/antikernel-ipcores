@@ -104,7 +104,7 @@ module ARPProtocol(
 		case(rx_state)
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// IDLE - sit around and wait for a new incoming ARP request
+			// IDLE - sit around and wait for a new incoming packet
 
 			RX_STATE_IDLE: begin
 
@@ -114,12 +114,16 @@ module ARPProtocol(
 			end	//end RX_STATE_IDLE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// L2 HEADER - wait for the layer-2 headers to be valid
+			// L2 HEADER - wait for the layer-2 headers to be valid. Discard any other ethertypes.
 
 			RX_STATE_L2_HEADER: begin
 
-				if(rx_l2_headers_valid)
-					rx_state	<= RX_STATE_BODY_0;
+				if(rx_l2_headers_valid) begin
+					if(rx_l2_ethertype_is_arp)
+						rx_state	<= RX_STATE_BODY_0;
+					else
+						rx_state	<= RX_STATE_IDLE;
+				end
 
 			end	//end RX_STATE_L2_HEADER
 
