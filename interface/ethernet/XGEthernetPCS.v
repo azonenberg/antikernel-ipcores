@@ -576,10 +576,124 @@ module XGEthernetPCS(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TX 64-bit block generation and byte reordering
+	// TX 64-bit block generation
 
-	reg[1:0]		tx_header_next	= 2'h2;
-	reg[63:0]		tx_64b_data		= 64'h1e000000_00000000;	//idles
+	//Build a 64-bit XGMII data block
+	reg				xgmii_x64_valid	= 0;
+	reg[7:0]		xgmii_txc_x64	= 0;
+	reg[63:0]		xgmii_txd_x64	= 0;
+
+	always @(posedge tx_clk) begin
+
+		//TODO: check if this phasing is right
+		if(tx_header_valid) begin
+			xgmii_x64_valid			<= 0;
+			xgmii_txc_x64[7:4]		<= xgmii_txc;
+			xgmii_txd_x64[63:32]	<= xgmii_txd;
+		end
+		else begin
+			xgmii_x64_valid			<= 1;
+			xgmii_txc_x64[3:0]		<= xgmii_txc;
+			xgmii_txd_x64[31:0]		<= xgmii_txd;
+		end
+
+	end
+
+	reg[1:0]		tx_header_next		= SYNC_CONTROL;
+	reg[1:0]		tx_header_next_ff	= SYNC_CONTROL;
+	reg[63:0]		tx_64b_data			=
+	{
+		CTL_C8,
+		CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE
+	};
+
+	wire[7:0]		tx_has_start =
+	{
+		xgmii_txc_x64[7] && (xgmii_txd_x64[63:56] == XGMII_CTL_START),
+		xgmii_txc_x64[6] && (xgmii_txd_x64[55:48] == XGMII_CTL_START),
+		xgmii_txc_x64[5] && (xgmii_txd_x64[47:40] == XGMII_CTL_START),
+		xgmii_txc_x64[4] && (xgmii_txd_x64[39:32] == XGMII_CTL_START),
+		xgmii_txc_x64[3] && (xgmii_txd_x64[31:24] == XGMII_CTL_START),
+		xgmii_txc_x64[2] && (xgmii_txd_x64[23:16] == XGMII_CTL_START),
+		xgmii_txc_x64[1] && (xgmii_txd_x64[15:8 ] == XGMII_CTL_START),
+		xgmii_txc_x64[0] && (xgmii_txd_x64[7:0  ] == XGMII_CTL_START)
+	};
+
+	wire[7:0]		tx_has_end =
+	{
+		xgmii_txc_x64[7] && (xgmii_txd_x64[63:56] == XGMII_CTL_END),
+		xgmii_txc_x64[6] && (xgmii_txd_x64[55:48] == XGMII_CTL_END),
+		xgmii_txc_x64[5] && (xgmii_txd_x64[47:40] == XGMII_CTL_END),
+		xgmii_txc_x64[4] && (xgmii_txd_x64[39:32] == XGMII_CTL_END),
+		xgmii_txc_x64[3] && (xgmii_txd_x64[31:24] == XGMII_CTL_END),
+		xgmii_txc_x64[2] && (xgmii_txd_x64[23:16] == XGMII_CTL_END),
+		xgmii_txc_x64[1] && (xgmii_txd_x64[15:8 ] == XGMII_CTL_END),
+		xgmii_txc_x64[0] && (xgmii_txd_x64[7:0  ] == XGMII_CTL_END)
+	};
+
+	wire			tx_has_data = (xgmii_txc_x64 == 8'h0);
+
+	always @(posedge tx_clk) begin
+
+		tx_header_next_ff		<= tx_header_next;
+
+		if(xgmii_x64_valid) begin
+
+			//Everything is control characters except packet data
+			//so default to that
+			tx_header_next		<=	SYNC_CONTROL;
+
+			//Start-of-frame in first block
+			//Assume everything after this is data octets (preamble) and send them
+			if(tx_has_start[7])
+				tx_64b_data		<= { CTL_D7_START, xgmii_txd_x64[55:0] };
+
+			//Start-of-frame in second block
+			//Send four idles, four padding bits, then the first three preamble octets
+			else if(tx_has_start[3])
+				tx_64b_data		<= { CTL_C4_D3, IDLE_X4, 4'b0, xgmii_txd_x64[23:0] };
+
+			//Eight data octets - forward them along
+			else if(tx_has_data) begin
+				tx_header_next	<= SYNC_DATA;
+				tx_64b_data		<= xgmii_txd_x64;
+			end
+
+			//End of frame at any position in the block
+			//Send remaining data words, end of frame, then idles
+			//TODO: check rest of the data in the block to make sure there's no TX errors etc to forward
+			else if(tx_has_end[7])
+				tx_64b_data		<= { CTL_C7, 7'h0, IDLE_X7 };
+			else if(tx_has_end[6])
+				tx_64b_data		<= { CTL_D1_C6, xgmii_txd_x64[63:56], 6'h0, IDLE_X6 };
+			else if(tx_has_end[5])
+				tx_64b_data		<= { CTL_D2_C5, xgmii_txd_x64[63:48], 5'h0, IDLE_X5 };
+			else if(tx_has_end[4])
+				tx_64b_data		<= { CTL_D3_C4, xgmii_txd_x64[63:40], 4'h0, IDLE_X4 };
+			else if(tx_has_end[3])
+				tx_64b_data		<= { CTL_D4_C3, xgmii_txd_x64[63:32], 3'h0, IDLE_X3 };
+			else if(tx_has_end[2])
+				tx_64b_data		<= { CTL_D5_C2, xgmii_txd_x64[63:24], 2'h0, IDLE_X2 };
+			else if(tx_has_end[1])
+				tx_64b_data		<= { CTL_D6_C1, xgmii_txd_x64[63:16], 1'h0, CTL_IDLE };
+			else if(tx_has_end[0])
+				tx_64b_data		<= { CTL_D7_END, xgmii_txd_x64[63:8]};
+
+			//Nothing to do, send idles
+			else begin
+				tx_64b_data			<=
+				{
+					CTL_C8,
+					CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE
+				};
+			end
+
+		end
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX 32-bit block generation and byte reordering
 
 	//Pull out the right 32-bit word and twiddle bit odering
 	//We have two cycle latency through the line coding block right now, so send the leftmost block
@@ -612,7 +726,7 @@ module XGEthernetPCS(
 
 	always @(posedge tx_clk) begin
 
-		tx_header					<= tx_header_next;
+		tx_header					<= tx_header_next_ff;
 		tx_header_valid				<= !tx_header_valid;
 
 		for(i=0; i<32; i=i+1) begin
@@ -627,34 +741,31 @@ module XGEthernetPCS(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// LA runs in SERDES TX clock domain
 
-	/*
-	ila_0 ila(
-		.clk(xgmii_rx_clk),
+	wire	trig_out;
+	reg		trig_out_ack	= 0;
 
-		.probe0(xgmii_rxc),
-		.probe1(xgmii_rxd),
-		.probe2(rx_block_valid),
-		.probe3(rx_block_is_control),
-		.probe4(rx_block_data),
-		.probe5(last_frame_was_fault)
-	);*/
+	always @(posedge tx_clk) begin
+		trig_out_ack	<= trig_out;
+	end
 
-	/*
 	ila_0 ila(
 		.clk(tx_clk),
 
-		.probe0(tx_header),
-		.probe1(tx_header_next),
-		.probe2(tx_64b_data),
-		.probe3(tx_data),
-		.probe4(tx_32b_data),
-		.probe5(tx_header_valid),
-		.probe6(xgmii_txc),
-		.probe7(xgmii_txd)
+		.probe0(xgmii_txc),
+		.probe1(xgmii_txd),
+		.probe2(tx_header_next),
+		.probe3(tx_64b_data),
+		.probe4(xgmii_x64_valid),
+		.probe5(xgmii_txc_x64),
+		.probe6(xgmii_txd_x64),
+		.probe7(tx_32b_data),
 
-		//.trig_out(trig_out),
-		//.trig_out_ack(trig_out_ack)
+		.probe8(tx_has_start),
+		.probe9(tx_has_end),
+		.probe10(tx_has_data),
+
+		.trig_out(trig_out),
+		.trig_out_ack(trig_out_ack)
 	);
-	*/
 
 endmodule
