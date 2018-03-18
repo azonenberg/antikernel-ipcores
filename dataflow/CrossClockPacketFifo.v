@@ -156,7 +156,8 @@ module CrossClockPacketFifo(
 		.busy_a(tail_sync_busy),
 		.clk_b(rd_clk),
 		.en_b(tail_rd_en),
-		.ack_b(tail_rd_en)
+		.ack_b(tail_rd_en),
+		.busy_b()
 	);
 
 	//Write side state machine
@@ -201,7 +202,8 @@ module CrossClockPacketFifo(
 		.busy_a(head_sync_busy),
 		.clk_b(wr_clk),
 		.en_b(head_wr_en),
-		.ack_b(head_wr_en)
+		.ack_b(head_wr_en),
+		.busy_b()
 	);
 
 	//Read side state machine
