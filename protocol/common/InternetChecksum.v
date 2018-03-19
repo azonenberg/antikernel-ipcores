@@ -91,6 +91,7 @@ endmodule
 module InternetChecksum32bit(
 	input wire			clk,
 	input wire			load,
+	input wire			reset,
 	input wire			process,
 	input wire[31:0]	din,
 	output reg[15:0]	sumout	= 0,
@@ -113,8 +114,12 @@ module InternetChecksum32bit(
 
 	always @(posedge clk) begin
 		if(load || process) begin
-			sumout <= sumout_stage2;
+			sumout	<= sumout_stage2;
 			csumout	<= ~sumout_stage2;
+		end
+		if(reset) begin
+			sumout	<= 16'h0;
+			csumout	<= 16'hffff;
 		end
 	end
 
