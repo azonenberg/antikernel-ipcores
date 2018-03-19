@@ -37,7 +37,7 @@ module IPv4Protocol(
 	//Constant-ish state data
 	input wire[31:0]	our_ip_address,
 	input wire[31:0]	our_subnet_mask,
-	input wire[31:0]	our_broadcast_addr,
+	input wire[31:0]	our_broadcast_address,
 
 	//Incoming Ethernet data
 	input wire			rx_l2_start,
@@ -323,8 +323,8 @@ module IPv4Protocol(
 						//See if the packet is intended for us
 						//This means either our unicast address, our subnet's broadcast address,
 						//or the global broadcast address.
-						if( (rx_l2_data == our_ip_addr) ||
-							(rx_l2_data == our_broadcast_addr) ||
+						if( (rx_l2_data == our_ip_address) ||
+							(rx_l2_data == our_broadcast_address) ||
 							(rx_l2_data == 32'hffffffff) ) begin
 
 							rx_state					<= RX_STATE_BODY;
