@@ -35,23 +35,19 @@
 
 	Input is fed to the checksum 16 bits at a time.
  */
-module InternetChecksum(clk, load, process, din, sumout, csumout);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// IO declarations
-	input wire clk;
-
-	input wire load;					//overwrite existing checksum with din
-	input wire process;				//add din to checksum
-	input wire[15:0] din;
-
-	output reg[15:0] sumout = 0;	//the raw checksum
-	output wire[15:0] csumout;		//complemented checksum
-
-	assign csumout = ~sumout;
+module InternetChecksum(
+	input wire			clk,
+	input wire			load,
+	input wire			process,
+	input wire[15:0]	din,
+	output reg[15:0]	sumout	= 0,
+	output reg[15:0]	csumout	= 0
+);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Checksum computation
+
+	assign csumout = ~sumout;
 
 	wire[15:0] sumout_next;
 	InternetChecksumCombinatorial ccalc(
@@ -60,18 +56,20 @@ module InternetChecksum(clk, load, process, din, sumout, csumout);
 		.sumout(sumout_next));
 
 	always @(posedge clk) begin
-		if(load || process)
-			sumout <= sumout_next;
+		if(load || process) begin
+			sumout 	<= sumout_next;
+			csumout	<= ~sumout_next;
+		end
 	end
 
 endmodule
 
 //Combinatorial internet checksum
-module InternetChecksumCombinatorial(din, cursum, sumout);
-
-	input wire[15:0]	din;
-	input wire[15:0]	cursum;
-	output reg[15:0]	sumout;
+module InternetChecksumCombinatorial(
+	input wire[15:0]	din,
+	input wire[15:0]	cursum,
+	output reg[15:0]	sumout
+);
 
 	reg[16:0]			rawsum;
 
@@ -90,28 +88,14 @@ module InternetChecksumCombinatorial(din, cursum, sumout);
 
 endmodule
 
-
-/**
-	@file
-	@author Andrew D. Zonenberg
-	@brief Implements the Internet checksum.
-
-	Input is fed to the checksum 32 bits at a time.
- */
-module InternetChecksum32bit(clk, load, process, din, sumout, csumout);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// IO declarations
-	input wire clk;
-
-	input wire load;				//overwrite existing checksum with din
-	input wire process;				//add din to checksum
-	input wire[31:0] din;
-
-	output reg[15:0] sumout = 0;	//the raw checksum
-	output wire[15:0] csumout;		//complemented checksum
-
-	assign csumout = ~sumout;
+module InternetChecksum32bit(
+	input wire			clk,
+	input wire			load,
+	input wire			process,
+	input wire[31:0]	din,
+	output reg[15:0]	sumout	= 0,
+	output reg[15:0]	csumout	= 0
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Checksum computation
@@ -128,8 +112,10 @@ module InternetChecksum32bit(clk, load, process, din, sumout, csumout);
 		.sumout(sumout_stage2));
 
 	always @(posedge clk) begin
-		if(load || process)
+		if(load || process) begin
 			sumout <= sumout_stage2;
+			csumout	<= ~sumout_stage2;
+		end
 	end
 
 endmodule
