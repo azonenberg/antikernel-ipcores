@@ -35,8 +35,9 @@ module IPv4Protocol(
 	input wire			clk,
 
 	//Constant-ish state data
-	input wire[47:0]	our_mac_address,
 	input wire[31:0]	our_ip_address,
+	input wire[31:0]	our_subnet_mask,
+	input wire[31:0]	our_broadcast_addr,
 
 	//Incoming Ethernet data
 	input wire			rx_l2_start,
@@ -318,7 +319,24 @@ module IPv4Protocol(
 
 					else begin
 						rx_l3_dst_ip				<= rx_l2_data;
-						rx_state					<= RX_STATE_BODY;
+
+						//See if the packet is intended for us
+						//This means either our unicast address, our subnet's broadcast address,
+						//or the global broadcast address.
+						if( (rx_l2_data == our_ip_addr) ||
+							(rx_l2_data == our_broadcast_addr) ||
+							(rx_l2_data == 32'hffffffff) ) begin
+
+							rx_state					<= RX_STATE_BODY;
+
+						end
+
+						//Nope, it's for somebody else. Drop it.
+						else begin
+							rx_state					<= RX_STATE_IDLE;
+							rx_l3_drop					<= 1;
+						end
+
 					end
 
 				end
