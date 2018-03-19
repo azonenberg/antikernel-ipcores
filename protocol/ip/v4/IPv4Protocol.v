@@ -328,6 +328,7 @@ module IPv4Protocol(
 							(rx_l2_data == 32'hffffffff) ) begin
 
 							rx_state					<= RX_STATE_BODY;
+							rx_l3_headers_valid			<= 1;
 
 						end
 
