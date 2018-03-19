@@ -330,7 +330,12 @@ module XGEthernetMAC(
 				xgmii_txc					<= 4'b0000;
 				xgmii_txd					<= 32'h55_55_55_d5;
 
-				//Preamble doesn't count toward frame length
+				//Calculate CRC for the first four data words as we go
+				tx_crc_bytes_valid			<= 4;
+
+				//Preamble doesn't count toward frame length,
+				//but the data we're CRCing in the background does
+				running_frame_len			<= 4;
 
 				tx_state					<= TX_STATE_BODY;
 
@@ -389,7 +394,7 @@ module XGEthernetMAC(
 				xgmii_txd					<= tx_crc_din;
 
 				//If the frame is too small, add padding
-				if(running_frame_len <= 56) begin
+				if(running_frame_len <= 60) begin
 					tx_crc_din				<= 32'h0;
 					tx_crc_bytes_valid		<= 4;
 					running_frame_len		<= running_frame_len + 3'd4;
@@ -495,5 +500,39 @@ module XGEthernetMAC(
 		.din(tx_crc_din),
 		.crc_out(tx_crc_dout)
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// LA runs in SERDES TX clock domain
+
+	/*
+	wire	trig_out;
+	reg		trig_out_ack	= 0;
+
+	always @(posedge xgmii_tx_clk) begin
+		trig_out_ack	<= trig_out;
+	end
+
+	ila_0 ila(
+		.clk(xgmii_tx_clk),
+
+		.probe0(xgmii_txc),
+		.probe1(xgmii_txd),
+		.probe2(tx_frame_start),
+		.probe3(tx_crc_bytes_valid),
+		.probe4(tx_crc_din),
+		.probe5(tx_crc_dout),
+		.probe6(running_frame_len),
+		.probe7(tx_state),
+
+		.probe8(tx_frame_bytes_valid),
+		.probe9(tx_frame_bytes_valid_ff),
+		.probe10(tx_frame_bytes_valid_ff2),
+		.probe11(tx_frame_data),
+		.probe12(tx_frame_data_valid),
+
+		.trig_out(trig_out),
+		.trig_out_ack(trig_out_ack)
+	);
+	*/
 
 endmodule

@@ -741,6 +741,7 @@ module XGEthernetPCS(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// LA runs in SERDES TX clock domain
 
+	/*
 	wire	trig_out;
 	reg		trig_out_ack	= 0;
 
@@ -767,5 +768,6 @@ module XGEthernetPCS(
 		.trig_out(trig_out),
 		.trig_out_ack(trig_out_ack)
 	);
+	*/
 
 endmodule
