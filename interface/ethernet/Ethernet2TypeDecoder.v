@@ -92,6 +92,7 @@ module Ethernet2TypeDecoder(
 
 		rx_l2_data_valid	<= 0;
 		rx_temp_valid		<= 0;
+		rx_l2_headers_valid	<= 0;
 
 		//Forward flags
 		rx_l2_start			<= rx_frame_start;
