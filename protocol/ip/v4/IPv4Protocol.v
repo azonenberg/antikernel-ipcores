@@ -74,7 +74,9 @@ module IPv4Protocol(
 	output reg[31:0]	rx_l3_data					= 0,
 	output reg			rx_l3_commit				= 0,
 	output reg			rx_l3_drop					= 0,
-	output reg			rx_l3_headers_valid			= 0
+	output reg			rx_l3_headers_valid			= 0,
+
+	output wire[15:0]	rx_l3_pseudo_header_csum
 
 	//TODO: performance counters
 	);
@@ -99,34 +101,58 @@ module IPv4Protocol(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX checksum calculation
 
-	reg[15:0]	rx_header_checksum_expected	= 0;
+	wire[15:0]	rx_header_checksum_expected;
 
-	reg[23:0]	rx_header_checksum_temp		= 0;
+	//Don't worry about unaligned message sizes
+	//since Ethernet2FrameDecoder pads with zeroes (identity for this checksum algorithm)
+	InternetChecksum32bit rx_checksum(
+		.clk(clk),
+		.load(1'b0),
+		.reset(rx_l2_start),
+		.process(rx_l2_data_valid && (rx_state != RX_STATE_BODY) ),
+		.din(rx_l2_data),
+		.sumout(),
+		.csumout(rx_header_checksum_expected)
+	);
 
-	always @(posedge clk) begin
-
-		//Clear things
-		if(rx_l2_start)
-			rx_header_checksum_temp		<= 0;
-
-		if(rx_l2_data_valid && (rx_state != RX_STATE_BODY) ) begin
-
-			//Add in the new message data
-			//Do NOT add in the checksum field
-			rx_header_checksum_temp = rx_header_checksum_temp + rx_l2_data[31:16];
-			if(rx_state != RX_STATE_HEADER_3)
-				rx_header_checksum_temp = rx_header_checksum_temp + rx_l2_data[15:0];
-
-			//Add in the carry
-			rx_header_checksum_temp		= rx_header_checksum_temp[15:0] + rx_header_checksum_temp[23:16];
-
-		end
-
-	end
-
+	//RX pseudo header checksum calculation
+	reg[31:0]	rx_phdr_din;
+	reg			rx_phdr_process;
 	always @(*) begin
-		rx_header_checksum_expected		<= ~rx_header_checksum_temp[15:0];
+
+		//Default to processing everything
+
+		rx_phdr_din		<= rx_l2_data[31:0];
+		rx_phdr_process	<= 0;
+
+		case(rx_state)
+
+			RX_STATE_HEADER_2: begin
+				rx_phdr_din		<= rx_l3_payload_len;
+				rx_phdr_process	<= 1;
+			end
+
+			RX_STATE_HEADER_3: begin
+				rx_phdr_din		<= rx_l2_data[23:16];
+				rx_phdr_process	<= 1;
+			end
+
+			RX_STATE_HEADER_4: rx_phdr_process	<= 1;
+
+			RX_STATE_HEADER_5: rx_phdr_process	<= 1;
+
+		endcase
+
 	end
+	InternetChecksum32bit rx_phdr_checksum(
+		.clk(clk),
+		.load(1'b0),
+		.reset(rx_l2_start),
+		.process(rx_phdr_process),
+		.din(rx_phdr_din),
+		.sumout(rx_l3_pseudo_header_csum),
+		.csumout()
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX datapath
@@ -142,7 +168,7 @@ module IPv4Protocol(
 	reg[12:0]	rx_frag_offset			= 0;
 	reg[7:0]	rx_ttl					= 0;
 
-	reg[15:0]	rx_header_checksum			= 0;
+	reg[15:0]	rx_header_checksum		= 0;
 
 	reg[15:0]	payload_bytes_so_far	= 0;
 
@@ -366,7 +392,7 @@ module IPv4Protocol(
 				//Verify header checksum
 				if(payload_bytes_so_far == 0) begin
 
-					if(rx_header_checksum != rx_header_checksum_expected) begin
+					if(rx_header_checksum_expected != 16'h0000) begin
 						rx_state					<= RX_STATE_IDLE;
 						rx_l3_drop					<= 1;
 					end
