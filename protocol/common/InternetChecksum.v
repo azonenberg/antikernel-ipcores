@@ -33,60 +33,8 @@
 	@author Andrew D. Zonenberg
 	@brief Implements the Internet checksum.
 
-	Input is fed to the checksum 16 bits at a time.
+	Input is fed to the checksum 32 bits at a time.
  */
-module InternetChecksum(
-	input wire			clk,
-	input wire			load,
-	input wire			process,
-	input wire[15:0]	din,
-	output reg[15:0]	sumout	= 0,
-	output reg[15:0]	csumout	= 0
-);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// Checksum computation
-
-	assign csumout = ~sumout;
-
-	wire[15:0] sumout_next;
-	InternetChecksumCombinatorial ccalc(
-		.din(din),
-		.cursum(load ? 16'h0 : sumout),
-		.sumout(sumout_next));
-
-	always @(posedge clk) begin
-		if(load || process) begin
-			sumout 	<= sumout_next;
-			csumout	<= ~sumout_next;
-		end
-	end
-
-endmodule
-
-//Combinatorial internet checksum
-module InternetChecksumCombinatorial(
-	input wire[15:0]	din,
-	input wire[15:0]	cursum,
-	output reg[15:0]	sumout
-);
-
-	reg[16:0]			rawsum;
-
-	always @(*) begin
-
-		//Compute the raw checksum including overflow
-		rawsum <= {1'b0, cursum} + {1'b0, din};
-
-		//Add in overflow if necessary
-		if(rawsum[16])
-			sumout <= rawsum[15:0] + 16'd1;
-		else
-			sumout <= rawsum[15:0];
-
-	end
-
-endmodule
 
 module InternetChecksum32bit(
 	input wire			clk,
@@ -101,26 +49,25 @@ module InternetChecksum32bit(
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Checksum computation
 
-	wire[15:0] sumout_stage1;
-	wire[15:0] sumout_stage2;
-	InternetChecksumCombinatorial ccalc_stage1(
-		.din(din[15:0]),
-		.cursum(load ? 16'h0 : sumout),
-		.sumout(sumout_stage1));
-	InternetChecksumCombinatorial ccalc_stage2(
-		.din(din[31:16]),
-		.cursum(sumout_stage1),
-		.sumout(sumout_stage2));
+	wire[17:0]	sumout_temp = din[15:0] + din[31:16] + sumout;
 
 	always @(posedge clk) begin
-		if(load || process) begin
-			sumout	<= sumout_stage2;
-			csumout	<= ~sumout_stage2;
-		end
+
 		if(reset) begin
 			sumout	<= 16'h0;
 			csumout	<= 16'hffff;
 		end
+
+		else if(load) begin
+			sumout	<= din[15:0];
+			csumout	<= ~din[15:0];
+		end
+
+		else if(process) begin
+			sumout	<= sumout_temp[15:0] + sumout_temp[17:16];
+			csumout	<= ~(sumout_temp[15:0] + sumout_temp[17:16]);
+		end
+
 	end
 
 endmodule
