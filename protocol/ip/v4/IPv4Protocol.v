@@ -75,8 +75,18 @@ module IPv4Protocol(
 	output reg			rx_l3_commit				= 0,
 	output reg			rx_l3_drop					= 0,
 	output reg			rx_l3_headers_valid			= 0,
+	output wire[15:0]	rx_l3_pseudo_header_csum,
 
-	output wire[15:0]	rx_l3_pseudo_header_csum
+	//Transmit data from upper level protocol
+	input wire			tx_l3_start,
+	input wire			tx_l3_drop,
+	input wire			tx_l3_commit,
+	input wire[15:0]	tx_l3_payload_len,
+	input wire[31:0]	tx_l3_dst_ip,
+	input wire[31:0]	tx_l3_data_valid,
+	input wire[2:0]		tx_l3_bytes_valid,
+	input wire[31:0]	tx_l3_data,
+	input wire[7:0]		tx_l3_protocol
 
 	//TODO: performance counters
 	);
@@ -427,6 +437,295 @@ module IPv4Protocol(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX FIFO to store incoming data while we calculate the header checksum
+
+	reg			tx_fifo_rd	= 0;
+	reg			tx_fifo_rst	= 0;
+	wire[31:0]	tx_fifo_rdata;
+
+	SingleClockFifo #(
+		.WIDTH(32),
+		.DEPTH(512)
+	) tx_fifo (
+		.clk(clk),
+		.wr(tx_l3_data_valid),
+		.din(tx_l3_data),
+
+		.rd(tx_fifo_rd),
+		.dout(tx_fifo_rdata),
+		.overflow(),
+		.underflow(),
+		.empty(),
+		.full(),
+		.rsize(),
+		.wsize(),
+		.reset(tx_fifo_rst)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX state machine constants
+
+	localparam TX_STATE_IDLE		= 4'h0;
+	localparam TX_STATE_HEADER_0	= 4'h1;
+	localparam TX_STATE_HEADER_1	= 4'h2;
+	localparam TX_STATE_HEADER_2	= 4'h3;
+	localparam TX_STATE_HEADER_3	= 4'h4;
+	localparam TX_STATE_HEADER_4	= 4'h5;
+	localparam TX_STATE_HEADER_5	= 4'h6;
+	localparam TX_STATE_BODY		= 4'h7;
+	localparam TX_STATE_COMMIT		= 4'h8;
+
+	reg[3:0]	tx_state		=  TX_STATE_IDLE;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX checksum engine
+
+	wire[15:0]	tx_header_checksum;
+
+	reg			tx_checksum_process;
+	reg[31:0]	tx_checksum_din;
+
+	reg[15:0]	tx_total_len		= 0;
+
+	//Cheat a bit: Some fields in our outbound header are constant
+	//Version = IPv4
+	//Header len = 5 words
+	//DSCP / ECN = 0
+	//Flags = DF (3'b010)
+	//Frag offset = 0
+	//ID = 0
+	//We can thus initialize our checksum to the constant value 16'h8500
+	//then add in the {length, TTL/protocol}, source IP, and dest IP in only 3 words.
+	//TODO: bake our source IP into this pregenerated checksum too
+
+	InternetChecksum32bit tx_checksum(
+		.clk(clk),
+		.load(tx_l3_start),
+		.reset(1'b0),
+		.process(tx_checksum_process),
+		.din(tx_checksum_din),
+		.sumout(),
+		.csumout(tx_header_checksum)
+	);
+
+	always @(*) begin
+
+		tx_checksum_process	<= 0;
+
+		//If idle, seed our checksum with a constant value
+		//TODO: separate port on checksum core for initialization
+		tx_checksum_din		<= 16'h8500;
+
+		case(tx_state)
+
+			//Insert length, TTL, protocol
+			TX_STATE_HEADER_0: begin
+				tx_checksum_process		<= 1;
+				tx_checksum_din			<= {8'hff, tx_l3_protocol, tx_total_len};
+			end	//end TX_STATE_HEADER_0
+
+			//Insert source IP (TODO: bake this into init value so we can skip the idle in TX_STATE_HEADER_0)
+			TX_STATE_HEADER_1: begin
+				tx_checksum_process		<= 1;
+				tx_checksum_din			<= our_ip_address;
+			end	//end TX_STATE_HEADER_1
+
+			//Insert dest IP
+			TX_STATE_HEADER_2: begin
+				tx_checksum_process		<= 1;
+				tx_checksum_din			<= our_ip_address;
+			end	//end TX_STATE_HEADER_2
+
+		endcase
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX datapath
+
+	reg[15:0]	tx_bytes_left	= 0;
+
+	always @(posedge clk) begin
+
+		tx_fifo_rst			<= 0;
+		tx_fifo_rd			<= 0;
+		tx_l2_start			<= 0;
+		tx_l2_drop			<= 0;
+		tx_l2_commit		<= 0;
+
+		tx_l2_data_valid	<= 0;
+		tx_l2_bytes_valid	<= 0;
+
+		case(tx_state)
+
+			TX_STATE_IDLE: begin
+
+					//We require header information to be valid when we get the start request so we can start
+					//sending stuff right away.
+					//Ignore any request to send less than 8 bytes, all layer-3 protocols have >=8 bytes of headers
+					//and we can optimize a bit by guaranteeing this.
+					if(tx_l3_start && (tx_l3_payload_len > 8) ) begin
+						tx_l2_start		<= 1;
+						tx_state		<= TX_STATE_HEADER_0;
+
+						//Precompute total packet length
+						tx_total_len	<= 8'd20 + tx_l3_payload_len;
+
+						tx_bytes_left	<= tx_l3_payload_len;
+
+						//For now, cheat and send all outbound traffic to the broadcast MAC address.
+						//This is stupidly wasteful but will help with initial bringup
+						//TODO: fix this
+						tx_l2_dst_mac	<= 48'hffffffffffff;
+					end
+
+			end	//end TX_STATE_IDLE
+
+			//Can't send anything yet, waiting for checksum latency
+			TX_STATE_HEADER_0: begin
+				tx_state	<= TX_STATE_HEADER_1;
+			end	//end TX_STATE_HEADER_0
+
+			//This header is constant except for length since we don't support diffserv/ecn
+			TX_STATE_HEADER_1: begin
+				tx_l2_data_valid	<= 1;
+				tx_l2_bytes_valid	<= 4;
+				tx_l2_data			<= {4'h4, 4'h5, 6'h0, 2'h0, tx_total_len};
+
+				tx_state			<= TX_STATE_HEADER_2;
+			end	//end TX_STATE_HEADER_1
+
+			//This header is entirely constant since we don't support fragging
+			TX_STATE_HEADER_2: begin
+				tx_l2_data_valid	<= 1;
+				tx_l2_bytes_valid	<= 4;
+				tx_l2_data			<= {16'h0000, 3'b010, 13'h0};
+
+
+				tx_state			<= TX_STATE_HEADER_3;
+			end	//end TX_STATE_HEADER_3
+
+			//Checksum is valid at this point, send it
+			TX_STATE_HEADER_3: begin
+				tx_l2_data_valid	<= 1;
+				tx_l2_bytes_valid	<= 4;
+				tx_l2_data			<= {8'hff, tx_l3_protocol, tx_header_checksum};
+
+				tx_state			<= TX_STATE_HEADER_4;
+			end	//end TX_STATE_HEADER_3
+
+			//Send our IP and start reading the first upper-level protocol word
+			TX_STATE_HEADER_4: begin
+				tx_l2_data_valid	<= 1;
+				tx_l2_bytes_valid	<= 4;
+				tx_l2_data			<= our_ip_address;
+
+				tx_fifo_rd			<= 1;
+
+				tx_state			<= TX_STATE_HEADER_5;
+
+			end	//end TX_STATE_HEADER_4
+
+			//Send destination IP and start reading second upper-level protocol word
+			TX_STATE_HEADER_5: begin
+				tx_l2_data_valid	<= 1;
+				tx_l2_bytes_valid	<= 4;
+				tx_l2_data			<= tx_l3_dst_ip;
+
+				tx_fifo_rd			<= 1;
+
+				tx_state			<= TX_STATE_BODY;
+
+			end	//end TX_STATE_HEADER_4
+
+			//Send the current payload block
+			TX_STATE_BODY: begin
+
+				//Send data
+				tx_l2_data_valid		<= 1;
+				tx_l2_data				<= tx_fifo_rdata;
+
+				//We already have a block being read. If that's not the last one, read another.
+				if(tx_bytes_left > 8)
+					tx_fifo_rd			<= 1;
+
+				//Send not-last block
+				if(tx_bytes_left > 4) begin
+					tx_bytes_left		<= tx_bytes_left - 16'd4;
+					tx_l2_bytes_valid	<= 4;
+				end
+
+				//Send last (potentially partial) block
+				else begin
+					tx_bytes_left		<= 0;					//not necessary as nothing checks it after this
+																//but makes debug traces cleaner
+					tx_l2_bytes_valid	<= tx_bytes_left;
+					tx_state			<= TX_STATE_COMMIT;
+				end
+
+			end	//end TX_STATE_BODY
+
+			TX_STATE_COMMIT: begin
+				tx_l2_commit			<= 1;
+				tx_state				<= TX_STATE_IDLE;
+			end	//end TX_STATE_COMMIT
+
+		endcase
+
+		//At any time, if we abort the message in progress, reset stuff
+		if(tx_l3_drop) begin
+			tx_fifo_rst				<= 1;
+			tx_state				<= TX_STATE_IDLE;
+			tx_l2_drop				<= 1;
+		end
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// LA for bringup
+
+	wire	trig_out;
+	reg		trig_out_ack	= 0;
+
+	always @(posedge clk) begin
+		trig_out_ack	<= trig_out;
+	end
+
+	ila_0 ila(
+		.clk(clk),
+
+		.probe0(tx_l3_start),
+		.probe1(tx_l3_commit),
+		.probe2(tx_l3_drop),
+		.probe3(tx_l3_payload_len),
+		.probe4(tx_l3_dst_ip),
+		.probe5(tx_l3_data_valid),
+		.probe6(tx_l3_bytes_valid),
+		.probe7(tx_l3_data),
+		.probe8(tx_bytes_left),
+		.probe9(tx_fifo_rd),
+		.probe10(tx_fifo_rdata),
+		.probe11(tx_state),
+		.probe12(tx_l2_start),
+		.probe13(tx_l2_data_valid),
+		.probe14(tx_l2_bytes_valid),
+		.probe15(tx_l2_data),
+		.probe16(tx_l2_commit),
+		.probe17(tx_l2_drop),
+		.probe18(tx_l2_dst_mac),
+		.probe19(tx_fifo_rst),
+		.probe20(tx_header_checksum),
+		.probe21(tx_l3_protocol),
+		.probe22(tx_total_len),
+
+		.probe23(rx_l3_start),
+		.probe24(rx_l3_payload_len),
+		.probe25(rx_l3_data_valid),
+		.probe26(rx_l3_bytes_valid),
+		.probe27(rx_l3_data),
+
+		.trig_out(trig_out),
+		.trig_out_ack(trig_out_ack)
+	);
 
 endmodule

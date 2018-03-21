@@ -164,6 +164,8 @@ module ICMPv4Protocol(
 
 	reg[15:0]	tx_bytes_left		= 0;
 
+	reg			tx_fifo_rd_ff		= 0;
+
 	always @(posedge clk) begin
 
 		//Clear flags
@@ -176,6 +178,8 @@ module ICMPv4Protocol(
 		tx_fifo_rd				<= 0;
 		tx_start				<= 0;
 
+		tx_fifo_rd_ff			<= tx_fifo_rd;
+
 		//RX state machine
 		case(rx_state)
 
@@ -184,10 +188,8 @@ module ICMPv4Protocol(
 
 			RX_STATE_IDLE: begin
 
-				if(rx_l3_start) begin
-					tx_l3_start			<= 1;
+				if(rx_l3_start)
 					rx_state			<= RX_STATE_HEADER_0;
-				end
 
 			end	//end RX_STATE_IDLE
 
@@ -204,8 +206,11 @@ module ICMPv4Protocol(
 						tx_l3_drop			<= 1;
 						rx_state			<= RX_STATE_IDLE;
 					end
-					else
+
+					//Send the start command out to layer 3 after we get the payload length
+					else begin
 						rx_state			<= RX_STATE_HEADER_1;
+					end
 
 				end
 
@@ -313,6 +318,7 @@ module ICMPv4Protocol(
 						tx_l3_dst_ip		<= rx_l3_src_ip;
 						tx_type				<= ICMP_TYPE_ECHO_REPLY;
 						tx_code				<= 8'h0;
+						tx_l3_start			<= 1;
 						tx_start			<= 1;
 						rx_state			<= RX_STATE_IDLE;
 						tx_ping_id			<= rx_ping_id;
@@ -355,11 +361,13 @@ module ICMPv4Protocol(
 
 			TX_STATE_BODY: begin
 
-				tx_l3_data_valid	<= 1;
-				tx_l3_data			<= tx_fifo_rdata;
+				if(tx_fifo_rd_ff) begin
+					tx_l3_data_valid	<= 1;
+					tx_l3_data			<= tx_fifo_rdata;
 
-				tx_l3_bytes_valid	<= 4;
-				tx_bytes_left		<= tx_bytes_left - 4;
+					tx_l3_bytes_valid	<= 4;
+					tx_bytes_left		<= tx_bytes_left - 4;
+				end
 
 				//If we have more than 4 bytes left, read the next word
 				if(tx_bytes_left > 4)
@@ -401,7 +409,7 @@ module ICMPv4Protocol(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// LA for bringup
-
+	/*
 	wire	trig_out;
 	reg		trig_out_ack	= 0;
 
@@ -430,5 +438,6 @@ module ICMPv4Protocol(
 		.trig_out(trig_out),
 		.trig_out_ack(trig_out_ack)
 	);
+	*/
 
 endmodule
