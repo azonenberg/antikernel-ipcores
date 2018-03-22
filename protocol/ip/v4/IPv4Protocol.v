@@ -533,7 +533,7 @@ module IPv4Protocol(
 			//Insert dest IP
 			TX_STATE_HEADER_2: begin
 				tx_checksum_process		<= 1;
-				tx_checksum_din			<= our_ip_address;
+				tx_checksum_din			<= tx_l3_dst_ip;
 			end	//end TX_STATE_HEADER_2
 
 		endcase
