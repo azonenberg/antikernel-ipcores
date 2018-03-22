@@ -121,8 +121,10 @@ module ARPProtocol(
 				if(rx_l2_headers_valid) begin
 					if(rx_l2_ethertype_is_arp)
 						rx_state	<= RX_STATE_BODY_0;
-					else
+					else begin
+						tx_l2_drop	<= 1;
 						rx_state	<= RX_STATE_IDLE;
+					end
 				end
 
 			end	//end RX_STATE_L2_HEADER
