@@ -274,8 +274,9 @@ module EthernetTransmitArbiter (
 	localparam STATE_ARP_HEADER_READ		= 4'h1;
 	localparam STATE_ARP_BODY				= 4'h2;
 	localparam STATE_ARP_COMMIT				= 4'h3;
-
-	localparam STATE_IPV4_HEADER_READ		= 4'h8;
+	localparam STATE_IPV4_HEADER_READ		= 4'h4;
+	localparam STATE_IPV4_BODY				= 4'h5;
+	localparam STATE_IPV4_COMMIT			= 4'h6;
 
 	reg[3:0]	state			= STATE_IDLE;
 	reg[15:0]	tx_bytes_left	= 0;
@@ -386,14 +387,67 @@ module EthernetTransmitArbiter (
 			end	//end STATE_ARP_COMMIT
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// IPv4 transmit datapath (TODO)
+			// IPv4 transmit datapath
 
 			STATE_IPV4_HEADER_READ: begin
 
-				//FIXME
-				state					<= STATE_IDLE;
+				//Waiting for header FIFO to read.
+				//While we're doing that, pre-fetch the first message data word
+				if(ipv4_header_rd_en) begin
+					ipv4_rd_en		<= 1;
+					ipv4_rd_offset	<= 0;
+				end
+
+				//Headers are ready!
+				//Update our headers, then read the second message data word
+				else begin
+					tx_l2_start		<= 1;
+					tx_l2_ethertype	<= ETHERTYPE_IPV4;
+					tx_l2_dst_mac	<= ipv4_packet_mac;
+					tx_bytes_left	<= ipv4_packet_len;
+
+					ipv4_rd_en		<= 1;
+					ipv4_rd_offset	<= 1;
+
+					state			<= STATE_IPV4_BODY;
+				end
 
 			end	//end STATE_IPV4_HEADER_READ
+
+			STATE_IPV4_BODY: begin
+
+				tx_l2_data_valid		<= 1;
+				tx_l2_data				<= ipv4_rd_data;
+
+				ipv4_rd_offset			<= ipv4_rd_offset + 1'h1;
+				tx_bytes_left			<= tx_bytes_left - 16'd4;
+
+				if(tx_bytes_left > 8)
+					ipv4_rd_en			<= 1;
+
+				if(tx_bytes_left > 4)
+					tx_l2_bytes_valid	<= 4;
+
+				else begin
+					tx_l2_bytes_valid	<= tx_bytes_left;
+					tx_bytes_left		<= 0;
+
+					//Pop the packet now. rather than in STATE_IPV4_COMMIT
+					//so that it'll be done by the time we get to STATE_IDLE again
+					ipv4_pop_packet		<= 1;
+					ipv4_pop_size		<= ipv4_packet_len;
+
+					state				<= STATE_IPV4_COMMIT;
+				end
+
+			end	//end STATE_IPV4_BODY
+
+			STATE_IPV4_COMMIT: begin
+				tx_l2_commit			<= 1;
+
+				state					<= STATE_IDLE;
+			end	//end STATE_IPV4_COMMIT
+
 
 		endcase
 
@@ -467,6 +521,7 @@ module EthernetTransmitArbiter (
 		.probe45(tx_bytes_left),
 		.probe46(ipv4_header_rd_en),
 		.probe47(arp_header_rd_en),
+		.probe48(ipv4_payload_fifo_free),
 
 		.trig_out(trig_out),
 		.trig_out_ack(trig_out_ack)
