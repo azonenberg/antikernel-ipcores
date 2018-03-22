@@ -83,7 +83,7 @@ module IPv4Protocol(
 	input wire			tx_l3_commit,
 	input wire[15:0]	tx_l3_payload_len,
 	input wire[31:0]	tx_l3_dst_ip,
-	input wire[31:0]	tx_l3_data_valid,
+	input wire			tx_l3_data_valid,
 	input wire[2:0]		tx_l3_bytes_valid,
 	input wire[31:0]	tx_l3_data,
 	input wire[7:0]		tx_l3_protocol
@@ -684,6 +684,7 @@ module IPv4Protocol(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// LA for bringup
 
+	/*
 	wire	trig_out;
 	reg		trig_out_ack	= 0;
 
@@ -727,5 +728,6 @@ module IPv4Protocol(
 		.trig_out(trig_out),
 		.trig_out_ack(trig_out_ack)
 	);
+	*/
 
 endmodule
