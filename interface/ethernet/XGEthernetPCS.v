@@ -333,11 +333,12 @@ module XGEthernetPCS(
 
 					//Start of frame, plus seven data octets
 					CTL_D7_START: begin
+
 						xgmii_rxc			<= 4'b1000;
 						xgmii_rxd			<= { XGMII_CTL_START, rx_block_data[55:32] };
 
 						xgmii_rxc_next		<= 4'b0000;
-						xgmii_rxd			<= rx_block_data[31:0];
+						xgmii_rxd_next		<= rx_block_data[31:0];
 
 					end	//end CTL_D7_START
 
@@ -739,31 +740,30 @@ module XGEthernetPCS(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// LA runs in SERDES TX clock domain
+	// LA runs in SERDES RX clock domain
 
 	/*
 	wire	trig_out;
 	reg		trig_out_ack	= 0;
 
-	always @(posedge tx_clk) begin
+	always @(posedge rx_clk) begin
 		trig_out_ack	<= trig_out;
 	end
 
 	ila_0 ila(
-		.clk(tx_clk),
+		.clk(rx_clk),
 
-		.probe0(xgmii_txc),
-		.probe1(xgmii_txd),
-		.probe2(tx_header_next),
-		.probe3(tx_64b_data),
-		.probe4(xgmii_x64_valid),
-		.probe5(xgmii_txc_x64),
-		.probe6(xgmii_txd_x64),
-		.probe7(tx_32b_data),
-
-		.probe8(tx_has_start),
-		.probe9(tx_has_end),
-		.probe10(tx_has_data),
+		.probe0(xgmii_rxc),
+		.probe1(xgmii_rxd),
+		.probe2(rx_header_valid),
+		.probe3(rx_header),
+		.probe4(rx_data_descrambled),
+		.probe5(rx_block_valid),
+		.probe6(rx_block_is_control),
+		.probe7(rx_block_data),
+		.probe8(xgmii_rxc_next),
+		.probe9(xgmii_rxd_next),
+		.probe10(remote_fault),
 
 		.trig_out(trig_out),
 		.trig_out_ack(trig_out_ack)
