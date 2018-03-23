@@ -98,6 +98,8 @@ module EthernetTransmitArbiter (
 	reg[PACKET_BITS:0]		ipv4_pop_size		= 0;
 	wire[31:0]				ipv4_rd_data;
 
+	wire[PACKET_BITS:0]		ipv4_rd_avail;
+
 	CrossClockPacketFifo #(
 		.WIDTH(32),
 		.DEPTH(PACKET_DEPTH)
@@ -117,7 +119,7 @@ module EthernetTransmitArbiter (
 		.rd_pop_packet(ipv4_pop_packet),
 		.rd_packet_size(ipv4_pop_size),
 		.rd_data(ipv4_rd_data),
-		.rd_size(),
+		.rd_size(ipv4_rd_avail),
 		.rd_reset(1'b0)
 	);
 
@@ -372,8 +374,12 @@ module EthernetTransmitArbiter (
 
 					//Pop the packet now. rather than in STATE_ARP_COMMIT
 					//so that it'll be done by the time we get to STATE_IDLE again
+					//Note, pop size is WORDS, not bytes!!!
 					arp_pop_packet		<= 1;
-					arp_pop_size		<= arp_packet_len;
+					if(arp_packet_len[1:0])
+						arp_pop_size	<= arp_packet_len[15:2] + 16'h1;
+					else
+						arp_pop_size	<= arp_packet_len[15:2];
 
 					state				<= STATE_ARP_COMMIT;
 				end
@@ -434,8 +440,12 @@ module EthernetTransmitArbiter (
 
 					//Pop the packet now. rather than in STATE_IPV4_COMMIT
 					//so that it'll be done by the time we get to STATE_IDLE again
+					//Note, pop size is WORDS, not bytes!!!
 					ipv4_pop_packet		<= 1;
-					ipv4_pop_size		<= ipv4_packet_len;
+					if(ipv4_packet_len[1:0])
+						ipv4_pop_size	<= ipv4_packet_len[15:2] + 16'h1;
+					else
+						ipv4_pop_size	<= ipv4_packet_len[15:2];
 
 					state				<= STATE_IPV4_COMMIT;
 				end
@@ -456,6 +466,7 @@ module EthernetTransmitArbiter (
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug LA
 
+	/*
 	wire	trig_out;
 	reg		trig_out_ack	= 0;
 
@@ -522,9 +533,11 @@ module EthernetTransmitArbiter (
 		.probe46(ipv4_header_rd_en),
 		.probe47(arp_header_rd_en),
 		.probe48(ipv4_payload_fifo_free),
+		.probe49(ipv4_rd_avail),
 
 		.trig_out(trig_out),
 		.trig_out_ack(trig_out_ack)
 	);
+	*/
 
 endmodule
