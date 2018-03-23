@@ -74,8 +74,7 @@ module ICMPv4Protocol(
 	localparam TX_STATE_IDLE		= 4'h0;
 	localparam TX_STATE_HEADER		= 4'h1;
 	localparam TX_STATE_BODY		= 4'h2;
-	localparam TX_STATE_LAST		= 4'h3;
-	localparam TX_STATE_COMMIT		= 4'h4;
+	localparam TX_STATE_COMMIT		= 4'h3;
 
 	localparam ICMP_TYPE_ECHO_REPLY		= 8'h00;
 	localparam ICMP_TYPE_ECHO_REQUEST	= 8'h08;
@@ -93,6 +92,8 @@ module ICMPv4Protocol(
 	reg			tx_fifo_rst	= 0;
 	wire[31:0]	tx_fifo_rdata;
 
+	wire[9:0]	tx_fifo_rsize;
+
 	SingleClockFifo #(
 		.WIDTH(32),
 		.DEPTH(512)
@@ -107,7 +108,7 @@ module ICMPv4Protocol(
 		.underflow(),
 		.empty(),
 		.full(),
-		.rsize(),
+		.rsize(tx_fifo_rsize),
 		.wsize(),
 		.reset(tx_fifo_rst)
 	);
@@ -343,6 +344,9 @@ module ICMPv4Protocol(
 					tx_l3_data			<= { tx_type, tx_code, tx_checksum };
 					tx_state			<= TX_STATE_HEADER;
 
+					//Pop the first word of the FIFO
+					tx_fifo_rd			<= 1;
+
 				end
 			end	//end TX_STATE_IDLE
 
@@ -354,38 +358,41 @@ module ICMPv4Protocol(
 				tx_l3_data			<= { tx_ping_id, tx_ping_seq };
 				tx_state			<= TX_STATE_BODY;
 
-				//Pop the first word of the FIFO
-				tx_fifo_rd			<= 1;
+				//Pop the second word of the FIFO (if any)
+				if(tx_bytes_left > 4) begin
+					tx_fifo_rd		<= 1;
+					tx_bytes_left	<= tx_bytes_left - 'd4;
+				end
+				else
+					tx_bytes_left	<= 0;
 
 			end	//end TX_STATE_HEADER
 
 			TX_STATE_BODY: begin
 
-				if(tx_fifo_rd_ff) begin
-					tx_l3_data_valid	<= 1;
-					tx_l3_data			<= tx_fifo_rdata;
-
-					tx_l3_bytes_valid	<= 4;
-					tx_bytes_left		<= tx_bytes_left - 4;
-				end
-
-				//If we have more than 4 bytes left, read the next word
-				if(tx_bytes_left > 4)
-					tx_fifo_rd		<= 1;
-
-				//otherwise, next one is the last
-				else
-					tx_state		<= TX_STATE_LAST;
-
-			end	//end TX_STATE_BODY
-
-			TX_STATE_LAST: begin
 				tx_l3_data_valid	<= 1;
 				tx_l3_data			<= tx_fifo_rdata;
 
-				tx_l3_bytes_valid	<= tx_bytes_left;
-				tx_state			<= TX_STATE_COMMIT;
-			end	//end TX_STATE_LAST
+				tx_l3_bytes_valid	<= 4;
+
+				//If we have more than 4 bytes left, read the next word
+				if(tx_bytes_left > 4) begin
+					tx_fifo_rd			<= 1;
+					tx_bytes_left		<= tx_bytes_left - 4;
+				end
+
+				//Don't send 0-byte words
+				if(tx_bytes_left == 0)
+					tx_l3_data_valid	<= 0;
+
+				//Not reading? Last round
+				if(!tx_fifo_rd) begin
+					tx_bytes_left		<= 0;
+					tx_l3_bytes_valid	<= tx_bytes_left;
+					tx_state			<= TX_STATE_COMMIT;
+				end
+
+			end	//end TX_STATE_BODY
 
 			TX_STATE_COMMIT: begin
 				tx_l3_commit		<= 1;
@@ -409,6 +416,7 @@ module ICMPv4Protocol(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// LA for bringup
+
 	/*
 	wire	trig_out;
 	reg		trig_out_ack	= 0;
@@ -434,6 +442,7 @@ module ICMPv4Protocol(
 		.probe11(tx_state),
 		.probe12(tx_checksum),
 		.probe13(tx_bytes_left),
+		.probe14(tx_fifo_rsize),
 
 		.trig_out(trig_out),
 		.trig_out_ack(trig_out_ack)
