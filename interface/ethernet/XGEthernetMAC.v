@@ -284,7 +284,7 @@ module XGEthernetMAC(
 	reg[13:0]	running_frame_len			= 0;
 	reg[2:0]	tx_frame_bytes_valid_ff		= 0;
 	reg[2:0]	tx_frame_bytes_valid_ff2	= 0;
-	reg[31:0]	tx_crc_dout_ff				= 0;
+	reg[2:0]	tx_frame_bytes_valid_ff3	= 0;
 
 	localparam	TX_STATE_IDLE		= 4'h0;
 	localparam	TX_STATE_PREAMBLE	= 4'h1;
@@ -292,14 +292,22 @@ module XGEthernetMAC(
 	localparam	TX_STATE_FCS_0		= 4'h3;
 	localparam	TX_STATE_FCS_1		= 4'h4;
 	localparam	TX_STATE_FCS_2		= 4'h5;
+	localparam	TX_STATE_FCS_3		= 4'h6;
 
 	reg[3:0]	tx_state			= TX_STATE_IDLE;
+
+	reg[3:0]	xgmii_txc_next		= 0;
+	reg[31:0]	xgmii_txd_next		= 0;
 
 	always @(posedge xgmii_tx_clk) begin
 
 		//Default to sending idles
-		xgmii_txc							<= 4'b1111;
-		xgmii_txd							<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+		xgmii_txc_next						<= 4'b1111;
+		xgmii_txd_next						<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+
+		//Default to forwarding the transmit data down the pipeline
+		xgmii_txc							<= xgmii_txc_next;
+		xgmii_txd							<= xgmii_txd_next;
 
 		//Send incoming data words to the CRC engine
 		tx_crc_din							<= tx_frame_data;
@@ -308,7 +316,7 @@ module XGEthernetMAC(
 		//Save previous state
 		tx_frame_bytes_valid_ff				<= tx_frame_bytes_valid;
 		tx_frame_bytes_valid_ff2			<= tx_frame_bytes_valid_ff;
-		tx_crc_dout_ff						<= tx_crc_dout;
+		tx_frame_bytes_valid_ff3			<= tx_frame_bytes_valid_ff2;
 
 		case(tx_state)
 
@@ -317,8 +325,8 @@ module XGEthernetMAC(
 				//Starting a new frame? Send preamble
 				if(tx_frame_start) begin
 					running_frame_len		<= 0;
-					xgmii_txc				<= 4'b1000;
-					xgmii_txd				<= { XGMII_CTL_START, 24'h55_55_55 };
+					xgmii_txc_next			<= 4'b1000;
+					xgmii_txd_next			<= { XGMII_CTL_START, 24'h55_55_55 };
 					tx_state				<= TX_STATE_PREAMBLE;
 				end
 
@@ -327,8 +335,8 @@ module XGEthernetMAC(
 			TX_STATE_PREAMBLE: begin
 
 				//Send rest of preamble plus SFD
-				xgmii_txc					<= 4'b0000;
-				xgmii_txd					<= 32'h55_55_55_d5;
+				xgmii_txc_next				<= 4'b0000;
+				xgmii_txd_next				<= 32'h55_55_55_d5;
 
 				//Calculate CRC for the first four data words as we go
 				tx_crc_bytes_valid			<= 4;
@@ -344,8 +352,8 @@ module XGEthernetMAC(
 			TX_STATE_BODY: begin
 
 				//Send payload data
-				xgmii_txc					<= 4'b0000;
-				xgmii_txd					<= tx_crc_din;
+				xgmii_txc_next				<= 4'b0000;
+				xgmii_txd_next				<= tx_crc_din;
 
 				//New data coming!
 				if(tx_frame_data_valid) begin
@@ -362,14 +370,14 @@ module XGEthernetMAC(
 					else if(running_frame_len <= 56) begin
 						running_frame_len	<= running_frame_len + 3'd4;
 						tx_crc_bytes_valid	<= 4;
-						tx_state			<= TX_STATE_FCS_0;
 					end
 
 					//Packet ended at an unaligned boundary, but we're above the minimum packet size.
-					//Just crunch this data by itself
+					//Just crunch this data by itself, then finish
 					else begin
 						running_frame_len	<= running_frame_len + tx_frame_bytes_valid;
 						tx_crc_bytes_valid	<= tx_frame_bytes_valid;
+						tx_state			<= TX_STATE_FCS_0;
 					end
 
 				end
@@ -382,107 +390,106 @@ module XGEthernetMAC(
 						tx_crc_bytes_valid	<= 4;
 						running_frame_len	<= running_frame_len + 3'd4;
 					end
-					tx_state				<= TX_STATE_FCS_0;
+
+					else
+						tx_state			<= TX_STATE_FCS_0;
 				end
 
 			end	//end TX_STATE_BODY
 
+			//Push the last data block down the pipe while waiting for the CRC to be calculated
 			TX_STATE_FCS_0: begin
 
-				//Send last cycle's payload data
-				xgmii_txc					<= 4'b0000;
-				xgmii_txd					<= tx_crc_din;
+				//Send payload data
+				xgmii_txc_next				<= 4'b0000;
+				xgmii_txd_next				<= tx_crc_din;
 
-				//If the frame is too small, add padding
-				if(running_frame_len <= 60) begin
-					tx_crc_din				<= 32'h0;
-					tx_crc_bytes_valid		<= 4;
-					running_frame_len		<= running_frame_len + 3'd4;
-				end
+				tx_state					<= TX_STATE_FCS_1;
 
-				//Nope, we're good. Prepare to send the CRC.
-				//If the previous block was not a multiple of 4 bytes,
-				//then align the CRC as needed
-				else begin
-
-					tx_crc_bytes_valid			<= 0;
-
-					case(tx_frame_bytes_valid_ff)
-
-						//Frame just ended on a 4-byte boundary. Send the CRC immediately
-						//(without a pipe delay)
-						0: 	xgmii_txd			<= tx_crc_dout;
-
-						//Frame ended with partial content.
-						//Send the remainder of the data, but bodge in part of the CRC
-						1: 	xgmii_txd			<= { tx_crc_din[31:24], tx_crc_dout[31:8]  };
-						2: 	xgmii_txd			<= { tx_crc_din[31:16], tx_crc_dout[31:16] };
-						3: 	xgmii_txd			<= { tx_crc_din[31:8],  tx_crc_dout[31:24] };
-
-						//Frame ended with full content or padding.
-						//Send the content, then the CRC next cycle.
-						4:	xgmii_txd			<= tx_crc_din;
-
-					endcase
-
-					tx_state				<= TX_STATE_FCS_1;
-					running_frame_len		<= running_frame_len + 3'd4;
-				end
-
-			end	//end TX_STATE_FCS_0
+			end	//end TX_STATE_FCS_0: begin
 
 			TX_STATE_FCS_1: begin
+
+				//Bodge in the CRC as needed.
+				tx_crc_bytes_valid		<= 0;
+
+				xgmii_txc				<= 4'b0000;
+
+				case(tx_frame_bytes_valid_ff2)
+
+					//Frame just ended on a 4-byte boundary. Send the CRC immediately
+					//(without a pipe delay)
+					0: 	xgmii_txd		<= tx_crc_dout;
+
+					//Frame ended with partial content.
+					//Send the remainder of the data, but bodge in part of the CRC
+					1: 	xgmii_txd		<= { xgmii_txd_next[31:24], tx_crc_dout[31:8]  };
+					2: 	xgmii_txd		<= { xgmii_txd_next[31:16], tx_crc_dout[31:16] };
+					3: 	xgmii_txd		<= { xgmii_txd_next[31:8],  tx_crc_dout[31:24] };
+
+					//Frame ended with full content or padding.
+					//Send the content, then the CRC next cycle.
+					4:	xgmii_txd		<= xgmii_txd_next;
+
+				endcase
+
+				tx_state				<= TX_STATE_FCS_2;
+				running_frame_len		<= running_frame_len + 3'd4;
+
+			end	//end TX_STATE_FCS_1
+
+			TX_STATE_FCS_2: begin
 
 				tx_state					<= TX_STATE_IDLE;
 
 				//See how much of the CRC got sent last cycle.
 				//Add the rest of it, plus the stop marker if we have room for it
-				case(tx_frame_bytes_valid_ff2)
+				case(tx_frame_bytes_valid_ff3)
 
 					//CRC was sent, send stop marker plus idles
 					0: begin
-						xgmii_txc			<= 4'b1111;
-						xgmii_txd			<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+						xgmii_txc		<= 4'b1111;
+						xgmii_txd		<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 					end
 
 					//Partial CRC was sent, but we have room for the stop marker.
 					//Send the rest plus the stop marker.
 					1: begin
-						xgmii_txc			<= 4'b0111;
-						xgmii_txd			<= { tx_crc_dout_ff[7:0], XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+						xgmii_txc		<= 4'b0111;
+						xgmii_txd		<= { tx_crc_dout[7:0], XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 					end
 					2: begin
-						xgmii_txc			<= 4'b0011;
-						xgmii_txd			<= { tx_crc_dout_ff[15:0], XGMII_CTL_END, XGMII_CTL_IDLE };
+						xgmii_txc		<= 4'b0011;
+						xgmii_txd		<= { tx_crc_dout[15:0], XGMII_CTL_END, XGMII_CTL_IDLE };
 					end
 					3: begin
-						xgmii_txc			<= 4'b0001;
-						xgmii_txd			<= { tx_crc_dout_ff[23:0], XGMII_CTL_END, XGMII_CTL_IDLE };
+						xgmii_txc		<= 4'b0001;
+						xgmii_txd		<= { tx_crc_dout[23:0], XGMII_CTL_END, XGMII_CTL_IDLE };
 					end
 
 					//CRC was not sent at all. Send it.
 					//Need to send end marker next cycle still.
 					4: begin
-						xgmii_txc			<= 4'b0000;
-						xgmii_txd			<= tx_crc_dout_ff;
-						tx_state			<= TX_STATE_FCS_2;
+						xgmii_txc		<= 4'b0000;
+						xgmii_txd		<= tx_crc_dout;
+						tx_state		<= TX_STATE_FCS_3;
 					end
 
 				endcase
 
-			end	//end TX_STATE_FCS_1
-
-			//Send stop marker plus idles
-			TX_STATE_FCS_2: begin
-
-				xgmii_txc					<= 4'b1111;
-				xgmii_txd					<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
-
-				running_frame_len			<= 0;
-
-				tx_state					<= TX_STATE_IDLE;
-
 			end	//end TX_STATE_FCS_2
+
+			//Send stop marker plus idles (if aligned to 4-byte boundary)
+			TX_STATE_FCS_3: begin
+
+				xgmii_txc				<= 4'b1111;
+				xgmii_txd				<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+
+				running_frame_len		<= 0;
+
+				tx_state				<= TX_STATE_IDLE;
+
+			end	//end TX_STATE_FCS_3
 
 		endcase
 
@@ -529,6 +536,10 @@ module XGEthernetMAC(
 		.probe10(tx_frame_bytes_valid_ff2),
 		.probe11(tx_frame_data),
 		.probe12(tx_frame_data_valid),
+
+		.probe13(xgmii_txc_next),
+		.probe14(xgmii_txd_next),
+		.probe15(tx_frame_bytes_valid_ff3),
 
 		.trig_out(trig_out),
 		.trig_out_ack(trig_out_ack)
