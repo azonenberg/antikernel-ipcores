@@ -508,42 +508,4 @@ module XGEthernetMAC(
 		.crc_out(tx_crc_dout)
 	);
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// LA runs in SERDES TX clock domain
-
-	/*
-	wire	trig_out;
-	reg		trig_out_ack	= 0;
-
-	always @(posedge xgmii_tx_clk) begin
-		trig_out_ack	<= trig_out;
-	end
-
-	ila_0 ila(
-		.clk(xgmii_tx_clk),
-
-		.probe0(xgmii_txc),
-		.probe1(xgmii_txd),
-		.probe2(tx_frame_start),
-		.probe3(tx_crc_bytes_valid),
-		.probe4(tx_crc_din),
-		.probe5(tx_crc_dout),
-		.probe6(running_frame_len),
-		.probe7(tx_state),
-
-		.probe8(tx_frame_bytes_valid),
-		.probe9(tx_frame_bytes_valid_ff),
-		.probe10(tx_frame_bytes_valid_ff2),
-		.probe11(tx_frame_data),
-		.probe12(tx_frame_data_valid),
-
-		.probe13(xgmii_txc_next),
-		.probe14(xgmii_txd_next),
-		.probe15(tx_frame_bytes_valid_ff3),
-
-		.trig_out(trig_out),
-		.trig_out_ack(trig_out_ack)
-	);
-	*/
-
 endmodule
