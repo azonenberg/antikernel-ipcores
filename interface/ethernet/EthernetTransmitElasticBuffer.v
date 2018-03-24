@@ -405,4 +405,53 @@ module EthernetTransmitElasticBuffer(
 
 	end
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Debug LA
+
+	wire	trig_out;
+	reg		trig_out_ack	= 0;
+
+	/*
+	always @(posedge xgmii_tx_clk) begin
+		trig_out_ack	<= trig_out;
+	end
+
+	ila_0 ila(
+		.clk(xgmii_tx_clk),
+
+		.probe0(tx_l2_start),
+		.probe0(tx_l2_data_valid),
+		.probe0(tx_l2_bytes_valid),
+		.probe0(tx_l2_data),
+		.probe0(tx_l2_commit),
+		.probe0(tx_l2_drop),
+		.probe0(tx_l2_dst_mac),
+		.probe0(tx_l2_ethertype),
+
+		.probe0(tx_frame_start),
+		.probe1(tx_frame_data_valid),
+		.probe2(tx_frame_bytes_valid),
+		.probe3(tx_frame_data),
+		.probe4(tx_bytes_left),
+		.probe5(tx_count),
+		.probe6(fifo_rd_data),
+		.probe7(fifo_rd_data_ff),
+		.probe8(fifo_rd_data_ff2),
+		.probe9(header_pop),
+		.probe10(header_rd_en),
+		.probe11(header_rd_en_ff),
+		.probe12(header_rd_size),
+
+		.probe13(fifo_rd_en),
+		.probe14(fifo_rd_offset),
+		.probe15(fifo_pop_packet),
+		.probe16(fifo_pop_size),
+		.probe17(fifo_rd_data),
+		.probe18(fifo_rd_size),
+
+		.trig_out(trig_out),
+		.trig_out_ack(trig_out_ack)
+	);
+	*/
+
 endmodule

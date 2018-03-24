@@ -464,7 +464,7 @@ module XGEthernetMAC(
 					end
 					3: begin
 						xgmii_txc		<= 4'b0001;
-						xgmii_txd		<= { tx_crc_dout[23:0], XGMII_CTL_END, XGMII_CTL_IDLE };
+						xgmii_txd		<= { tx_crc_dout[23:0], XGMII_CTL_END};
 					end
 
 					//CRC was not sent at all. Send it.
