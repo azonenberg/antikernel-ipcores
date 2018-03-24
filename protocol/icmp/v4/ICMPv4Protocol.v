@@ -414,39 +414,4 @@ module ICMPv4Protocol(
 
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// LA for bringup
-
-	/*
-	wire	trig_out;
-	reg		trig_out_ack	= 0;
-
-	always @(posedge clk) begin
-		trig_out_ack	<= trig_out;
-	end
-
-	ila_0 ila(
-		.clk(clk),
-
-		.probe0(tx_l3_start),
-		.probe1(tx_l3_commit),
-		.probe2(tx_l3_drop),
-		.probe3(tx_l3_payload_len),
-		.probe4(tx_l3_dst_ip),
-		.probe5(tx_l3_data_valid),
-		.probe6(tx_l3_bytes_valid),
-		.probe7(tx_l3_data),
-		.probe8(tx_start),
-		.probe9(tx_fifo_rd),
-		.probe10(tx_fifo_rdata),
-		.probe11(tx_state),
-		.probe12(tx_checksum),
-		.probe13(tx_bytes_left),
-		.probe14(tx_fifo_rsize),
-
-		.trig_out(trig_out),
-		.trig_out_ack(trig_out_ack)
-	);
-	*/
-
 endmodule

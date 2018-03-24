@@ -443,6 +443,8 @@ module IPv4Protocol(
 	reg			tx_fifo_rst	= 0;
 	wire[31:0]	tx_fifo_rdata;
 
+	wire[9:0]	tx_fifo_rsize;
+
 	SingleClockFifo #(
 		.WIDTH(32),
 		.DEPTH(512)
@@ -457,7 +459,7 @@ module IPv4Protocol(
 		.underflow(),
 		.empty(),
 		.full(),
-		.rsize(),
+		.rsize(tx_fifo_rsize),
 		.wsize(),
 		.reset(tx_fifo_rst)
 	);
@@ -680,54 +682,5 @@ module IPv4Protocol(
 		end
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// LA for bringup
-
-	/*
-	wire	trig_out;
-	reg		trig_out_ack	= 0;
-
-	always @(posedge clk) begin
-		trig_out_ack	<= trig_out;
-	end
-
-	ila_0 ila(
-		.clk(clk),
-
-		.probe0(tx_l3_start),
-		.probe1(tx_l3_commit),
-		.probe2(tx_l3_drop),
-		.probe3(tx_l3_payload_len),
-		.probe4(tx_l3_dst_ip),
-		.probe5(tx_l3_data_valid),
-		.probe6(tx_l3_bytes_valid),
-		.probe7(tx_l3_data),
-		.probe8(tx_bytes_left),
-		.probe9(tx_fifo_rd),
-		.probe10(tx_fifo_rdata),
-		.probe11(tx_state),
-		.probe12(tx_l2_start),
-		.probe13(tx_l2_data_valid),
-		.probe14(tx_l2_bytes_valid),
-		.probe15(tx_l2_data),
-		.probe16(tx_l2_commit),
-		.probe17(tx_l2_drop),
-		.probe18(tx_l2_dst_mac),
-		.probe19(tx_fifo_rst),
-		.probe20(tx_header_checksum),
-		.probe21(tx_l3_protocol),
-		.probe22(tx_total_len),
-
-		.probe23(rx_l3_start),
-		.probe24(rx_l3_payload_len),
-		.probe25(rx_l3_data_valid),
-		.probe26(rx_l3_bytes_valid),
-		.probe27(rx_l3_data),
-
-		.trig_out(trig_out),
-		.trig_out_ack(trig_out_ack)
-	);
-	*/
 
 endmodule
