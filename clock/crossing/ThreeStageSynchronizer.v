@@ -46,12 +46,29 @@ module ThreeStageSynchronizer(
 	// The flipflops
 
 	reg dout0;
+
 	(* ASYNC_REG = "TRUE" *) reg dout1;
 
-	//First stage: FF in the transmitting domain
-	always @(posedge clk_in) begin
-		dout0	<= din;
-	end
+	parameter IN_REG = 1;
+
+	generate
+
+		if(IN_REG) begin
+
+			//First stage: FF in the transmitting domain
+			always @(posedge clk_in) begin
+				dout0	<= din;
+			end
+
+		end
+
+		else begin
+			always @(*) begin
+				dout0	<= din;
+			end
+		end
+
+	endgenerate
 
 	//Two stages in the receiving clock domain
 	always @(posedge clk_out) begin
