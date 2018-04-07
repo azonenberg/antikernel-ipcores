@@ -31,49 +31,47 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief Three-stage flipflop-based synchronizer
- */
-module ThreeStageSynchronizer(
-	input wire clk_in,
-	input wire din,
-	input wire clk_out,
+	@brief Unidirectional pulse synchronizer for sharing single cycle pulses across clock domains
 
-	(* ASYNC_REG = "TRUE" *)
-	output reg dout	= 0
-    );
+	Note that it takes several clocks for the pulse to propagate. If clk_a is faster than clk_b, there is a "dead time"
+	window in which two consecutive pulses may be read as one.
+ */
+module PulseSynchronizer(
+	input wire	clk_a,
+	input wire	pulse_a,
+
+	input wire	clk_b,
+	output reg	pulse_b = 0
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The flipflops
+	// Transmit side
 
-	reg dout0;
+	reg		tx_a	= 0;
 
-	(* ASYNC_REG = "TRUE" *) reg dout1;
+	//Toggle every time we get a pulse
+	always @(posedge clk_a) begin
+		if(pulse_a)
+			tx_a	<= ~tx_a;
+	end
 
-	parameter IN_REG = 1;
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The synchronizer
 
-	generate
+	wire	rx_a;
 
-		if(IN_REG) begin
+	ThreeStageSynchronizer sync
+		(.clk_in(clk_a), .din(tx_a), .clk_out(clk_b), .dout(rx_a));
 
-			//First stage: FF in the transmitting domain
-			always @(posedge clk_in) begin
-				dout0	<= din;
-			end
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Receive side
 
-		end
+	reg		rx_a_ff	= 0;
 
-		else begin
-			always @(*) begin
-				dout0	<= din;
-			end
-		end
-
-	endgenerate
-
-	//Two stages in the receiving clock domain
-	always @(posedge clk_out) begin
-		dout1	<= dout0;
-		dout	<= dout1;
+	//Pulse every time we get a toggle
+	always @(posedge clk_b) begin
+		rx_a_ff	<= rx_a;
+		pulse_b	<= (rx_a_ff != rx_a);
 	end
 
 endmodule
