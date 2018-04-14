@@ -36,18 +36,28 @@
  */
 module HyperRAMController(
 
-	input wire		clk,		//Main clock, up to 100 MHz in 3.3V or 166 MHz in 1.8V devices
-	input wire		clk_90,		//Copy of clk with a -90 degree phase offset (+270)
+	input wire			clk,		//Main clock, up to 100 MHz in 3.3V or 166 MHz in 1.8V devices
+	input wire			clk_90,		//Copy of clk with a -90 degree phase offset (+270)
 
-	output wire		ram_clk_p,	//Differential clock to the RAM
-	output wire		ram_clk_n,	//TODO: move this out of the controller
-								//so we can support 3.3V parts w/ single ended clk?
+	//RAM bus
+	output wire			ram_clk_p,	//Differential clock to the RAM
+	output wire			ram_clk_n,	//(clk_n may be unused for 3.3V parts)
+	inout wire[7:0]		ram_dq,
+	inout wire			ram_dqs,
+	output reg			ram_cs_n = 1,
+	output reg			ram_rst_n = 1,
 
-	inout wire[7:0]	ram_dq,
-	inout wire		ram_dqs,
-	output reg		ram_cs_n = 1,
-	output reg		ram_rst_n = 1
+	//Control signals
+
+	//Status signals
+	output reg			status_valid	= 0,
+	output reg			ram_ok			= 0,
+	output reg[4:0]		num_col_addrs	= 0,
+	output reg[5:0]		num_row_addrs	= 0,
+	output reg[7:0]		capacity_mbits	= 0
 );
+
+	parameter SIM = 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O buffers
@@ -107,7 +117,7 @@ module HyperRAMController(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TODO: delay lines for input capture
+	// TODO: delay lines for input capture? Or do we even need this at 333 MT/s?
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// DDR buffers
@@ -148,7 +158,152 @@ module HyperRAMController(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Oversampling for DQS alignment
+	// Oversampling for DQS alignment? Doesn't seem necessary at this point
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Inbound DQ-to-strobe alignment
+
+	//If dqs_in is 2'b10, we're correctly aligned to the burst
+	//If 2'b01, we need to bit slip by one DDR clock cycle
+	//Delay the data-valid flag during that
+	reg[15:0]	ram_dq_in_ff		= 0;
+	reg[1:0]	ram_dqs_in_ff		= 0;
+	reg[15:0]	ram_dq_in_aligned;
+	reg			ram_dq_in_valid;
+	always @(*) begin
+
+		//clear everything once chip is deselected
+		if(ram_cs_n) begin
+			ram_dq_in_aligned	<= 16'h0;
+			ram_dq_in_valid		<= 1'b0;
+		end
+
+		else if(ram_dqs_in == 2'b10) begin
+			ram_dq_in_aligned	<= ram_dq_in;
+			ram_dq_in_valid		<= 1;
+		end
+		else if(ram_dqs_in == 2'b01) begin
+			ram_dq_in_aligned	<= {ram_dq_in_ff[7:0], ram_dq_in[15:8]};
+			ram_dq_in_valid		<= (ram_dqs_in_ff == 2'b01);
+		end
+		else begin
+			ram_dq_in_aligned	<= 16'h0;
+			ram_dq_in_valid		<= 1'b0;
+		end
+	end
+
+	always @(posedge clk) begin
+		ram_dq_in_ff	<= ram_dq_in;
+		ram_dqs_in_ff	<= ram_dqs_in;
+		ram_dq_oe_ff 	<= ram_dq_oe;
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// PHY state machine
+
+	localparam PHY_STATE_IDLE		= 4'h0;
+	localparam PHY_STATE_UADDR		= 4'h1;
+	localparam PHY_STATE_LADDR		= 4'h2;
+	localparam PHY_STATE_DQS_WAIT	= 4'h3;
+	localparam PHY_STATE_PRE_DATA	= 4'h4;
+	localparam PHY_STATE_DATA		= 4'h5;
+
+	reg[3:0]	phy_state		= PHY_STATE_IDLE;
+	reg[7:0]	burst_count		= 0;
+
+	//Burst status
+	reg			burst_en			= 0;
+	reg[7:0]	burst_len			= 0;
+	reg			burst_done			= 0;
+
+	//Configuration for a read/write burst
+	reg			burst_rd_en			= 0;	//0 for writes
+	reg			burst_is_reg		= 0;	//1 for register access
+	reg			burst_is_linear		= 0;	//0 for wrapped
+	reg[28:0]	burst_upper_addr	= 0;
+	//13-bit reserved field here, always zero
+	reg[2:0]	burst_lower_addr	= 0;
+
+	always @(posedge clk) begin
+
+		burst_done				<= 0;
+
+		case(phy_state)
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// IDLE - wait for a burst command
+
+			PHY_STATE_IDLE: begin
+
+				//Default to tristating everything and not selecting the chip
+				ram_dqsdm_oe	<= 0;
+				ram_dq_oe		<= 0;
+				ram_cs_n		<= 1;
+
+				//TODO: handle refreshes
+				if(burst_en) begin
+					ram_cs_n				<= 0;
+
+					ram_dq_oe				<= 1;
+					ram_dqsdm_oe			<= 0;
+					clk_oe					<= 1;
+					ram_dq_out				<= { burst_rd_en, burst_is_reg, burst_is_linear, burst_upper_addr[28:16] };
+
+					phy_state				<= PHY_STATE_UADDR;
+
+				end
+
+			end	//end PHY_STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Main burst path
+
+			PHY_STATE_UADDR: begin
+				ram_dq_out				<= burst_upper_addr[15:0];
+				phy_state				<= PHY_STATE_LADDR;
+			end	//end PHY_STATE_UADDR
+
+			PHY_STATE_LADDR: begin
+				ram_dq_out				<= { 13'h0, burst_lower_addr };
+				phy_state				<= PHY_STATE_DQS_WAIT;
+			end	//end PHY_STATE_LADDR
+
+			PHY_STATE_DQS_WAIT: begin
+				ram_dq_oe				<= 0;
+				ram_dqsdm_oe			<= 0;
+
+				burst_count				<= burst_len;
+
+				//Wait for DQS to go low (indicating read command is being processed)
+				if(ram_dqs_in == 0)
+					phy_state			<= PHY_STATE_PRE_DATA;
+			end	//end PHY_STATE_DQS_WAIT
+
+			PHY_STATE_PRE_DATA: begin
+
+				//Wait for DQS to have data on it
+				if(ram_dqs_in)
+					phy_state			<= PHY_STATE_DATA;
+
+			end	//end PHY_STATE_PRE_DATA
+
+			PHY_STATE_DATA: begin
+
+				burst_count				<= burst_count - 1'h1;
+
+				if(burst_count == 1) begin
+					phy_state			<= PHY_STATE_IDLE;
+					ram_cs_n			<= 1;
+					clk_oe				<= 0;
+
+					burst_done			<= 1;
+				end
+
+			end	//end PHY_STATE_DATA
+
+		endcase
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main control state machine
@@ -167,49 +322,20 @@ module HyperRAMController(
 	localparam STATE_BOOT_0		= 4'h1;
 	localparam STATE_BOOT_1		= 4'h2;
 	localparam STATE_BOOT_2 	= 4'h3;
-	localparam STATE_BURST_0	= 4'h4;
-	localparam STATE_BURST_1	= 4'h5;
-	localparam STATE_BURST_2	= 4'h6;
-	localparam STATE_BURST_3	= 4'h7;
-	localparam STATE_BURST_4	= 4'h8;
-	localparam STATE_BURST_5	= 4'h9;
+	localparam STATE_BOOT_3 	= 4'h4;
 
 	localparam STATE_BOOT_HOLD	= 4'hf;
 
-	reg[3:0]	state			= STATE_BOOT_HOLD;
-	reg[3:0]	state_ret		= STATE_IDLE;
+	reg[3:0]	state			= SIM ? STATE_BOOT_0 : STATE_BOOT_HOLD;
 
 	reg[7:0]	count			= 0;
 
-	//Configuration for a read/write burst
-	reg			burst_rd_en			= 0;	//0 for writes
-	reg			burst_is_reg		= 0;	//1 for register access
-	reg			burst_is_linear		= 0;	//0 for wrapped
-	reg[28:0]	burst_upper_addr	= 0;
-	//13-bit reserved field here, always zero
-	reg[2:0]	burst_lower_addr	= 0;
-
-	reg[7:0]	burst_count			= 0;
-
+	//debug
 	wire		trig_out;
-
-	//If dqs_in is 2'b10, we're correctly aligned to the burst
-	//If 2'b01, we need to bit slip by one DDR clock cycle
-	reg[15:0]	ram_dq_in_ff		= 0;
-	reg[15:0]	ram_dq_in_aligned;
-	always @(*) begin
-		if(ram_dqs_in == 2'b10)
-			ram_dq_in_aligned	<= ram_dq_in;
-		else if(ram_dqs_in == 2'b01)
-			ram_dq_in_aligned	<= {ram_dq_in_ff[7:0], ram_dq_in[15:8]};
-		else
-			ram_dq_in_aligned	<= 16'h0;
-	end
 
 	always @(posedge clk) begin
 
-		ram_dq_in_ff	<= ram_dq_in;
-		ram_dq_oe_ff 	<= ram_dq_oe;
+		burst_en				<= 0;
 
 		case(state)
 
@@ -222,13 +348,6 @@ module HyperRAMController(
 			// IDLE - wait for commands
 
 			STATE_IDLE: begin
-
-				//Default to tristating everything and not selecting the chip
-				ram_dqsdm_oe	<= 0;
-				ram_dq_oe		<= 0;
-				ram_cs_n		<= 1;
-
-
 			end	//end STATE_IDLE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -236,15 +355,9 @@ module HyperRAMController(
 
 			//Reset the chip
 			STATE_BOOT_0: begin
-
-				ram_dqsdm_oe	<= 0;
-				ram_dq_oe		<= 0;
 				ram_rst_n		<= 0;
-				ram_cs_n		<= 1;
 				count			<= 0;
-
 				state			<= STATE_BOOT_1;
-
 			end	//end STATE_BOOT_0
 
 			//Datasheet says we need a minimum of 200 ns low
@@ -265,75 +378,49 @@ module HyperRAMController(
 			STATE_BOOT_2: begin
 				count			<= count + 1'h1;
 				if(count == 127) begin
-					count				<= 0;
-					state_ret			<= STATE_IDLE;
+					burst_en			<= 1;
+					burst_len			<= 1;			//ID register 0 is only one word
+
 					burst_rd_en			<= 1;
 					burst_is_reg		<= 1;
 					burst_is_linear		<= 1;
 					burst_upper_addr	<= 28'h0;
 					burst_lower_addr	<= 3'h0;
-					state				<= STATE_BURST_0;
+					state				<= STATE_BOOT_3;
 				end
 			end	//end STATE_BOOT_2
 
-			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// BURST - read/write burst
+			//Wait for config read to finish
+			STATE_BOOT_3: begin
 
-			STATE_BURST_0: begin
-				ram_cs_n				<= 0;
-
-				ram_dq_oe				<= 1;
-				ram_dqsdm_oe			<= 0;
-				clk_oe					<= 1;
-				ram_dq_out				<= { burst_rd_en, burst_is_reg, burst_is_linear, burst_upper_addr[28:16] };
-
-				state					<= STATE_BURST_1;
-			end
-
-			STATE_BURST_1: begin
-				ram_dq_out				<= burst_upper_addr[15:0];
-
-				state					<= STATE_BURST_2;
-			end	//end STATE_BURST_1
-
-			STATE_BURST_2: begin
-				ram_dq_out				<= { 13'h0, burst_lower_addr };
-
-				state					<= STATE_BURST_3;
-			end	//end STATE_BURST_2
-
-			STATE_BURST_3: begin
-
-				ram_dq_oe				<= 0;
-				ram_dqsdm_oe			<= 0;
-
-				//TODO: set to actual burst length
-				burst_count				<= 1;
-
-				//Wait for DQS to go low (indicating read command is being processed)
-				if(ram_dqs_in == 0)
-					state					<= STATE_BURST_4;
-			end	//end STATE_BURST_3
-
-			//prepare for readback
-			STATE_BURST_4: begin
-
-				//Wait for DQS to have data on it
-				if(ram_dqs_in)
-					state				<= STATE_BURST_5;
-
-			end
-
-			STATE_BURST_5: begin
-
-				burst_count				<= burst_count - 1'h1;
-
-				if(burst_count == 0) begin
-					state				<= state_ret;
-					ram_cs_n			<= 1;
-					clk_oe				<= 0;
+				//TODO: read config register 1 too
+				if(burst_done) begin
+					state				<= STATE_IDLE;
+					status_valid		<= 1;
 				end
-			end	//end STATE_BURST_5
+
+				if(ram_dq_in_valid) begin
+
+					//Verify that we have a valid HyperRAM part made by Cypress
+					if(ram_dq_in_aligned[3:0] != 4'b0001)
+						ram_ok				<= 0;
+
+					//Save register data
+					else begin
+						ram_ok				<= 1;
+						num_col_addrs		<= ram_dq_in_aligned[7:4] + 1'h1;
+						num_row_addrs		<= ram_dq_in_aligned[12:8] + 1'h1;
+						//TODO: support multi-die parts
+
+						//Calculate capacity in Mbits (2^20 bits)
+						//Addresses are in words (16 bits). 1 Mb = 2^16 words.
+						//Shift by 14 since row/col address counts are offset-1 coded.
+						capacity_mbits		<= 1 << (ram_dq_in_aligned[7:4] + ram_dq_in_aligned[12:8] - 4'd14);
+
+						//TODO: figure out actual device capacity / max address from this info
+					end
+				end
+			end	//end STATE_BOOT_3
 
 		endcase
 
@@ -342,35 +429,54 @@ module HyperRAMController(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug LA
 
-	reg		trig_out_ack	= 0;
+	generate
 
-	always @(posedge clk) begin
-		trig_out_ack	<= trig_out;
-	end
+		if(!SIM) begin
 
-	ila_0 ila(
-		.clk(clk),
+			reg		trig_out_ack	= 0;
 
-		.probe0(ram_dq_oe),
-		.probe1(ram_dqsdm_oe),
-		.probe2(ram_rst_n),
-		.probe3(state),
-		.probe4(state_ret),
-		.probe5(ram_dq_out),
-		.probe6(ram_dq_in),
-		.probe7(burst_rd_en),
-		.probe8(burst_is_reg),
-		.probe9(burst_is_linear),
-		.probe10(burst_upper_addr),
-		.probe11(burst_lower_addr),
-		.probe12(ram_dqs_in),
-		.probe13(ram_dq_oe),
-		.probe14(ram_dqsdm_oe),
-		.probe15(ram_cs_n),
-		.probe16(ram_dq_in_aligned),
+			always @(posedge clk) begin
+				trig_out_ack	<= trig_out;
+			end
 
-		.trig_out(trig_out),
-		.trig_out_ack(trig_out_ack)
-	);
+			ila_0 ila(
+				.clk(clk),
+
+				.probe0(ram_dq_oe),
+				.probe1(ram_dqsdm_oe),
+				.probe2(ram_rst_n),
+				.probe3(state),
+				.probe4(phy_state),
+				.probe5(ram_dq_out),
+				.probe6(ram_dq_in),
+				.probe7(burst_rd_en),
+				.probe8(burst_is_reg),
+				.probe9(burst_is_linear),
+				.probe10(burst_upper_addr),
+				.probe11(burst_lower_addr),
+				.probe12(ram_dqs_in),
+				.probe13(ram_dq_oe),
+				.probe14(ram_dqsdm_oe),
+				.probe15(ram_cs_n),
+				.probe16(ram_dq_in_aligned),
+				.probe17(ram_dqs_in_ff),
+				.probe18(ram_dq_in_valid),
+
+				.probe19(status_valid),
+				.probe20(ram_ok),
+				.probe21(num_col_addrs),
+				.probe22(num_row_addrs),
+				.probe23(capacity_mbits),
+
+				.trig_out(trig_out),
+				.trig_out_ack(trig_out_ack)
+			);
+
+		end
+
+		else
+			assign trig_out = 0;
+
+	endgenerate
 
 endmodule
