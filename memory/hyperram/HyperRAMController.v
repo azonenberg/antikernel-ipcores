@@ -33,6 +33,8 @@
 	@file
 	@author Andrew D. Zonenberg
 	@brief Controller for Cypress HyperRAM
+
+	For now, accesses are hard coded to 32-byte (8 word) burst length and alignment.
  */
 module HyperRAMController(
 
@@ -48,6 +50,13 @@ module HyperRAMController(
 	output reg			ram_rst_n = 1,
 
 	//Control signals
+	input wire			bus_en,
+	input wire			bus_rd,
+	input wire[31:0]	bus_addr,
+	input wire[31:0]	bus_wdata,
+	output reg			bus_rdata_valid	= 0,
+	output reg[31:0]	bus_rdata		= 0,
+	output reg			bus_done		= 0,
 
 	//Status signals
 	output reg			status_valid	= 0,
@@ -206,7 +215,8 @@ module HyperRAMController(
 	localparam PHY_STATE_LADDR		= 4'h2;
 	localparam PHY_STATE_DQS_WAIT	= 4'h3;
 	localparam PHY_STATE_PRE_DATA	= 4'h4;
-	localparam PHY_STATE_DATA		= 4'h5;
+	localparam PHY_STATE_READ_DATA	= 4'h5;
+	localparam PHY_STATE_WRITE_DATA	= 4'h6;
 
 	reg[3:0]	phy_state		= PHY_STATE_IDLE;
 	reg[7:0]	burst_count		= 0;
@@ -224,9 +234,13 @@ module HyperRAMController(
 	//13-bit reserved field here, always zero
 	reg[2:0]	burst_lower_addr	= 0;
 
+	reg			phy_need_wdata		= 0;
+	reg[31:0]	phy_wdata			= 0;
+
 	always @(posedge clk) begin
 
 		burst_done				<= 0;
+		phy_need_wdata			<= 0;
 
 		case(phy_state)
 
@@ -256,17 +270,50 @@ module HyperRAMController(
 			end	//end PHY_STATE_IDLE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// Main burst path
+			// Addressing stage (same for all transactions)
 
 			PHY_STATE_UADDR: begin
 				ram_dq_out				<= burst_upper_addr[15:0];
 				phy_state				<= PHY_STATE_LADDR;
+
+				if(!burst_rd_en)
+					phy_need_wdata		<= 1;
 			end	//end PHY_STATE_UADDR
 
 			PHY_STATE_LADDR: begin
 				ram_dq_out				<= { 13'h0, burst_lower_addr };
-				phy_state				<= PHY_STATE_DQS_WAIT;
+
+				//For READS
+				if(burst_rd_en)
+					phy_state			<= PHY_STATE_DQS_WAIT;
+
+				//For WRITES
+				//TODO: handle initial latency?
+				else begin
+					burst_count			<= burst_len;
+					phy_state			<= PHY_STATE_WRITE_DATA;
+				end
+
+
 			end	//end PHY_STATE_LADDR
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// WRITE burst path
+
+			PHY_STATE_WRITE_DATA: begin
+				burst_count				<= burst_count - 1'h1;
+
+				if(burst_count == 1) begin
+					phy_state			<= PHY_STATE_IDLE;
+					ram_cs_n			<= 1;
+					clk_oe				<= 0;
+
+					burst_done			<= 1;
+				end
+			end	//end PHY_STATE_WRITE_DATA
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// READ burst path
 
 			PHY_STATE_DQS_WAIT: begin
 				ram_dq_oe				<= 0;
@@ -283,11 +330,11 @@ module HyperRAMController(
 
 				//Wait for DQS to have data on it
 				if(ram_dqs_in)
-					phy_state			<= PHY_STATE_DATA;
+					phy_state			<= PHY_STATE_READ_DATA;
 
 			end	//end PHY_STATE_PRE_DATA
 
-			PHY_STATE_DATA: begin
+			PHY_STATE_READ_DATA: begin
 
 				burst_count				<= burst_count - 1'h1;
 
@@ -299,7 +346,7 @@ module HyperRAMController(
 					burst_done			<= 1;
 				end
 
-			end	//end PHY_STATE_DATA
+			end	//end PHY_STATE_READ_DATA
 
 		endcase
 
@@ -323,6 +370,8 @@ module HyperRAMController(
 	localparam STATE_BOOT_1		= 4'h2;
 	localparam STATE_BOOT_2 	= 4'h3;
 	localparam STATE_BOOT_3 	= 4'h4;
+	localparam STATE_BOOT_4 	= 4'h5;
+	localparam STATE_READ		= 4'h6;
 
 	localparam STATE_BOOT_HOLD	= 4'hf;
 
@@ -333,9 +382,14 @@ module HyperRAMController(
 	//debug
 	wire		trig_out;
 
+	reg			rd_phase				= 0;
+	reg[15:0]	ram_dq_in_aligned_ff	= 0;
+
 	always @(posedge clk) begin
 
 		burst_en				<= 0;
+		bus_done				<= 0;
+		bus_rdata_valid			<= 0;
 
 		case(state)
 
@@ -348,7 +402,48 @@ module HyperRAMController(
 			// IDLE - wait for commands
 
 			STATE_IDLE: begin
+
+				//TODO: refreshes?
+
+				//TODO: make burst length configurable
+				if(bus_rd && bus_en) begin
+					burst_en			<= 1;
+					burst_len			<= 32;
+					burst_rd_en			<= 1;
+					burst_is_reg		<= 0;
+					burst_is_linear		<= 1;
+					burst_upper_addr	<= bus_addr[31:3];	//TODO: support other row/col aspect ratios
+					burst_lower_addr	<= bus_addr[2:0];
+					state				<= STATE_READ;
+					rd_phase			<= 0;
+				end
+
 			end	//end STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// READ - process a read burst
+
+			STATE_READ: begin
+
+				if(burst_done) begin
+					bus_done			<= 1;
+					state				<= STATE_IDLE;
+				end
+
+				if(ram_dq_in_valid) begin
+
+					rd_phase			<= !rd_phase;
+
+					if(rd_phase) begin
+						bus_rdata_valid	<= 1;
+						bus_rdata		<= { ram_dq_in_aligned_ff, ram_dq_in_aligned };
+					end
+					else
+						ram_dq_in_aligned_ff	<= ram_dq_in_aligned;
+
+				end
+
+			end	//end STATE_READ
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// BOOT - initial register configuration
@@ -384,7 +479,7 @@ module HyperRAMController(
 					burst_rd_en			<= 1;
 					burst_is_reg		<= 1;
 					burst_is_linear		<= 1;
-					burst_upper_addr	<= 28'h0;
+					burst_upper_addr	<= 29'h0;
 					burst_lower_addr	<= 3'h0;
 					state				<= STATE_BOOT_3;
 				end
@@ -393,10 +488,19 @@ module HyperRAMController(
 			//Wait for config read to finish
 			STATE_BOOT_3: begin
 
-				//TODO: read config register 1 too
+				//Write config register 0
 				if(burst_done) begin
-					state				<= STATE_IDLE;
-					status_valid		<= 1;
+					burst_en			<= 1;
+					burst_len			<= 1;
+
+					burst_rd_en			<= 0;
+					burst_is_reg		<= 1;
+					burst_is_linear		<= 1;
+
+					burst_upper_addr	<= 29'h100;
+					burst_lower_addr	<= 0;
+
+					state				<= STATE_BOOT_4;
 				end
 
 				if(ram_dq_in_valid) begin
@@ -416,11 +520,29 @@ module HyperRAMController(
 						//Addresses are in words (16 bits). 1 Mb = 2^16 words.
 						//Shift by 14 since row/col address counts are offset-1 coded.
 						capacity_mbits		<= 1 << (ram_dq_in_aligned[7:4] + ram_dq_in_aligned[12:8] - 4'd14);
-
-						//TODO: figure out actual device capacity / max address from this info
 					end
 				end
 			end	//end STATE_BOOT_3
+
+			STATE_BOOT_4: begin
+				if(phy_need_wdata) begin
+					phy_wdata			<=
+					{
+						1'b1,		//normal operation, no power down
+						3'b011,		//46 ohm drive strength
+						4'b1111,	//reserved, must be 1
+						4'b0001,	//6 clock latency for read/write transactions
+						1'b1,		//Fixed 2 cycle initial latency
+						2'b1,		//wrapped burst in legacy order
+						2'b11		//32 byte (8x 32-bit word) burst size
+					};
+				end
+
+				if(burst_done) begin
+					state				<= STATE_IDLE;
+					status_valid		<= 1;
+				end
+			end	//end STATE_BOOT_4
 
 		endcase
 
@@ -467,6 +589,17 @@ module HyperRAMController(
 				.probe21(num_col_addrs),
 				.probe22(num_row_addrs),
 				.probe23(capacity_mbits),
+
+				.probe24(phy_need_wdata),
+				.probe25(phy_wdata),
+
+				.probe26(bus_en),
+				.probe27(bus_rd),
+				.probe28(bus_addr),
+				.probe29(bus_wdata),
+				.probe30(bus_rdata_valid),
+				.probe31(bus_rdata),
+				.probe32(bus_done),
 
 				.trig_out(trig_out),
 				.trig_out_ack(trig_out_ack)
