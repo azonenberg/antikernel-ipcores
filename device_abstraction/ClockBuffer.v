@@ -47,6 +47,7 @@ module ClockBuffer(clkin, ce, clkout);
 
 	input wire	clkin;
 	input wire	ce;
+
 	output wire	clkout;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -87,11 +88,14 @@ module ClockBuffer(clkin, ce, clkout);
 		else if(TYPE == "GLOBAL") begin
 
 			//For Xilinx Spartan-6 or 7 series: Use a BUFG (TODO: Support other FPGAs)
-			if(CE == "NO")
+			if(CE == "NO") begin
+				(* DONT_TOUCH = "true" *)	//force the buffer to not get optimized out
 				BUFG clk_buf(.I(clkin), .O(clkout));
+			end
 
 			//Use a BUFG for all Xilinx FPGAs
 			else if(CE == "YES") begin
+				(* DONT_TOUCH = "true" *)	//force the buffer to not get optimized out
 				BUFGCE clk_buf(.I(clkin), .O(clkout), .CE(ce));
 			end
 
