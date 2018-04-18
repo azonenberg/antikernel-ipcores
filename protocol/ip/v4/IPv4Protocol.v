@@ -169,6 +169,7 @@ module IPv4Protocol(
 
 	//Packet state that we don't currently use
 	//May eventually be brought up to top-level ports
+	/*
 	reg[5:0]	rx_diffserv_point		= 0;
 	reg[1:0]	rx_ecn					= 0;
 	reg[15:0]	rx_identifier			= 0;
@@ -177,8 +178,7 @@ module IPv4Protocol(
 	reg			rx_flag_mf				= 0;
 	reg[12:0]	rx_frag_offset			= 0;
 	reg[7:0]	rx_ttl					= 0;
-
-	reg[15:0]	rx_header_checksum		= 0;
+	*/
 
 	reg[15:0]	payload_bytes_so_far	= 0;
 
@@ -203,7 +203,6 @@ module IPv4Protocol(
 			RX_STATE_IDLE: begin
 
 				if(rx_l2_start) begin
-					rx_header_checksum		<= 0;
 					payload_bytes_so_far	<= 0;
 					rx_state				<= RX_STATE_HEADER_0;
 				end
@@ -246,8 +245,10 @@ module IPv4Protocol(
 					end
 
 					else begin
+						/*
 						rx_diffserv_point		<= rx_l2_data[23:18];
 						rx_ecn					<= rx_l2_data[17:16];
+						*/
 
 						//Total length must be at least 20 bytes
 						//(minimum IP header size)
@@ -286,11 +287,13 @@ module IPv4Protocol(
 
 					//Save fragmentation/flag data
 					else begin
+						/*
 						rx_identifier			<= rx_l2_data[31:16];
 						rx_flag_evil			<= rx_l2_data[15];
 						rx_flag_df				<= rx_l2_data[14];
 						rx_flag_mf				<= rx_l2_data[13];
 						rx_frag_offset			<= rx_l2_data[12:0];
+						*/
 
 						rx_state				<= RX_STATE_HEADER_3;
 					end
@@ -310,12 +313,12 @@ module IPv4Protocol(
 					end
 
 					else begin
-						rx_ttl						<= rx_l2_data[31:24];
+						//rx_ttl						<= rx_l2_data[31:24];
 						rx_l3_protocol				<= rx_l2_data[23:16];
 						rx_l3_protocol_is_icmp		<= (rx_l2_data[23:16] == IP_PROTO_ICMP);
 						rx_l3_protocol_is_udp		<= (rx_l2_data[23:16] == IP_PROTO_UDP);
 						rx_l3_protocol_is_tcp		<= (rx_l2_data[23:16] == IP_PROTO_TCP);
-						rx_header_checksum			<= rx_l2_data[15:0];
+						//rx_header_checksum			<= rx_l2_data[15:0];
 
 						rx_state					<= RX_STATE_HEADER_4;
 					end
