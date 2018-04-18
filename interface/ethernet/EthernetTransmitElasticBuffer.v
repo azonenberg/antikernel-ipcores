@@ -250,7 +250,7 @@ module EthernetTransmitElasticBuffer(
 	reg[13:0]	tx_bytes_left		= 0;
 	reg[2:0]	tx_count			= 0;
 	reg[31:0]	fifo_rd_data_ff		= 0;
-	reg[31:0]	fifo_rd_data_ff2	= 0;
+	reg[15:0]	fifo_rd_data_ff2	= 0;
 
 	always @(posedge xgmii_tx_clk) begin
 
@@ -264,7 +264,7 @@ module EthernetTransmitElasticBuffer(
 		header_rd_en			<= 0;
 
 		fifo_rd_data_ff			<= fifo_rd_data;
-		fifo_rd_data_ff2		<= fifo_rd_data_ff;
+		fifo_rd_data_ff2		<= fifo_rd_data_ff[15:0];
 		header_rd_en_ff			<= header_rd_en;
 		header_rd_data_ff		<= header_rd_data;
 
