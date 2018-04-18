@@ -89,7 +89,6 @@ module UDPProtocol(
 	localparam RX_STATE_CHECKSUM	= 4'h6;
 
 	reg[3:0]	rx_state			= RX_STATE_IDLE;
-	reg[15:0]	rx_checksum			= 0;
 
 	reg[15:0]	rx_l4_bytes_left	= 0;
 
@@ -166,7 +165,7 @@ module UDPProtocol(
 					end
 
 					else begin
-						rx_checksum			<= rx_l3_data[15:0];
+						//rx_checksum			<= rx_l3_data[15:0];
 						rx_l4_payload_len	<= rx_l3_data[31:16] - 16'h8;
 						rx_l4_bytes_left	<= rx_l3_data[31:16] - 16'h8;	//start off at payload length
 						rx_l4_headers_valid	<= 1;
