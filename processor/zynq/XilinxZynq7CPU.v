@@ -223,7 +223,7 @@ module XilinxZynq7CPU(
 	wire[1:0]	uart_dsr			= 2'h0;
 	wire[1:0]	uart_dcd			= 2'h0;
 	wire[1:0]	uart_ri				= 2'h0;
-	wire[1:0]	uart_dtr			= 2'h0;
+	wire[1:0]	uart_dtr;
 
 	//USB status signals. The actual ULPI data lines are hard IP and not routed to fabric.
 	wire[3:0]	usb_indicator;
