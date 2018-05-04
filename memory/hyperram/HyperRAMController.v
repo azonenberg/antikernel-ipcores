@@ -53,6 +53,7 @@ module HyperRAMController(
 	input wire			bus_en,
 	input wire			bus_rd,
 	input wire[31:0]	bus_addr,
+	output reg			bus_need_wdata	= 0,
 	input wire[31:0]	bus_wdata,
 	output reg			bus_rdata_valid	= 0,
 	output reg[31:0]	bus_rdata		= 0,
@@ -166,6 +167,18 @@ module HyperRAMController(
 		.din(ram_dqs_in_ddr)
 	);
 
+	reg[1:0]	ram_dm_out	= 0;
+
+	DDROutputBuffer #(
+		.WIDTH(1)
+	) dqs_ddr_obuf (
+		.clk_p(clk),
+		.clk_n(!clk),
+		.dout(ram_dm_out_ddr),
+		.din0(ram_dm_out[1]),
+		.din1(ram_dm_out[0])
+	);
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Oversampling for DQS alignment? Doesn't seem necessary at this point
 
@@ -216,7 +229,9 @@ module HyperRAMController(
 	localparam PHY_STATE_DQS_WAIT	= 4'h3;
 	localparam PHY_STATE_PRE_DATA	= 4'h4;
 	localparam PHY_STATE_READ_DATA	= 4'h5;
-	localparam PHY_STATE_WRITE_DATA	= 4'h6;
+	localparam PHY_STATE_WRITE_WAIT	= 4'h6;
+	localparam PHY_STATE_WRITE_DATA	= 4'h7;
+	localparam PHY_STATE_WRITE_LAST	= 4'h8;
 
 	reg[3:0]	phy_state		= PHY_STATE_IDLE;
 	reg[7:0]	burst_count		= 0;
@@ -235,7 +250,9 @@ module HyperRAMController(
 	reg[2:0]	burst_lower_addr	= 0;
 
 	reg			phy_need_wdata		= 0;
-	reg[31:0]	phy_wdata			= 0;
+	reg[15:0]	phy_wdata			= 0;
+
+	reg[7:0]	phy_count			= 0;
 
 	always @(posedge clk) begin
 
@@ -276,8 +293,9 @@ module HyperRAMController(
 				ram_dq_out				<= burst_upper_addr[15:0];
 				phy_state				<= PHY_STATE_LADDR;
 
-				if(!burst_rd_en)
+				if(!burst_rd_en && burst_is_reg)
 					phy_need_wdata		<= 1;
+
 			end	//end PHY_STATE_UADDR
 
 			PHY_STATE_LADDR: begin
@@ -288,10 +306,20 @@ module HyperRAMController(
 					phy_state			<= PHY_STATE_DQS_WAIT;
 
 				//For WRITES
-				//TODO: handle initial latency?
+				//TODO: handle extra initial latency in case of a write
 				else begin
-					burst_count			<= burst_len;
-					phy_state			<= PHY_STATE_WRITE_DATA;
+					burst_count			<= burst_len + 1'h1;	//need one cycle of latency for DDR FFs
+
+					if(burst_is_reg)
+						phy_state		<= PHY_STATE_WRITE_DATA;
+					else begin
+						phy_count		<= 9;		//(note, latency starts after the first half of the address burst)
+													//TODO: reduce this if we're not refreshing
+						phy_state		<= PHY_STATE_WRITE_WAIT;
+					end
+
+					ram_dqsdm_oe		<= 1;
+					ram_dm_out			<= 0;
 				end
 
 
@@ -300,17 +328,39 @@ module HyperRAMController(
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// WRITE burst path
 
+			PHY_STATE_WRITE_WAIT: begin
+				phy_count				<= phy_count - 1'h1;
+				if(phy_count < 3)
+					phy_need_wdata		<= 1;
+				if(phy_count == 0)
+					phy_state			<= PHY_STATE_WRITE_DATA;
+
+			end	//end PHY_STATE_WRITE_DATA
+
 			PHY_STATE_WRITE_DATA: begin
 				burst_count				<= burst_count - 1'h1;
 
-				if(burst_count == 1) begin
-					phy_state			<= PHY_STATE_IDLE;
-					ram_cs_n			<= 1;
-					clk_oe				<= 0;
+				ram_dq_out				<= phy_wdata;
 
-					burst_done			<= 1;
+				if(burst_count == 0 || burst_is_reg) begin
+					ram_dq_out			<= 0;	//done, stop toggling to save power
+					phy_state			<= PHY_STATE_WRITE_LAST;
 				end
+
+				else if(burst_count >= 4)
+					phy_need_wdata		<= 1;
+
 			end	//end PHY_STATE_WRITE_DATA
+
+			PHY_STATE_WRITE_LAST: begin
+				ram_cs_n			<= 1;
+				clk_oe				<= 0;
+
+				burst_count			<= 0;
+				burst_done			<= 1;
+
+				phy_state			<= PHY_STATE_IDLE;
+			end	//end PHY_STATE_WRITE_LAST
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// READ burst path
@@ -322,6 +372,7 @@ module HyperRAMController(
 				burst_count				<= burst_len;
 
 				//Wait for DQS to go low (indicating read command is being processed)
+				//(if it's high, there's a refresh cycle in progress so we have to wait)
 				if(ram_dqs_in == 0)
 					phy_state			<= PHY_STATE_PRE_DATA;
 			end	//end PHY_STATE_DQS_WAIT
@@ -338,7 +389,7 @@ module HyperRAMController(
 
 				burst_count				<= burst_count - 1'h1;
 
-				if(burst_count == 1) begin
+				if(burst_count == 0 || burst_is_reg) begin
 					phy_state			<= PHY_STATE_IDLE;
 					ram_cs_n			<= 1;
 					clk_oe				<= 0;
@@ -372,6 +423,7 @@ module HyperRAMController(
 	localparam STATE_BOOT_3 	= 4'h4;
 	localparam STATE_BOOT_4 	= 4'h5;
 	localparam STATE_READ		= 4'h6;
+	localparam STATE_WRITE		= 4'h7;
 
 	localparam STATE_BOOT_HOLD	= 4'hf;
 
@@ -382,7 +434,7 @@ module HyperRAMController(
 	//debug
 	wire		trig_out;
 
-	reg			rd_phase				= 0;
+	reg			bus_phase				= 0;
 	reg[15:0]	ram_dq_in_aligned_ff	= 0;
 
 	always @(posedge clk) begin
@@ -390,6 +442,7 @@ module HyperRAMController(
 		burst_en				<= 0;
 		bus_done				<= 0;
 		bus_rdata_valid			<= 0;
+		bus_need_wdata			<= 0;
 
 		case(state)
 
@@ -403,22 +456,49 @@ module HyperRAMController(
 
 			STATE_IDLE: begin
 
-				//TODO: refreshes?
-
 				//TODO: make burst length configurable
-				if(bus_rd && bus_en) begin
+				if(bus_en) begin
 					burst_en			<= 1;
 					burst_len			<= 32;
-					burst_rd_en			<= 1;
+					burst_rd_en			<= bus_rd;
 					burst_is_reg		<= 0;
 					burst_is_linear		<= 1;
 					burst_upper_addr	<= bus_addr[31:3];	//TODO: support other row/col aspect ratios
 					burst_lower_addr	<= bus_addr[2:0];
-					state				<= STATE_READ;
-					rd_phase			<= 0;
+
+					if(bus_rd) begin
+						state			<= STATE_READ;
+						bus_phase		<= 0;
+					end
+
+					else
+						state			<= STATE_WRITE;
 				end
 
 			end	//end STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// WRITE - process a write burst
+
+			STATE_WRITE: begin
+
+				if(burst_done) begin
+					bus_done			<= 1;
+					state				<= STATE_IDLE;
+				end
+
+				if(phy_need_wdata && !bus_phase)
+					bus_need_wdata		<= 1;
+
+				bus_phase				<= !bus_phase;
+
+				if(bus_phase)
+					phy_wdata			<= bus_wdata[15:0];
+
+				else
+					phy_wdata			<= bus_wdata[31:16];
+
+			end	//end STATE_WRITE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// READ - process a read burst
@@ -432,9 +512,9 @@ module HyperRAMController(
 
 				if(ram_dq_in_valid) begin
 
-					rd_phase			<= !rd_phase;
+					bus_phase			<= !bus_phase;
 
-					if(rd_phase) begin
+					if(bus_phase) begin
 						bus_rdata_valid	<= 1;
 						bus_rdata		<= { ram_dq_in_aligned_ff, ram_dq_in_aligned };
 					end
@@ -532,8 +612,8 @@ module HyperRAMController(
 						3'b011,		//46 ohm drive strength
 						4'b1111,	//reserved, must be 1
 						4'b0001,	//6 clock latency for read/write transactions
-						1'b1,		//Fixed 2 cycle initial latency
-						2'b1,		//wrapped burst in legacy order
+						1'b1,		//Fixed latency for now
+						1'b1,		//wrapped burst in legacy order
 						2'b11		//32 byte (8x 32-bit word) burst size
 					};
 				end
@@ -577,7 +657,7 @@ module HyperRAMController(
 				.probe10(burst_upper_addr),
 				.probe11(burst_lower_addr),
 				.probe12(ram_dqs_in),
-				.probe13(ram_dq_oe),
+				.probe13(burst_count),
 				.probe14(ram_dqsdm_oe),
 				.probe15(ram_cs_n),
 				.probe16(ram_dq_in_aligned),
@@ -600,6 +680,9 @@ module HyperRAMController(
 				.probe30(bus_rdata_valid),
 				.probe31(bus_rdata),
 				.probe32(bus_done),
+				.probe33(bus_need_wdata),
+
+				.probe34(phy_count),
 
 				.trig_out(trig_out),
 				.trig_out_ack(trig_out_ack)
