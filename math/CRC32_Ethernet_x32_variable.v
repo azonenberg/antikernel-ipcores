@@ -79,7 +79,7 @@ module CRC32_Ethernet_x32_variable(
 	always @(posedge clk) begin
 
 		if(reset)
-			crc	<= 32'hffffffff;			//equivalent to complementing the first 32 bits of the frame
+			crc	= 32'hffffffff;				//equivalent to complementing the first 32 bits of the frame
 											//as per 802.3 3.2.9 (a)
 
 		for(nbyte=0; nbyte<4; nbyte = nbyte + 1) begin
