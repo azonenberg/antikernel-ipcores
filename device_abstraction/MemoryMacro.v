@@ -201,17 +201,18 @@ module MemoryMacro(
 		always @(posedge porta_clk) begin
 			if(porta_we && porta_en)
 				storage[porta_addr]	<= porta_din;
-		end
 
-		if(OUT_REG) begin
-			always @(posedge porta_clk) begin
+			//Synchronous read
+			if(OUT_REG) begin
 				porta_dout_raw_ff	<= porta_dout_raw;
 				if(porta_en)
 					porta_dout_raw	<= storage[porta_addr];
 			end
 
 		end
-		else begin
+
+		//Asynchronous read
+		if(!OUT_REG) begin
 			always @(*)
 				porta_dout_raw		<= storage[porta_addr];
 		end
@@ -238,22 +239,25 @@ module MemoryMacro(
 			reg[WIDTH-1 : 0]		portb_dout_raw 		= 0;
 			reg[WIDTH-1 : 0]		portb_dout_raw_ff	= 0;
 
-			//write port is only enabled in true dual port mode
-			if(TRUE_DUAL) begin
-				always @(posedge portb_clk) begin
+			always @(posedge portb_clk) begin
+
+				//write port is only enabled in true dual port mode
+				if(TRUE_DUAL) begin
 					if(portb_we && portb_en)
 						storage[portb_addr]	<= portb_din;
 				end
-			end
 
-			if(OUT_REG) begin
-				always @(posedge portb_clk) begin
+				//Synchronous read
+				if(OUT_REG) begin
 					portb_dout_raw_ff		<= portb_dout_raw;
 					if(portb_en)
 						portb_dout_raw		<= storage[portb_addr];
 				end
+
 			end
-			else begin
+
+			//Asynchronous read
+			if(!OUT_REG) begin
 				always @(*)
 					portb_dout_raw	<= storage[portb_addr];
 			end
