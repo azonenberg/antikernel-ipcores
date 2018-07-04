@@ -44,10 +44,10 @@
 		Wait for mgmt_busy_fwd to be cleared
 		Read phy_rd_data;
  */
-module EthernetMDIOTransceiver #(
-	parameter PHY_MD_ADDR = 5'b00001
-) (
+module EthernetMDIOTransceiver (
 	input	wire		clk_125mhz,
+
+	input	wire[4:0]	phy_md_addr,
 
 	output	reg			mdio_tx_data	= 0,
 	output	reg			mdio_tx_en		= 0,
@@ -213,12 +213,12 @@ module EthernetMDIOTransceiver #(
 					mgmt_count				<= mgmt_count + 6'h1;
 
 					case(mgmt_count)
-						0: mdio_tx_data 	<= PHY_MD_ADDR[4];
-						1: mdio_tx_data 	<= PHY_MD_ADDR[3];
-						2: mdio_tx_data 	<= PHY_MD_ADDR[2];
-						3: mdio_tx_data		<= PHY_MD_ADDR[1];
+						0: mdio_tx_data 	<= phy_md_addr[4];
+						1: mdio_tx_data 	<= phy_md_addr[3];
+						2: mdio_tx_data 	<= phy_md_addr[2];
+						3: mdio_tx_data		<= phy_md_addr[1];
 						default: begin
-							mdio_tx_data	<= PHY_MD_ADDR[0];
+							mdio_tx_data	<= phy_md_addr[0];
 							mgmt_state		<= MGMT_STATE_REGAD;
 							mgmt_count		<= 0;
 						end
