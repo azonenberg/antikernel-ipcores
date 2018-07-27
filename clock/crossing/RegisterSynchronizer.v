@@ -54,17 +54,20 @@ module RegisterSynchronizer #(
 
 	wire	update_b;
 
-	HandshakeSynchronizer sync(
+	PulseSynchronizer sync_en(
 		.clk_a(clk_a),
-		.en_a(en_a),
-		.ack_a(ack_a),
-		.busy_a(),
-
+		.pulse_a(en_a),
 		.clk_b(clk_b),
-		.en_b(update_b),
-		.ack_b(updated_b),
-		.busy_b()
+		.pulse_b(update_b)
 	);
+
+	PulseSynchronizer sync_ack(
+		.clk_a(clk_b),
+		.pulse_a(update_b),
+		.clk_b(clk_a),
+		.pulse_b(ack_a)
+	);
+
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Data plane
