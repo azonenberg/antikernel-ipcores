@@ -31,11 +31,12 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief Wrapper around HandshakeSynchronizer for synchronizing a register from a management/JTAG domain to
+	@brief Wrapper around PulseSynchronizer for synchronizing a register from a management/JTAG domain to
 	a SoC internal domain.
  */
 module RegisterSynchronizer #(
-	parameter WIDTH = 16
+	parameter WIDTH = 16,
+	parameter INIT = 0
 ) (
 	input wire				clk_a,
 	input wire				en_a,
@@ -46,7 +47,7 @@ module RegisterSynchronizer #(
 	output reg				updated_b 	= 0,
 
 	(* DONT_TOUCH *)
-	output reg[WIDTH-1:0]	reg_b		= 0
+	output reg[WIDTH-1:0]	reg_b		= INIT
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
