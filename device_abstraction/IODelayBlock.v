@@ -49,6 +49,7 @@ module IODelayBlock(
 	parameter INPUT_DELAY	= 100;		//picoseconds
 	parameter OUTPUT_DELAY	= 100;		//picoseconds
 	parameter DIRECTION		= "INPUT";	//INPUT or OUTPUT only support for now (no IO mode yet)
+	parameter IS_CLOCK		= 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O declarations
@@ -173,7 +174,7 @@ module IODelayBlock(
 						.DELAY_SRC("IDATAIN"),
 						.IDELAY_VALUE(input_delay_taps),
 						.HIGH_PERFORMANCE_MODE("FALSE"),		//TODO: decide when to enable
-						.SIGNAL_PATTERN("DATA"),				//TODO: handle clocks
+						.SIGNAL_PATTERN(IS_CLOCK ? "CLOCK" : "DATA"),
 						.REFCLK_FREQUENCY(200),					//TODO: Make configurable
 						.CINVCTRL_SEL("FALSE"),
 						.PIPE_SEL("FALSE")

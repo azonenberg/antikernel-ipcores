@@ -39,7 +39,7 @@ function integer s6_iodelay_val_singletap;
 	input [3:0] ntap;
 
 	//Speed grade 3
-	if(SPEED_GRADE == 3) begin
+	if(`XILINX_SPEEDGRADE == 3) begin
 		case(ntap)
 			0:	s6_iodelay_val_singletap = 0;	//no extra delay
 			1:	s6_iodelay_val_singletap = 8;
@@ -54,7 +54,7 @@ function integer s6_iodelay_val_singletap;
 	end
 
 	//Speed grade 2
-	else if(SPEED_GRADE == 2) begin
+	else if(`XILINX_SPEEDGRADE == 2) begin
 		case(ntap)
 			0:	s6_iodelay_val_singletap = 0;	//no extra delay
 			1:	s6_iodelay_val_singletap = 16;
