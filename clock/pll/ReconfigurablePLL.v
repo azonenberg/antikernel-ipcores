@@ -314,7 +314,7 @@ module ReconfigurablePLL #(
 				.BANDWIDTH("OPTIMIZED"),
 
 				//TODO: Set dividers
-				.CLKOUT0_DIVIDE_F($itor(outdiv0)),
+				.CLKOUT0_DIVIDE_F(outdiv0),
 				.CLKOUT1_DIVIDE(outdiv1),
 				.CLKOUT2_DIVIDE(outdiv2),
 				.CLKOUT3_DIVIDE(outdiv3),
@@ -343,7 +343,7 @@ module ReconfigurablePLL #(
 				.CLKOUT6_DUTY_CYCLE(0.5),
 
 				//Default VCO configuration
-				.CLKFBOUT_MULT_F($itor(pll_mult)),
+				.CLKFBOUT_MULT_F(pll_mult),
 				.DIVCLK_DIVIDE(pll_div),
 
 				//No feedback clock phase shift
