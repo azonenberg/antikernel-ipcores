@@ -125,7 +125,7 @@ module RGMIIToGMIIBridge(
 	end
 
 	//Shuffle the nibbles data back to where they should be.
-	assign gmii_rxd	= { gmii_rxd_parallel_ff[3:0], gmii_rxd_parallel[7:4] };
+	assign gmii_rxd	= { gmii_rxd_parallel[7:4], gmii_rxd_parallel_ff[3:0] };
 
 	//rx_er flag is encoded specially to reduce transitions (see RGMII spec section 3.4)
 	assign gmii_rx_dv = gmii_rxc_parallel_ff[0];
