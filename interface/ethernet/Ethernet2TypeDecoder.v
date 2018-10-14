@@ -241,8 +241,10 @@ module Ethernet2TypeDecoder(
 		else if(rx_frame_start) begin
 			rx_count				<= 0;
 			rx_active				<= 1;
+			rx_l2_bytes_valid		<= 0;
+			rx_l2_data				<= 0;
 
-			rx_l2_headers_valid	<= 0;
+			rx_l2_headers_valid		<= 0;
 		end
 
 	end
