@@ -36,7 +36,9 @@
 
 	Also, build the layer-2 headers (FCS and padding, if any, are added by the MAC)
  */
-module EthernetTransmitElasticBuffer(
+module EthernetTransmitElasticBuffer #(
+	parameter LINK_SPEED_IS_10G = 1		//set false for 1G output
+) (
 
 	input wire[47:0]	our_mac_address,
 
@@ -56,7 +58,7 @@ module EthernetTransmitElasticBuffer(
 	output reg			tx_frame_start			= 0,
 	output reg			tx_frame_data_valid		= 0,
 	output reg[2:0]		tx_frame_bytes_valid	= 0,
-	output reg[31:0]	tx_frame_data			= 0
+	output reg[(LINK_SPEED_IS_10G ? 31 : 7):0]	tx_frame_data			= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -248,210 +250,329 @@ module EthernetTransmitElasticBuffer(
 	reg			tx_active			= 0;
 
 	reg[13:0]	tx_bytes_left		= 0;
-	reg[2:0]	tx_count			= 0;
-	reg[31:0]	fifo_rd_data_ff		= 0;
-	reg[15:0]	fifo_rd_data_ff2	= 0;
+	reg[4:0]	tx_count			= 0;
 
-	always @(posedge xgmii_tx_clk) begin
+	generate
 
-		tx_frame_start			<= 0;
-		tx_frame_data_valid		<= 0;
-		tx_frame_bytes_valid	<= 0;
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// 10 Gbps transmit datapath
 
-		fifo_rd_en				<= 0;
-		fifo_pop_packet			<= 0;
-		header_pop				<= 0;
-		header_rd_en			<= 0;
+		if(LINK_SPEED_IS_10G) begin
 
-		fifo_rd_data_ff			<= fifo_rd_data;
-		fifo_rd_data_ff2		<= fifo_rd_data_ff[15:0];
-		header_rd_en_ff			<= header_rd_en;
-		header_rd_data_ff		<= header_rd_data;
+			reg[31:0]	fifo_rd_data_ff		= 0;
+			reg[15:0]	fifo_rd_data_ff2	= 0;
 
-		//Wait for new frames to be ready to send
-		if(!tx_active) begin
+			always @(posedge xgmii_tx_clk) begin
 
-			//If we are currently reading headers, they'll be ready next cycle
-			if(header_rd_en_ff) begin
-				tx_count		<= 0;
-				tx_active		<= 1;
-				tx_frame_start	<= 1;
+				tx_frame_start			<= 0;
+				tx_frame_data_valid		<= 0;
+				tx_frame_bytes_valid	<= 0;
 
-				//Pop the header so we have buffer space for the next packet
-				header_pop		<= 1;
+				fifo_rd_en				<= 0;
+				fifo_pop_packet			<= 0;
+				header_pop				<= 0;
+				header_rd_en			<= 0;
 
-			end
+				fifo_rd_data_ff			<= fifo_rd_data;
+				fifo_rd_data_ff2		<= fifo_rd_data_ff[15:0];
+				header_rd_en_ff			<= header_rd_en;
+				header_rd_data_ff		<= header_rd_data;
 
-			//wait for read
-			else if(header_rd_en) begin
-				//no action needed, just wait
-			end
+				//Wait for new frames to be ready to send
+				if(!tx_active) begin
 
-			//If there's headers and data ready to go, read them.
-			else if( (header_rd_size > 0) && (fifo_rd_size > 0) )
-				header_rd_en	<= 1;
+					//If we are currently reading headers, they'll be ready next cycle
+					if(header_rd_en_ff) begin
+						tx_count		<= 0;
+						tx_active		<= 1;
+						tx_frame_start	<= 1;
 
-		end
+						//Pop the header so we have buffer space for the next packet
+						header_pop		<= 1;
 
-		//Currently forwarding a frame
-		else begin
-
-			case(tx_count)
-
-				//Send first 4 bytes of dest MAC
-				0: begin
-					tx_frame_data_valid		<= 1;
-					tx_frame_bytes_valid	<= 4;
-					tx_frame_data			<= header_rd_dstmac[47:16];
-
-					//Request read of the first message data word so it's ready when we need it
-					fifo_rd_en				<= 1;
-					fifo_rd_offset			<= 0;
-
-					tx_count				<= 1;
-				end
-
-				//Send last 2 bytes of dest MAC and first two of source
-				1: begin
-					tx_frame_data_valid		<= 1;
-					tx_frame_bytes_valid	<= 4;
-					tx_frame_data			<=
-					{
-						header_rd_dstmac[15:0],
-						our_mac_address[47:32]
-					};
-
-					//Request read of the second message data word so it's ready when we need it
-					fifo_rd_en				<= 1;
-					fifo_rd_offset			<= fifo_rd_offset + 1'h1;
-
-					tx_count				<= 2;
-				end
-
-				//Send last 4 bytes of source MAC
-				2: begin
-					tx_frame_data_valid		<= 1;
-					tx_frame_bytes_valid	<= 4;
-					tx_frame_data			<= our_mac_address[31:0];
-
-					//Request read of the third message data word so it's ready when we need it
-					fifo_rd_en				<= 1;
-					fifo_rd_offset			<= fifo_rd_offset + 1'h1;
-
-					tx_count				<= 3;
-				end
-
-				//Send ethertype plus first two data bytes
-				//TODO: support insertion of 802.1q tags here
-				3: begin
-
-					tx_frame_data_valid		<= 1;
-					tx_frame_bytes_valid	<= 4;
-					tx_frame_data			<= { header_rd_ethertype, fifo_rd_data_ff[31:16] };
-
-					//We sent two bytes but the rest are still coming
-					tx_bytes_left			<= header_rd_framelen - 14'd2;
-
-					//Request read of the fourth message data word so it's ready when we need it
-					fifo_rd_en				<= 1;
-					fifo_rd_offset			<= fifo_rd_offset + 1'h1;
-
-					tx_count				<= 4;
-
-				end
-
-				//Send subsequent data bytes
-				4: begin
-
-					tx_frame_data_valid			<= 1;
-					tx_frame_data				<= { fifo_rd_data_ff2[15:0], fifo_rd_data_ff[31:16] };
-
-					if(tx_bytes_left < 4) begin
-						tx_frame_bytes_valid	<= tx_bytes_left;
-						tx_bytes_left			<= 0;
-
-						//Pop the FIFO.
-						//Round size up to words
-						fifo_pop_packet			<= 1;
-						if(header_rd_framelen[1:0])
-							fifo_pop_size		<= header_rd_framelen[13:2] + 1'h1;
-						else
-							fifo_pop_size		<= header_rd_framelen[13:2];
-
-						tx_active				<= 0;
-						tx_count				<= 0;
 					end
 
-					//Send the next 4 bytes
-					else begin
+					//wait for read
+					else if(header_rd_en) begin
+						//no action needed, just wait
+					end
 
-						tx_frame_bytes_valid	<= 4;
-						tx_bytes_left			<= tx_bytes_left - 14'h4;
+					//If there's headers and data ready to go, read them.
+					else if( (header_rd_size > 0) && (fifo_rd_size > 0) )
+						header_rd_en	<= 1;
 
-						//Read the next FIFO block if we need more data
-						//If we have six bytes or less left, though, stop
-						if(tx_bytes_left >= 6) begin
-							fifo_rd_en			<= 1;
-							fifo_rd_offset		<= fifo_rd_offset + 1'h1;
+				end
+
+				//Currently forwarding a frame
+				else begin
+
+					case(tx_count)
+
+						//Send first 4 bytes of dest MAC
+						0: begin
+							tx_frame_data_valid		<= 1;
+							tx_frame_bytes_valid	<= 4;
+							tx_frame_data			<= header_rd_dstmac[47:16];
+
+							//Request read of the first message data word so it's ready when we need it
+							fifo_rd_en				<= 1;
+							fifo_rd_offset			<= 0;
+
+							tx_count				<= 1;
 						end
 
-					end
+						//Send last 2 bytes of dest MAC and first two of source
+						1: begin
+							tx_frame_data_valid		<= 1;
+							tx_frame_bytes_valid	<= 4;
+							tx_frame_data			<=
+							{
+								header_rd_dstmac[15:0],
+								our_mac_address[47:32]
+							};
+
+							//Request read of the second message data word so it's ready when we need it
+							fifo_rd_en				<= 1;
+							fifo_rd_offset			<= fifo_rd_offset + 1'h1;
+
+							tx_count				<= 2;
+						end
+
+						//Send last 4 bytes of source MAC
+						2: begin
+							tx_frame_data_valid		<= 1;
+							tx_frame_bytes_valid	<= 4;
+							tx_frame_data			<= our_mac_address[31:0];
+
+							//Request read of the third message data word so it's ready when we need it
+							fifo_rd_en				<= 1;
+							fifo_rd_offset			<= fifo_rd_offset + 1'h1;
+
+							tx_count				<= 3;
+						end
+
+						//Send ethertype plus first two data bytes
+						//TODO: support insertion of 802.1q tags here
+						3: begin
+
+							tx_frame_data_valid		<= 1;
+							tx_frame_bytes_valid	<= 4;
+							tx_frame_data			<= { header_rd_ethertype, fifo_rd_data_ff[31:16] };
+
+							//We sent two bytes but the rest are still coming
+							tx_bytes_left			<= header_rd_framelen - 14'd2;
+
+							//Request read of the fourth message data word so it's ready when we need it
+							fifo_rd_en				<= 1;
+							fifo_rd_offset			<= fifo_rd_offset + 1'h1;
+
+							tx_count				<= 4;
+
+						end
+
+						//Send subsequent data bytes
+						4: begin
+
+							tx_frame_data_valid			<= 1;
+							tx_frame_data				<= { fifo_rd_data_ff2[15:0], fifo_rd_data_ff[31:16] };
+
+							if(tx_bytes_left < 4) begin
+								tx_frame_bytes_valid	<= tx_bytes_left;
+								tx_bytes_left			<= 0;
+
+								//Pop the FIFO.
+								//Round size up to words
+								fifo_pop_packet			<= 1;
+								if(header_rd_framelen[1:0])
+									fifo_pop_size		<= header_rd_framelen[13:2] + 1'h1;
+								else
+									fifo_pop_size		<= header_rd_framelen[13:2];
+
+								tx_active				<= 0;
+								tx_count				<= 0;
+							end
+
+							//Send the next 4 bytes
+							else begin
+
+								tx_frame_bytes_valid	<= 4;
+								tx_bytes_left			<= tx_bytes_left - 14'h4;
+
+								//Read the next FIFO block if we need more data
+								//If we have six bytes or less left, though, stop
+								if(tx_bytes_left >= 6) begin
+									fifo_rd_en			<= 1;
+									fifo_rd_offset		<= fifo_rd_offset + 1'h1;
+								end
+
+							end
+
+						end
+
+					endcase
 
 				end
 
-			endcase
+			end
 
+		end		//LINK_SPEED_IS_10G = 1
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// 1 Gbps transmit datapath
+
+		else begin
+
+			always @(posedge xgmii_tx_clk) begin
+
+				tx_frame_start			<= 0;
+				tx_frame_data_valid		<= 0;
+
+				//Unused in 1G mode since we can only have one byte per clock
+				tx_frame_bytes_valid	<= 0;
+
+				fifo_rd_en				<= 0;
+				fifo_pop_packet			<= 0;
+				header_pop				<= 0;
+				header_rd_en			<= 0;
+
+				header_rd_en_ff			<= header_rd_en;
+				header_rd_data_ff		<= header_rd_data;
+
+				//Wait for new frames to be ready to send
+				if(!tx_active) begin
+
+					//If currently popping the FIFO, don't do anything
+					if(fifo_pop_packet) begin
+					end
+
+					//If we are currently reading headers, they'll be ready next cycle
+					else if(header_rd_en_ff) begin
+						tx_count		<= 0;
+						tx_active		<= 1;
+						tx_frame_start	<= 1;
+
+						//Pop the header so we have buffer space for the next packet
+						header_pop		<= 1;
+
+					end
+
+					//wait for read
+					else if(header_rd_en) begin
+						//no action needed, just wait
+					end
+
+					//If there's headers and data ready to go, read them.
+					else if( (header_rd_size > 0) && (fifo_rd_size > 0) )
+						header_rd_en	<= 1;
+
+				end
+
+				//Currently forwarding a frame
+				else begin
+
+					tx_frame_data_valid		<= 1;
+					tx_frame_bytes_valid	<= 1;
+					tx_count				<= tx_count + 1'h1;
+
+					case(tx_count)
+
+						//Send dest MAC
+						0:	tx_frame_data <= header_rd_dstmac[47:40];
+						1:	tx_frame_data <= header_rd_dstmac[39:32];
+						2:	tx_frame_data <= header_rd_dstmac[31:24];
+						3:	tx_frame_data <= header_rd_dstmac[23:16];
+						4:	tx_frame_data <= header_rd_dstmac[15:8];
+						5:	tx_frame_data <= header_rd_dstmac[7:0];
+
+						//Send source MAC
+						6:	tx_frame_data <= our_mac_address[47:40];
+						7:	tx_frame_data <= our_mac_address[39:32];
+						8:	tx_frame_data <= our_mac_address[31:24];
+						9:	tx_frame_data <= our_mac_address[23:16];
+						10:	tx_frame_data <= our_mac_address[15:8];
+						11:	begin
+							tx_frame_data <= our_mac_address[7:0];
+
+							//start reading message data
+							fifo_rd_en		<= 1;
+							fifo_rd_offset	<= 0;
+						end
+
+						//Send ethertype
+						//TODO: support insertion of 802.1q tags here
+						12:	begin
+							tx_frame_data	<= header_rd_ethertype[15:8];
+							tx_bytes_left	<= header_rd_framelen;
+						end
+						13:	tx_frame_data	<= header_rd_ethertype[7:0];
+
+						//Send data bytes
+						14: begin
+							tx_frame_data	<= fifo_rd_data[31:24];
+
+							//Stop after last byte
+							if(tx_bytes_left < 2)
+								tx_count	<= 18;
+						end
+						15: begin
+
+							tx_frame_data	<= fifo_rd_data[23:16];
+
+							//Stop after last byte
+							if(tx_bytes_left < 3)
+								tx_count	<= 18;
+
+							//If we have 6+ bytes of data left, read another word
+							if(tx_bytes_left >= 6 ) begin
+								fifo_rd_offset	<= fifo_rd_offset + 1'h1;
+								fifo_rd_en		<= 1;
+							end
+
+						end
+
+						16: begin
+							tx_frame_data	<= fifo_rd_data[15:8];
+
+							//Stop after last byte
+							if(tx_bytes_left < 4)
+								tx_count	<= 18;
+
+						end
+						17: begin
+							tx_frame_data	<= fifo_rd_data[7:0];
+
+							tx_bytes_left	<= tx_bytes_left - 'd4;
+
+							//Stop after last byte
+							if(tx_bytes_left < 5)
+								tx_count	<= 18;
+							else
+								tx_count	<= 14;
+
+						end
+
+						//Done with the packet, pop the fifo
+						18: begin
+
+							//Pop the FIFO.
+							//Round size up to words
+							fifo_pop_packet			<= 1;
+							if(header_rd_framelen[1:0])
+								fifo_pop_size		<= header_rd_framelen[13:2] + 1'h1;
+							else
+								fifo_pop_size		<= header_rd_framelen[13:2];
+
+							tx_count				<= 0;
+							tx_active				<= 0;
+
+						end
+
+					endcase
+
+				end
+
+			end
 		end
 
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug LA
-
-	wire	trig_out;
-	reg		trig_out_ack	= 0;
-
-	/*
-	always @(posedge xgmii_tx_clk) begin
-		trig_out_ack	<= trig_out;
-	end
-
-	ila_0 ila(
-		.clk(xgmii_tx_clk),
-
-		.probe0(tx_l2_start),
-		.probe0(tx_l2_data_valid),
-		.probe0(tx_l2_bytes_valid),
-		.probe0(tx_l2_data),
-		.probe0(tx_l2_commit),
-		.probe0(tx_l2_drop),
-		.probe0(tx_l2_dst_mac),
-		.probe0(tx_l2_ethertype),
-
-		.probe0(tx_frame_start),
-		.probe1(tx_frame_data_valid),
-		.probe2(tx_frame_bytes_valid),
-		.probe3(tx_frame_data),
-		.probe4(tx_bytes_left),
-		.probe5(tx_count),
-		.probe6(fifo_rd_data),
-		.probe7(fifo_rd_data_ff),
-		.probe8(fifo_rd_data_ff2),
-		.probe9(header_pop),
-		.probe10(header_rd_en),
-		.probe11(header_rd_en_ff),
-		.probe12(header_rd_size),
-
-		.probe13(fifo_rd_en),
-		.probe14(fifo_rd_offset),
-		.probe15(fifo_pop_packet),
-		.probe16(fifo_pop_size),
-		.probe17(fifo_rd_data),
-		.probe18(fifo_rd_size),
-
-		.trig_out(trig_out),
-		.trig_out_ack(trig_out_ack)
-	);
-	*/
-
+	endgenerate
 endmodule
