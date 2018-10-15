@@ -73,10 +73,7 @@ module TriSpeedEthernetMAC(
 	input wire			tx_frame_start,
 	input wire			tx_frame_data_valid,
 	input wire[2:0]		tx_frame_bytes_valid,
-	input wire[31:0]	tx_frame_data,
-
-	//TODO: performance counters,
-	output reg[31:0]	rx_crc_calculated_ff5	= 0
+	input wire[31:0]	tx_frame_data
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -100,7 +97,7 @@ module TriSpeedEthernetMAC(
 	reg[31:0]	rx_crc_calculated_ff2	= 0;
 	reg[31:0]	rx_crc_calculated_ff3	= 0;
 	reg[31:0]	rx_crc_calculated_ff4	= 0;
-	//reg[31:0]	rx_crc_calculated_ff5	= 0;
+	reg[31:0]	rx_crc_calculated_ff5	= 0;
 
 	always_ff @(posedge gmii_rx_clk) begin
 		rx_crc_calculated_ff5	<= rx_crc_calculated_ff4;
