@@ -119,12 +119,6 @@ module EthernetRxClockCrossing(
 		RXFIFO_STATE_PACKET_2			= 4'h6
 	} rxfifo_pop_state = RXFIFO_STATE_WAIT_FOR_HEADER_0;
 
-	logic		rx_cdc_frame_start			= 0;
-	logic		rx_cdc_frame_data_valid		= 0;
-	logic[2:0]	rx_cdc_frame_bytes_valid	= 0;
-	logic[31:0]	rx_cdc_frame_data			= 0;
-	logic		rx_cdc_frame_commit			= 0;
-
 	always_ff @(posedge sys_clk) begin
 		rxfifo_rd_en				<= 0;
 		rxfifo_rd_pop_single		<= 0;
