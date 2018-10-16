@@ -35,6 +35,8 @@
 	@brief Elastic buffer for matching RX and TX clock domains
 
 	Also, build the layer-2 headers (FCS and padding, if any, are added by the MAC)
+
+	TODO: 1G flow control to PHY?
  */
 module EthernetTransmitElasticBuffer #(
 	parameter LINK_SPEED_IS_10G = 1		//set false for 1G output
@@ -522,16 +524,16 @@ module EthernetTransmitElasticBuffer #(
 							if(tx_bytes_left < 3)
 								tx_count	<= 18;
 
+						end
+
+						16: begin
+							tx_frame_data	<= fifo_rd_data[15:8];
+
 							//If we have 6+ bytes of data left, read another word
 							if(tx_bytes_left >= 6 ) begin
 								fifo_rd_offset	<= fifo_rd_offset + 1'h1;
 								fifo_rd_en		<= 1;
 							end
-
-						end
-
-						16: begin
-							tx_frame_data	<= fifo_rd_data[15:8];
 
 							//Stop after last byte
 							if(tx_bytes_left < 4)
