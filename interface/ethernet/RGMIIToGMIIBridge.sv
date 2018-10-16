@@ -106,7 +106,6 @@ module RGMIIToGMIIBridge(
 		.dout1(gmii_rxd_parallel[3:0])
 		);
 
-	wire gmii_rx_er_raw;
 	wire[1:0]	gmii_rxc_parallel;
 	DDRInputBuffer #(.WIDTH(1)) rgmii_rxe_iddr2(
 		.clk_p(gmii_rxc),
@@ -142,46 +141,29 @@ module RGMIIToGMIIBridge(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX side
 
-	//For some reason we have to invert the transmit clock on 7 series.
-	//No idea why this is necessary.
-	`ifdef XILINX_7SERIES
-		DDROutputBuffer #
-		(
-			.WIDTH(1)
-		) txc_output
-		(
-			.clk_p(gmii_txc_90),
-			.clk_n(~gmii_txc_90),
-			.dout(rgmii_txc),
-			.din0(1'b1),
-			.din1(1'b0)
-		);
-
-	`else
-		DDROutputBuffer #
-		(
-			.WIDTH(1)
-		) txc_output
-		(
-			.clk_p(gmii_txc_90),
-			.clk_n(~gmii_txc_90),
-			.dout(rgmii_txc),
-			.din0(1'b0),
-			.din1(1'b1)
-		);
-	`endif
+	DDROutputBuffer #
+	(
+		.WIDTH(1)
+	) txc_output
+	(
+		.clk_p(gmii_txc_90),
+		.clk_n(~gmii_txc_90),
+		.dout(rgmii_txc),
+		.din0(1'b1),
+		.din1(1'b0)
+	);
 
 	DDROutputBuffer #(.WIDTH(4)) rgmii_txd_oddr2(
-		.clk_p(gmii_rxc),
-		.clk_n(~gmii_rxc),
+		.clk_p(gmii_txc),
+		.clk_n(~gmii_txc),
 		.dout(rgmii_txd),
 		.din0(gmii_txd[3:0]),
 		.din1(gmii_txd[7:4])
 		);
 
 	DDROutputBuffer #(.WIDTH(1)) rgmii_txe_oddr2(
-		.clk_p(gmii_rxc),
-		.clk_n(~gmii_rxc),
+		.clk_p(gmii_txc),
+		.clk_n(~gmii_txc),
 		.dout(rgmii_tx_ctl),
 		.din0(gmii_tx_en),
 		.din1(gmii_tx_en ^ gmii_tx_er)
