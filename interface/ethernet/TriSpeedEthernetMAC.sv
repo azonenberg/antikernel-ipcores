@@ -328,6 +328,8 @@ module TriSpeedEthernetMAC(
 		tx_en		<= 0;
 		tx_data		<= 0;
 
+		tx_fifo_pop	<= 0;
+
 		//Pipeline delay on GMII TX bus, so we have time to compute the CRC
 		gmii_tx_en	<= tx_en;
 		gmii_txd	<= tx_data;
