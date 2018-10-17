@@ -148,12 +148,13 @@ module EthernetRxClockCrossing(
 
 			RXFIFO_STATE_WAIT_FOR_HEADER_2: begin
 
-				//FIFO data available. Should be all zeroes. Ignore anything else.
-				if( (rxfifo_rd_bytes_valid == 0) ) begin
-					rxfifo_pop_state		<= RXFIFO_STATE_IDLE;
-					rxfifo_rd_pop_single	<= 1;
-				end
+				rxfifo_rd_pop_single	<= 1;
 
+				//FIFO data available. Should be all zeroes. Ignore anything else.
+				if( (rxfifo_rd_bytes_valid == 0) )
+					rxfifo_pop_state		<= RXFIFO_STATE_IDLE;
+
+				//Something nonsensical, ignore it
 				else
 					rxfifo_pop_state		<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
 
