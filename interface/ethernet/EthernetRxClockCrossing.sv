@@ -54,7 +54,10 @@ module EthernetRxClockCrossing(
 	output logic		rx_cdc_frame_data_valid		= 0,
 	output logic[2:0]	rx_cdc_frame_bytes_valid	= 0,
 	output logic[31:0]	rx_cdc_frame_data			= 0,
-	output logic		rx_cdc_frame_commit			= 0
+	output logic		rx_cdc_frame_commit			= 0,
+
+	//Performance counters
+	output logic[63:0]	perf_rx_cdc_frames			= 0
 	);
 
 	logic		rxfifo_wr_en		= 0;
@@ -238,6 +241,7 @@ module EthernetRxClockCrossing(
 
 			RXFIFO_STATE_PACKET_2: begin
 				rx_cdc_frame_commit		<= 1;
+				perf_rx_cdc_frames		<= perf_rx_cdc_frames + 1'h1;
 				rxfifo_pop_state		<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
 			end	//end RXFIFO_STATE_PACKET_2
 

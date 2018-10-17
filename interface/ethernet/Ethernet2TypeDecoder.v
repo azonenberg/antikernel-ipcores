@@ -71,10 +71,31 @@ module Ethernet2TypeDecoder(
 	output reg			rx_l2_ethertype_is_arp	= 0,
 	output reg[11:0]	rx_l2_vlan_id			= 1,
 	output reg[2:0]		rx_l2_priority			= 0,
-	output reg			rx_l2_drop_eligible		= 0
+	output reg			rx_l2_drop_eligible		= 0,
 
-	//TODO: performance counters
+	//Performance counters
+	output reg[63:0]	perf_rx_total			= 0,
+	output reg[63:0]	perf_rx_ipv4			= 0,
+	output reg[63:0]	perf_rx_ipv6			= 0,
+	output reg[63:0]	perf_rx_arp				= 0
 );
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Performance counters
+
+	always @(posedge rx_clk) begin
+		if(rx_l2_commit) begin
+			perf_rx_total		<= perf_rx_total + 1'h1;
+
+			if(rx_l2_ethertype_is_ipv4)
+				perf_rx_ipv4	<= perf_rx_ipv4 + 1'h1;
+			if(rx_l2_ethertype_is_ipv6)
+				perf_rx_ipv6	<= perf_rx_ipv6 + 1'h1;
+			if(rx_l2_ethertype_is_arp)
+				perf_rx_arp		<= perf_rx_arp + 1'h1;
+
+		end
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Ethernet-II frame decoding

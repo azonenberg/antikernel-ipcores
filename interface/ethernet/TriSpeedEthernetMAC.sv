@@ -73,8 +73,34 @@ module TriSpeedEthernetMAC(
 	//No commit/drop flags, everything that comes in here gets sent.
 	input wire			tx_frame_start,
 	input wire			tx_frame_data_valid,
-	input wire[7:0]		tx_frame_data
+	input wire[7:0]		tx_frame_data,
+
+	//Performance counters (sync to tx or rx clock, as appropriate)
+	output logic[63:0]	perf_tx_frames			= 0,		//Number of frames we were asked to sent
+	output logic[63:0]	perf_tx_gmii_frames		= 0,		//Number of frames sent out the GMII bus
+	output logic[63:0]	perf_rx_frames			= 0,		//Number of frames successfully received
+	output logic[63:0]	perf_rx_crc_err			= 0			//Number of frames dropped due to CRC or other errors
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Performance counters
+
+	always_ff @(posedge gmii_rx_clk) begin
+		if(rx_frame_commit)
+			perf_rx_frames	<= perf_rx_frames + 1'h1;
+		if(rx_frame_drop)
+			perf_rx_crc_err	<= perf_rx_crc_err + 1'h1;
+	end
+
+	logic	gmii_tx_en_ff	= 0;
+	always_ff @(posedge gmii_tx_clk) begin
+		if(tx_frame_start)
+			perf_tx_frames		<= perf_tx_frames + 1'h1;
+
+		gmii_tx_en_ff	<= gmii_tx_en;
+		if(gmii_tx_en && !gmii_tx_en_ff)
+			perf_tx_gmii_frames	<= perf_tx_gmii_frames + 1'h1;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX CRC calculation
