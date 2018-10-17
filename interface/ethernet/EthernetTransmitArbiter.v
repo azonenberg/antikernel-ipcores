@@ -169,7 +169,7 @@ module EthernetTransmitArbiter (
 		end
 		if(arp_tx_l2_start && (arp_payload_fifo_free > 2250) ) begin
 			arp_packet_active	<= 1;
-			ipv4_tx_frame_size	<= 0;
+			arp_tx_frame_size	<= 0;
 		end
 
 		//Add new frame data as we go
@@ -183,7 +183,6 @@ module EthernetTransmitArbiter (
 			ipv4_packet_active	<= 0;
 		if(arp_tx_l2_commit || arp_tx_l2_drop)
 			arp_packet_active	<= 0;
-
 
 	end
 
