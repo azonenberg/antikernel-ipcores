@@ -75,11 +75,18 @@ module TriSpeedEthernetMAC(
 	input wire			tx_frame_data_valid,
 	input wire[7:0]		tx_frame_data,
 
+	//Set false during a frame or IFG, true when ready for the next frame
+	output logic		tx_ready				= 1,
+
 	//Performance counters (sync to tx or rx clock, as appropriate)
 	output logic[63:0]	perf_tx_frames			= 0,		//Number of frames we were asked to sent
 	output logic[63:0]	perf_tx_gmii_frames		= 0,		//Number of frames sent out the GMII bus
 	output logic[63:0]	perf_rx_frames			= 0,		//Number of frames successfully received
-	output logic[63:0]	perf_rx_crc_err			= 0			//Number of frames dropped due to CRC or other errors
+	output logic[63:0]	perf_rx_crc_err			= 0,		//Number of frames dropped due to CRC or other errors
+	output logic[63:0]	perf_tx_busy			= 0			//Number of frames dropped because they were sent
+															//when we weren't ready.
+															//This should normally always be zero. Anything nonzero
+															//indicates a bug in EthernetTransmitElasticBuffer.
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -100,6 +107,10 @@ module TriSpeedEthernetMAC(
 		gmii_tx_en_ff	<= gmii_tx_en;
 		if(gmii_tx_en && !gmii_tx_en_ff)
 			perf_tx_gmii_frames	<= perf_tx_gmii_frames + 1'h1;
+
+		if(tx_frame_start && !tx_ready)
+			perf_tx_busy		<= perf_tx_busy + 1'h1;
+
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -368,7 +379,9 @@ module TriSpeedEthernetMAC(
 			//If a new frame is starting, begin the preamble while buffering the message content
 			TX_STATE_IDLE: begin
 				tx_frame_len		<= 0;
+
 				if(tx_frame_start) begin
+					tx_ready		<= 0;
 					tx_en			<= 1;
 					tx_data			<= 8'h55;
 					tx_count		<= 1;
@@ -457,8 +470,10 @@ module TriSpeedEthernetMAC(
 			TX_STATE_IFG: begin
 				tx_count	<= tx_count + 1'h1;
 
-				if(tx_count == 11)
+				if(tx_count == 11) begin
+					tx_ready	<= 1;
 					tx_state	<= TX_STATE_IDLE;
+				end
 
 			end	//end TX_STATE_IFG
 

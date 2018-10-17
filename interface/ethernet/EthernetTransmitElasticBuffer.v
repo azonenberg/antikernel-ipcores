@@ -35,8 +35,6 @@
 	@brief Elastic buffer for matching RX and TX clock domains
 
 	Also, build the layer-2 headers (FCS and padding, if any, are added by the MAC)
-
-	TODO: 1G flow control to PHY?
  */
 module EthernetTransmitElasticBuffer #(
 	parameter LINK_SPEED_IS_10G = 1		//set false for 1G output
@@ -57,6 +55,7 @@ module EthernetTransmitElasticBuffer #(
 
 	//Outbound transmit bus to the MAC
 	input wire			xgmii_tx_clk,
+	input wire			tx_mac_ready,						//1G only - indicates the MAC is ready for more data
 	output reg			tx_frame_start			= 0,
 	output reg			tx_frame_data_valid		= 0,
 	output reg[2:0]		tx_frame_bytes_valid	= 0,
@@ -300,8 +299,13 @@ module EthernetTransmitElasticBuffer #(
 					end
 
 					//If there's headers and data ready to go, read them.
-					else if( (header_rd_size > 0) && (fifo_rd_size > 0) )
-						header_rd_en	<= 1;
+					else if( (header_rd_size > 0) && (fifo_rd_size > 0) ) begin
+
+						//Wait for the MAC to be ready for us to send
+						if(tx_mac_ready)
+							header_rd_en	<= 1;
+
+					end
 
 				end
 
@@ -312,6 +316,7 @@ module EthernetTransmitElasticBuffer #(
 
 						//Send first 4 bytes of dest MAC
 						0: begin
+
 							tx_frame_data_valid		<= 1;
 							tx_frame_bytes_valid	<= 4;
 							tx_frame_data			<= header_rd_dstmac[47:16];
@@ -464,8 +469,12 @@ module EthernetTransmitElasticBuffer #(
 					end
 
 					//If there's headers and data ready to go, read them.
-					else if( (header_rd_size > 0) && (fifo_rd_size > 0) )
-						header_rd_en	<= 1;
+					else if( (header_rd_size > 0) && (fifo_rd_size > 0) ) begin
+
+						//Wait for the MAC to be ready for us to send
+						if(tx_mac_ready)
+							header_rd_en	<= 1;
+					end
 
 				end
 
