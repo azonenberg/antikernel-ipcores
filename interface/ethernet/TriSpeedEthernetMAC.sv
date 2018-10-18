@@ -29,17 +29,12 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "EthernetBus.svh"
+
 /**
 	@file
 	@author Andrew D. Zonenberg
 	@brief 10/100/1000 Mbps Ethernet MAC
-
-	Interface-compatible with XGEthernetMAC.
-
-	Conventions
-		rx_frame_start is asserted before, not simultaneous with, first assertion of rx_frame_data_valid
-		rx_frame_bytes_valid is always 4 until last word in the packet, at which point it may take any value
-		rx_frame_commit is asserted after, not simultaneous with, last assertion of rx_frame_data_valid
  */
 module TriSpeedEthernetMAC(
 
@@ -59,13 +54,7 @@ module TriSpeedEthernetMAC(
 	input wire			link_up,
 
 	//Data bus to upper layer stack (synchronous to RX clock)
-	//Streaming bus, don't act on this data until rx_frame_commit goes high
-	output logic		rx_frame_start			= 0,
-	output logic		rx_frame_data_valid		= 0,
-	output logic[2:0]	rx_frame_bytes_valid	= 0,
-	output logic[31:0]	rx_frame_data			= 0,
-	output logic		rx_frame_commit			= 0,
-	output logic		rx_frame_drop			= 0,
+	output EthernetBus	rx_bus = {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
 
 	//Data bus from upper layer stack (synchronous to TX clock).
 	//Only 8 bits wide, TX buffer has to rate-match
@@ -79,38 +68,24 @@ module TriSpeedEthernetMAC(
 	output logic		tx_ready				= 1,
 
 	//Performance counters (sync to tx or rx clock, as appropriate)
-	output logic[63:0]	perf_tx_frames			= 0,		//Number of frames we were asked to sent
-	output logic[63:0]	perf_tx_gmii_frames		= 0,		//Number of frames sent out the GMII bus
-	output logic[63:0]	perf_rx_frames			= 0,		//Number of frames successfully received
-	output logic[63:0]	perf_rx_crc_err			= 0,		//Number of frames dropped due to CRC or other errors
-	output logic[63:0]	perf_tx_busy			= 0			//Number of frames dropped because they were sent
-															//when we weren't ready.
-															//This should normally always be zero. Anything nonzero
-															//indicates a bug in EthernetTransmitElasticBuffer.
+	output logic[63:0]	perf_tx_frames			= 0,	//Number of frames sent
+	output logic[63:0]	perf_rx_frames			= 0,	//Number of frames successfully received
+	output logic[63:0]	perf_rx_crc_err			= 0		//Number of frames dropped due to CRC or other errors
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Performance counters
 
 	always_ff @(posedge gmii_rx_clk) begin
-		if(rx_frame_commit)
+		if(rx_bus.commit)
 			perf_rx_frames	<= perf_rx_frames + 1'h1;
-		if(rx_frame_drop)
+		if(rx_bus.drop)
 			perf_rx_crc_err	<= perf_rx_crc_err + 1'h1;
 	end
 
-	logic	gmii_tx_en_ff	= 0;
 	always_ff @(posedge gmii_tx_clk) begin
 		if(tx_frame_start)
 			perf_tx_frames		<= perf_tx_frames + 1'h1;
-
-		gmii_tx_en_ff	<= gmii_tx_en;
-		if(gmii_tx_en && !gmii_tx_en_ff)
-			perf_tx_gmii_frames	<= perf_tx_gmii_frames + 1'h1;
-
-		if(tx_frame_start && !tx_ready)
-			perf_tx_busy		<= perf_tx_busy + 1'h1;
-
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -167,11 +142,11 @@ module TriSpeedEthernetMAC(
 
 	always_ff @(posedge gmii_rx_clk) begin
 
-		rx_frame_start				<= 0;
-		rx_frame_data_valid			<= 0;
-		rx_frame_bytes_valid		<= 0;
-		rx_frame_commit				<= 0;
-		rx_frame_drop				<= 0;
+		rx_bus.start				<= 0;
+		rx_bus.data_valid			<= 0;
+		rx_bus.bytes_valid		<= 0;
+		rx_bus.commit				<= 0;
+		rx_bus.drop				<= 0;
 
 		case(rx_state)
 
@@ -204,7 +179,7 @@ module TriSpeedEthernetMAC(
 				//Tell the upper layer we are starting the frame when we hit the SFD.
 				//No point in even telling them about runt packets that end during the preamble.
 				else if(gmii_rxd == 8'hd5) begin
-					rx_frame_start			<= 1;
+					rx_bus.start			<= 1;
 					rx_bytepos				<= 0;
 					rx_state				<= RX_STATE_FRAME_DATA;
 					rx_frame_data_valid_adv	<= 0;
@@ -229,15 +204,15 @@ module TriSpeedEthernetMAC(
 					rx_state					<= RX_STATE_CRC;
 
 					if(rx_bytepos != 0) begin
-						rx_frame_bytes_valid	<= rx_bytepos;
-						rx_frame_data_valid		<= 1;
+						rx_bus.bytes_valid	<= rx_bytepos;
+						rx_bus.data_valid		<= 1;
 					end
 
 					case(rx_bytepos)
 
-						1: rx_frame_data		<= { rx_frame_data_adv[31:24], 24'h0 };
-						2: rx_frame_data		<= { rx_frame_data_adv[31:16], 16'h0 };
-						3: rx_frame_data		<= { rx_frame_data_adv[31:8], 8'h0 };
+						1: rx_bus.data		<= { rx_frame_data_adv[31:24], 24'h0 };
+						2: rx_bus.data		<= { rx_frame_data_adv[31:16], 16'h0 };
+						3: rx_bus.data		<= { rx_frame_data_adv[31:8], 8'h0 };
 
 					endcase
 
@@ -258,9 +233,9 @@ module TriSpeedEthernetMAC(
 						//Send the PREVIOUS word to the host
 						//We need a pipeline delay because of the CRC - don't want to get the CRC confused with application layer data!
 						if(rx_frame_data_valid_adv) begin
-							rx_frame_data_valid		<= 1;
-							rx_frame_data			<= rx_frame_data_adv;
-							rx_frame_bytes_valid	<= 4;
+							rx_bus.data_valid		<= 1;
+							rx_bus.data			<= rx_frame_data_adv;
+							rx_bus.bytes_valid	<= 4;
 						end
 
 					end
@@ -273,9 +248,9 @@ module TriSpeedEthernetMAC(
 
 				//Validate the CRC (details depend on length of the packet)
 				if(rx_crc_calculated_ff5 == rx_crc_expected)
-					rx_frame_commit	<= 1;
+					rx_bus.commit	<= 1;
 				else
-					rx_frame_drop	<= 1;
+					rx_bus.drop	<= 1;
 
 			end
 

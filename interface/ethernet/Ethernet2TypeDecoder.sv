@@ -29,6 +29,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "EthernetBus.svh"
+
 /**
 	@file
 	@author Andrew D. Zonenberg
@@ -41,19 +43,14 @@
 module Ethernet2TypeDecoder(
 
 	//Clocks
-	input wire			rx_clk,
+	input wire				rx_clk,
 
 	//Incoming frames from the MAC
-	input wire			rx_frame_start,
-	input wire			rx_frame_data_valid,
-	input wire[2:0]		rx_frame_bytes_valid,
-	input wire[31:0]	rx_frame_data,
-	input wire			rx_frame_commit,
-	input wire			rx_frame_drop,
+	input wire EthernetBus	mac_rx_bus,
 
 	//Destination MAC filtering
-	input wire[47:0]	our_mac_address,
-	input wire			promisc_mode,
+	input wire[47:0]		our_mac_address,
+	input wire				promisc_mode,
 
 	//Outbound data
 	output reg			rx_l2_start				= 0,
@@ -62,9 +59,11 @@ module Ethernet2TypeDecoder(
 	output reg[31:0]	rx_l2_data				= 0,
 	output reg			rx_l2_commit			= 0,
 	output reg			rx_l2_drop				= 0,
+
+	//Outbound header fields
+	output reg			rx_l2_headers_valid		= 0,
 	output reg[47:0]	rx_l2_dst_mac			= 0,
 	output reg[47:0]	rx_l2_src_mac			= 0,
-	output reg			rx_l2_headers_valid		= 0,
 	output reg[15:0]	rx_l2_ethertype			= 0,
 	output reg			rx_l2_ethertype_is_ipv4	= 0,
 	output reg			rx_l2_ethertype_is_ipv6	= 0,
@@ -116,17 +115,17 @@ module Ethernet2TypeDecoder(
 		rx_l2_headers_valid	<= 0;
 
 		//Forward flags
-		rx_l2_start			<= rx_frame_start;
-		rx_l2_commit		<= rx_frame_commit;
-		rx_l2_drop			<= rx_frame_drop;
+		rx_l2_start			<= mac_rx_bus.start;
+		rx_l2_commit		<= mac_rx_bus.commit;
+		rx_l2_drop			<= mac_rx_bus.drop;
 
 		//Save the low half of the incoming data word so we can use it next clock
 		//(fixing phase alignment so frame body is on a 32-bit boundary)
-		rx_temp_buf			<= rx_frame_data[15:0];
+		rx_temp_buf			<= mac_rx_bus.data[15:0];
 
 		//If we get a drop request, abort and stop whatever we're doing immediately.
 		//The frame is corrupted, no point in wasting any more time on it.
-		if(rx_frame_drop)
+		if(mac_rx_bus.drop)
 			rx_active		<= 0;
 
 		//Drop excessively long jumbo frames
@@ -138,36 +137,36 @@ module Ethernet2TypeDecoder(
 		//Process frame data
 		else if(rx_active) begin
 
-			if(rx_frame_commit)
+			if(mac_rx_bus.commit)
 				rx_active	<= 0;
 
 			//New data word?
-			if(rx_frame_data_valid) begin
+			if(mac_rx_bus.data_valid) begin
 
 				rx_count	<= rx_count + 1'h1;
 
 				//Read dst/src mac addresses (always same location in frame)
-				//Don't care about rx_frame_bytes_valid since the packet can never be this short
+				//Don't care about mac_rx_bus.bytes_valid since the packet can never be this short
 				//(if it ends early we'll get a drop request from the MAC and skip it)
 				if(rx_count == 0)
-					rx_l2_dst_mac[47:16]		<= rx_frame_data;
+					rx_l2_dst_mac[47:16]		<= mac_rx_bus.data;
 				else if(rx_count == 1) begin
-					rx_l2_dst_mac[15:0]			<= rx_frame_data[31:16];
-					rx_l2_src_mac[47:32]		<= rx_frame_data[15:0];
+					rx_l2_dst_mac[15:0]			<= mac_rx_bus.data[31:16];
+					rx_l2_src_mac[47:32]		<= mac_rx_bus.data[15:0];
 				end
 				else if(rx_count == 2)
-					rx_l2_src_mac[31:0]			<= rx_frame_data;
+					rx_l2_src_mac[31:0]			<= mac_rx_bus.data;
 
 				//Next block is either the ethertype plus two bytes of data, or an 802.1q tag
 				else if(rx_count == 3) begin
 
 					//If ethertype is 802.1q, parse the VLAN tag
-					if(rx_frame_data[31:16] == ETHERTYPE_DOT1Q) begin
+					if(mac_rx_bus.data[31:16] == ETHERTYPE_DOT1Q) begin
 						rx_frame_has_vlan		<= 1;
 
-						rx_l2_priority			<= rx_frame_data[15:13];
-						rx_l2_drop_eligible		<= rx_frame_data[12];
-						rx_l2_vlan_id			<= rx_frame_data[11:0];
+						rx_l2_priority			<= mac_rx_bus.data[15:13];
+						rx_l2_drop_eligible		<= mac_rx_bus.data[12];
+						rx_l2_vlan_id			<= mac_rx_bus.data[11:0];
 					end
 
 					//Nope, insert a dummy vlan tag with default values and store the ethertype
@@ -178,10 +177,10 @@ module Ethernet2TypeDecoder(
 						rx_l2_drop_eligible		<= 1;
 						rx_l2_vlan_id			<= 1;
 
-						rx_l2_ethertype			<= rx_frame_data[31:16];
-						rx_l2_ethertype_is_ipv4	<= (rx_frame_data[31:16] == ETHERTYPE_IPV4);
-						rx_l2_ethertype_is_ipv6	<= (rx_frame_data[31:16] == ETHERTYPE_IPV6);
-						rx_l2_ethertype_is_arp	<= (rx_frame_data[31:16] == ETHERTYPE_ARP);
+						rx_l2_ethertype			<= mac_rx_bus.data[31:16];
+						rx_l2_ethertype_is_ipv4	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV4);
+						rx_l2_ethertype_is_ipv6	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV6);
+						rx_l2_ethertype_is_arp	<= (mac_rx_bus.data[31:16] == ETHERTYPE_ARP);
 						rx_l2_headers_valid		<= 1;
 					end
 
@@ -196,10 +195,10 @@ module Ethernet2TypeDecoder(
 
 				//If we have a 802.1q tag, the NEXT cycle has the ethertype
 				else if( (rx_count == 4) && (rx_frame_has_vlan) ) begin
-					rx_l2_ethertype				<= rx_frame_data[31:16];
-					rx_l2_ethertype_is_ipv4		<= (rx_frame_data[31:16] == ETHERTYPE_IPV4);
-					rx_l2_ethertype_is_ipv6		<= (rx_frame_data[31:16] == ETHERTYPE_IPV6);
-					rx_l2_ethertype_is_arp		<= (rx_frame_data[31:16] == ETHERTYPE_ARP);
+					rx_l2_ethertype				<= mac_rx_bus.data[31:16];
+					rx_l2_ethertype_is_ipv4		<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV4);
+					rx_l2_ethertype_is_ipv6		<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV6);
+					rx_l2_ethertype_is_arp		<= (mac_rx_bus.data[31:16] == ETHERTYPE_ARP);
 					rx_l2_headers_valid		<= 1;
 				end
 
@@ -208,29 +207,29 @@ module Ethernet2TypeDecoder(
 				else begin
 					rx_l2_data_valid			<= 1;
 
-					case(rx_frame_bytes_valid)
+					case(mac_rx_bus.bytes_valid)
 
 						1: begin
 							rx_l2_bytes_valid	<= 3;
-							rx_l2_data			<= { rx_temp_buf, rx_frame_data[31:24], 8'h0 };
+							rx_l2_data			<= { rx_temp_buf, mac_rx_bus.data[31:24], 8'h0 };
 							rx_temp_valid		<= 0;
 						end
 
 						2: begin
 							rx_l2_bytes_valid	<= 4;
-							rx_l2_data			<= { rx_temp_buf, rx_frame_data[31:16] };
+							rx_l2_data			<= { rx_temp_buf, mac_rx_bus.data[31:16] };
 							rx_temp_valid		<= 0;
 						end
 
 						3: begin
 							rx_l2_bytes_valid	<= 4;
-							rx_l2_data			<= { rx_temp_buf, rx_frame_data[31:16] };
+							rx_l2_data			<= { rx_temp_buf, mac_rx_bus.data[31:16] };
 							rx_temp_valid		<= 1;
 						end
 
 						4: begin
 							rx_l2_bytes_valid	<= 4;
-							rx_l2_data			<= { rx_temp_buf, rx_frame_data[31:16] };
+							rx_l2_data			<= { rx_temp_buf, mac_rx_bus.data[31:16] };
 							rx_temp_valid		<= 2;
 						end
 
@@ -259,7 +258,7 @@ module Ethernet2TypeDecoder(
 		end
 
 		//Start a new frame
-		else if(rx_frame_start) begin
+		else if(mac_rx_bus.start) begin
 			rx_count				<= 0;
 			rx_active				<= 1;
 			rx_l2_bytes_valid		<= 0;

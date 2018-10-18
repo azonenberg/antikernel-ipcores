@@ -29,6 +29,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "EthernetBus.svh"
+
 /**
 	@file
 	@author Andrew D. Zonenberg
@@ -40,25 +42,19 @@
 module EthernetRxClockCrossing(
 
 	//Incoming frames from the MAC
-	input wire			gmii_rxc,
-	input wire			rx_frame_start,
-	input wire			rx_frame_data_valid,
-	input wire[2:0]		rx_frame_bytes_valid,
-	input wire[31:0]	rx_frame_data,
-	input wire			rx_frame_commit,
-	input wire			rx_frame_drop,
+	input wire				gmii_rxc,
+	input wire EthernetBus	mac_rx_bus,
 
 	//Outgoing frames to the L2 decoder
-	input wire			sys_clk,
-	output logic		rx_cdc_frame_start			= 0,
-	output logic		rx_cdc_frame_data_valid		= 0,
-	output logic[2:0]	rx_cdc_frame_bytes_valid	= 0,
-	output logic[31:0]	rx_cdc_frame_data			= 0,
-	output logic		rx_cdc_frame_commit			= 0,
+	input wire				sys_clk,
+	output EthernetBus		cdc_rx_bus = {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
 
 	//Performance counters
 	output logic[63:0]	perf_rx_cdc_frames			= 0
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The FIFO
 
 	logic		rxfifo_wr_en		= 0;
 	logic[34:0]	rxfifo_wr_data		= 0;
@@ -79,8 +75,8 @@ module EthernetRxClockCrossing(
 		.wr_data(rxfifo_wr_data),
 		.wr_reset(1'b0),
 		.wr_size(),
-		.wr_commit(rx_frame_commit),
-		.wr_rollback(rx_frame_drop),
+		.wr_commit(mac_rx_bus.commit),
+		.wr_rollback(mac_rx_bus.drop),
 
 		.rd_clk(sys_clk),
 		.rd_en(rxfifo_rd_en),
@@ -97,15 +93,15 @@ module EthernetRxClockCrossing(
 	always_comb begin
 
 		//Frame delimiter
-		if(rx_frame_start) begin
+		if(mac_rx_bus.start) begin
 			rxfifo_wr_en	<= 1;
 			rxfifo_wr_data	<= 35'h0;
 		end
 
 		//Nope, push data as needed
 		else begin
-			rxfifo_wr_en	<= rx_frame_data_valid;
-			rxfifo_wr_data	<= { rx_frame_bytes_valid, rx_frame_data };
+			rxfifo_wr_en	<= mac_rx_bus.data_valid;
+			rxfifo_wr_data	<= { mac_rx_bus.bytes_valid, mac_rx_bus.data };
 		end
 
 	end
@@ -125,10 +121,10 @@ module EthernetRxClockCrossing(
 	always_ff @(posedge sys_clk) begin
 		rxfifo_rd_en				<= 0;
 		rxfifo_rd_pop_single		<= 0;
-		rx_cdc_frame_start			<= 0;
-		rx_cdc_frame_data_valid		<= 0;
-		rx_cdc_frame_bytes_valid	<= 0;
-		rx_cdc_frame_commit			<= 0;
+		cdc_rx_bus.start			<= 0;
+		cdc_rx_bus.data_valid		<= 0;
+		cdc_rx_bus.bytes_valid		<= 0;
+		cdc_rx_bus.commit			<= 0;
 
 		case(rxfifo_pop_state)
 
@@ -159,11 +155,11 @@ module EthernetRxClockCrossing(
 
 				//FIFO data available. Should be all zeroes. Ignore anything else.
 				if( (rxfifo_rd_bytes_valid == 0) )
-					rxfifo_pop_state		<= RXFIFO_STATE_IDLE;
+					rxfifo_pop_state	<= RXFIFO_STATE_IDLE;
 
 				//Something nonsensical, ignore it
 				else
-					rxfifo_pop_state		<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
+					rxfifo_pop_state	<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
 
 			end	//end RXFIFO_STATE_WAIT_FOR_HEADER_2
 
@@ -175,7 +171,7 @@ module EthernetRxClockCrossing(
 				//If there's anything in the FIFO, there's an entire packet ready for us to handle.
 				//Kick off the RX decoder.
 				if( (rxfifo_rd_size != 0) && !rxfifo_rd_pop_single) begin
-					rx_cdc_frame_start		<= 1;
+					cdc_rx_bus.start		<= 1;
 					rxfifo_rd_en			<= 1;
 					rxfifo_rd_pop_single	<= 1;
 					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_0;
@@ -205,20 +201,20 @@ module EthernetRxClockCrossing(
 				//If we hit an all-zeroes word we've just popped the inter-frame gap for the next packet.
 				//Jump straight to the idle state
 				if(rxfifo_rd_bytes_valid == 0) begin
-					rx_cdc_frame_commit			<= 1;
-					rxfifo_pop_state			<= RXFIFO_STATE_IDLE;
+					cdc_rx_bus.commit		<= 1;
+					rxfifo_pop_state		<= RXFIFO_STATE_IDLE;
 				end
 
 				//If we hit the end of the packet and there's nothing left in the FIFO, commit this one
 				else if(rxfifo_rd_size == 0) begin
 
 					//Push the last data word
-					rx_cdc_frame_data_valid		<= 1;
-					rx_cdc_frame_bytes_valid	<= rxfifo_rd_bytes_valid;
-					rx_cdc_frame_data			<= rxfifo_rd_data;
+					cdc_rx_bus.data_valid	<= 1;
+					cdc_rx_bus.bytes_valid	<= rxfifo_rd_bytes_valid;
+					cdc_rx_bus.data			<= rxfifo_rd_data;
 
 					//Commit it next cycle
-					rxfifo_pop_state			<= RXFIFO_STATE_PACKET_2;
+					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_2;
 				end
 
 				else begin
@@ -234,9 +230,9 @@ module EthernetRxClockCrossing(
 					end
 
 					//Valid data - forward it to layer 2 and keep going
-					rx_cdc_frame_data_valid		<= 1;
-					rx_cdc_frame_bytes_valid	<= rxfifo_rd_bytes_valid;
-					rx_cdc_frame_data			<= rxfifo_rd_data;
+					cdc_rx_bus.data_valid	<= 1;
+					cdc_rx_bus.bytes_valid	<= rxfifo_rd_bytes_valid;
+					cdc_rx_bus.data			<= rxfifo_rd_data;
 
 				end
 
@@ -244,7 +240,7 @@ module EthernetRxClockCrossing(
 			end	//end RXFIFO_STATE_PACKET_1
 
 			RXFIFO_STATE_PACKET_2: begin
-				rx_cdc_frame_commit		<= 1;
+				cdc_rx_bus.commit		<= 1;
 				perf_rx_cdc_frames		<= perf_rx_cdc_frames + 1'h1;
 				rxfifo_pop_state		<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
 			end	//end RXFIFO_STATE_PACKET_2
