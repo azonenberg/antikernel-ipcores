@@ -38,7 +38,7 @@
 
 	Supports jumbo frames up to 9000 bytes and 802.1q VLAN tag decoding.
 
-	NOTE: unlike the MAC, it is possible for rx_l2_data_valid to be asserted simultaneous with rx_l2_commit
+	NOTE: unlike the MAC, it is possible for rx_l2_bus.data_valid to be asserted simultaneous with rx_l2_bus.commit
  */
 module Ethernet2TypeDecoder(
 
@@ -53,12 +53,7 @@ module Ethernet2TypeDecoder(
 	input wire				promisc_mode,
 
 	//Outbound data
-	output reg			rx_l2_start				= 0,
-	output reg			rx_l2_data_valid		= 0,
-	output reg[2:0]		rx_l2_bytes_valid		= 0,
-	output reg[31:0]	rx_l2_data				= 0,
-	output reg			rx_l2_commit			= 0,
-	output reg			rx_l2_drop				= 0,
+	output EthernetBus		rx_l2_bus,
 
 	//Outbound header fields
 	output reg			rx_l2_headers_valid		= 0,
@@ -82,8 +77,8 @@ module Ethernet2TypeDecoder(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Performance counters
 
-	always @(posedge rx_clk) begin
-		if(rx_l2_commit) begin
+	always_ff @(posedge rx_clk) begin
+		if(rx_l2_bus.commit) begin
 			perf_rx_total		<= perf_rx_total + 1'h1;
 
 			if(rx_l2_ethertype_is_ipv4)
@@ -108,16 +103,16 @@ module Ethernet2TypeDecoder(
 	reg[15:0]			rx_temp_buf			= 0;
 	reg[1:0]			rx_temp_valid		= 0;
 
-	always @(posedge rx_clk) begin
+	always_ff @(posedge rx_clk) begin
 
-		rx_l2_data_valid	<= 0;
-		rx_temp_valid		<= 0;
-		rx_l2_headers_valid	<= 0;
+		rx_l2_bus.data_valid	<= 0;
+		rx_temp_valid			<= 0;
+		rx_l2_headers_valid		<= 0;
 
 		//Forward flags
-		rx_l2_start			<= mac_rx_bus.start;
-		rx_l2_commit		<= mac_rx_bus.commit;
-		rx_l2_drop			<= mac_rx_bus.drop;
+		rx_l2_bus.start		<= mac_rx_bus.start;
+		rx_l2_bus.commit	<= mac_rx_bus.commit;
+		rx_l2_bus.drop		<= mac_rx_bus.drop;
 
 		//Save the low half of the incoming data word so we can use it next clock
 		//(fixing phase alignment so frame body is on a 32-bit boundary)
@@ -130,7 +125,7 @@ module Ethernet2TypeDecoder(
 
 		//Drop excessively long jumbo frames
 		else if(rx_count > 'd9038) begin
-			rx_l2_drop		<= 1;
+			rx_l2_bus.drop	<= 1;
 			rx_active		<= 0;
 		end
 
@@ -187,7 +182,7 @@ module Ethernet2TypeDecoder(
 					//If not in promiscuous mode, and we get a unicast that's not for us, drop it
 					//(accept all multicasts)
 					if(!promisc_mode && !rx_l2_dst_mac[40] && (rx_l2_dst_mac != our_mac_address) ) begin
-						rx_l2_drop				<= 1;
+						rx_l2_bus.drop			<= 1;
 						rx_active				<= 0;
 					end
 
@@ -199,38 +194,38 @@ module Ethernet2TypeDecoder(
 					rx_l2_ethertype_is_ipv4		<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV4);
 					rx_l2_ethertype_is_ipv6		<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV6);
 					rx_l2_ethertype_is_arp		<= (mac_rx_bus.data[31:16] == ETHERTYPE_ARP);
-					rx_l2_headers_valid		<= 1;
+					rx_l2_headers_valid			<= 1;
 				end
 
 				//Nope, just normal frame payload.
 				//Go ahead and forward it
 				else begin
-					rx_l2_data_valid			<= 1;
+					rx_l2_bus.data_valid		<= 1;
 
 					case(mac_rx_bus.bytes_valid)
 
 						1: begin
-							rx_l2_bytes_valid	<= 3;
-							rx_l2_data			<= { rx_temp_buf, mac_rx_bus.data[31:24], 8'h0 };
-							rx_temp_valid		<= 0;
+							rx_l2_bus.bytes_valid	<= 3;
+							rx_l2_bus.data			<= { rx_temp_buf, mac_rx_bus.data[31:24], 8'h0 };
+							rx_temp_valid			<= 0;
 						end
 
 						2: begin
-							rx_l2_bytes_valid	<= 4;
-							rx_l2_data			<= { rx_temp_buf, mac_rx_bus.data[31:16] };
-							rx_temp_valid		<= 0;
+							rx_l2_bus.bytes_valid	<= 4;
+							rx_l2_bus.data			<= { rx_temp_buf, mac_rx_bus.data[31:16] };
+							rx_temp_valid			<= 0;
 						end
 
 						3: begin
-							rx_l2_bytes_valid	<= 4;
-							rx_l2_data			<= { rx_temp_buf, mac_rx_bus.data[31:16] };
-							rx_temp_valid		<= 1;
+							rx_l2_bus.bytes_valid	<= 4;
+							rx_l2_bus.data			<= { rx_temp_buf, mac_rx_bus.data[31:16] };
+							rx_temp_valid			<= 1;
 						end
 
 						4: begin
-							rx_l2_bytes_valid	<= 4;
-							rx_l2_data			<= { rx_temp_buf, mac_rx_bus.data[31:16] };
-							rx_temp_valid		<= 2;
+							rx_l2_bus.bytes_valid	<= 4;
+							rx_l2_bus.data			<= { rx_temp_buf, mac_rx_bus.data[31:16] };
+							rx_temp_valid			<= 2;
 						end
 
 					endcase
@@ -243,15 +238,15 @@ module Ethernet2TypeDecoder(
 			//Send the last data byte(s), if any
 			else begin
 
-				rx_temp_valid		<= 0;
-				rx_l2_bytes_valid	<= rx_temp_valid;
+				rx_temp_valid			<= 0;
+				rx_l2_bus.bytes_valid	<= rx_temp_valid;
 
-				rx_l2_data_valid	<= (rx_temp_valid != 0);
+				rx_l2_bus.data_valid	<= (rx_temp_valid != 0);
 
 				if(rx_temp_valid == 1)
-					rx_l2_data		<= { rx_temp_buf[15:8], 24'h0 };
+					rx_l2_bus.data		<= { rx_temp_buf[15:8], 24'h0 };
 				else if(rx_temp_valid == 2)
-					rx_l2_data		<= { rx_temp_buf[15:0], 16'h0 };
+					rx_l2_bus.data		<= { rx_temp_buf[15:0], 16'h0 };
 
 			end
 
@@ -261,8 +256,8 @@ module Ethernet2TypeDecoder(
 		else if(mac_rx_bus.start) begin
 			rx_count				<= 0;
 			rx_active				<= 1;
-			rx_l2_bytes_valid		<= 0;
-			rx_l2_data				<= 0;
+			rx_l2_bus.bytes_valid	<= 0;
+			rx_l2_bus.data			<= 0;
 
 			rx_l2_headers_valid		<= 0;
 		end

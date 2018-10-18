@@ -29,6 +29,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "EthernetBus.svh"
+
 module IPv4Protocol(
 
 	//Clocks
@@ -40,12 +42,7 @@ module IPv4Protocol(
 	input wire[31:0]	our_broadcast_address,
 
 	//Incoming Ethernet data
-	input wire			rx_l2_start,
-	input wire			rx_l2_data_valid,
-	input wire[2:0]		rx_l2_bytes_valid,
-	input wire[31:0]	rx_l2_data,
-	input wire			rx_l2_commit,
-	input wire			rx_l2_drop,
+	input wire EthernetBus	rx_l2_bus,
 	input wire			rx_l2_headers_valid,
 	input wire			rx_l2_ethertype_is_ipv4,
 
@@ -118,9 +115,9 @@ module IPv4Protocol(
 	InternetChecksum32bit rx_checksum(
 		.clk(clk),
 		.load(1'b0),
-		.reset(rx_l2_start),
-		.process(rx_l2_data_valid && (rx_state != RX_STATE_BODY) ),
-		.din(rx_l2_data),
+		.reset(rx_l2_bus.start),
+		.process(rx_l2_bus.data_valid && (rx_state != RX_STATE_BODY) ),
+		.din(rx_l2_bus.data),
 		.sumout(),
 		.csumout(rx_header_checksum_expected)
 	);
@@ -128,11 +125,11 @@ module IPv4Protocol(
 	//RX pseudo header checksum calculation
 	reg[31:0]	rx_phdr_din;
 	reg			rx_phdr_process;
-	always @(*) begin
+	always_comb begin
 
 		//Default to processing everything
 
-		rx_phdr_din		<= rx_l2_data[31:0];
+		rx_phdr_din		<= rx_l2_bus.data[31:0];
 		rx_phdr_process	<= 0;
 
 		case(rx_state)
@@ -143,7 +140,7 @@ module IPv4Protocol(
 			end
 
 			RX_STATE_HEADER_3: begin
-				rx_phdr_din		<= rx_l2_data[23:16];
+				rx_phdr_din		<= rx_l2_bus.data[23:16];
 				rx_phdr_process	<= 1;
 			end
 
@@ -157,7 +154,7 @@ module IPv4Protocol(
 	InternetChecksum32bit rx_phdr_checksum(
 		.clk(clk),
 		.load(1'b0),
-		.reset(rx_l2_start),
+		.reset(rx_l2_bus.start),
 		.process(rx_phdr_process),
 		.din(rx_phdr_din),
 		.sumout(rx_l3_pseudo_header_csum),
@@ -182,13 +179,13 @@ module IPv4Protocol(
 
 	reg[15:0]	payload_bytes_so_far	= 0;
 
-	wire[15:0]	payload_bytes_next		= payload_bytes_so_far + rx_l2_bytes_valid;
+	wire[15:0]	payload_bytes_next		= payload_bytes_so_far + rx_l2_bus.bytes_valid;
 
-	always @(posedge clk) begin
+	always_ff @(posedge clk) begin
 
 		//Forward flags from layer 2 by default
-		rx_l3_start			<= rx_l2_start;
-		rx_l3_drop			<= rx_l2_drop;
+		rx_l3_start			<= rx_l2_bus.start;
+		rx_l3_drop			<= rx_l2_bus.drop;
 
 		rx_l3_data_valid	<= 0;
 		rx_l3_bytes_valid	<= 0;
@@ -202,7 +199,7 @@ module IPv4Protocol(
 
 			RX_STATE_IDLE: begin
 
-				if(rx_l2_start) begin
+				if(rx_l2_bus.start) begin
 					payload_bytes_so_far	<= 0;
 					rx_state				<= RX_STATE_HEADER_0;
 				end
@@ -229,37 +226,37 @@ module IPv4Protocol(
 
 			RX_STATE_HEADER_1: begin
 
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 
 					//Abort on truncated packet
-					if(rx_l2_bytes_valid != 4) begin
+					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state				<= RX_STATE_IDLE;
 						rx_l3_drop				<= 1;
 					end
 
 					//Check version and header length.
 					//We don't support options so drop anything with them
-					else if(rx_l2_data[31:24] != {4'h4, 4'h5}) begin
+					else if(rx_l2_bus.data[31:24] != {4'h4, 4'h5}) begin
 						rx_state				<= RX_STATE_IDLE;
 						rx_l3_drop				<= 1;
 					end
 
 					else begin
 						/*
-						rx_diffserv_point		<= rx_l2_data[23:18];
-						rx_ecn					<= rx_l2_data[17:16];
+						rx_diffserv_point		<= rx_l2_bus.data[23:18];
+						rx_ecn					<= rx_l2_bus.data[17:16];
 						*/
 
 						//Total length must be at least 20 bytes
 						//(minimum IP header size)
-						if(rx_l2_data[15:0] < 16'd20) begin
+						if(rx_l2_bus.data[15:0] < 16'd20) begin
 							rx_state			<= RX_STATE_IDLE;
 							rx_l3_drop			<= 1;
 						end
 
 						//Valid, figure out how big the payload is
 						else begin
-							rx_l3_payload_len	<= rx_l2_data[15:0] - 16'd20;
+							rx_l3_payload_len	<= rx_l2_bus.data[15:0] - 16'd20;
 							rx_state			<= RX_STATE_HEADER_2;
 						end
 					end
@@ -270,17 +267,17 @@ module IPv4Protocol(
 
 			RX_STATE_HEADER_2: begin
 
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 
 					//Abort on truncated packet
-					if(rx_l2_bytes_valid != 4) begin
+					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state				<= RX_STATE_IDLE;
 						rx_l3_drop				<= 1;
 					end
 
 					//We don't support fragmentation.
 					//Drop anything with MF or frag offset nonzero.
-					else if(rx_l2_data[13] || (rx_l2_data[12:0] != 0) ) begin
+					else if(rx_l2_bus.data[13] || (rx_l2_bus.data[12:0] != 0) ) begin
 						rx_state				<= RX_STATE_IDLE;
 						rx_l3_drop				<= 1;
 					end
@@ -288,11 +285,11 @@ module IPv4Protocol(
 					//Save fragmentation/flag data
 					else begin
 						/*
-						rx_identifier			<= rx_l2_data[31:16];
-						rx_flag_evil			<= rx_l2_data[15];
-						rx_flag_df				<= rx_l2_data[14];
-						rx_flag_mf				<= rx_l2_data[13];
-						rx_frag_offset			<= rx_l2_data[12:0];
+						rx_identifier			<= rx_l2_bus.data[31:16];
+						rx_flag_evil			<= rx_l2_bus.data[15];
+						rx_flag_df				<= rx_l2_bus.data[14];
+						rx_flag_mf				<= rx_l2_bus.data[13];
+						rx_frag_offset			<= rx_l2_bus.data[12:0];
 						*/
 
 						rx_state				<= RX_STATE_HEADER_3;
@@ -304,21 +301,21 @@ module IPv4Protocol(
 
 			RX_STATE_HEADER_3: begin
 
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 
 					//Abort on truncated packet
-					if(rx_l2_bytes_valid != 4) begin
+					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state					<= RX_STATE_IDLE;
 						rx_l3_drop					<= 1;
 					end
 
 					else begin
-						//rx_ttl						<= rx_l2_data[31:24];
-						rx_l3_protocol				<= rx_l2_data[23:16];
-						rx_l3_protocol_is_icmp		<= (rx_l2_data[23:16] == IP_PROTO_ICMP);
-						rx_l3_protocol_is_udp		<= (rx_l2_data[23:16] == IP_PROTO_UDP);
-						rx_l3_protocol_is_tcp		<= (rx_l2_data[23:16] == IP_PROTO_TCP);
-						//rx_header_checksum			<= rx_l2_data[15:0];
+						//rx_ttl					<= rx_l2_bus.data[31:24];
+						rx_l3_protocol				<= rx_l2_bus.data[23:16];
+						rx_l3_protocol_is_icmp		<= (rx_l2_bus.data[23:16] == IP_PROTO_ICMP);
+						rx_l3_protocol_is_udp		<= (rx_l2_bus.data[23:16] == IP_PROTO_UDP);
+						rx_l3_protocol_is_tcp		<= (rx_l2_bus.data[23:16] == IP_PROTO_TCP);
+						//rx_header_checksum		<= rx_l2_bus.data[15:0];
 
 						rx_state					<= RX_STATE_HEADER_4;
 					end
@@ -329,16 +326,16 @@ module IPv4Protocol(
 
 			RX_STATE_HEADER_4: begin
 
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 
 					//Abort on truncated packet
-					if(rx_l2_bytes_valid != 4) begin
+					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state					<= RX_STATE_IDLE;
 						rx_l3_drop					<= 1;
 					end
 
 					else begin
-						rx_l3_src_ip				<= rx_l2_data;
+						rx_l3_src_ip				<= rx_l2_bus.data;
 						rx_state					<= RX_STATE_HEADER_5;
 					end
 
@@ -348,33 +345,33 @@ module IPv4Protocol(
 
 			RX_STATE_HEADER_5: begin
 
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 
 					//Abort on truncated packet
-					if(rx_l2_bytes_valid != 4) begin
+					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state					<= RX_STATE_IDLE;
 						rx_l3_drop					<= 1;
 					end
 
 					else begin
-						rx_l3_dst_ip				<= rx_l2_data;
+						rx_l3_dst_ip				<= rx_l2_bus.data;
 
 						//See if the packet is intended for us
 						//This means either our unicast address, our subnet's broadcast address,
 						//or the global broadcast address.
-						if( (rx_l2_data == our_ip_address) ||
-							(rx_l2_data == our_broadcast_address) ||
-							(rx_l2_data == 32'hffffffff) ) begin
+						if( (rx_l2_bus.data == our_ip_address) ||
+							(rx_l2_bus.data == our_broadcast_address) ||
+							(rx_l2_bus.data == 32'hffffffff) ) begin
 
-							rx_state					<= RX_STATE_BODY;
-							rx_l3_headers_valid			<= 1;
+							rx_state				<= RX_STATE_BODY;
+							rx_l3_headers_valid		<= 1;
 
 						end
 
 						//Nope, it's for somebody else. Drop it.
 						else begin
-							rx_state					<= RX_STATE_IDLE;
-							rx_l3_drop					<= 1;
+							rx_state				<= RX_STATE_IDLE;
+							rx_l3_drop				<= 1;
 						end
 
 					end
@@ -386,10 +383,10 @@ module IPv4Protocol(
 			RX_STATE_BODY: begin
 
 				//Forward packet data
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 					rx_l3_data_valid		<= 1;
-					rx_l3_bytes_valid		<= rx_l2_bytes_valid;
-					rx_l3_data				<= rx_l2_data;
+					rx_l3_bytes_valid		<= rx_l2_bus.bytes_valid;
+					rx_l3_data				<= rx_l2_bus.data;
 
 					payload_bytes_so_far	<= payload_bytes_next;
 
@@ -406,14 +403,14 @@ module IPv4Protocol(
 				if(payload_bytes_so_far == 0) begin
 
 					if(rx_header_checksum_expected != 16'h0000) begin
-						rx_state					<= RX_STATE_IDLE;
-						rx_l3_drop					<= 1;
+						rx_state			<= RX_STATE_IDLE;
+						rx_l3_drop			<= 1;
 					end
 
 				end
 
 				//At the end of the packet, commit upstream and go back to idle
-				else if(rx_l2_commit) begin
+				else if(rx_l2_bus.commit) begin
 					rx_l3_commit		<= 1;
 					rx_state			<= RX_STATE_IDLE;
 				end
@@ -424,7 +421,7 @@ module IPv4Protocol(
 			RX_STATE_PADDING: begin
 
 				//At the end of the packet, commit upstream and go back to idle
-				if(rx_l2_commit) begin
+				if(rx_l2_bus.commit) begin
 					rx_l3_commit		<= 1;
 					rx_state			<= RX_STATE_IDLE;
 				end
@@ -434,7 +431,7 @@ module IPv4Protocol(
 		endcase
 
 		//If we get a drop request from the MAC, abort everything
-		if(rx_l2_drop)
+		if(rx_l2_bus.drop)
 			rx_state	<= RX_STATE_IDLE;
 
 	end
@@ -513,7 +510,7 @@ module IPv4Protocol(
 		.csumout(tx_header_checksum)
 	);
 
-	always @(*) begin
+	always_comb begin
 
 		tx_checksum_process	<= 0;
 
@@ -550,7 +547,7 @@ module IPv4Protocol(
 
 	reg[15:0]	tx_bytes_left	= 0;
 
-	always @(posedge clk) begin
+	always_ff @(posedge clk) begin
 
 		tx_fifo_rst			<= 0;
 		tx_fifo_rd			<= 0;

@@ -29,6 +29,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "EthernetBus.svh"
+
 module ARPProtocol(
 
 	//Clocks
@@ -39,12 +41,7 @@ module ARPProtocol(
 	input wire[31:0]	our_ip_address,
 
 	//Incoming Ethernet data
-	input wire			rx_l2_start,
-	input wire			rx_l2_data_valid,
-	input wire[2:0]		rx_l2_bytes_valid,
-	input wire[31:0]	rx_l2_data,
-	input wire			rx_l2_commit,
-	input wire			rx_l2_drop,
+	input wire EthernetBus	rx_l2_bus,
 	input wire			rx_l2_headers_valid,
 	input wire			rx_l2_ethertype_is_arp,
 
@@ -88,11 +85,11 @@ module ARPProtocol(
 	reg[47:0]	rx_target_mac_addr		= 0;
 	reg[31:0]	rx_target_ip_addr		= 0;
 
-	always @(posedge clk) begin
+	always_ff @(posedge clk) begin
 
 		//Forward start/end flags to transmit side
-		tx_l2_start			<= rx_l2_start;
-		tx_l2_drop			<= rx_l2_drop;
+		tx_l2_start			<= rx_l2_bus.start;
+		tx_l2_drop			<= rx_l2_bus.drop;
 
 		//Clear flags
 		tx_l2_data_valid	<= 0;
@@ -108,7 +105,7 @@ module ARPProtocol(
 
 			RX_STATE_IDLE: begin
 
-				if(rx_l2_start)
+				if(rx_l2_bus.start)
 					rx_state	<= RX_STATE_L2_HEADER;
 
 			end	//end RX_STATE_IDLE
@@ -135,10 +132,10 @@ module ARPProtocol(
 			//HTYPE, PTYPE
 			RX_STATE_BODY_0: begin
 
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 
 					//Expect HTYPE=Ethernet, PTYPE=IPv4. Ignore anything else
-					if( (rx_l2_bytes_valid != 4) || (rx_l2_data != { 16'h01, ETHERTYPE_IPV4} ) ) begin
+					if( (rx_l2_bus.bytes_valid != 4) || (rx_l2_bus.data != { 16'h01, ETHERTYPE_IPV4} ) ) begin
 						rx_state			<= RX_STATE_IDLE;
 						tx_l2_drop			<= 1;
 					end
@@ -158,23 +155,23 @@ module ARPProtocol(
 			//HLEN, PLEN, OPER
 			RX_STATE_BODY_1: begin
 
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 
 					rx_state					<= RX_STATE_BODY_2;
 
 					//Expect HLEN = 48 bits, PLEN = 32 bits. Drop anything else
-					if( (rx_l2_bytes_valid != 4) || (rx_l2_data[31:16] != {16'h0604}) ) begin
+					if( (rx_l2_bus.bytes_valid != 4) || (rx_l2_bus.data[31:16] != {16'h0604}) ) begin
 						rx_state				<= RX_STATE_IDLE;
 						tx_l2_drop				<= 1;
 					end
 
 					//Expect OPER = request/reply
-					else if(rx_l2_data[15:0] == ARP_OP_REQUEST) begin
+					else if(rx_l2_bus.data[15:0] == ARP_OP_REQUEST) begin
 						rx_packet_is_request	<= 1;
 						tx_l2_data_valid		<= 1;
 						tx_l2_data				<= { 16'h0604, ARP_OP_REPLY };
 					end
-					else if(rx_l2_data[15:0] == ARP_OP_REPLY) begin
+					else if(rx_l2_bus.data[15:0] == ARP_OP_REPLY) begin
 						rx_packet_is_request	<= 0;
 
 						//we don't send anything in response to a reply
@@ -192,16 +189,16 @@ module ARPProtocol(
 			//SHA (first 4 bytes)
 			RX_STATE_BODY_2: begin
 
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 
 					//As usual, bail out on truncated packets
-					if(rx_l2_bytes_valid != 4) begin
+					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state					<= RX_STATE_IDLE;
 						tx_l2_drop					<= 1;
 					end
 
 					else begin
-						rx_sender_mac_addr[47:16]	<= rx_l2_data;
+						rx_sender_mac_addr[47:16]	<= rx_l2_bus.data;
 						rx_state					<= RX_STATE_BODY_3;
 
 						//When replying to an incoming request, send our MAC
@@ -219,17 +216,17 @@ module ARPProtocol(
 			//SHA (last 2 bytes) plus SPA, (first 2 bytes)
 			RX_STATE_BODY_3: begin
 
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 
 					//As usual, bail out on truncated packets
-					if(rx_l2_bytes_valid != 4) begin
+					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state					<= RX_STATE_IDLE;
 						tx_l2_drop					<= 1;
 					end
 
 					else begin
-						rx_sender_mac_addr[15:0]	<= rx_l2_data[31:16];
-						rx_sender_ip_addr[31:16]	<= rx_l2_data[15:0];
+						rx_sender_mac_addr[15:0]	<= rx_l2_bus.data[31:16];
+						rx_sender_ip_addr[31:16]	<= rx_l2_bus.data[15:0];
 						rx_state					<= RX_STATE_BODY_4;
 
 						//When replying to an incoming request, send our addresses
@@ -246,17 +243,17 @@ module ARPProtocol(
 			//SPA (last 2 bytes) plus THA, (first 2 bytes)
 			RX_STATE_BODY_4: begin
 
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 
 					//As usual, bail out on truncated packets
-					if(rx_l2_bytes_valid != 4) begin
+					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state					<= RX_STATE_IDLE;
 						tx_l2_drop					<= 1;
 					end
 
 					else begin
-						rx_sender_ip_addr[15:0]		<= rx_l2_data[31:16];
-						rx_target_mac_addr[47:32]	<= rx_l2_data[15:0];
+						rx_sender_ip_addr[15:0]		<= rx_l2_bus.data[31:16];
+						rx_target_mac_addr[47:32]	<= rx_l2_bus.data[15:0];
 						rx_state					<= RX_STATE_BODY_5;
 
 						//When replying to an incoming request, send our address and reply to the sender
@@ -276,16 +273,16 @@ module ARPProtocol(
 			//THA (last 4 bytes)
 			RX_STATE_BODY_5: begin
 
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 
 					//As usual, bail out on truncated packets
-					if(rx_l2_bytes_valid != 4) begin
+					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state					<= RX_STATE_IDLE;
 						tx_l2_drop					<= 1;
 					end
 
 					else begin
-						rx_target_mac_addr[31:0]	<= rx_l2_data;
+						rx_target_mac_addr[31:0]	<= rx_l2_bus.data;
 						rx_state					<= RX_STATE_BODY_6;
 
 						//When replying to an incoming request, reply to the sender
@@ -303,16 +300,16 @@ module ARPProtocol(
 			//TPA
 			RX_STATE_BODY_6: begin
 
-				if(rx_l2_data_valid) begin
+				if(rx_l2_bus.data_valid) begin
 
 					//As usual, bail out on truncated packets
-					if(rx_l2_bytes_valid != 4) begin
+					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state					<= RX_STATE_IDLE;
 						tx_l2_drop					<= 1;
 					end
 
 					else begin
-						rx_target_ip_addr			<= rx_l2_data;
+						rx_target_ip_addr			<= rx_l2_bus.data;
 						rx_state					<= RX_STATE_COMMIT;
 
 						//When replying to an incoming request, reply to the sender
@@ -339,7 +336,7 @@ module ARPProtocol(
 				end
 
 				//Valid, well-formed packet? Go ahead and send our reply
-				else if(rx_l2_commit) begin
+				else if(rx_l2_bus.commit) begin
 					rx_state		<= RX_STATE_IDLE;
 					tx_l2_commit	<= 1;
 				end
@@ -349,7 +346,7 @@ module ARPProtocol(
 		endcase
 
 		//At any time, if we get a "drop" request, cancel work in progress
-		if(rx_l2_drop)
+		if(rx_l2_bus.drop)
 			rx_state	<= RX_STATE_IDLE;
 
 	end
