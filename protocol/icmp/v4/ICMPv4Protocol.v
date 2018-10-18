@@ -56,11 +56,27 @@ module ICMPv4Protocol(
 	output reg[31:0]	tx_l3_dst_ip		= 0,
 	output reg			tx_l3_data_valid	= 0,
 	output reg[2:0]		tx_l3_bytes_valid	= 0,
-	output reg[31:0]	tx_l3_data			= 0
+	output reg[31:0]	tx_l3_data			= 0,
 
 	//no layer-4 bus, we handle all ICMP traffic internally
 	//TODO: allow originating pings etc?
+
+	//Performance counters
+	output reg[63:0]	perf_icmp_rx		= 0,
+	output reg[63:0]	perf_icmp_tx		= 0,
+	output reg[63:0]	perf_icmp_dropped	= 0,
+	output reg[63:0]	perf_icmp_csumfail	= 0
 );
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Performance counters
+
+	always @(posedge clk) begin
+		if(rx_l3_commit && rx_l3_protocol_is_icmp)
+			perf_icmp_rx	<= perf_icmp_rx + 1'h1;
+		if(tx_l3_commit)
+			perf_icmp_tx	<= perf_icmp_tx + 1'h1;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// State machine constants
@@ -180,6 +196,10 @@ module ICMPv4Protocol(
 		tx_start				<= 0;
 
 		tx_fifo_rd_ff			<= tx_fifo_rd;
+
+		//DEBUG
+		if( rx_l3_start && (rx_state != RX_STATE_IDLE) )
+			perf_icmp_dropped	<= 1;
 
 		//RX state machine
 		case(rx_state)
@@ -304,9 +324,10 @@ module ICMPv4Protocol(
 
 					//Verify checksum
 					if(rx_checksum != 0) begin
-						rx_state	<= RX_STATE_IDLE;
-						tx_l3_drop	<= 1;
-						tx_fifo_rst	<= 1;
+						rx_state			<= RX_STATE_IDLE;
+						tx_l3_drop			<= 1;
+						tx_fifo_rst			<= 1;
+						perf_icmp_csumfail	<= perf_icmp_csumfail + 1'h1;
 					end
 
 					//Reply to the incoming ping! Save our headers
