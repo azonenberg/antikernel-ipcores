@@ -137,8 +137,12 @@ module EthernetRxClockCrossing(
 
 			RXFIFO_STATE_WAIT_FOR_HEADER_0: begin
 
+				//Wait for pop to complete before doing anything
+				if(rxfifo_rd_pop_single) begin
+				end
+
 				//Data in the fifo! Go read a word.
-				if(rxfifo_rd_size != 0) begin
+				else if(rxfifo_rd_size != 0) begin
 					rxfifo_rd_en		<= 1;
 					rxfifo_pop_state	<= RXFIFO_STATE_WAIT_FOR_HEADER_1;
 				end
