@@ -121,8 +121,10 @@ module CrossClockPacketFifo(
 	//Pointer manipulation
 	always @(posedge rd_clk) begin
 
-		if(rd_pop_single)
-			data_rptr <= data_rptr + 1'h1;
+		if(rd_pop_single) begin
+			if(rd_size != 0)
+				data_rptr <= data_rptr + 1'h1;
+		end
 		else if(rd_pop_packet)
 			data_rptr <= data_rptr + rd_packet_size;
 
