@@ -64,7 +64,12 @@ module EthernetTransmitArbiter (
 	output reg			tx_l2_commit		= 0,
 	output reg			tx_l2_drop			= 0,
 	output reg[47:0]	tx_l2_dst_mac		= 0,
-	output reg[15:0]	tx_l2_ethertype		= 0
+	output reg[15:0]	tx_l2_ethertype		= 0,
+
+	output reg[63:0]	perf_ipv4_sent		= 0,
+	output reg[63:0]	perf_ipv4_dropped	= 0,
+	output reg[63:0]	perf_arp_sent		= 0,
+	output reg[63:0]	perf_arp_dropped	= 0
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -163,14 +168,27 @@ module EthernetTransmitArbiter (
 		//Keep track of frame state and only allow new frames if we have space
 		//For now, require 9000 bytes / 2250 words (jumbo frame typical MTU)
 		//TODO: allow arbitrary frame size and roll back if we overflow
-		if(ipv4_tx_l2_start && (ipv4_payload_fifo_free > 2250) ) begin
-			ipv4_packet_active	<= 1;
-			ipv4_tx_frame_size	<= 0;
+		if(ipv4_tx_l2_start) begin
+			if(ipv4_payload_fifo_free > 2250) begin
+				ipv4_packet_active	<= 1;
+				ipv4_tx_frame_size	<= 0;
+			end
+			else
+				perf_ipv4_dropped	<= perf_ipv4_dropped + 1'h1;
 		end
-		if(arp_tx_l2_start && (arp_payload_fifo_free > 2250) ) begin
-			arp_packet_active	<= 1;
-			arp_tx_frame_size	<= 0;
+		if(arp_tx_l2_start) begin
+			if(arp_payload_fifo_free > 2250) begin
+				arp_packet_active	<= 1;
+				arp_tx_frame_size	<= 0;
+			end
+			else
+				perf_arp_dropped	<= perf_arp_dropped + 1'h1;
 		end
+
+		if(arp_tx_l2_commit)
+			perf_arp_sent		<= perf_arp_sent + 1'h1;
+		if(ipv4_tx_l2_commit)
+			perf_ipv4_sent		<= perf_ipv4_sent + 1'h1;
 
 		//Add new frame data as we go
 		if(ipv4_tx_l2_data_valid)
