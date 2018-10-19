@@ -71,15 +71,10 @@ module IPv4Protocol(
 	output wire[15:0]	rx_l3_pseudo_header_csum,
 
 	//Transmit data from upper level protocol
-	input wire			tx_l3_start,
-	input wire			tx_l3_drop,
-	input wire			tx_l3_commit,
-	input wire[15:0]	tx_l3_payload_len,
-	input wire[31:0]	tx_l3_dst_ip,
-	input wire			tx_l3_data_valid,
-	input wire[2:0]		tx_l3_bytes_valid,
-	input wire[31:0]	tx_l3_data,
-	input wire[7:0]		tx_l3_protocol
+	input wire EthernetBus	tx_l3_bus,
+	input wire[15:0]		tx_l3_payload_len,
+	input wire[31:0]		tx_l3_dst_ip,
+	input wire[7:0]			tx_l3_protocol
 
 	//TODO: performance counters
 	);
@@ -446,8 +441,8 @@ module IPv4Protocol(
 		.DEPTH(512)
 	) tx_fifo (
 		.clk(clk),
-		.wr(tx_l3_data_valid),
-		.din(tx_l3_data),
+		.wr(tx_l3_bus.data_valid),
+		.din(tx_l3_bus.data),
 
 		.rd(tx_fifo_rd),
 		.dout(tx_fifo_rdata),
@@ -498,7 +493,7 @@ module IPv4Protocol(
 
 	InternetChecksum32bit tx_checksum(
 		.clk(clk),
-		.load(tx_l3_start),
+		.load(tx_l3_bus.start),
 		.reset(1'b0),
 		.process(tx_checksum_process),
 		.din(tx_checksum_din),
@@ -562,7 +557,7 @@ module IPv4Protocol(
 					//sending stuff right away.
 					//Ignore any request to send less than 8 bytes, all layer-3 protocols have >=8 bytes of headers
 					//and we can optimize a bit by guaranteeing this.
-					if(tx_l3_start && (tx_l3_payload_len > 8) ) begin
+					if(tx_l3_bus.start && (tx_l3_payload_len > 8) ) begin
 						tx_l2_start		<= 1;
 						tx_state		<= TX_STATE_HEADER_0;
 
@@ -671,7 +666,7 @@ module IPv4Protocol(
 		endcase
 
 		//At any time, if we abort the message in progress, reset stuff
-		if(tx_l3_drop) begin
+		if(tx_l3_bus.drop) begin
 			tx_fifo_rst				<= 1;
 			tx_state				<= TX_STATE_IDLE;
 			tx_l2_drop				<= 1;
