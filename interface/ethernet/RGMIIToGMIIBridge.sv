@@ -28,6 +28,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "GmiiBus.svh"
+
 /**
 	@file
 	@author Andrew D. Zonenberg
@@ -46,15 +48,11 @@ module RGMIIToGMIIBridge(
 
 	//GMII signals to MAC
 	output wire			gmii_rxc,
-	output wire[7:0]	gmii_rxd,
-	output wire			gmii_rx_dv,
-	output wire			gmii_rx_er,
+	output GmiiBus		gmii_rx_bus = {1'b0, 1'b0, 8'b0},
 
 	input wire			gmii_txc,
 	input wire			gmii_txc_90,
-	input wire[7:0]		gmii_txd,
-	input wire			gmii_tx_en,
-	input wire			gmii_tx_er,
+	input wire GmiiBus	gmii_tx_bus,
 
 	//In-band status (if supported by the PHY)
 	output logic		link_up		= 0
@@ -97,13 +95,13 @@ module RGMIIToGMIIBridge(
 	);
 
 	//Convert DDR to SDR signals
-	wire[7:0]	gmii_rxd_parallel;
+	wire[7:0]	gmii_rx_data_parallel;
 	DDRInputBuffer #(.WIDTH(4)) rgmii_rxd_iddr2(
 		.clk_p(gmii_rxc),
 		.clk_n(~gmii_rxc),
 		.din(rgmii_rxd),
-		.dout0(gmii_rxd_parallel[7:4]),
-		.dout1(gmii_rxd_parallel[3:0])
+		.dout0(gmii_rx_data_parallel[7:4]),
+		.dout1(gmii_rx_data_parallel[3:0])
 		);
 
 	wire[1:0]	gmii_rxc_parallel;
@@ -116,24 +114,24 @@ module RGMIIToGMIIBridge(
 		);
 
 	//Register the signals by one cycle so we can compensate for the clock inversion
-	logic[7:0]	gmii_rxd_parallel_ff	= 0;
-	logic[1:0]	gmii_rxc_parallel_ff	= 0;
+	logic[7:0]	gmii_rx_data_parallel_ff	= 0;
+	logic[1:0]	gmii_rxc_parallel_ff		= 0;
 	always_ff @(posedge gmii_rxc) begin
-		gmii_rxd_parallel_ff	<= gmii_rxd_parallel;
-		gmii_rxc_parallel_ff	<= gmii_rxc_parallel;
+		gmii_rx_data_parallel_ff	<= gmii_rx_data_parallel;
+		gmii_rxc_parallel_ff		<= gmii_rxc_parallel;
 	end
 
 	//Shuffle the nibbles data back to where they should be.
-	assign gmii_rxd	= { gmii_rxd_parallel[7:4], gmii_rxd_parallel_ff[3:0] };
+	assign gmii_rx_bus.data	= { gmii_rx_data_parallel[7:4], gmii_rx_data_parallel_ff[3:0] };
 
 	//rx_er flag is encoded specially to reduce transitions (see RGMII spec section 3.4)
-	assign gmii_rx_dv = gmii_rxc_parallel_ff[0];
+	assign gmii_rx_bus.en = gmii_rxc_parallel_ff[0];
 	wire gmii_rx_er_int = gmii_rxc_parallel_ff[0] ^ gmii_rxc_parallel_ff[1];
 
-	assign gmii_rx_er = gmii_rx_er_int && gmii_rx_dv;
+	assign gmii_rx_bus.er = gmii_rx_er_int && gmii_rx_bus.en;
 
 	/*
-		If gmii_rx_er_int is set without gmii_rx_dv, that's a special symbol of some sort
+		If gmii_rx_er_int is set without gmii_rx_bus.en, that's a special symbol of some sort
 		For now, we just ignore them
 		0xFF = carrier sense (not meaningful in full duplex)
 	 */
@@ -157,26 +155,26 @@ module RGMIIToGMIIBridge(
 		.clk_p(gmii_txc),
 		.clk_n(~gmii_txc),
 		.dout(rgmii_txd),
-		.din0(gmii_txd[3:0]),
-		.din1(gmii_txd[7:4])
+		.din0(gmii_tx_bus.data[3:0]),
+		.din1(gmii_tx_bus.data[7:4])
 		);
 
 	DDROutputBuffer #(.WIDTH(1)) rgmii_txe_oddr2(
 		.clk_p(gmii_txc),
 		.clk_n(~gmii_txc),
 		.dout(rgmii_tx_ctl),
-		.din0(gmii_tx_en),
-		.din1(gmii_tx_en ^ gmii_tx_er)
+		.din0(gmii_tx_bus.en),
+		.din1(gmii_tx_bus.en ^ gmii_tx_bus.er)
 		);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Decode in-band link state
 
 	always_ff @(posedge gmii_rxc) begin
-		if(!gmii_rx_dv && !gmii_rx_er_int) begin
+		if(!gmii_rx_bus.en && !gmii_rx_er_int) begin
 
 			//Inter-frame gap
-			link_up		<= gmii_rxd[0];
+			link_up		<= gmii_rx_bus.data[0];
 
 		end
 	end

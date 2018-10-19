@@ -30,6 +30,7 @@
 ***********************************************************************************************************************/
 
 `include "EthernetBus.svh"
+`include "GmiiBus.svh"
 
 /**
 	@file
@@ -40,14 +41,10 @@ module TriSpeedEthernetMAC(
 
 	//XMGII bus
 	input wire			gmii_rx_clk,
-	input wire			gmii_rx_dv,
-	input wire			gmii_rx_er,
-	input wire[7:0]		gmii_rxd,
+	input wire GmiiBus	gmii_rx_bus,
 
 	input wire			gmii_tx_clk,
-	output logic		gmii_tx_en		= 0,
-	output logic		gmii_tx_er		= 0,
-	output logic[7:0]	gmii_txd		= 0,
+	output GmiiBus		gmii_tx_bus = {1'b0, 1'b0, 8'b0},
 
 	//Link state flags (reset stuff as needed when link is down)
 	//Synchronous to RX clock
@@ -85,7 +82,7 @@ module TriSpeedEthernetMAC(
 
 	always_ff @(posedge gmii_tx_clk) begin
 		if(tx_frame_start)
-			perf_tx_frames		<= perf_tx_frames + 1'h1;
+			perf_tx_frames	<= perf_tx_frames + 1'h1;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -93,14 +90,14 @@ module TriSpeedEthernetMAC(
 
 	//Do it 8 bits wide, every clock, to save area
 	wire		rx_crc_reset	= (rx_state == RX_STATE_PREAMBLE);
-	wire		rx_crc_update	= gmii_rx_dv && (rx_state == RX_STATE_FRAME_DATA);
+	wire		rx_crc_update	= gmii_rx_bus.en && (rx_state == RX_STATE_FRAME_DATA);
 	wire[31:0]	rx_crc_calculated;
 
 	CRC32_Ethernet rx_crc_calc(
 		.clk(gmii_rx_clk),
 		.reset(rx_crc_reset),
 		.update(rx_crc_update),
-		.din(gmii_rxd),
+		.din(gmii_rx_bus.data),
 		.crc_flipped(rx_crc_calculated)
 	);
 
@@ -142,10 +139,10 @@ module TriSpeedEthernetMAC(
 
 	always_ff @(posedge gmii_rx_clk) begin
 
-		rx_bus.start				<= 0;
-		rx_bus.data_valid			<= 0;
+		rx_bus.start			<= 0;
+		rx_bus.data_valid		<= 0;
 		rx_bus.bytes_valid		<= 0;
-		rx_bus.commit				<= 0;
+		rx_bus.commit			<= 0;
 		rx_bus.drop				<= 0;
 
 		case(rx_state)
@@ -156,10 +153,10 @@ module TriSpeedEthernetMAC(
 				//Ignore rx_er outside of a packet
 
 				//Something is here!
-				if(gmii_rx_dv) begin
+				if(gmii_rx_bus.en) begin
 
 					//Should be a preamble (55 55 55 ...)
-					if( (gmii_rxd == 8'h55) && !gmii_rx_er )
+					if( (gmii_rx_bus.data == 8'h55) && !gmii_rx_bus.er )
 						rx_state			<= RX_STATE_PREAMBLE;
 
 					//Anything else is a problem, ignore it
@@ -173,12 +170,12 @@ module TriSpeedEthernetMAC(
 			RX_STATE_PREAMBLE: begin
 
 				//Drop frame if it truncates before the SFD
-				if(!gmii_rx_dv)
+				if(!gmii_rx_bus.en)
 					rx_state				<= RX_STATE_IDLE;
 
 				//Tell the upper layer we are starting the frame when we hit the SFD.
 				//No point in even telling them about runt packets that end during the preamble.
-				else if(gmii_rxd == 8'hd5) begin
+				else if(gmii_rx_bus.data == 8'hd5) begin
 					rx_bus.start			<= 1;
 					rx_bytepos				<= 0;
 					rx_state				<= RX_STATE_FRAME_DATA;
@@ -186,7 +183,7 @@ module TriSpeedEthernetMAC(
 				end
 
 				//Still preamble, keep going
-				else if(gmii_rxd == 8'h55) begin
+				else if(gmii_rx_bus.data == 8'h55) begin
 				end
 
 				//Anything else before the SFD is an error, drop it.
@@ -200,12 +197,12 @@ module TriSpeedEthernetMAC(
 			RX_STATE_FRAME_DATA: begin
 
 				//End of frame - push any fractional message word that might be waiting
-				if(!gmii_rx_dv) begin
-					rx_state					<= RX_STATE_CRC;
+				if(!gmii_rx_bus.en) begin
+					rx_state				<= RX_STATE_CRC;
 
 					if(rx_bytepos != 0) begin
 						rx_bus.bytes_valid	<= rx_bytepos;
-						rx_bus.data_valid		<= 1;
+						rx_bus.data_valid	<= 1;
 					end
 
 					case(rx_bytepos)
@@ -220,20 +217,20 @@ module TriSpeedEthernetMAC(
 
 				//Frame data
 				else begin
-					rx_pending_data				<= { rx_pending_data[23:0], gmii_rxd };
-					rx_bytepos					<= rx_bytepos + 1'h1;
+					rx_pending_data			<= { rx_pending_data[23:0], gmii_rx_bus.data };
+					rx_bytepos				<= rx_bytepos + 1'h1;
 
 					//We've received a full word!
 					if(rx_bytepos == 3) begin
 
 						//Save this word in the buffer for next time around
 						rx_frame_data_valid_adv	<= 1;
-						rx_frame_data_adv		<= { rx_pending_data[23:0], gmii_rxd };
+						rx_frame_data_adv		<= { rx_pending_data[23:0], gmii_rx_bus.data };
 
 						//Send the PREVIOUS word to the host
 						//We need a pipeline delay because of the CRC - don't want to get the CRC confused with application layer data!
 						if(rx_frame_data_valid_adv) begin
-							rx_bus.data_valid		<= 1;
+							rx_bus.data_valid	<= 1;
 							rx_bus.data			<= rx_frame_data_adv;
 							rx_bus.bytes_valid	<= 4;
 						end
@@ -250,13 +247,13 @@ module TriSpeedEthernetMAC(
 				if(rx_crc_calculated_ff5 == rx_crc_expected)
 					rx_bus.commit	<= 1;
 				else
-					rx_bus.drop	<= 1;
+					rx_bus.drop		<= 1;
 
 			end
 
 			//If skipping a frame due to a fault, ignore everything until the frame ends
 			RX_STATE_DROP: begin
-				if(!gmii_rx_dv)
+				if(!gmii_rx_bus.en)
 					rx_state		<= RX_STATE_IDLE;
 			end	//end RX_STATE_DROP
 
@@ -333,9 +330,9 @@ module TriSpeedEthernetMAC(
 
 	always_ff @(posedge gmii_tx_clk) begin
 
-		gmii_tx_en	<= 0;
-		gmii_tx_er	<= 0;
-		gmii_txd	<= 0;
+		gmii_tx_bus.en		<= 0;
+		gmii_tx_bus.er		<= 0;
+		gmii_tx_bus.data	<= 0;
 
 		tx_en		<= 0;
 		tx_data		<= 0;
@@ -343,8 +340,8 @@ module TriSpeedEthernetMAC(
 		tx_fifo_pop	<= 0;
 
 		//Pipeline delay on GMII TX bus, so we have time to compute the CRC
-		gmii_tx_en	<= tx_en;
-		gmii_txd	<= tx_data;
+		gmii_tx_bus.en		<= tx_en;
+		gmii_tx_bus.data	<= tx_data;
 
 		if(tx_state != TX_STATE_IDLE)
 			tx_frame_len	<= tx_frame_len + 1'h1;
@@ -413,7 +410,7 @@ module TriSpeedEthernetMAC(
 			TX_STATE_CRC_1: begin
 
 				//Transmit directly (no forwarding)
-				gmii_tx_en	<= 1;
+				gmii_tx_bus.en	<= 1;
 
 				tx_count	<= tx_count + 1'h1;
 
@@ -423,10 +420,10 @@ module TriSpeedEthernetMAC(
 				end
 
 				case(tx_count)
-					0:	gmii_txd	<= tx_crc[31:24];
-					1:	gmii_txd	<= tx_crc[23:16];
-					2:	gmii_txd	<= tx_crc[15:8];
-					3:	gmii_txd	<= tx_crc[7:0];
+					0:	gmii_tx_bus.data	<= tx_crc[31:24];
+					1:	gmii_tx_bus.data	<= tx_crc[23:16];
+					2:	gmii_tx_bus.data	<= tx_crc[15:8];
+					3:	gmii_tx_bus.data	<= tx_crc[7:0];
 
 				endcase
 			end	//end TX_STATE_CRC_1
@@ -443,7 +440,7 @@ module TriSpeedEthernetMAC(
 
 			//Inter-frame gap (min 12 octets)
 			TX_STATE_IFG: begin
-				tx_count	<= tx_count + 1'h1;
+				tx_count		<= tx_count + 1'h1;
 
 				if(tx_count == 11) begin
 					tx_ready	<= 1;
