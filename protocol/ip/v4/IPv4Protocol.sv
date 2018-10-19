@@ -43,8 +43,8 @@ module IPv4Protocol(
 
 	//Incoming Ethernet data
 	input wire EthernetBus	rx_l2_bus,
-	input wire			rx_l2_headers_valid,
-	input wire			rx_l2_ethertype_is_ipv4,
+	input wire				rx_l2_headers_valid,
+	input wire				rx_l2_ethertype_is_ipv4,
 
 	//Outbound data (same clock domain as incoming)
 	output reg			tx_l2_start			= 0,
@@ -57,7 +57,8 @@ module IPv4Protocol(
 	//TX src MAC is implied, it's always us
 
 	//Interface to upper level protocol
-	output reg			rx_l3_start					= 0,
+	output EthernetBus	rx_l3_bus			 = {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
+
 	output reg[15:0]	rx_l3_payload_len			= 0,	//size of upper layer payload only
 															//(not the IP datagram length)
 	output reg[7:0]		rx_l3_protocol				= 0,
@@ -66,11 +67,6 @@ module IPv4Protocol(
 	output reg			rx_l3_protocol_is_tcp		= 0,
 	output reg[31:0]	rx_l3_src_ip				= 0,
 	output reg[31:0]	rx_l3_dst_ip				= 0,
-	output reg			rx_l3_data_valid			= 0,
-	output reg[2:0]		rx_l3_bytes_valid			= 0,
-	output reg[31:0]	rx_l3_data					= 0,
-	output reg			rx_l3_commit				= 0,
-	output reg			rx_l3_drop					= 0,
 	output reg			rx_l3_headers_valid			= 0,
 	output wire[15:0]	rx_l3_pseudo_header_csum,
 
@@ -184,13 +180,13 @@ module IPv4Protocol(
 	always_ff @(posedge clk) begin
 
 		//Forward flags from layer 2 by default
-		rx_l3_start			<= rx_l2_bus.start;
-		rx_l3_drop			<= rx_l2_bus.drop;
+		rx_l3_bus.start			<= rx_l2_bus.start;
+		rx_l3_bus.drop			<= rx_l2_bus.drop;
 
-		rx_l3_data_valid	<= 0;
-		rx_l3_bytes_valid	<= 0;
-		rx_l3_commit		<= 0;
-		rx_l3_headers_valid	<= 0;
+		rx_l3_bus.data_valid	<= 0;
+		rx_l3_bus.bytes_valid	<= 0;
+		rx_l3_bus.commit		<= 0;
+		rx_l3_headers_valid		<= 0;
 
 		case(rx_state)
 
@@ -215,10 +211,10 @@ module IPv4Protocol(
 				//Drop anything that's not an IPv4 packet
 				if(rx_l2_headers_valid) begin
 					if(rx_l2_ethertype_is_ipv4)
-						rx_state	<= RX_STATE_HEADER_1;
+						rx_state		<= RX_STATE_HEADER_1;
 					else begin
-						rx_state	<= RX_STATE_IDLE;
-						rx_l3_drop	<= 1;
+						rx_state		<= RX_STATE_IDLE;
+						rx_l3_bus.drop	<= 1;
 					end
 				end
 
@@ -231,14 +227,14 @@ module IPv4Protocol(
 					//Abort on truncated packet
 					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state				<= RX_STATE_IDLE;
-						rx_l3_drop				<= 1;
+						rx_l3_bus.drop			<= 1;
 					end
 
 					//Check version and header length.
 					//We don't support options so drop anything with them
 					else if(rx_l2_bus.data[31:24] != {4'h4, 4'h5}) begin
 						rx_state				<= RX_STATE_IDLE;
-						rx_l3_drop				<= 1;
+						rx_l3_bus.drop			<= 1;
 					end
 
 					else begin
@@ -251,7 +247,7 @@ module IPv4Protocol(
 						//(minimum IP header size)
 						if(rx_l2_bus.data[15:0] < 16'd20) begin
 							rx_state			<= RX_STATE_IDLE;
-							rx_l3_drop			<= 1;
+							rx_l3_bus.drop		<= 1;
 						end
 
 						//Valid, figure out how big the payload is
@@ -272,14 +268,14 @@ module IPv4Protocol(
 					//Abort on truncated packet
 					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state				<= RX_STATE_IDLE;
-						rx_l3_drop				<= 1;
+						rx_l3_bus.drop			<= 1;
 					end
 
 					//We don't support fragmentation.
 					//Drop anything with MF or frag offset nonzero.
 					else if(rx_l2_bus.data[13] || (rx_l2_bus.data[12:0] != 0) ) begin
 						rx_state				<= RX_STATE_IDLE;
-						rx_l3_drop				<= 1;
+						rx_l3_bus.drop			<= 1;
 					end
 
 					//Save fragmentation/flag data
@@ -306,7 +302,7 @@ module IPv4Protocol(
 					//Abort on truncated packet
 					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state					<= RX_STATE_IDLE;
-						rx_l3_drop					<= 1;
+						rx_l3_bus.drop				<= 1;
 					end
 
 					else begin
@@ -331,7 +327,7 @@ module IPv4Protocol(
 					//Abort on truncated packet
 					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state					<= RX_STATE_IDLE;
-						rx_l3_drop					<= 1;
+						rx_l3_bus.drop				<= 1;
 					end
 
 					else begin
@@ -350,7 +346,7 @@ module IPv4Protocol(
 					//Abort on truncated packet
 					if(rx_l2_bus.bytes_valid != 4) begin
 						rx_state					<= RX_STATE_IDLE;
-						rx_l3_drop					<= 1;
+						rx_l3_bus.drop				<= 1;
 					end
 
 					else begin
@@ -371,7 +367,7 @@ module IPv4Protocol(
 						//Nope, it's for somebody else. Drop it.
 						else begin
 							rx_state				<= RX_STATE_IDLE;
-							rx_l3_drop				<= 1;
+							rx_l3_bus.drop			<= 1;
 						end
 
 					end
@@ -384,17 +380,17 @@ module IPv4Protocol(
 
 				//Forward packet data
 				if(rx_l2_bus.data_valid) begin
-					rx_l3_data_valid		<= 1;
-					rx_l3_bytes_valid		<= rx_l2_bus.bytes_valid;
-					rx_l3_data				<= rx_l2_bus.data;
+					rx_l3_bus.data_valid		<= 1;
+					rx_l3_bus.bytes_valid		<= rx_l2_bus.bytes_valid;
+					rx_l3_bus.data				<= rx_l2_bus.data;
 
-					payload_bytes_so_far	<= payload_bytes_next;
+					payload_bytes_so_far		<= payload_bytes_next;
 
 					//If we've reached the end of the packet body, anything afterward is padding
 					//Ignore it. Also, tell upper level protocol to do so
 					if(payload_bytes_next >= rx_l3_payload_len) begin
-						rx_state			<= RX_STATE_PADDING;
-						rx_l3_bytes_valid	<= rx_l3_payload_len - payload_bytes_so_far;
+						rx_state				<= RX_STATE_PADDING;
+						rx_l3_bus.bytes_valid	<= rx_l3_payload_len - payload_bytes_so_far;
 					end
 
 				end
@@ -404,15 +400,15 @@ module IPv4Protocol(
 
 					if(rx_header_checksum_expected != 16'h0000) begin
 						rx_state			<= RX_STATE_IDLE;
-						rx_l3_drop			<= 1;
+						rx_l3_bus.drop		<= 1;
 					end
 
 				end
 
 				//At the end of the packet, commit upstream and go back to idle
 				else if(rx_l2_bus.commit) begin
-					rx_l3_commit		<= 1;
-					rx_state			<= RX_STATE_IDLE;
+					rx_l3_bus.commit		<= 1;
+					rx_state				<= RX_STATE_IDLE;
 				end
 
 			end	//end RX_STATE_BODY
@@ -422,8 +418,8 @@ module IPv4Protocol(
 
 				//At the end of the packet, commit upstream and go back to idle
 				if(rx_l2_bus.commit) begin
-					rx_l3_commit		<= 1;
-					rx_state			<= RX_STATE_IDLE;
+					rx_l3_bus.commit		<= 1;
+					rx_state				<= RX_STATE_IDLE;
 				end
 
 			end	//end RX_STATE_PADDING
@@ -668,8 +664,8 @@ module IPv4Protocol(
 			end	//end TX_STATE_BODY
 
 			TX_STATE_COMMIT: begin
-				tx_l2_commit			<= 1;
-				tx_state				<= TX_STATE_IDLE;
+				tx_l2_commit		<= 1;
+				tx_state			<= TX_STATE_IDLE;
 			end	//end TX_STATE_COMMIT
 
 		endcase

@@ -29,6 +29,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "EthernetBus.svh"
+
 module UDPProtocol(
 
 	//Clocks
@@ -36,16 +38,12 @@ module UDPProtocol(
 
 	//Incoming data bus from IP stack
 	//TODO: make this parameterizable for IPv4/IPv6, for now we only do v4
-	input wire			rx_l3_start,
+	input wire EthernetBus	rx_l3_bus,
+
 	input wire[15:0]	rx_l3_payload_len,
 	input wire			rx_l3_protocol_is_udp,
 	input wire[31:0]	rx_l3_src_ip,
 	input wire[31:0]	rx_l3_dst_ip,
-	input wire			rx_l3_data_valid,
-	input wire[2:0]		rx_l3_bytes_valid,
-	input wire[31:0]	rx_l3_data,
-	input wire			rx_l3_commit,
-	input wire			rx_l3_drop,
 	input wire			rx_l3_headers_valid,
 	input wire[15:0]	rx_l3_pseudo_header_csum,
 
@@ -71,8 +69,8 @@ module UDPProtocol(
 		.clk(clk),
 		.load(rx_l3_headers_valid),
 		.reset(1'b0),
-		.process(rx_l3_data_valid),
-		.din(rx_l3_data_valid ? rx_l3_data : rx_l3_pseudo_header_csum),
+		.process(rx_l3_bus.data_valid),
+		.din(rx_l3_bus.data_valid ? rx_l3_bus.data : rx_l3_pseudo_header_csum),
 		.sumout(),
 		.csumout(rx_checksum_expected)
 	);
@@ -95,7 +93,7 @@ module UDPProtocol(
 	always @(posedge clk) begin
 
 		//Forward flags from IP stack
-		rx_l4_drop			<= rx_l3_drop;
+		rx_l4_drop			<= rx_l3_bus.drop;
 
 		//Clear flags
 		rx_l4_start			<= 0;
@@ -109,7 +107,7 @@ module UDPProtocol(
 			//Start when we get a new packet
 			RX_STATE_IDLE: begin
 
-				if(rx_l3_start) begin
+				if(rx_l3_bus.start) begin
 					rx_l4_start			<= 1;
 					rx_state			<= RX_STATE_HEADER_0;
 				end
@@ -131,17 +129,17 @@ module UDPProtocol(
 
 			//Port header
 			RX_STATE_HEADER_1: begin
-				if(rx_l3_data_valid) begin
+				if(rx_l3_bus.data_valid) begin
 
 					//Drop truncated packets
-					if(rx_l3_bytes_valid != 4) begin
+					if(rx_l3_bus.bytes_valid != 4) begin
 						rx_l4_drop	<= 1;
 						rx_state	<= RX_STATE_IDLE;
 					end
 
 					else begin
-						rx_l4_src_port	<= rx_l3_data[31:16];
-						rx_l4_dst_port	<= rx_l3_data[15:0];
+						rx_l4_src_port	<= rx_l3_bus.data[31:16];
+						rx_l4_dst_port	<= rx_l3_bus.data[15:0];
 						rx_state		<= RX_STATE_HEADER_2;
 					end
 
@@ -150,24 +148,24 @@ module UDPProtocol(
 
 			RX_STATE_HEADER_2: begin
 
-				if(rx_l3_data_valid) begin
+				if(rx_l3_bus.data_valid) begin
 
 					//Drop truncated packets
-					if(rx_l3_bytes_valid != 4) begin
+					if(rx_l3_bus.bytes_valid != 4) begin
 						rx_l4_drop	<= 1;
 						rx_state	<= RX_STATE_IDLE;
 					end
 
 					//Drop anything with an invalid size
-					else if(rx_l3_data[31:16] < 8) begin
+					else if(rx_l3_bus.data[31:16] < 8) begin
 						rx_l4_drop	<= 1;
 						rx_state	<= RX_STATE_IDLE;
 					end
 
 					else begin
-						//rx_checksum			<= rx_l3_data[15:0];
-						rx_l4_payload_len	<= rx_l3_data[31:16] - 16'h8;
-						rx_l4_bytes_left	<= rx_l3_data[31:16] - 16'h8;	//start off at payload length
+						//rx_checksum			<= rx_l3_bus.data[15:0];
+						rx_l4_payload_len	<= rx_l3_bus.data[31:16] - 16'h8;
+						rx_l4_bytes_left	<= rx_l3_bus.data[31:16] - 16'h8;	//start off at payload length
 						rx_l4_headers_valid	<= 1;
 						rx_state			<= RX_STATE_BODY;
 					end
@@ -179,13 +177,13 @@ module UDPProtocol(
 			RX_STATE_BODY: begin
 
 				//Forward data
-				if(rx_l3_data_valid) begin
+				if(rx_l3_bus.data_valid) begin
 
 					rx_l4_data_valid		<= 1;
-					rx_l4_data				<= rx_l3_data;
+					rx_l4_data				<= rx_l3_bus.data;
 
 					//Data plus padding? Send only the valid data
-					if(rx_l4_bytes_left < rx_l3_bytes_valid) begin
+					if(rx_l4_bytes_left < rx_l3_bus.bytes_valid) begin
 						rx_l4_bytes_valid	<= rx_l4_bytes_left;
 						rx_state			<= RX_STATE_PADDING;
 					end
@@ -195,11 +193,11 @@ module UDPProtocol(
 						rx_l4_bytes_valid	<= rx_l4_bytes_left;
 
 					//Update byte counter
-					rx_l4_bytes_left		<= rx_l4_bytes_left - rx_l3_data_valid;
+					rx_l4_bytes_left		<= rx_l4_bytes_left - rx_l3_bus.data_valid;
 				end
 
 				//Verify checksum etc
-				if(rx_l3_commit)
+				if(rx_l3_bus.commit)
 					rx_state				<= RX_STATE_CHECKSUM;
 
 			end	//end RX_STATE_BODY
@@ -207,7 +205,7 @@ module UDPProtocol(
 			RX_STATE_PADDING: begin
 
 				//Verify checksum etc
-				if(rx_l3_commit)
+				if(rx_l3_bus.commit)
 					rx_state				<= RX_STATE_CHECKSUM;
 
 			end	//end RX_STATE_PADDING
@@ -226,7 +224,7 @@ module UDPProtocol(
 		endcase
 
 		//If we get a drop request from the IP stack, abort everything
-		if(rx_l3_drop)
+		if(rx_l3_bus.drop)
 			rx_state	<= RX_STATE_IDLE;
 
 	end
@@ -245,16 +243,16 @@ module UDPProtocol(
 	ila_0 ila(
 		.clk(clk),
 
-		.probe0(rx_l3_start),
+		.probe0(rx_l3_bus.start),
 		.probe1(rx_l3_payload_len),
 		.probe2(rx_l3_protocol_is_udp),
 		.probe3(rx_l3_src_ip),
 		.probe4(rx_l3_dst_ip),
-		.probe5(rx_l3_data_valid),
-		.probe6(rx_l3_bytes_valid),
-		.probe7(rx_l3_data),
-		.probe8(rx_l3_commit),
-		.probe9(rx_l3_drop),
+		.probe5(rx_l3_bus.data_valid),
+		.probe6(rx_l3_bus.bytes_valid),
+		.probe7(rx_l3_bus.data),
+		.probe8(rx_l3_bus.commit),
+		.probe9(rx_l3_bus.drop),
 		.probe10(rx_l3_headers_valid),
 
 		.probe11(rx_l4_start),

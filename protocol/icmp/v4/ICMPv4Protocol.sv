@@ -29,34 +29,32 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "EthernetBus.svh"
+
 module ICMPv4Protocol(
 
 	//Clocks
 	input wire			clk,
 
 	//Incoming data bus from IP stack
-	input wire			rx_l3_start,
+	input wire EthernetBus	rx_l3_bus,
 	input wire[15:0]	rx_l3_payload_len,
 	input wire			rx_l3_protocol_is_icmp,
 	input wire[31:0]	rx_l3_src_ip,
 	input wire[31:0]	rx_l3_dst_ip,
-	input wire			rx_l3_data_valid,
-	input wire[2:0]		rx_l3_bytes_valid,
-	input wire[31:0]	rx_l3_data,
-	input wire			rx_l3_commit,
-	input wire			rx_l3_drop,
 	input wire			rx_l3_headers_valid,
 
 	//Outbound data bus to IP stack
 	output reg			tx_l3_start			= 0,
 	output reg			tx_l3_drop			= 0,
 	output reg			tx_l3_commit		= 0,
-	output reg[15:0]	tx_l3_payload_len,
-	//src ip and protocol are added by ip stack
-	output reg[31:0]	tx_l3_dst_ip		= 0,
 	output reg			tx_l3_data_valid	= 0,
 	output reg[2:0]		tx_l3_bytes_valid	= 0,
 	output reg[31:0]	tx_l3_data			= 0,
+
+	output reg[15:0]	tx_l3_payload_len,
+	//src ip and protocol are added by ip stack
+	output reg[31:0]	tx_l3_dst_ip		= 0,
 
 	//no layer-4 bus, we handle all ICMP traffic internally
 	//TODO: allow originating pings etc?
@@ -72,7 +70,7 @@ module ICMPv4Protocol(
 	// Performance counters
 
 	always @(posedge clk) begin
-		if(rx_l3_commit && rx_l3_protocol_is_icmp)
+		if(rx_l3_bus.commit && rx_l3_protocol_is_icmp)
 			perf_icmp_rx	<= perf_icmp_rx + 1'h1;
 		if(tx_l3_commit)
 			perf_icmp_tx	<= perf_icmp_tx + 1'h1;
@@ -115,8 +113,8 @@ module ICMPv4Protocol(
 		.DEPTH(512)
 	) tx_fifo (
 		.clk(clk),
-		.wr( (rx_state == RX_STATE_PING_BODY) && rx_l3_data_valid ),
-		.din(rx_l3_data),
+		.wr( (rx_state == RX_STATE_PING_BODY) && rx_l3_bus.data_valid ),
+		.din(rx_l3_bus.data),
 
 		.rd(tx_fifo_rd),
 		.dout(tx_fifo_rdata),
@@ -137,9 +135,9 @@ module ICMPv4Protocol(
 	InternetChecksum32bit rx_csum(
 		.clk(clk),
 		.load(1'b0),
-		.reset(rx_l3_start),
-		.process(rx_l3_data_valid),
-		.din(rx_l3_data),
+		.reset(rx_l3_bus.start),
+		.process(rx_l3_bus.data_valid),
+		.din(rx_l3_bus.data),
 		.sumout(),
 		.csumout(rx_checksum)
 	);
@@ -156,9 +154,9 @@ module ICMPv4Protocol(
 	InternetChecksum32bit tx_csum(
 		.clk(clk),
 		.load(1'b0),
-		.reset(rx_l3_start),
-		.process(rx_l3_data_valid && (rx_state != RX_STATE_HEADER_1) ),
-		.din(rx_l3_data),
+		.reset(rx_l3_bus.start),
+		.process(rx_l3_bus.data_valid && (rx_state != RX_STATE_HEADER_1) ),
+		.din(rx_l3_bus.data),
 		.sumout(),
 		.csumout(tx_checksum)
 	);
@@ -198,7 +196,7 @@ module ICMPv4Protocol(
 		tx_fifo_rd_ff			<= tx_fifo_rd;
 
 		//DEBUG
-		if( rx_l3_start && (rx_state != RX_STATE_IDLE) )
+		if( rx_l3_bus.start && (rx_state != RX_STATE_IDLE) )
 			perf_icmp_dropped	<= 1;
 
 		//RX state machine
@@ -209,7 +207,7 @@ module ICMPv4Protocol(
 
 			RX_STATE_IDLE: begin
 
-				if(rx_l3_start)
+				if(rx_l3_bus.start)
 					rx_state			<= RX_STATE_HEADER_0;
 
 			end	//end RX_STATE_IDLE
@@ -224,13 +222,13 @@ module ICMPv4Protocol(
 
 					//Drop anything that isn't ICMP, or too small to be a valid ICMP packet
 					if( (rx_l3_payload_len < 8) || !rx_l3_protocol_is_icmp ) begin
-						tx_l3_drop			<= 1;
-						rx_state			<= RX_STATE_IDLE;
+						tx_l3_drop		<= 1;
+						rx_state		<= RX_STATE_IDLE;
 					end
 
 					//Send the start command out to layer 3 after we get the payload length
 					else begin
-						rx_state			<= RX_STATE_HEADER_1;
+						rx_state		<= RX_STATE_HEADER_1;
 					end
 
 				end
@@ -240,24 +238,24 @@ module ICMPv4Protocol(
 			//ICMP type/code/checksum
 			RX_STATE_HEADER_1: begin
 
-				if(rx_l3_data_valid) begin
+				if(rx_l3_bus.data_valid) begin
 
 					//Drop truncated packets
-					if(rx_l3_bytes_valid != 4) begin
+					if(rx_l3_bus.bytes_valid != 4) begin
 						tx_l3_drop		<= 1;
 						rx_state		<= RX_STATE_IDLE;
 					end
 
 					else begin
-						rx_type			<= rx_l3_data[31:24];
-						rx_code			<= rx_l3_data[23:16];
+						rx_type			<= rx_l3_bus.data[31:24];
+						rx_code			<= rx_l3_bus.data[23:16];
 
 						//Type determines where we go next
-						case(rx_l3_data[31:24])
+						case(rx_l3_bus.data[31:24])
 
 							ICMP_TYPE_ECHO_REQUEST: begin
 
-								if(rx_l3_data[23:16] == 0) begin
+								if(rx_l3_bus.data[23:16] == 0) begin
 									rx_state		<= RX_STATE_PING_HEADER;
 
 									//Reply with an echo-reply message
@@ -267,8 +265,8 @@ module ICMPv4Protocol(
 
 								//Bad code
 								else begin
-									tx_l3_drop		<= 1;
-									rx_state		<= RX_STATE_IDLE;
+									tx_l3_drop	<= 1;
+									rx_state	<= RX_STATE_IDLE;
 								end
 
 							end	//end ICMP_TYPE_ECHO_REQUEST
@@ -293,18 +291,18 @@ module ICMPv4Protocol(
 			//ID/sequence header
 			RX_STATE_PING_HEADER: begin
 
-				if(rx_l3_data_valid) begin
+				if(rx_l3_bus.data_valid) begin
 
 					//Drop truncated packets
-					if(rx_l3_bytes_valid != 4) begin
+					if(rx_l3_bus.bytes_valid != 4) begin
 						tx_l3_drop		<= 1;
 						rx_state		<= RX_STATE_IDLE;
 					end
 
 					//Parse stuff
 					else begin
-						rx_ping_id		<= rx_l3_data[31:16];
-						rx_ping_seq		<= rx_l3_data[15:0];
+						rx_ping_id		<= rx_l3_bus.data[31:16];
+						rx_ping_seq		<= rx_l3_bus.data[15:0];
 						rx_state		<= RX_STATE_PING_BODY;
 					end
 
@@ -316,11 +314,11 @@ module ICMPv4Protocol(
 			RX_STATE_PING_BODY: begin
 
 				//Push the incoming data into our TX buffer
-				if(rx_l3_data_valid) begin
+				if(rx_l3_bus.data_valid) begin
 					//no action needed, the TX buffer is self-contained
 				end
 
-				if(rx_l3_commit) begin
+				if(rx_l3_bus.commit) begin
 
 					//Verify checksum
 					if(rx_checksum != 0) begin
@@ -426,7 +424,7 @@ module ICMPv4Protocol(
 		//Clear the TX FIFO when this happens.
 		//This may cause an in-progress packet to be lost but dropping pings isn't going to hurt much.
 		//Corrupted packets are rare enough that it's not worth trying to optimize behavior in that case.
-		if(rx_l3_drop) begin
+		if(rx_l3_bus.drop) begin
 			rx_state	<= RX_STATE_IDLE;
 			tx_l3_drop	<= 1;
 			tx_fifo_rst	<= 1;
