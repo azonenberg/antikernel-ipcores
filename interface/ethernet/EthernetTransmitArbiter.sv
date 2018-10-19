@@ -49,25 +49,18 @@ module EthernetTransmitArbiter (
 	input wire[47:0]		arp_tx_l2_dst_mac,
 
 	//Outbound data to the MAC
-	output reg			tx_l2_start			= 0,
-	output reg			tx_l2_data_valid	= 0,
-	output reg[2:0]		tx_l2_bytes_valid	= 0,
-	output reg[31:0]	tx_l2_data			= 0,
-	output reg			tx_l2_commit		= 0,
-	output reg			tx_l2_drop			= 0,
-	output reg[47:0]	tx_l2_dst_mac		= 0,
-	output reg[15:0]	tx_l2_ethertype		= 0,
+	output EthernetBus		tx_l2_bus			= {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
+	output logic[47:0]		tx_l2_dst_mac		= 0,
+	output logic[15:0]		tx_l2_ethertype		= 0,
 
-	output reg[63:0]	perf_ipv4_sent		= 0,
-	output reg[63:0]	perf_ipv4_dropped	= 0,
-	output reg[63:0]	perf_arp_sent		= 0,
-	output reg[63:0]	perf_arp_dropped	= 0
+	output logic[63:0]		perf_ipv4_sent		= 0,
+	output logic[63:0]		perf_ipv4_dropped	= 0,
+	output logic[63:0]		perf_arp_sent		= 0,
+	output logic[63:0]		perf_arp_dropped	= 0
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Configuration
-
-	`include "../../synth_helpers/clog2.vh"
 
 	parameter PACKET_DEPTH	= 8192;		//Packet-data FIFO is 32 bits wide x this many words
 										//Default 8192 = 32768 bytes
@@ -75,8 +68,8 @@ module EthernetTransmitArbiter (
 
 	parameter HEADER_DEPTH	= 512;		//Depth of header FIFO, in packets
 
-	localparam PACKET_BITS	= clog2(PACKET_DEPTH);
-	localparam HEADER_BITS	= clog2(HEADER_DEPTH);
+	localparam PACKET_BITS	= $clog2(PACKET_DEPTH);
+	localparam HEADER_BITS	= $clog2(HEADER_DEPTH);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Input data FIFOs
@@ -155,7 +148,7 @@ module EthernetTransmitArbiter (
 	reg[15:0]	ipv4_tx_frame_size	= 0;
 	reg[15:0]	arp_tx_frame_size	= 0;
 
-	always @(posedge clk) begin
+	always_ff @(posedge clk) begin
 
 		//Keep track of frame state and only allow new frames if we have space
 		//For now, require 9000 bytes / 2250 words (jumbo frame typical MTU)
@@ -292,7 +285,7 @@ module EthernetTransmitArbiter (
 	reg[3:0]	state			= STATE_IDLE;
 	reg[15:0]	tx_bytes_left	= 0;
 
-	always @(posedge clk) begin
+	always_ff @(posedge clk) begin
 
 		ipv4_rd_en			<= 0;
 		ipv4_rd_offset		<= 0;
@@ -306,12 +299,12 @@ module EthernetTransmitArbiter (
 		arp_pop_size		<= 0;
 		arp_header_rd_en	<= 0;
 
-		tx_l2_start			<= 0;
-		tx_l2_data_valid	<= 0;
-		tx_l2_bytes_valid	<= 0;
-		tx_l2_data			<= 0;
-		tx_l2_commit		<= 0;
-		tx_l2_drop			<= 0;
+		tx_l2_bus.start			<= 0;
+		tx_l2_bus.data_valid	<= 0;
+		tx_l2_bus.bytes_valid	<= 0;
+		tx_l2_bus.data			<= 0;
+		tx_l2_bus.commit		<= 0;
+		tx_l2_bus.drop			<= 0;
 
 		case(state)
 
@@ -350,7 +343,7 @@ module EthernetTransmitArbiter (
 				//Headers are ready!
 				//Update our headers, then read the second message data word
 				else begin
-					tx_l2_start		<= 1;
+					tx_l2_bus.start	<= 1;
 					tx_l2_ethertype	<= ETHERTYPE_ARP;
 					tx_l2_dst_mac	<= arp_packet_mac;
 					tx_bytes_left	<= arp_packet_len;
@@ -365,8 +358,8 @@ module EthernetTransmitArbiter (
 
 			STATE_ARP_BODY: begin
 
-				tx_l2_data_valid		<= 1;
-				tx_l2_data				<= arp_rd_data;
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.data			<= arp_rd_data;
 
 				arp_rd_offset			<= arp_rd_offset + 1'h1;
 				tx_bytes_left			<= tx_bytes_left - 16'd4;
@@ -375,11 +368,11 @@ module EthernetTransmitArbiter (
 					arp_rd_en			<= 1;
 
 				if(tx_bytes_left > 4)
-					tx_l2_bytes_valid	<= 4;
+					tx_l2_bus.bytes_valid	<= 4;
 
 				else begin
-					tx_l2_bytes_valid	<= tx_bytes_left;
-					tx_bytes_left		<= 0;
+					tx_l2_bus.bytes_valid	<= tx_bytes_left;
+					tx_bytes_left			<= 0;
 
 					//Pop the packet now. rather than in STATE_ARP_COMMIT
 					//so that it'll be done by the time we get to STATE_IDLE again
@@ -396,7 +389,7 @@ module EthernetTransmitArbiter (
 			end	//end STATE_ARP_BODY
 
 			STATE_ARP_COMMIT: begin
-				tx_l2_commit			<= 1;
+				tx_l2_bus.commit		<= 1;
 
 				state					<= STATE_IDLE;
 			end	//end STATE_ARP_COMMIT
@@ -416,7 +409,7 @@ module EthernetTransmitArbiter (
 				//Headers are ready!
 				//Update our headers, then read the second message data word
 				else begin
-					tx_l2_start		<= 1;
+					tx_l2_bus.start	<= 1;
 					tx_l2_ethertype	<= ETHERTYPE_IPV4;
 					tx_l2_dst_mac	<= ipv4_packet_mac;
 					tx_bytes_left	<= ipv4_packet_len;
@@ -431,21 +424,21 @@ module EthernetTransmitArbiter (
 
 			STATE_IPV4_BODY: begin
 
-				tx_l2_data_valid		<= 1;
-				tx_l2_data				<= ipv4_rd_data;
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.data			<= ipv4_rd_data;
 
 				ipv4_rd_offset			<= ipv4_rd_offset + 1'h1;
 				tx_bytes_left			<= tx_bytes_left - 16'd4;
 
 				if(tx_bytes_left > 8)
-					ipv4_rd_en			<= 1;
+					ipv4_rd_en				<= 1;
 
 				if(tx_bytes_left > 4)
-					tx_l2_bytes_valid	<= 4;
+					tx_l2_bus.bytes_valid	<= 4;
 
 				else begin
-					tx_l2_bytes_valid	<= tx_bytes_left;
-					tx_bytes_left		<= 0;
+					tx_l2_bus.bytes_valid	<= tx_bytes_left;
+					tx_bytes_left			<= 0;
 
 					//Pop the packet now. rather than in STATE_IPV4_COMMIT
 					//so that it'll be done by the time we get to STATE_IDLE again
@@ -462,7 +455,7 @@ module EthernetTransmitArbiter (
 			end	//end STATE_IPV4_BODY
 
 			STATE_IPV4_COMMIT: begin
-				tx_l2_commit			<= 1;
+				tx_l2_bus.commit		<= 1;
 
 				state					<= STATE_IDLE;
 			end	//end STATE_IPV4_COMMIT
@@ -504,12 +497,12 @@ module EthernetTransmitArbiter (
 		.probe14(arp_tx_l2_dst_mac),
 		.probe15(arp_packet_active),
 
-		.probe16(tx_l2_start),
-		.probe17(tx_l2_data_valid),
-		.probe18(tx_l2_bytes_valid),
-		.probe19(tx_l2_data),
-		.probe20(tx_l2_commit),
-		.probe21(tx_l2_drop),
+		.probe16(tx_l2_bus.start),
+		.probe17(tx_l2_bus.data_valid),
+		.probe18(tx_l2_bus.bytes_valid),
+		.probe19(tx_l2_bus.data),
+		.probe20(tx_l2_bus.commit),
+		.probe21(tx_l2_bus.drop),
 		.probe22(tx_l2_dst_mac),
 		.probe23(tx_l2_ethertype),
 

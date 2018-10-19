@@ -29,6 +29,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "EthernetBus.svh"
+
 /**
 	@file
 	@author Andrew D. Zonenberg
@@ -42,16 +44,11 @@ module EthernetTransmitElasticBuffer #(
 
 	input wire[47:0]	our_mac_address,
 
-	//Inbound transmit bus from the protocol stack
-	input wire			tx_l2_clk,
-	input wire			tx_l2_start,
-	input wire			tx_l2_data_valid,
-	input wire[2:0]		tx_l2_bytes_valid,
-	input wire[31:0]	tx_l2_data,
-	input wire			tx_l2_commit,
-	input wire			tx_l2_drop,
-	input wire[47:0]	tx_l2_dst_mac,
-	input wire[15:0]	tx_l2_ethertype,
+	//Inbound transmit bus from the arbiter
+	input wire				tx_l2_clk,
+	input wire EthernetBus	tx_l2_bus,
+	input wire[47:0]		tx_l2_dst_mac,
+	input wire[15:0]		tx_l2_ethertype,
 
 	//Outbound transmit bus to the MAC
 	input wire			xgmii_tx_clk,
@@ -65,16 +62,14 @@ module EthernetTransmitElasticBuffer #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Configuration
 
-	`include "../../synth_helpers/clog2.vh"
-
 	parameter PACKET_DEPTH	= 8192;		//Packet-data FIFO is 32 bits wide x this many words
 										//Default 8192 = 32768 bytes
 										//(21 standard frames, 3 jumbo frames, 512 min-sized frames)
 
 	parameter HEADER_DEPTH	= 512;		//Depth of header FIFO, in packets
 
-	localparam PACKET_BITS	= clog2(PACKET_DEPTH);
-	localparam HEADER_BITS	= clog2(HEADER_DEPTH);
+	localparam PACKET_BITS	= $clog2(PACKET_DEPTH);
+	localparam HEADER_BITS	= $clog2(HEADER_DEPTH);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Packet data FIFO
@@ -171,7 +166,7 @@ module EthernetTransmitElasticBuffer #(
 
 	reg		packet_active	= 0;
 
-	always @(posedge tx_l2_clk) begin
+	always_ff @(posedge tx_l2_clk) begin
 
 		//Clear single-cycle flags
 		fifo_wr_en			<= 0;
@@ -179,14 +174,14 @@ module EthernetTransmitElasticBuffer #(
 		fifo_wr_rollback	<= 0;
 		header_wr_en		<= 0;
 
-		fifo_wr_data		<= tx_l2_data;
+		fifo_wr_data		<= tx_l2_bus.data;
 
 		header_wr_en_ff		<= header_wr_en;
 
 		//Wait for a new packet to start.
 		if(!packet_active) begin
 
-			if(tx_l2_start) begin
+			if(tx_l2_bus.start) begin
 
 				packet_wr_len		<= 0;
 
@@ -211,20 +206,20 @@ module EthernetTransmitElasticBuffer #(
 		else begin
 
 			//If the current packet finishes, push headers and commit the packet data
-			if(tx_l2_commit) begin
+			if(tx_l2_bus.commit) begin
 				fifo_wr_commit		<= 1;
 				header_wr_en		<= 1;
 				packet_active		<= 0;
 			end
 
 			//If the current packet is aborted, discard any in-progress stuff
-			else if(tx_l2_drop) begin
+			else if(tx_l2_bus.drop) begin
 				fifo_wr_rollback	<= 1;
 				packet_active		<= 0;
 			end
 
 			//Write packet data
-			else if(tx_l2_data_valid) begin
+			else if(tx_l2_bus.data_valid) begin
 
 				//If we're out of buffer space, drop the packet and discard partially written data
 				if(fifo_wr_size <= 1) begin
@@ -234,8 +229,8 @@ module EthernetTransmitElasticBuffer #(
 
 				//We have room for the next word, go push it
 				else begin
-					packet_wr_len		<= packet_wr_len + tx_l2_bytes_valid;
-					fifo_wr_data		<= tx_l2_data;
+					packet_wr_len		<= packet_wr_len + tx_l2_bus.bytes_valid;
+					fifo_wr_data		<= tx_l2_bus.data;
 					fifo_wr_en			<= 1;
 				end
 
@@ -263,7 +258,7 @@ module EthernetTransmitElasticBuffer #(
 			reg[31:0]	fifo_rd_data_ff		= 0;
 			reg[15:0]	fifo_rd_data_ff2	= 0;
 
-			always @(posedge xgmii_tx_clk) begin
+			always_ff @(posedge xgmii_tx_clk) begin
 
 				tx_frame_start			<= 0;
 				tx_frame_data_valid		<= 0;
@@ -429,7 +424,7 @@ module EthernetTransmitElasticBuffer #(
 
 		else begin
 
-			always @(posedge xgmii_tx_clk) begin
+			always_ff @(posedge xgmii_tx_clk) begin
 
 				tx_frame_start			<= 0;
 				tx_frame_data_valid		<= 0;
