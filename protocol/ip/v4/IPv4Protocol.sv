@@ -34,12 +34,12 @@
 module IPv4Protocol(
 
 	//Clocks
-	input wire			clk,
+	input wire				clk,
 
 	//Constant-ish state data
-	input wire[31:0]	our_ip_address,
-	input wire[31:0]	our_subnet_mask,
-	input wire[31:0]	our_broadcast_address,
+	input wire[31:0]		our_ip_address,
+	input wire[31:0]		our_subnet_mask,
+	input wire[31:0]		our_broadcast_address,
 
 	//Incoming Ethernet data
 	input wire EthernetBus	rx_l2_bus,
@@ -47,28 +47,23 @@ module IPv4Protocol(
 	input wire				rx_l2_ethertype_is_ipv4,
 
 	//Outbound data (same clock domain as incoming)
-	output reg			tx_l2_start			= 0,
-	output reg			tx_l2_data_valid	= 0,
-	output reg[2:0]		tx_l2_bytes_valid	= 0,
-	output reg[31:0]	tx_l2_data			= 0,
-	output reg			tx_l2_commit		= 0,
-	output reg			tx_l2_drop			= 0,
-	output reg[47:0]	tx_l2_dst_mac		= 0,
+	output EthernetBus		tx_l2_bus			= {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
+	output reg[47:0]		tx_l2_dst_mac		= 0,
 	//TX src MAC is implied, it's always us
 
 	//Interface to upper level protocol
-	output EthernetBus	rx_l3_bus			 = {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
+	output EthernetBus		rx_l3_bus			 = {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
 
-	output reg[15:0]	rx_l3_payload_len			= 0,	//size of upper layer payload only
+	output reg[15:0]		rx_l3_payload_len			= 0,	//size of upper layer payload only
 															//(not the IP datagram length)
-	output reg[7:0]		rx_l3_protocol				= 0,
-	output reg			rx_l3_protocol_is_icmp		= 0,
-	output reg			rx_l3_protocol_is_udp		= 0,
-	output reg			rx_l3_protocol_is_tcp		= 0,
-	output reg[31:0]	rx_l3_src_ip				= 0,
-	output reg[31:0]	rx_l3_dst_ip				= 0,
-	output reg			rx_l3_headers_valid			= 0,
-	output wire[15:0]	rx_l3_pseudo_header_csum,
+	output reg[7:0]			rx_l3_protocol				= 0,
+	output reg				rx_l3_protocol_is_icmp		= 0,
+	output reg				rx_l3_protocol_is_udp		= 0,
+	output reg				rx_l3_protocol_is_tcp		= 0,
+	output reg[31:0]		rx_l3_src_ip				= 0,
+	output reg[31:0]		rx_l3_dst_ip				= 0,
+	output reg				rx_l3_headers_valid			= 0,
+	output wire[15:0]		rx_l3_pseudo_header_csum,
 
 	//Transmit data from upper level protocol
 	input wire EthernetBus	tx_l3_bus,
@@ -540,14 +535,14 @@ module IPv4Protocol(
 
 	always_ff @(posedge clk) begin
 
-		tx_fifo_rst			<= 0;
-		tx_fifo_rd			<= 0;
-		tx_l2_start			<= 0;
-		tx_l2_drop			<= 0;
-		tx_l2_commit		<= 0;
+		tx_fifo_rst				<= 0;
+		tx_fifo_rd				<= 0;
 
-		tx_l2_data_valid	<= 0;
-		tx_l2_bytes_valid	<= 0;
+		tx_l2_bus.start			<= 0;
+		tx_l2_bus.drop			<= 0;
+		tx_l2_bus.commit		<= 0;
+		tx_l2_bus.data_valid	<= 0;
+		tx_l2_bus.bytes_valid	<= 0;
 
 		case(tx_state)
 
@@ -558,7 +553,7 @@ module IPv4Protocol(
 					//Ignore any request to send less than 8 bytes, all layer-3 protocols have >=8 bytes of headers
 					//and we can optimize a bit by guaranteeing this.
 					if(tx_l3_bus.start && (tx_l3_payload_len > 8) ) begin
-						tx_l2_start		<= 1;
+						tx_l2_bus.start	<= 1;
 						tx_state		<= TX_STATE_HEADER_0;
 
 						//Precompute total packet length
@@ -581,18 +576,18 @@ module IPv4Protocol(
 
 			//This header is constant except for length since we don't support diffserv/ecn
 			TX_STATE_HEADER_1: begin
-				tx_l2_data_valid	<= 1;
-				tx_l2_bytes_valid	<= 4;
-				tx_l2_data			<= {4'h4, 4'h5, 6'h0, 2'h0, tx_total_len};
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.bytes_valid	<= 4;
+				tx_l2_bus.data			<= {4'h4, 4'h5, 6'h0, 2'h0, tx_total_len};
 
 				tx_state			<= TX_STATE_HEADER_2;
 			end	//end TX_STATE_HEADER_1
 
 			//This header is entirely constant since we don't support fragging
 			TX_STATE_HEADER_2: begin
-				tx_l2_data_valid	<= 1;
-				tx_l2_bytes_valid	<= 4;
-				tx_l2_data			<= {16'h0000, 3'b010, 13'h0};
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.bytes_valid	<= 4;
+				tx_l2_bus.data			<= {16'h0000, 3'b010, 13'h0};
 
 
 				tx_state			<= TX_STATE_HEADER_3;
@@ -600,34 +595,34 @@ module IPv4Protocol(
 
 			//Checksum is valid at this point, send it
 			TX_STATE_HEADER_3: begin
-				tx_l2_data_valid	<= 1;
-				tx_l2_bytes_valid	<= 4;
-				tx_l2_data			<= {8'hff, tx_l3_protocol, tx_header_checksum};
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.bytes_valid	<= 4;
+				tx_l2_bus.data			<= {8'hff, tx_l3_protocol, tx_header_checksum};
 
 				tx_state			<= TX_STATE_HEADER_4;
 			end	//end TX_STATE_HEADER_3
 
 			//Send our IP and start reading the first upper-level protocol word
 			TX_STATE_HEADER_4: begin
-				tx_l2_data_valid	<= 1;
-				tx_l2_bytes_valid	<= 4;
-				tx_l2_data			<= our_ip_address;
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.bytes_valid	<= 4;
+				tx_l2_bus.data			<= our_ip_address;
 
-				tx_fifo_rd			<= 1;
+				tx_fifo_rd				<= 1;
 
-				tx_state			<= TX_STATE_HEADER_5;
+				tx_state				<= TX_STATE_HEADER_5;
 
 			end	//end TX_STATE_HEADER_4
 
 			//Send destination IP and start reading second upper-level protocol word
 			TX_STATE_HEADER_5: begin
-				tx_l2_data_valid	<= 1;
-				tx_l2_bytes_valid	<= 4;
-				tx_l2_data			<= tx_l3_dst_ip;
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.bytes_valid	<= 4;
+				tx_l2_bus.data			<= tx_l3_dst_ip;
 
-				tx_fifo_rd			<= 1;
+				tx_fifo_rd				<= 1;
 
-				tx_state			<= TX_STATE_BODY;
+				tx_state				<= TX_STATE_BODY;
 
 			end	//end TX_STATE_HEADER_4
 
@@ -635,31 +630,31 @@ module IPv4Protocol(
 			TX_STATE_BODY: begin
 
 				//Send data
-				tx_l2_data_valid		<= 1;
-				tx_l2_data				<= tx_fifo_rdata;
+				tx_l2_bus.data_valid		<= 1;
+				tx_l2_bus.data				<= tx_fifo_rdata;
 
 				//We already have a block being read. If that's not the last one, read another.
 				if(tx_bytes_left > 8)
-					tx_fifo_rd			<= 1;
+					tx_fifo_rd				<= 1;
 
 				//Send not-last block
 				if(tx_bytes_left > 4) begin
-					tx_bytes_left		<= tx_bytes_left - 16'd4;
-					tx_l2_bytes_valid	<= 4;
+					tx_bytes_left			<= tx_bytes_left - 16'd4;
+					tx_l2_bus.bytes_valid	<= 4;
 				end
 
 				//Send last (potentially partial) block
 				else begin
-					tx_bytes_left		<= 0;					//not necessary as nothing checks it after this
+					tx_bytes_left			<= 0;					//not necessary as nothing checks it after this
 																//but makes debug traces cleaner
-					tx_l2_bytes_valid	<= tx_bytes_left;
-					tx_state			<= TX_STATE_COMMIT;
+					tx_l2_bus.bytes_valid	<= tx_bytes_left;
+					tx_state				<= TX_STATE_COMMIT;
 				end
 
 			end	//end TX_STATE_BODY
 
 			TX_STATE_COMMIT: begin
-				tx_l2_commit		<= 1;
+				tx_l2_bus.commit	<= 1;
 				tx_state			<= TX_STATE_IDLE;
 			end	//end TX_STATE_COMMIT
 
@@ -669,7 +664,7 @@ module IPv4Protocol(
 		if(tx_l3_bus.drop) begin
 			tx_fifo_rst				<= 1;
 			tx_state				<= TX_STATE_IDLE;
-			tx_l2_drop				<= 1;
+			tx_l2_bus.drop			<= 1;
 		end
 
 	end
