@@ -42,21 +42,16 @@ module EthernetTransmitElasticBuffer #(
 	parameter LINK_SPEED_IS_10G = 1		//set false for 1G output
 ) (
 
-	input wire[47:0]	our_mac_address,
+	input wire[47:0]			our_mac_address,
 
 	//Inbound transmit bus from the arbiter
-	input wire				tx_l2_clk,
-	input wire EthernetBus	tx_l2_bus,
-	input wire[47:0]		tx_l2_dst_mac,
-	input wire[15:0]		tx_l2_ethertype,
+	input wire					tx_l2_clk,
+	input wire EthernetTxL2Bus	tx_l2_bus,
 
 	//Outbound transmit bus to the MAC
-	input wire			xgmii_tx_clk,
-	input wire			tx_mac_ready,						//1G only - indicates the MAC is ready for more data
-	output reg			tx_frame_start			= 0,
-	output reg			tx_frame_data_valid		= 0,
-	output reg[2:0]		tx_frame_bytes_valid	= 0,
-	output reg[(LINK_SPEED_IS_10G ? 31 : 7):0]	tx_frame_data			= 0
+	input wire					mac_tx_clk,
+	input wire					mac_tx_ready,								//1G only - indicates the MAC is ready for more data
+	output EthernetTxBus		mac_tx_bus		= {1'h0, 1'h0, 32'h0, 3'h0}
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -100,7 +95,7 @@ module EthernetTransmitElasticBuffer #(
 		.wr_commit(fifo_wr_commit),
 		.wr_rollback(fifo_wr_rollback),
 
-		.rd_clk(xgmii_tx_clk),
+		.rd_clk(mac_tx_clk),
 		.rd_en(fifo_rd_en),
 		.rd_offset(fifo_rd_offset),
 		.rd_pop_single(1'b0),
@@ -144,13 +139,13 @@ module EthernetTransmitElasticBuffer #(
 	) header_fifo (
 		.wr_clk(tx_l2_clk),
 		.wr_en(header_wr_en),
-		.wr_data( {packet_wr_len, tx_l2_ethertype, tx_l2_dst_mac } ),
+		.wr_data( {packet_wr_len, tx_l2_bus.ethertype, tx_l2_bus.dst_mac } ),
 		.wr_reset(1'b0),
 		.wr_size(header_wr_size),
 		.wr_commit(header_wr_en_ff),
 		.wr_rollback(1'b0),
 
-		.rd_clk(xgmii_tx_clk),
+		.rd_clk(mac_tx_clk),
 		.rd_en(header_rd_en),
 		.rd_offset(1'b0),
 		.rd_pop_single(header_pop),
@@ -189,7 +184,7 @@ module EthernetTransmitElasticBuffer #(
 				//We need one slot of header plus one minimum packet worth of space in the payload buffer.
 				//Larger packets need more and will be dropped if we run out of space.
 				if( (header_wr_size >= 1) && (fifo_wr_size >= 8) )
-					packet_active		<= 1;
+					packet_active	<= 1;
 
 				//Not enough space to store the packet. Drop it.
 				//TODO: performance counters?
@@ -258,11 +253,11 @@ module EthernetTransmitElasticBuffer #(
 			reg[31:0]	fifo_rd_data_ff		= 0;
 			reg[15:0]	fifo_rd_data_ff2	= 0;
 
-			always_ff @(posedge xgmii_tx_clk) begin
+			always_ff @(posedge mac_tx_clk) begin
 
-				tx_frame_start			<= 0;
-				tx_frame_data_valid		<= 0;
-				tx_frame_bytes_valid	<= 0;
+				mac_tx_bus.start		<= 0;
+				mac_tx_bus.data_valid	<= 0;
+				mac_tx_bus.bytes_valid	<= 0;
 
 				fifo_rd_en				<= 0;
 				fifo_pop_packet			<= 0;
@@ -279,12 +274,12 @@ module EthernetTransmitElasticBuffer #(
 
 					//If we are currently reading headers, they'll be ready next cycle
 					if(header_rd_en_ff) begin
-						tx_count		<= 0;
-						tx_active		<= 1;
-						tx_frame_start	<= 1;
+						tx_count			<= 0;
+						tx_active			<= 1;
+						mac_tx_bus.start	<= 1;
 
 						//Pop the header so we have buffer space for the next packet
-						header_pop		<= 1;
+						header_pop			<= 1;
 
 					end
 
@@ -297,7 +292,7 @@ module EthernetTransmitElasticBuffer #(
 					else if( (header_rd_size > 0) && (fifo_rd_size > 0) ) begin
 
 						//Wait for the MAC to be ready for us to send
-						if(tx_mac_ready)
+						if(mac_tx_ready)
 							header_rd_en	<= 1;
 
 					end
@@ -312,9 +307,9 @@ module EthernetTransmitElasticBuffer #(
 						//Send first 4 bytes of dest MAC
 						0: begin
 
-							tx_frame_data_valid		<= 1;
-							tx_frame_bytes_valid	<= 4;
-							tx_frame_data			<= header_rd_dstmac[47:16];
+							mac_tx_bus.data_valid	<= 1;
+							mac_tx_bus.bytes_valid	<= 4;
+							mac_tx_bus.data			<= header_rd_dstmac[47:16];
 
 							//Request read of the first message data word so it's ready when we need it
 							fifo_rd_en				<= 1;
@@ -325,9 +320,9 @@ module EthernetTransmitElasticBuffer #(
 
 						//Send last 2 bytes of dest MAC and first two of source
 						1: begin
-							tx_frame_data_valid		<= 1;
-							tx_frame_bytes_valid	<= 4;
-							tx_frame_data			<=
+							mac_tx_bus.data_valid	<= 1;
+							mac_tx_bus.bytes_valid	<= 4;
+							mac_tx_bus.data			<=
 							{
 								header_rd_dstmac[15:0],
 								our_mac_address[47:32]
@@ -342,9 +337,9 @@ module EthernetTransmitElasticBuffer #(
 
 						//Send last 4 bytes of source MAC
 						2: begin
-							tx_frame_data_valid		<= 1;
-							tx_frame_bytes_valid	<= 4;
-							tx_frame_data			<= our_mac_address[31:0];
+							mac_tx_bus.data_valid	<= 1;
+							mac_tx_bus.bytes_valid	<= 4;
+							mac_tx_bus.data			<= our_mac_address[31:0];
 
 							//Request read of the third message data word so it's ready when we need it
 							fifo_rd_en				<= 1;
@@ -357,9 +352,9 @@ module EthernetTransmitElasticBuffer #(
 						//TODO: support insertion of 802.1q tags here
 						3: begin
 
-							tx_frame_data_valid		<= 1;
-							tx_frame_bytes_valid	<= 4;
-							tx_frame_data			<= { header_rd_ethertype, fifo_rd_data_ff[31:16] };
+							mac_tx_bus.data_valid	<= 1;
+							mac_tx_bus.bytes_valid	<= 4;
+							mac_tx_bus.data			<= { header_rd_ethertype, fifo_rd_data_ff[31:16] };
 
 							//We sent two bytes but the rest are still coming
 							tx_bytes_left			<= header_rd_framelen - 14'd2;
@@ -375,11 +370,11 @@ module EthernetTransmitElasticBuffer #(
 						//Send subsequent data bytes
 						4: begin
 
-							tx_frame_data_valid			<= 1;
-							tx_frame_data				<= { fifo_rd_data_ff2[15:0], fifo_rd_data_ff[31:16] };
+							mac_tx_bus.data_valid		<= 1;
+							mac_tx_bus.data				<= { fifo_rd_data_ff2[15:0], fifo_rd_data_ff[31:16] };
 
 							if(tx_bytes_left < 4) begin
-								tx_frame_bytes_valid	<= tx_bytes_left;
+								mac_tx_bus.bytes_valid	<= tx_bytes_left;
 								tx_bytes_left			<= 0;
 
 								//Pop the FIFO.
@@ -397,7 +392,7 @@ module EthernetTransmitElasticBuffer #(
 							//Send the next 4 bytes
 							else begin
 
-								tx_frame_bytes_valid	<= 4;
+								mac_tx_bus.bytes_valid	<= 4;
 								tx_bytes_left			<= tx_bytes_left - 14'h4;
 
 								//Read the next FIFO block if we need more data
@@ -424,13 +419,13 @@ module EthernetTransmitElasticBuffer #(
 
 		else begin
 
-			always_ff @(posedge xgmii_tx_clk) begin
+			always_ff @(posedge mac_tx_clk) begin
 
-				tx_frame_start			<= 0;
-				tx_frame_data_valid		<= 0;
+				mac_tx_bus.start			<= 0;
+				mac_tx_bus.data_valid		<= 0;
 
 				//Unused in 1G mode since we can only have one byte per clock
-				tx_frame_bytes_valid	<= 0;
+				mac_tx_bus.bytes_valid	<= 0;
 
 				fifo_rd_en				<= 0;
 				fifo_pop_packet			<= 0;
@@ -449,12 +444,12 @@ module EthernetTransmitElasticBuffer #(
 
 					//If we are currently reading headers, they'll be ready next cycle
 					else if(header_rd_en_ff) begin
-						tx_count		<= 0;
-						tx_active		<= 1;
-						tx_frame_start	<= 1;
+						tx_count			<= 0;
+						tx_active			<= 1;
+						mac_tx_bus.start	<= 1;
 
 						//Pop the header so we have buffer space for the next packet
-						header_pop		<= 1;
+						header_pop			<= 1;
 
 					end
 
@@ -467,7 +462,7 @@ module EthernetTransmitElasticBuffer #(
 					else if( (header_rd_size > 0) && (fifo_rd_size > 0) ) begin
 
 						//Wait for the MAC to be ready for us to send
-						if(tx_mac_ready)
+						if(mac_tx_ready)
 							header_rd_en	<= 1;
 					end
 
@@ -476,28 +471,28 @@ module EthernetTransmitElasticBuffer #(
 				//Currently forwarding a frame
 				else begin
 
-					tx_frame_data_valid		<= 1;
-					tx_frame_bytes_valid	<= 1;
+					mac_tx_bus.data_valid	<= 1;
+					mac_tx_bus.bytes_valid	<= 1;
 					tx_count				<= tx_count + 1'h1;
 
 					case(tx_count)
 
 						//Send dest MAC
-						0:	tx_frame_data <= header_rd_dstmac[47:40];
-						1:	tx_frame_data <= header_rd_dstmac[39:32];
-						2:	tx_frame_data <= header_rd_dstmac[31:24];
-						3:	tx_frame_data <= header_rd_dstmac[23:16];
-						4:	tx_frame_data <= header_rd_dstmac[15:8];
-						5:	tx_frame_data <= header_rd_dstmac[7:0];
+						0:	mac_tx_bus.data <= header_rd_dstmac[47:40];
+						1:	mac_tx_bus.data <= header_rd_dstmac[39:32];
+						2:	mac_tx_bus.data <= header_rd_dstmac[31:24];
+						3:	mac_tx_bus.data <= header_rd_dstmac[23:16];
+						4:	mac_tx_bus.data <= header_rd_dstmac[15:8];
+						5:	mac_tx_bus.data <= header_rd_dstmac[7:0];
 
 						//Send source MAC
-						6:	tx_frame_data <= our_mac_address[47:40];
-						7:	tx_frame_data <= our_mac_address[39:32];
-						8:	tx_frame_data <= our_mac_address[31:24];
-						9:	tx_frame_data <= our_mac_address[23:16];
-						10:	tx_frame_data <= our_mac_address[15:8];
+						6:	mac_tx_bus.data <= our_mac_address[47:40];
+						7:	mac_tx_bus.data <= our_mac_address[39:32];
+						8:	mac_tx_bus.data <= our_mac_address[31:24];
+						9:	mac_tx_bus.data <= our_mac_address[23:16];
+						10:	mac_tx_bus.data <= our_mac_address[15:8];
 						11:	begin
-							tx_frame_data <= our_mac_address[7:0];
+							mac_tx_bus.data <= our_mac_address[7:0];
 
 							//start reading message data
 							fifo_rd_en		<= 1;
@@ -507,14 +502,14 @@ module EthernetTransmitElasticBuffer #(
 						//Send ethertype
 						//TODO: support insertion of 802.1q tags here
 						12:	begin
-							tx_frame_data	<= header_rd_ethertype[15:8];
+							mac_tx_bus.data	<= header_rd_ethertype[15:8];
 							tx_bytes_left	<= header_rd_framelen;
 						end
-						13:	tx_frame_data	<= header_rd_ethertype[7:0];
+						13:	mac_tx_bus.data	<= header_rd_ethertype[7:0];
 
 						//Send data bytes
 						14: begin
-							tx_frame_data	<= fifo_rd_data[31:24];
+							mac_tx_bus.data	<= fifo_rd_data[31:24];
 
 							//Stop after last byte
 							if(tx_bytes_left < 2)
@@ -522,7 +517,7 @@ module EthernetTransmitElasticBuffer #(
 						end
 						15: begin
 
-							tx_frame_data	<= fifo_rd_data[23:16];
+							mac_tx_bus.data	<= fifo_rd_data[23:16];
 
 							//Stop after last byte
 							if(tx_bytes_left < 3)
@@ -531,7 +526,7 @@ module EthernetTransmitElasticBuffer #(
 						end
 
 						16: begin
-							tx_frame_data	<= fifo_rd_data[15:8];
+							mac_tx_bus.data	<= fifo_rd_data[15:8];
 
 							//If we have 6+ bytes of data left, read another word
 							if(tx_bytes_left >= 6 ) begin
@@ -545,7 +540,7 @@ module EthernetTransmitElasticBuffer #(
 
 						end
 						17: begin
-							tx_frame_data	<= fifo_rd_data[7:0];
+							mac_tx_bus.data	<= fifo_rd_data[7:0];
 
 							tx_bytes_left	<= tx_bytes_left - 'd4;
 
@@ -562,14 +557,14 @@ module EthernetTransmitElasticBuffer #(
 
 							//Pop the FIFO.
 							//Round size up to words
-							fifo_pop_packet			<= 1;
+							fifo_pop_packet		<= 1;
 							if(header_rd_framelen[1:0])
-								fifo_pop_size		<= header_rd_framelen[13:2] + 1'h1;
+								fifo_pop_size	<= header_rd_framelen[13:2] + 1'h1;
 							else
-								fifo_pop_size		<= header_rd_framelen[13:2];
+								fifo_pop_size	<= header_rd_framelen[13:2];
 
-							tx_count				<= 0;
-							tx_active				<= 0;
+							tx_count			<= 0;
+							tx_active			<= 0;
 
 						end
 

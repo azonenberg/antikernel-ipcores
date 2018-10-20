@@ -40,34 +40,25 @@
 module TriSpeedEthernetMAC(
 
 	//XMGII bus
-	input wire			gmii_rx_clk,
-	input wire GmiiBus	gmii_rx_bus,
+	input wire					gmii_rx_clk,
+	input wire GmiiBus			gmii_rx_bus,
 
-	input wire			gmii_tx_clk,
-	output GmiiBus		gmii_tx_bus = {1'b0, 1'b0, 8'b0},
+	input wire					gmii_tx_clk,
+	output GmiiBus				gmii_tx_bus = {1'b0, 1'b0, 8'b0},
 
 	//Link state flags (reset stuff as needed when link is down)
 	//Synchronous to RX clock
-	input wire			link_up,
+	input wire					link_up,
 
-	//Data bus to upper layer stack (synchronous to RX clock)
-	output EthernetBus	rx_bus = {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
+	//Data bus to/from upper layer stack (synchronous to GMII RX/TX clocks)
+	output EthernetBus			rx_bus = {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
+	input wire EthernetTxBus	tx_bus,
 
-	//Data bus from upper layer stack (synchronous to TX clock).
-	//Only 8 bits wide, TX buffer has to rate-match
-	//Well-formed layer 2 frames minus padding (if needed) and CRC.
-	//No commit/drop flags, everything that comes in here gets sent.
-	input wire			tx_frame_start,
-	input wire			tx_frame_data_valid,
-	input wire[7:0]		tx_frame_data,
-
-	//Set false during a frame or IFG, true when ready for the next frame
-	output logic		tx_ready				= 1,
+	//Flow control - set false during a frame or IFG, true when ready for the next frame
+	output logic				tx_ready				= 1,
 
 	//Performance counters (sync to tx or rx clock, as appropriate)
-	output logic[63:0]	perf_tx_frames			= 0,	//Number of frames sent
-	output logic[63:0]	perf_rx_frames			= 0,	//Number of frames successfully received
-	output logic[63:0]	perf_rx_crc_err			= 0		//Number of frames dropped due to CRC or other errors
+	output GigabitMacPerformanceCounters	perf	= { 64'h0, 64'h0, 64'h0 }
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -75,14 +66,14 @@ module TriSpeedEthernetMAC(
 
 	always_ff @(posedge gmii_rx_clk) begin
 		if(rx_bus.commit)
-			perf_rx_frames	<= perf_rx_frames + 1'h1;
+			perf.rx_frames	<= perf.rx_frames + 1'h1;
 		if(rx_bus.drop)
-			perf_rx_crc_err	<= perf_rx_crc_err + 1'h1;
+			perf.rx_crc_err	<= perf.rx_crc_err + 1'h1;
 	end
 
 	always_ff @(posedge gmii_tx_clk) begin
-		if(tx_frame_start)
-			perf_tx_frames	<= perf_tx_frames + 1'h1;
+		if(tx_bus.start)
+			perf.tx_frames	<= perf.tx_frames + 1'h1;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -292,8 +283,8 @@ module TriSpeedEthernetMAC(
 	) tx_fifo (
 		.clk(gmii_tx_clk),
 
-		.wr(tx_frame_data_valid),
-		.din(tx_frame_data),
+		.wr(tx_bus.data_valid),
+		.din(tx_bus.data),
 
 		.rd(tx_fifo_pop),
 		.dout(tx_fifo_rdata),
@@ -304,7 +295,7 @@ module TriSpeedEthernetMAC(
 		.full(),
 		.rsize(tx_fifo_rsize),
 		.wsize(),
-		.reset(tx_frame_start)		//wipe any existing junk when a frame starts
+		.reset(tx_bus.start)		//wipe any existing junk when a frame starts
 	);
 
 	logic		tx_en			= 0;
@@ -322,7 +313,7 @@ module TriSpeedEthernetMAC(
 
 	CRC32_Ethernet tx_crc_calc(
 		.clk(gmii_tx_clk),
-		.reset(tx_frame_start),
+		.reset(tx_bus.start),
 		.update(tx_crc_update),
 		.din(tx_crc_din),
 		.crc_flipped(tx_crc)
@@ -352,7 +343,7 @@ module TriSpeedEthernetMAC(
 			TX_STATE_IDLE: begin
 				tx_frame_len		<= 0;
 
-				if(tx_frame_start) begin
+				if(tx_bus.start) begin
 					tx_ready		<= 0;
 					tx_en			<= 1;
 					tx_data			<= 8'h55;

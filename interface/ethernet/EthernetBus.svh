@@ -30,9 +30,7 @@
 /**
 	@file EthernetBus.svh
 	@author Andrew D. Zonenberg
-	@brief Structure definitions for the Ethernet data bus
-
-	This bus is used by most components of the TCP/IP stack. Some modules may add additional fields in parallel.
+	@brief Structure definitions for layer-2 Ethernet buses
 
 	Conventions
 		start is asserted before, not simultaneous with, first assertion of data_valid
@@ -57,5 +55,39 @@ typedef struct packed
 	logic		commit;			//asserted for one cycle at end of packet if checksum was good
 	logic		drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
 } EthernetBus;
+
+//Bus from elastic buffer to MAC
+typedef struct packed
+{
+	logic		start;			//asserted for one cycle before a frame starts
+	logic		data_valid;		//asserted when data is ready to be processed
+	logic[31:0]	data;			//actual packet content
+								//only 7:0 meaningful in 1G mode
+	logic[2:0]	bytes_valid;	//only meaningful in 10G mode
+} EthernetTxBus;
+
+//Bus from arbiter to elastic buffer
+typedef struct packed
+{
+	logic		start;			//asserted for one cycle before a frame starts
+	logic		data_valid;		//asserted when data is ready to be processed
+	logic[2:0]	bytes_valid;	//when data_valid is set, indicated number of valid bytes in data
+								//Valid bits are left aligned in data
+								//1 = 31:24, 2 = 31:16, 3 = 31:8, 4 = 31:0
+	logic[31:0]	data;			//actual packet content
+	logic[47:0]	dst_mac;		//destination MAC address (source implicit)
+	logic[15:0]	ethertype;
+
+	logic		commit;			//asserted for one cycle at end of packet if checksum was good
+	logic		drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
+} EthernetTxL2Bus;
+
+//Performance counters for TriSpeedEthernetMAC
+typedef struct packed
+{
+	logic[63:0]	tx_frames;		//Number of frames sent
+	logic[63:0]	rx_frames;		//Number of frames successfully received
+	logic[63:0]	rx_crc_err;		//Number of frames dropped due to CRC or other errors
+} GigabitMacPerformanceCounters;
 
 `endif

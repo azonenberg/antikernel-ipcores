@@ -49,9 +49,7 @@ module EthernetTransmitArbiter (
 	input wire[47:0]		arp_tx_l2_dst_mac,
 
 	//Outbound data to the MAC
-	output EthernetBus		tx_l2_bus			= {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
-	output logic[47:0]		tx_l2_dst_mac		= 0,
-	output logic[15:0]		tx_l2_ethertype		= 0,
+	output EthernetTxL2Bus	tx_l2_bus			= {1'h0, 1'h0, 1'h0, 32'h0, 48'h0, 16'h0, 1'h0, 1'h0},
 
 	output logic[63:0]		perf_ipv4_sent		= 0,
 	output logic[63:0]		perf_ipv4_dropped	= 0,
@@ -343,15 +341,15 @@ module EthernetTransmitArbiter (
 				//Headers are ready!
 				//Update our headers, then read the second message data word
 				else begin
-					tx_l2_bus.start	<= 1;
-					tx_l2_ethertype	<= ETHERTYPE_ARP;
-					tx_l2_dst_mac	<= arp_packet_mac;
-					tx_bytes_left	<= arp_packet_len;
+					tx_l2_bus.start		<= 1;
+					tx_l2_bus.ethertype	<= ETHERTYPE_ARP;
+					tx_l2_bus.dst_mac	<= arp_packet_mac;
+					tx_bytes_left		<= arp_packet_len;
 
-					arp_rd_en		<= 1;
-					arp_rd_offset	<= 1;
+					arp_rd_en			<= 1;
+					arp_rd_offset		<= 1;
 
-					state			<= STATE_ARP_BODY;
+					state				<= STATE_ARP_BODY;
 				end
 
 			end	//end STATE_ARP_HEADER_READ
@@ -409,15 +407,15 @@ module EthernetTransmitArbiter (
 				//Headers are ready!
 				//Update our headers, then read the second message data word
 				else begin
-					tx_l2_bus.start	<= 1;
-					tx_l2_ethertype	<= ETHERTYPE_IPV4;
-					tx_l2_dst_mac	<= ipv4_packet_mac;
-					tx_bytes_left	<= ipv4_packet_len;
+					tx_l2_bus.start		<= 1;
+					tx_l2_bus.ethertype	<= ETHERTYPE_IPV4;
+					tx_l2_bus.dst_mac	<= ipv4_packet_mac;
+					tx_bytes_left		<= ipv4_packet_len;
 
-					ipv4_rd_en		<= 1;
-					ipv4_rd_offset	<= 1;
+					ipv4_rd_en			<= 1;
+					ipv4_rd_offset		<= 1;
 
-					state			<= STATE_IPV4_BODY;
+					state				<= STATE_IPV4_BODY;
 				end
 
 			end	//end STATE_IPV4_HEADER_READ
@@ -503,8 +501,8 @@ module EthernetTransmitArbiter (
 		.probe19(tx_l2_bus.data),
 		.probe20(tx_l2_bus.commit),
 		.probe21(tx_l2_bus.drop),
-		.probe22(tx_l2_dst_mac),
-		.probe23(tx_l2_ethertype),
+		.probe22(tx_l2_bus.dst_mac),
+		.probe23(tx_l2_bus.ethertype),
 
 		.probe24(ipv4_tx_frame_size),
 		.probe25(arp_tx_frame_size),
