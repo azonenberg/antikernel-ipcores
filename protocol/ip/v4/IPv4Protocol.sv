@@ -47,12 +47,10 @@ module IPv4Protocol(
 	input wire				rx_l2_ethertype_is_ipv4,
 
 	//Outbound data (same clock domain as incoming)
-	output EthernetBus		tx_l2_bus			= {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
-	output reg[47:0]		tx_l2_dst_mac		= 0,
-	//TX src MAC is implied, it's always us
+	output EthernetTxL2Bus	tx_l2_bus					= {1'h0, 1'h0, 1'h0, 32'h0, 48'h0, 16'h0, 1'h0, 1'h0},
 
 	//Interface to upper level protocol
-	output EthernetBus		rx_l3_bus			 = {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
+	output EthernetBus		rx_l3_bus			 		= {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
 
 	output reg[15:0]		rx_l3_payload_len			= 0,	//size of upper layer payload only
 															//(not the IP datagram length)
@@ -564,7 +562,7 @@ module IPv4Protocol(
 						//For now, cheat and send all outbound traffic to the broadcast MAC address.
 						//This is stupidly wasteful but will help with initial bringup
 						//TODO: fix this
-						tx_l2_dst_mac	<= 48'hffffffffffff;
+						tx_l2_bus.dst_mac	<= 48'hffffffffffff;
 					end
 
 			end	//end TX_STATE_IDLE

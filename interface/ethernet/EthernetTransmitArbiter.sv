@@ -39,22 +39,16 @@
 module EthernetTransmitArbiter (
 
 	//Clocks
-	input wire				clk,
+	input wire					clk,
 
 	//Inbound data from the upper level protocols
-	input wire EthernetBus	ipv4_tx_l2_bus,
-	input wire[47:0]		ipv4_tx_l2_dst_mac,
-
-	input wire EthernetBus	arp_tx_l2_bus,
-	input wire[47:0]		arp_tx_l2_dst_mac,
+	input wire EthernetTxL2Bus	ipv4_tx_l2_bus,
+	input wire EthernetTxL2Bus	arp_tx_l2_bus,
 
 	//Outbound data to the MAC
-	output EthernetTxL2Bus	tx_l2_bus			= {1'h0, 1'h0, 1'h0, 32'h0, 48'h0, 16'h0, 1'h0, 1'h0},
+	output EthernetTxL2Bus		tx_l2_bus				= {1'h0, 1'h0, 1'h0, 32'h0, 48'h0, 16'h0, 1'h0, 1'h0},
 
-	output logic[63:0]		perf_ipv4_sent		= 0,
-	output logic[63:0]		perf_ipv4_dropped	= 0,
-	output logic[63:0]		perf_arp_sent		= 0,
-	output logic[63:0]		perf_arp_dropped	= 0
+	output EthernetArbiterPerformanceCounters	perf	= {64'h0, 64'h0, 64'h0, 64'h0}
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -157,7 +151,7 @@ module EthernetTransmitArbiter (
 				ipv4_tx_frame_size	<= 0;
 			end
 			else
-				perf_ipv4_dropped	<= perf_ipv4_dropped + 1'h1;
+				perf.ipv4_dropped	<= perf.ipv4_dropped + 1'h1;
 		end
 		if(arp_tx_l2_bus.start) begin
 			if(arp_payload_fifo_free > 2250) begin
@@ -165,13 +159,13 @@ module EthernetTransmitArbiter (
 				arp_tx_frame_size	<= 0;
 			end
 			else
-				perf_arp_dropped	<= perf_arp_dropped + 1'h1;
+				perf.arp_dropped	<= perf.arp_dropped + 1'h1;
 		end
 
 		if(arp_tx_l2_bus.commit)
-			perf_arp_sent		<= perf_arp_sent + 1'h1;
+			perf.arp_sent		<= perf.arp_sent + 1'h1;
 		if(ipv4_tx_l2_bus.commit)
-			perf_ipv4_sent		<= perf_ipv4_sent + 1'h1;
+			perf.ipv4_sent		<= perf.ipv4_sent + 1'h1;
 
 		//Add new frame data as we go
 		if(ipv4_tx_l2_bus.data_valid)
@@ -211,7 +205,7 @@ module EthernetTransmitArbiter (
 	) ipv4_header_fifo (
 		.wr_clk(clk),
 		.wr_en(ipv4_tx_l2_bus.commit),
-		.wr_data({ipv4_tx_frame_size, ipv4_tx_l2_dst_mac }),
+		.wr_data({ipv4_tx_frame_size, ipv4_tx_l2_bus.dst_mac }),
 		.wr_reset(1'b0),
 		.wr_size(ipv4_header_fifo_free),
 		.wr_commit(ipv4_tx_l2_bus_commit_ff),
@@ -245,7 +239,7 @@ module EthernetTransmitArbiter (
 	) arp_header_fifo (
 		.wr_clk(clk),
 		.wr_en(arp_tx_l2_bus.commit),
-		.wr_data({arp_tx_frame_size, arp_tx_l2_dst_mac }),
+		.wr_data({arp_tx_frame_size, arp_tx_l2_bus.dst_mac }),
 		.wr_reset(1'b0),
 		.wr_size(arp_header_fifo_free),
 		.wr_commit(arp_tx_l2_bus_commit_ff),
@@ -483,7 +477,7 @@ module EthernetTransmitArbiter (
 		.probe3(ipv4_tx_l2_bus.data),
 		.probe4(ipv4_tx_l2_bus.commit),
 		.probe5(ipv4_tx_l2_bus.drop),
-		.probe6(ipv4_tx_l2_dst_mac),
+		.probe6(ipv4_tx_l2_bus.dst_mac),
 		.probe7(ipv4_packet_active),
 
 		.probe8(arp_tx_l2_bus.start),
@@ -492,7 +486,7 @@ module EthernetTransmitArbiter (
 		.probe11(arp_tx_l2_bus.data),
 		.probe12(arp_tx_l2_bus.commit),
 		.probe13(arp_tx_l2_bus.drop),
-		.probe14(arp_tx_l2_dst_mac),
+		.probe14(arp_tx_l2_bus.dst_mac),
 		.probe15(arp_packet_active),
 
 		.probe16(tx_l2_bus.start),

@@ -90,4 +90,13 @@ typedef struct packed
 	logic[63:0]	rx_crc_err;		//Number of frames dropped due to CRC or other errors
 } GigabitMacPerformanceCounters;
 
+//Performance counters for EthernetTransmitArbiter
+typedef struct packed
+{
+	logic[63:0]	ipv4_sent;
+	logic[63:0]	ipv4_dropped;
+	logic[63:0]	arp_sent;
+	logic[63:0]	arp_dropped;
+} EthernetArbiterPerformanceCounters;
+
 `endif

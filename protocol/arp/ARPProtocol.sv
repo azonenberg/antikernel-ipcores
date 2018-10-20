@@ -46,9 +46,7 @@ module ARPProtocol(
 	input wire				rx_l2_ethertype_is_arp,
 
 	//Outbound data (same clock domain as incoming)
-	output EthernetBus		tx_l2_bus			= {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
-	output reg[47:0]		tx_l2_dst_mac		= 0
-	//TX src MAC is implied, it's always us
+	output EthernetTxL2Bus	tx_l2_bus			= {1'h0, 1'h0, 1'h0, 32'h0, 48'h0, 16'h0, 1'h0, 1'h0}
 
 	//TODO: performance counters
 	);
@@ -256,7 +254,7 @@ module ARPProtocol(
 							tx_l2_bus.data_valid	<= 1;
 							tx_l2_bus.data			<= { our_ip_address[15:0], rx_sender_mac_addr[47:32] };
 
-							tx_l2_dst_mac			<= rx_sender_mac_addr;
+							tx_l2_bus.dst_mac			<= rx_sender_mac_addr;
 						end
 
 					end
