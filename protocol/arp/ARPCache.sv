@@ -47,6 +47,20 @@
 	Table depth is LINES_PER_WAY*NUM_LINES rows total.
 
 	====================================================================================================================
+	PERFORMANCE
+
+	Insertions and lookups each take NUM_WAYS cycles plus a bit of setup time. Worst case latency for a lookup is when
+	it's submitted one cycle after a lookup so approximately 2*(NUM_WAYS + 3) cycles.
+
+	For the default configuration NUM_WAYS=4, worst case latency is 14 cycles.
+
+	Clock rates required to sustain various data rates:
+		At 10 Gbps:
+			Max 20 Mpps, times 14 clocks per packet = 280 MHz
+		At 1 Gbps:
+			Max 2 Mpps, times 14 clocks per packet = 28 MHz
+
+	====================================================================================================================
 	LOOKUPS
 
 	The cache walks each cache set sequentially to reduce the number of block RAMs needed for smaller caches. This means
@@ -63,6 +77,8 @@
 	priority than lookup and may take an indefinite time period. There is no acknowledgement when a new address
 	has been learned.
 
+	If a new learn request comes in before the old one has completed, the new one is silently dropped.
+
 	Every inbound packet should result in the address in question being re-learned to keep its cache entry fresh.
 
 	====================================================================================================================
@@ -78,7 +94,7 @@
  */
 module ARPCache #(
 	parameter			LINES_PER_WAY	= 128,
-	parameter			NUM_WAYS		= 4,
+	parameter			NUM_WAYS		= 4
 )(
 	input wire			clk,
 
@@ -102,7 +118,7 @@ module ARPCache #(
 	localparam			CACHE_LINES	= NUM_WAYS * LINES_PER_WAY;
 	localparam			ADDR_BITS	= $clog2(CACHE_LINES);
 	localparam			LINE_BITS	= $clog2(LINES_PER_WAY);
-	localparam			WAY_BITS	= $clog2(NUM_WAYS;
+	localparam			WAY_BITS	= $clog2(NUM_WAYS);
 
 	typedef struct packed
 	{
@@ -116,6 +132,9 @@ module ARPCache #(
 	logic[ADDR_BITS-1:0]	rd_addr	= 0;
 	arp_entry				rd_data_raw;
 	arp_entry				rd_data;
+
+	logic[ADDR_BITS-1:0]	rd_addr_ff		= 0;
+	logic[ADDR_BITS-1:0]	rd_data_addr	= 0;		//the address associated with rd_data
 
 	logic					wr_en	= 0;
 	logic[ADDR_BITS-1:0]	wr_addr	= 0;
@@ -137,9 +156,12 @@ module ARPCache #(
 	always_ff @(posedge clk) begin
 
 		//Pipelined read
-		if(rd_en)
-			rd_data	<= arp_tbl[rd_addr];
-		rd_data		<= rd_data_raw;
+		if(rd_en) begin
+			rd_data_raw	<= arp_tbl[rd_addr];
+			rd_addr_ff	<= rd_addr;
+		end
+		rd_data			<= rd_data_raw;
+		rd_data_addr	<= rd_addr_ff;
 
 		//Write
 		if(wr_en)
@@ -153,8 +175,12 @@ module ARPCache #(
 	logic[31:0]			lookup_hash_raw;
 	wire[LINE_BITS-1:0]	lookup_hash	= lookup_hash_raw[LINE_BITS-1:0];
 
+	logic[31:0]			learn_hash_raw;
+	wire[LINE_BITS-1:0]	learn_hash	= learn_hash_raw[LINE_BITS-1:0];
+
 	always_comb begin
 		lookup_hash_raw	<= lookup_ip[7:0] + lookup_ip[15:8] + lookup_ip[23:16] + lookup_ip[31:24] ^ lookup_ip[15:0];
+		learn_hash_raw	<= learn_ip[7:0] + learn_ip[15:8] + learn_ip[23:16] + learn_ip[31:24] ^ learn_ip[15:0];
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -164,13 +190,34 @@ module ARPCache #(
 	{
 		STATE_IDLE		= 4'h0,
 		STATE_LOOKUP_0	= 4'h1,
+		STATE_LOOKUP_1	= 4'h2,
+		STATE_LOOKUP_2	= 4'h3,
+		STATE_LOOKUP_3	= 4'h4,
+		STATE_LOOKUP_4	= 4'h5,
+		STATE_LEARN_0	= 4'h6,
+		STATE_LEARN_1	= 4'h7,
+		STATE_LEARN_2	= 4'h8,
+		STATE_LEARN_3	= 4'h9,
+		STATE_LEARN_4	= 4'ha,
+		STATE_LEARN_5	= 4'hb
 	} state	= STATE_IDLE;
 
-	logic				learn_pending		= 0;
-	logic[31:0]			learn_pending_ip	= 0;
-	logic[47:0]			learn_pending_mac	= 0;
+	logic					learn_pending		= 0;
+	logic[31:0]				learn_pending_ip	= 0;
+	logic[47:0]				learn_pending_mac	= 0;
+	logic[LINE_BITS-1:0]	learn_pending_hash	= 0;
 
-	logic[WAY_BITS-1:0]	lookup_way			= 0;
+	logic					lookup_pending		= 0;
+
+	wire					addr_at_end			= rd_addr[WAY_BITS-1:0] == {WAY_BITS{1'b1}};
+
+	logic[LINE_BITS-1:0]	target_hash			= 0;
+	logic[31:0]				target_ip			= 0;
+	wire					ip_match			= rd_data.valid && (rd_data.ip == target_ip);
+
+	//Oldest cache line, for replacement purposes
+	logic[14:0]				best_age			= 0;
+	logic[ADDR_BITS-1:0]	best_addr			= 0;
 
 	always_ff @(posedge clk) begin
 
@@ -185,7 +232,11 @@ module ARPCache #(
 			learn_pending		<= 1;
 			learn_pending_ip	<= learn_ip;
 			learn_pending_mac	<= learn_mac;
+			learn_pending_hash	<= learn_hash;
 		end
+
+		if(lookup_en)
+			lookup_pending		<= 1;
 
 		case(state)
 
@@ -196,42 +247,221 @@ module ARPCache #(
 			STATE_IDLE: begin
 
 				//Lookups are top priority. Do them first.
-				if(lookup_en) begin
-					lookup_way	<= 1;
+				if(lookup_en || lookup_pending) begin
 
-					rd_en		<= 1;
-					rd_addr		<= { lookup_hash, {WAY_BITS{1'b0}} };
-					state		<= STATE_LOOKUP_0;
+					lookup_pending	<= 0;
+
+					rd_en			<= 1;
+					rd_addr			<= { lookup_hash, {WAY_BITS{1'b0}} };
+					state			<= STATE_LOOKUP_0;
+
+					target_hash		<= lookup_hash;
+					target_ip		<= lookup_ip;
+
+					$display("[%t] Looking up IP %d.%d.%d.%d",
+						$time(), lookup_ip[31:24], lookup_ip[23:16], lookup_ip[15:8], lookup_ip[7:0]);
+				end
+
+				//Nope, check for stuff to learn
+				else if(learn_pending) begin
+
+					rd_en			<= 1;
+					rd_addr			<= { learn_hash, {WAY_BITS{1'b0}} };
+					state			<= STATE_LEARN_0;
+
+					target_hash		<= learn_hash;
+					target_ip		<= learn_pending_ip;
+
+					$display("[%t] Learning IP %d.%d.%d.%d is at MAC %02x:%02x:%02x:%02x:%02x:%02x",
+						$time(),
+						learn_pending_ip[31:24], learn_pending_ip[23:16], learn_pending_ip[15:8], learn_pending_ip[7:0],
+						learn_pending_mac[47:40], learn_pending_mac[39:32], learn_pending_mac[31:24],
+						learn_pending_mac[23:16], learn_pending_mac[15:8], learn_pending_mac[7:0]
+						);
+
+					//To start, any cache line is suitable to replace
+					best_age		<= 0;
+
 				end
 
 			end	//end STATE_IDLE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// Cache searching
+			// Address lookup
 
 			//First phase of a lookup. Read just kicked off, no data for us yet.
 			//Start reading the next set.
 			STATE_LOOKUP_0: begin
-				rd_en			<= 1;
-				lookup_way		<= lookup_way + 1'h1;
-				rd_addr			<= { lookup_hash, lookup_way };
-				state			<= STATE_LOOKUP_1;
+				rd_en					<= 1;
+				rd_addr[WAY_BITS-1:0]	<= rd_addr[WAY_BITS-1:0] + 1'h1;
+				state					<= STATE_LOOKUP_1;
 			end	//end STATE_LOOKUP_0
 
 			//Second phase of a lookup. First read is in pipeline register, no data for us yet.
 			//Start reading the next set.
 			STATE_LOOKUP_1: begin
-				rd_en			<= 1;
-				lookup_way		<= lookup_way + 1'h1;
-				rd_addr			<= { lookup_hash, lookup_way };
-				state			<= STATE_LOOKUP_2;
+				rd_en					<= 1;
+				rd_addr[WAY_BITS-1:0]	<= rd_addr[WAY_BITS-1:0] + 1'h1;
+				state					<= STATE_LOOKUP_2;
 			end	//end STATE_LOOKUP_1
 
 			//Read data is ready!
 			STATE_LOOKUP_2: begin
+
+				//We've checked every way of the cache. Go test straggling results but don't request more
+				if(addr_at_end)
+					state		<= STATE_LOOKUP_3;
+
+				//Request another cache way
+				else begin
+					rd_en					<= 1;
+					rd_addr[WAY_BITS-1:0]	<= rd_addr[WAY_BITS-1:0] + 1'h1;
+				end
+
 			end	//end STATE_LOOKUP_2
 
+			//Check the last result
+			STATE_LOOKUP_3: begin
+				state				<= STATE_LOOKUP_4;
+			end	//end STATE_LOOKUP_3
+
+			STATE_LOOKUP_4: begin
+
+				//We're done checking at this point. Go back to idle, no matter what happened
+				lookup_done		<= 1;
+				state			<= STATE_IDLE;
+
+			end	//end STATE_LOOKUP_4
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Address learning
+
+			//First phase of a lookup. Read just kicked off, no data for us yet.
+			//Start reading the next set.
+			STATE_LEARN_0: begin
+				rd_en					<= 1;
+				rd_addr[WAY_BITS-1:0]	<= rd_addr[WAY_BITS-1:0] + 1'h1;
+				state					<= STATE_LEARN_1;
+			end	//end STATE_LEARN_0
+
+			//Second phase of a lookup. First read is in pipeline register, no data for us yet.
+			//Start reading the next set.
+			STATE_LEARN_1: begin
+				rd_en					<= 1;
+				rd_addr[WAY_BITS-1:0]	<= rd_addr[WAY_BITS-1:0] + 1'h1;
+				state					<= STATE_LEARN_2;
+			end	//end STATE_LEARN_1
+
+			//Read data is ready!
+			STATE_LEARN_2: begin
+
+				//We've checked every way of the cache. Go test straggling results but don't request more
+				if(addr_at_end)
+					state		<= STATE_LEARN_3;
+
+				//Request another cache way
+				else begin
+					rd_en					<= 1;
+					rd_addr[WAY_BITS-1:0]	<= rd_addr[WAY_BITS-1:0] + 1'h1;
+				end
+
+			end	//end STATE_LEARN_2
+
+			//Check the last result
+			STATE_LEARN_3: begin
+				state				<= STATE_LEARN_4;
+			end	//end STATE_LEARN_3
+
+			STATE_LEARN_4: begin
+				state				<= STATE_LEARN_5;
+			end	//end STATE_LEARN_4
+
+			STATE_LEARN_5: begin
+
+				//We didn't find the address in the table. Need to learn it!
+				$display("[%t] Not in cache - learning IP %d.%d.%d.%d at MAC %02x:%02x:%02x:%02x:%02x:%02x",
+					$time(),
+					learn_ip[31:24], learn_ip[23:16], learn_ip[15:8], learn_ip[7:0],
+					learn_mac[47:40], learn_mac[39:32], learn_mac[31:24],
+					learn_mac[23:16], learn_mac[15:8], learn_mac[7:0]
+					);
+
+				wr_en			<= 1;
+				wr_addr			<= best_addr;
+				wr_data.valid	<= 1;
+				wr_data.age		<= 0;
+				wr_data.ip		<= learn_ip;
+				wr_data.mac		<= learn_mac;
+
+
+				//Done
+				learn_pending	<= 0;
+				state			<= STATE_IDLE;
+
+			end	//end STATE_LEARN_5
+
 		endcase
+
+		//Check if we found the target
+		//This is at the end since it can happen in a couple of states
+		if(ip_match) begin
+
+			//Lookups
+			if( (state == STATE_LOOKUP_2) || (state == STATE_LOOKUP_3) || (state == STATE_LOOKUP_4) ) begin
+				lookup_done	<= 1;
+				lookup_hit	<= 1;
+				lookup_mac	<= rd_data.mac;
+				state		<= STATE_IDLE;
+
+				$display("[%t] Hit! IP %d.%d.%d.%d is at MAC %02x:%02x:%02x:%02x:%02x:%02x",
+					$time(),
+					lookup_ip[31:24], lookup_ip[23:16], lookup_ip[15:8], lookup_ip[7:0],
+					rd_data.mac[47:40], rd_data.mac[39:32], rd_data.mac[31:24],
+					rd_data.mac[23:16], rd_data.mac[15:8], rd_data.mac[7:0]
+					);
+			end
+
+			//Learning. If we found the entry already in the cache, update it and go back to idle.
+			if( (state == STATE_LEARN_2) || (state == STATE_LEARN_3) || (state == STATE_LEARN_4) ) begin
+				$display("[%t] Hit! Refreshing IP %d.%d.%d.%d at MAC %02x:%02x:%02x:%02x:%02x:%02x",
+					$time(),
+					learn_ip[31:24], learn_ip[23:16], learn_ip[15:8], learn_ip[7:0],
+					learn_mac[47:40], learn_mac[39:32], learn_mac[31:24],
+					learn_mac[23:16], learn_mac[15:8], learn_mac[7:0]
+					);
+
+				wr_en			<= 1;
+				wr_addr			<= rd_data_addr;
+				wr_data.valid	<= 1;
+				wr_data.age		<= 0;
+				wr_data.ip		<= learn_ip;
+				wr_data.mac		<= learn_mac;
+
+				learn_pending	<= 0;
+				state			<= STATE_IDLE;
+			end
+		end
+
+		//If we did NOT find the target, see if this cache line is worth replacing.
+		else begin
+			if( (state == STATE_LEARN_2) || (state == STATE_LEARN_3) || (state == STATE_LEARN_4) ) begin
+
+				//Empty line? Can't get better than that!
+				if(!rd_data.valid) begin
+					best_age	<= 15'h7FFF;
+					best_addr	<= rd_data_addr;
+				end
+
+				//Valid line, but older than our previous oldest? It might have to get bumped
+				else if(rd_data.age >= best_age) begin
+					best_age	<= rd_data.age;
+					best_addr	<= rd_data_addr;
+				end
+
+				//Valid line, but newer? Keep it.
+
+			end
+		end
 
 	end
 
