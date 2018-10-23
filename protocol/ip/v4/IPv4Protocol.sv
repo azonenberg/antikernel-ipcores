@@ -449,17 +449,19 @@ module IPv4Protocol(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX state machine constants
 
-	localparam TX_STATE_IDLE		= 4'h0;
-	localparam TX_STATE_HEADER_0	= 4'h1;
-	localparam TX_STATE_HEADER_1	= 4'h2;
-	localparam TX_STATE_HEADER_2	= 4'h3;
-	localparam TX_STATE_HEADER_3	= 4'h4;
-	localparam TX_STATE_HEADER_4	= 4'h5;
-	localparam TX_STATE_HEADER_5	= 4'h6;
-	localparam TX_STATE_BODY		= 4'h7;
-	localparam TX_STATE_COMMIT		= 4'h8;
-
-	reg[3:0]	tx_state		=  TX_STATE_IDLE;
+	enum logic[3:0]
+	{
+		TX_STATE_IDLE		= 4'h0,
+		TX_STATE_HEADER_0	= 4'h1,
+		TX_STATE_HEADER_1	= 4'h2,
+		TX_STATE_HEADER_2	= 4'h3,
+		TX_STATE_HEADER_3	= 4'h4,
+		TX_STATE_HEADER_4	= 4'h5,
+		TX_STATE_HEADER_5	= 4'h6,
+		TX_STATE_HEADER_6	= 4'h7,
+		TX_STATE_BODY		= 4'h8,
+		TX_STATE_COMMIT		= 4'h9
+	} tx_state	= TX_STATE_IDLE;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX checksum engine
@@ -492,7 +494,7 @@ module IPv4Protocol(
 		.csumout(tx_header_checksum)
 	);
 
-	always_comb begin
+	always_ff @(posedge clk) begin
 
 		tx_checksum_process	<= 0;
 
@@ -567,48 +569,52 @@ module IPv4Protocol(
 				tx_state	<= TX_STATE_HEADER_1;
 			end	//end TX_STATE_HEADER_0
 
-			//This header is constant except for length since we don't support diffserv/ecn
 			TX_STATE_HEADER_1: begin
+				tx_state	<= TX_STATE_HEADER_2;
+			end	//end TX_STATE_HEADER_1
+
+			//This header is constant except for length since we don't support diffserv/ecn
+			TX_STATE_HEADER_2: begin
 				tx_l2_bus.data_valid	<= 1;
 				tx_l2_bus.bytes_valid	<= 4;
 				tx_l2_bus.data			<= {4'h4, 4'h5, 6'h0, 2'h0, tx_total_len};
 
-				tx_state			<= TX_STATE_HEADER_2;
-			end	//end TX_STATE_HEADER_1
+				tx_state				<= TX_STATE_HEADER_3;
+			end	//end TX_STATE_HEADER_2
 
 			//This header is entirely constant since we don't support fragging
-			TX_STATE_HEADER_2: begin
+			TX_STATE_HEADER_3: begin
 				tx_l2_bus.data_valid	<= 1;
 				tx_l2_bus.bytes_valid	<= 4;
 				tx_l2_bus.data			<= {16'h0000, 3'b010, 13'h0};
 
 
-				tx_state			<= TX_STATE_HEADER_3;
+				tx_state				<= TX_STATE_HEADER_4;
 			end	//end TX_STATE_HEADER_3
 
 			//Checksum is valid at this point, send it
-			TX_STATE_HEADER_3: begin
+			TX_STATE_HEADER_4: begin
 				tx_l2_bus.data_valid	<= 1;
 				tx_l2_bus.bytes_valid	<= 4;
 				tx_l2_bus.data			<= {8'hff, tx_l3_protocol, tx_header_checksum};
 
-				tx_state			<= TX_STATE_HEADER_4;
-			end	//end TX_STATE_HEADER_3
+				tx_state				<= TX_STATE_HEADER_5;
+			end	//end TX_STATE_HEADER_4
 
 			//Send our IP and start reading the first upper-level protocol word
-			TX_STATE_HEADER_4: begin
+			TX_STATE_HEADER_5: begin
 				tx_l2_bus.data_valid	<= 1;
 				tx_l2_bus.bytes_valid	<= 4;
 				tx_l2_bus.data			<= our_ip_address;
 
 				tx_fifo_rd				<= 1;
 
-				tx_state				<= TX_STATE_HEADER_5;
+				tx_state				<= TX_STATE_HEADER_6;
 
-			end	//end TX_STATE_HEADER_4
+			end	//end TX_STATE_HEADER_5
 
 			//Send destination IP and start reading second upper-level protocol word
-			TX_STATE_HEADER_5: begin
+			TX_STATE_HEADER_6: begin
 				tx_l2_bus.data_valid	<= 1;
 				tx_l2_bus.bytes_valid	<= 4;
 				tx_l2_bus.data			<= tx_l3_dst_ip;
@@ -617,7 +623,7 @@ module IPv4Protocol(
 
 				tx_state				<= TX_STATE_BODY;
 
-			end	//end TX_STATE_HEADER_4
+			end	//end TX_STATE_HEADER_6
 
 			//Send the current payload block
 			TX_STATE_BODY: begin
