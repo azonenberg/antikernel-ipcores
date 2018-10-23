@@ -422,14 +422,13 @@ module IPv4Protocol(
 	// TX FIFO to store incoming data while we calculate the header checksum
 
 	reg			tx_fifo_rd	= 0;
-	reg			tx_fifo_rst	= 0;
 	wire[31:0]	tx_fifo_rdata;
-
-	wire[9:0]	tx_fifo_rsize;
 
 	SingleClockFifo #(
 		.WIDTH(32),
-		.DEPTH(512)
+		.DEPTH(32),
+		.USE_BLOCK(0),
+		.OUT_REG(1)
 	) tx_fifo (
 		.clk(clk),
 		.wr(tx_l3_bus.data_valid),
@@ -441,9 +440,9 @@ module IPv4Protocol(
 		.underflow(),
 		.empty(),
 		.full(),
-		.rsize(tx_fifo_rsize),
+		.rsize(),
 		.wsize(),
-		.reset(tx_fifo_rst)
+		.reset(tx_l3_bus.drop)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -533,7 +532,6 @@ module IPv4Protocol(
 
 	always_ff @(posedge clk) begin
 
-		tx_fifo_rst				<= 0;
 		tx_fifo_rd				<= 0;
 
 		tx_l2_bus.start			<= 0;
@@ -661,7 +659,6 @@ module IPv4Protocol(
 
 		//At any time, if we abort the message in progress, reset stuff
 		if(tx_l3_bus.drop) begin
-			tx_fifo_rst				<= 1;
 			tx_state				<= TX_STATE_IDLE;
 			tx_l2_bus.drop			<= 1;
 		end
