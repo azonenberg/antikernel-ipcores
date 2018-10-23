@@ -86,7 +86,7 @@
 
 	aging_tick needs to be asserted (for one clock) periodically so old cache entries can be flushed. Ticks can be
 	spaced as far apart as desired for a given cache lifetime, however there must be a minimum of LINES_PER_WAY *
-	NUM_WAYS idle cycles (with no lookups or learning in progress) between ticks to ensure that the table can be fully
+	NUM_WAYS * 4 idle cycles (with no lookups or learning in progress) between ticks to ensure that the table can be fully
 	walked.
 
 	This is unlikely to be an issue outside of accelerated-timescale simulation since a typical real-world aging timer
@@ -109,6 +109,7 @@ module ARPCache #(
 	input wire[31:0]	learn_ip,
 	input wire[47:0]	learn_mac,
 
+	input wire			aging_tick,
 	input wire[14:0]	max_age					//entries older than this are deleted during the next aging pass
 	);
 
@@ -199,7 +200,9 @@ module ARPCache #(
 		STATE_LEARN_2	= 4'h8,
 		STATE_LEARN_3	= 4'h9,
 		STATE_LEARN_4	= 4'ha,
-		STATE_LEARN_5	= 4'hb
+		STATE_LEARN_5	= 4'hb,
+		STATE_AGE_0		= 4'hc,
+		STATE_AGE_1		= 4'hd
 	} state	= STATE_IDLE;
 
 	logic					learn_pending		= 0;
@@ -219,6 +222,9 @@ module ARPCache #(
 	logic[14:0]				best_age			= 0;
 	logic[ADDR_BITS-1:0]	best_addr			= 0;
 
+	logic					age_pending			= 0;
+	logic[ADDR_BITS-1:0]	age_addr			= 0;
+
 	always_ff @(posedge clk) begin
 
 		lookup_done	<= 0;
@@ -237,6 +243,8 @@ module ARPCache #(
 
 		if(lookup_en)
 			lookup_pending		<= 1;
+		if(aging_tick)
+			age_pending			<= 1;
 
 		case(state)
 
@@ -284,7 +292,63 @@ module ARPCache #(
 
 				end
 
+				//Lowest priority: aging check
+				else if(age_pending) begin
+					$display("[%t] Starting aging pass", $time());
+					if(age_addr != 0)
+						$display("WARNING: previous pass wasn't done!");
+					rd_en			<= 1;
+					rd_addr			<= 0;
+					age_pending		<= 0;
+					state			<= STATE_AGE_0;
+				end
+				else if(age_addr != 0) begin
+					rd_en			<= 1;
+					rd_addr			<= age_addr;
+					state			<= STATE_AGE_0;
+				end
+
 			end	//end STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Table entry aging
+
+			//Read is running
+			STATE_AGE_0: begin
+				if(!rd_en)
+					state			<= STATE_AGE_1;
+			end	//end STATE_AGE_0
+
+			//Data available.
+			STATE_AGE_1: begin
+
+				//Write back the cache line.
+				//Default to not changing anything
+				wr_en				<= rd_data.valid;
+				wr_addr				<= rd_addr;
+				wr_data				<= rd_data;
+
+				//If it's too old, invalidate it.
+				if(rd_data.valid && (rd_data.age > max_age) ) begin
+					wr_data.valid	<= 0;
+
+					$display("[%t] Cache entry for IP %d.%d.%d.%d at MAC %02x:%02x:%02x:%02x:%02x:%02x has aged out",
+						$time(),
+						rd_data.ip[31:24], rd_data.ip[23:16], rd_data.ip[15:8], rd_data.ip[7:0],
+						rd_data.mac[47:40], rd_data.mac[39:32], rd_data.mac[31:24],
+						rd_data.mac[23:16], rd_data.mac[15:8], rd_data.mac[7:0]);
+				end
+
+				//If not, it just got older
+				else if(rd_data.valid)
+					wr_data.age		<= rd_data.age + 1'h1;
+
+				//Either way we're ready to do the next line.
+				//Go back to idle first, and let higher priority stuff run if needed.
+				age_addr			<= rd_addr + 1'h1;
+				state				<= STATE_IDLE;
+
+			end	//end STATE_AGE_1
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Address lookup
