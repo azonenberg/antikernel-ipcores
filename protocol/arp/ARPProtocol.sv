@@ -49,9 +49,42 @@ module ARPProtocol(
 	//New mappings we've learned (to cache)
 	output logic				learn_valid	= 0,
 	output logic[31:0]			learn_ip	= 0,
-	output logic[47:0]			learn_mac	= 0
+	output logic[47:0]			learn_mac	= 0,
+
+	//Request to send an ARP query
+	input wire					query_en,
+	input wire[31:0]			query_ip
 
 	//TODO: performance counters
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// FIFO of IPs that we need to send ARP queries for
+
+	wire		query_fifo_empty;
+
+	logic		query_fifo_rd	= 0;
+	logic[31:0]	query_fifo_ip;
+
+	SingleClockFifo #(
+		.WIDTH(32),
+		.DEPTH(32),
+		.USE_BLOCK(0),
+		.OUT_REG(1)
+	) query_addr_fifo (
+		.clk(clk),
+		.wr(query_en),
+		.din(query_ip),
+
+		.rd(query_fifo_rd),
+		.dout(query_fifo_ip),
+		.overflow(),
+		.underflow(),
+		.empty(query_fifo_empty),
+		.full(),
+		.rsize(),
+		.wsize(),
+		.reset()
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -59,21 +92,30 @@ module ARPProtocol(
 
 	`include "../../interface/ethernet/Ethertypes.vh"
 
-	localparam RX_STATE_IDLE			= 4'h0;
-	localparam RX_STATE_L2_HEADER		= 4'h1;
-	localparam RX_STATE_BODY_0			= 4'h2;
-	localparam RX_STATE_BODY_1			= 4'h3;
-	localparam RX_STATE_BODY_2			= 4'h4;
-	localparam RX_STATE_BODY_3			= 4'h5;
-	localparam RX_STATE_BODY_4			= 4'h6;
-	localparam RX_STATE_BODY_5			= 4'h7;
-	localparam RX_STATE_BODY_6			= 4'h8;
-	localparam RX_STATE_COMMIT			= 4'h9;
+	enum logic[4:0]
+	{
+		RX_STATE_IDLE		= 5'h00,
+		RX_STATE_L2_HEADER	= 5'h01,
+		RX_STATE_BODY_0		= 5'h02,
+		RX_STATE_BODY_1		= 5'h03,
+		RX_STATE_BODY_2		= 5'h04,
+		RX_STATE_BODY_3		= 5'h05,
+		RX_STATE_BODY_4		= 5'h06,
+		RX_STATE_BODY_5		= 5'h07,
+		RX_STATE_BODY_6		= 5'h08,
+		RX_STATE_COMMIT		= 5'h09,
+		RX_STATE_QUERY_0	= 5'h0a,
+		RX_STATE_QUERY_1	= 5'h0b,
+		RX_STATE_QUERY_2	= 5'h0c,
+		RX_STATE_QUERY_3	= 5'h0d,
+		RX_STATE_QUERY_4	= 5'h0e,
+		RX_STATE_QUERY_5	= 5'h0f,
+		RX_STATE_QUERY_6	= 5'h10,
+		RX_STATE_QUERY_7	= 5'h11
+	} rx_state	= RX_STATE_IDLE;
 
 	localparam ARP_OP_REQUEST			= 16'h1;
 	localparam ARP_OP_REPLY				= 16'h2;
-
-	reg[3:0]	rx_state				= RX_STATE_IDLE;
 
 	reg			rx_packet_is_request	= 0;
 	reg[47:0]	rx_sender_mac_addr		= 0;
@@ -90,6 +132,8 @@ module ARPProtocol(
 		//Clear flags
 		tx_l2_bus.data_valid	<= 0;
 		tx_l2_bus.commit		<= 0;
+		query_fifo_rd			<= 0;
+		learn_valid				<= 0;
 
 		//Any time we send anything it's a full 4 bytes
 		tx_l2_bus.bytes_valid	<= 4;
@@ -104,7 +148,76 @@ module ARPProtocol(
 				if(rx_l2_bus.start)
 					rx_state	<= RX_STATE_L2_HEADER;
 
+				//We need to send an ARP query.
+				//For now, incoming ARP requests will be ignored for 8 clocks while we do this.
+				//TODO: tiny FIFO on inbound packets to prevent loss, or buffer+arbiter on outbound traffic
+				else if(!query_fifo_empty) begin
+					tx_l2_bus.start		<= 1;
+					query_fifo_rd		<= 1;
+					rx_state			<= RX_STATE_QUERY_0;
+
+					tx_l2_bus.dst_mac	<= 48'hff_ff_ff_ff_ff_ff;
+				end
+
 			end	//end RX_STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// QUERY - send an ARP request
+
+			//HTYPE, PTYPE
+			RX_STATE_QUERY_0: begin
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.data			<= { 16'h01, ETHERTYPE_IPV4};
+				rx_state				<= RX_STATE_QUERY_1;
+			end	//end RX_STATE_QUERY_0
+
+			//HLEN, PLEN, OPER
+			RX_STATE_QUERY_1: begin
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.data			<= { 16'h0604, ARP_OP_REQUEST };
+				rx_state				<= RX_STATE_QUERY_2;
+			end	//end RX_STATE_QUERY_1
+
+			//SHA high
+			RX_STATE_QUERY_2: begin
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.data			<= our_mac_address[47:16];
+				rx_state				<= RX_STATE_QUERY_3;
+			end	//end RX_STATE_QUERY_2
+
+			//SHA low, SPA high
+			RX_STATE_QUERY_3: begin
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.data			<= { our_mac_address[15:0], our_ip_address[31:16] };
+				rx_state				<= RX_STATE_QUERY_4;
+			end	//end RX_STATE_QUERY_3
+
+			//SPA low, THA high
+			RX_STATE_QUERY_4: begin
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.data			<= { our_ip_address[15:0], 16'h0000 };
+				rx_state				<= RX_STATE_QUERY_5;
+			end	//end RX_STATE_QUERY_4
+
+			//THA low
+			RX_STATE_QUERY_5: begin
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.data			<= 32'h00000000;
+				rx_state				<= RX_STATE_QUERY_6;
+			end	//end RX_STATE_QUERY_5
+
+			//TPA
+			RX_STATE_QUERY_6: begin
+				tx_l2_bus.data_valid	<= 1;
+				tx_l2_bus.data			<= query_fifo_ip;
+				rx_state				<= RX_STATE_QUERY_7;
+			end	//end RX_STATE_QUERY_6
+
+			//Done
+			RX_STATE_QUERY_7: begin
+				tx_l2_bus.commit		<= 1;
+				rx_state				<= RX_STATE_IDLE;
+			end	//end RX_STATE_QUERY_7
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// L2 HEADER - wait for the layer-2 headers to be valid. Discard any other ethertypes.
@@ -257,7 +370,7 @@ module ARPProtocol(
 							tx_l2_bus.data_valid	<= 1;
 							tx_l2_bus.data			<= { our_ip_address[15:0], rx_sender_mac_addr[47:32] };
 
-							tx_l2_bus.dst_mac			<= rx_sender_mac_addr;
+							tx_l2_bus.dst_mac		<= rx_sender_mac_addr;
 						end
 
 					end

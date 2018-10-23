@@ -53,9 +53,11 @@ module ARPManager #(
 	//Address mappings learned from the ARP stack
 	input wire					learn_en,
 	input wire[31:0]			learn_ip,
-	input wire[47:0]			learn_mac
+	input wire[47:0]			learn_mac,
 
-	//TODO: request signal to the ARP stack "hey, look up this IP"
+	//Query requests to the ARP stack
+	output logic				query_en	= 0,
+	output logic[31:0]			query_ip	= 0
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -78,6 +80,12 @@ module ARPManager #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The ARP cache
 
+	//TODO: When a cache entry gets old, send an ARP query for the target IP pre-emptively
+	//rather than waiting for it to expire.
+
+	wire		lookup_en	= ipv4_tx_l2_bus.start;
+	wire[31:0]	lookup_ip	= ipv4_tx_l2_bus.dst_ip;
+
 	wire		lookup_done;
 	wire		lookup_hit;
 	wire[47:0]	lookup_mac;
@@ -88,8 +96,8 @@ module ARPManager #(
 	) cache(
 		.clk(clk),
 
-		.lookup_en(ipv4_tx_l2_bus.start),
-		.lookup_ip(ipv4_tx_l2_bus.dst_ip),
+		.lookup_en(lookup_en),
+		.lookup_ip(lookup_ip),
 		.lookup_done(lookup_done),
 		.lookup_hit(lookup_hit),
 		.lookup_mac(lookup_mac),
@@ -123,5 +131,15 @@ module ARPManager #(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// ARP query generation
+
+	always_ff @(posedge clk) begin
+		query_en	<= 0;
+
+		if(lookup_done && !lookup_hit) begin
+			query_en	<= 1;
+			query_ip	<= lookup_ip;
+		end
+
+	end
 
 endmodule
