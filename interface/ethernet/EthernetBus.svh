@@ -66,6 +66,21 @@ typedef struct packed
 	logic[2:0]	bytes_valid;	//only meaningful in 10G mode
 } EthernetTxBus;
 
+//Bus from IP to ARP
+typedef struct packed
+{
+	logic		start;			//asserted for one cycle before a frame starts
+	logic		data_valid;		//asserted when data is ready to be processed
+	logic[2:0]	bytes_valid;	//when data_valid is set, indicated number of valid bytes in data
+								//Valid bits are left aligned in data
+								//1 = 31:24, 2 = 31:16, 3 = 31:8, 4 = 31:0
+	logic[31:0]	data;			//actual packet content
+	logic[31:0]	dst_ip;
+
+	logic		commit;			//asserted for one cycle at end of packet if checksum was good
+	logic		drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
+} EthernetTxArpBus;
+
 //Bus from arbiter to elastic buffer
 typedef struct packed
 {
@@ -81,6 +96,33 @@ typedef struct packed
 	logic		commit;			//asserted for one cycle at end of packet if checksum was good
 	logic		drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
 } EthernetTxL2Bus;
+
+//Bus from Ethernet decoder to layer-3 protocols
+typedef struct packed
+{
+	logic		start;				//asserted for one cycle before a frame starts
+	logic		data_valid;			//asserted when data is ready to be processed
+	logic[2:0]	bytes_valid;		//when data_valid is set, indicated number of valid bytes in data
+									//Valid bits are left aligned in data
+									//1 = 31:24, 2 = 31:16, 3 = 31:8, 4 = 31:0
+	logic[31:0]	data;				//actual packet content
+
+	logic		commit;				//asserted for one cycle at end of packet if checksum was good
+	logic		drop;				//asserted for one cycle to indicate packet is invalid and should be discarded
+
+	logic		headers_valid;		//Indicates the following fields of the structure are valid
+	logic[47:0]	dst_mac;
+	logic[47:0]	src_mac;
+	logic[15:0]	ethertype;
+	logic		ethertype_is_ipv4;
+	logic		ethertype_is_ipv6;
+	logic		ethertype_is_arp;
+
+	logic[11:0]	vlan_id;			//802.1q header fields
+	logic[2:0]	qos_pri;
+	logic		drop_eligible;
+
+} EthernetRxL2Bus;
 
 //Performance counters for TriSpeedEthernetMAC
 typedef struct packed
@@ -98,5 +140,14 @@ typedef struct packed
 	logic[63:0]	arp_sent;
 	logic[63:0]	arp_dropped;
 } EthernetArbiterPerformanceCounters;
+
+//Performance counters for Ethernet2TypdeDecoder
+typedef struct packed
+{
+	logic[63:0]	rx_total;
+	logic[63:0]	rx_ipv4;
+	logic[63:0]	rx_ipv6;
+	logic[63:0]	rx_arp;
+} EthernetDecoderPerformanceCounters;
 
 `endif

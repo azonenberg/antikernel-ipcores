@@ -34,19 +34,22 @@
 module ARPProtocol(
 
 	//Clocks
-	input wire				clk,
+	input wire					clk,
 
 	//Constant-ish state data
-	input wire[47:0]		our_mac_address,
-	input wire[31:0]		our_ip_address,
+	input wire[47:0]			our_mac_address,
+	input wire[31:0]			our_ip_address,
 
 	//Incoming Ethernet data
-	input wire EthernetBus	rx_l2_bus,
-	input wire				rx_l2_headers_valid,
-	input wire				rx_l2_ethertype_is_arp,
+	input wire EthernetRxL2Bus	rx_l2_bus,
 
 	//Outbound data (same clock domain as incoming)
-	output EthernetTxL2Bus	tx_l2_bus			= {1'h0, 1'h0, 1'h0, 32'h0, 48'h0, 16'h0, 1'h0, 1'h0}
+	output EthernetTxL2Bus		tx_l2_bus			= {1'h0, 1'h0, 1'h0, 32'h0, 48'h0, 16'h0, 1'h0, 1'h0},
+
+	//New mappings we've learned (to cache)
+	output logic				learn_valid	= 0,
+	output logic[31:0]			learn_ip	= 0,
+	output logic[47:0]			learn_mac	= 0
 
 	//TODO: performance counters
 	);
@@ -108,8 +111,8 @@ module ARPProtocol(
 
 			RX_STATE_L2_HEADER: begin
 
-				if(rx_l2_headers_valid) begin
-					if(rx_l2_ethertype_is_arp)
+				if(rx_l2_bus.headers_valid) begin
+					if(rx_l2_bus.ethertype_is_arp)
 						rx_state	<= RX_STATE_BODY_0;
 					else begin
 						tx_l2_bus.drop	<= 1;
@@ -322,16 +325,33 @@ module ARPProtocol(
 			//(ARP is below the Ethernet MTU so we need some trailing padding)
 			RX_STATE_COMMIT: begin
 
-				//Is the packet asking for somebody else other than us? Drop it
-				if(rx_target_ip_addr != our_ip_address) begin
-					rx_state			<= RX_STATE_IDLE;
-					tx_l2_bus.drop		<= 1;
+				//If it's a reply, add data to the cache when the packet ends
+				if(!rx_packet_is_request) begin
 				end
 
-				//Valid, well-formed packet? Go ahead and send our reply
-				else if(rx_l2_bus.commit) begin
+				//Nope, it's a request
+				else begin
+
+					//Is the packet asking for somebody else other than us? Drop it
+					if(rx_target_ip_addr != our_ip_address) begin
+						rx_state			<= RX_STATE_IDLE;
+						tx_l2_bus.drop		<= 1;
+					end
+
+					//Valid, well-formed packet? Go ahead and send our reply
+					else if(rx_l2_bus.commit)
+						tx_l2_bus.commit	<= 1;
+
+				end
+
+				//Valid, well-formed packet? Add to the table.
+				//Doesn't matter who sent it, the sender's address gets learned.
+				if(rx_l2_bus.commit) begin
 					rx_state			<= RX_STATE_IDLE;
-					tx_l2_bus.commit	<= 1;
+
+					learn_valid			<= 1;
+					learn_ip			<= rx_sender_ip_addr;
+					learn_mac			<= rx_sender_mac_addr;
 				end
 
 			end
@@ -339,8 +359,10 @@ module ARPProtocol(
 		endcase
 
 		//At any time, if we get a "drop" request, cancel work in progress
-		if(rx_l2_bus.drop)
-			rx_state	<= RX_STATE_IDLE;
+		if(rx_l2_bus.drop) begin
+			tx_l2_bus.drop	<= 1;
+			rx_state		<= RX_STATE_IDLE;
+		end
 
 	end
 

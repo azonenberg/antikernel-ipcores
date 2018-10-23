@@ -53,25 +53,10 @@ module Ethernet2TypeDecoder(
 	input wire				promisc_mode,
 
 	//Outbound data
-	output EthernetBus		rx_l2_bus,
-
-	//Outbound header fields
-	output reg			rx_l2_headers_valid		= 0,
-	output reg[47:0]	rx_l2_dst_mac			= 0,
-	output reg[47:0]	rx_l2_src_mac			= 0,
-	output reg[15:0]	rx_l2_ethertype			= 0,
-	output reg			rx_l2_ethertype_is_ipv4	= 0,
-	output reg			rx_l2_ethertype_is_ipv6	= 0,
-	output reg			rx_l2_ethertype_is_arp	= 0,
-	output reg[11:0]	rx_l2_vlan_id			= 1,
-	output reg[2:0]		rx_l2_priority			= 0,
-	output reg			rx_l2_drop_eligible		= 0,
+	output EthernetRxL2Bus	rx_l2_bus	= {1'h0, 1'h0, 3'h0, 32'h0, 1'h0, 1'h0, 1'h0, 48'h0, 48'h0, 16'h0, 1'h0, 1'h0, 1'h0, 12'h0, 3'h0, 1'h0},
 
 	//Performance counters
-	output reg[63:0]	perf_rx_total			= 0,
-	output reg[63:0]	perf_rx_ipv4			= 0,
-	output reg[63:0]	perf_rx_ipv6			= 0,
-	output reg[63:0]	perf_rx_arp				= 0
+	output EthernetDecoderPerformanceCounters	perf	= { 64'h0, 64'h0, 64'h0, 64'h0 }
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -79,14 +64,14 @@ module Ethernet2TypeDecoder(
 
 	always_ff @(posedge rx_clk) begin
 		if(rx_l2_bus.commit) begin
-			perf_rx_total		<= perf_rx_total + 1'h1;
+			perf.rx_total		<= perf.rx_total + 1'h1;
 
-			if(rx_l2_ethertype_is_ipv4)
-				perf_rx_ipv4	<= perf_rx_ipv4 + 1'h1;
-			if(rx_l2_ethertype_is_ipv6)
-				perf_rx_ipv6	<= perf_rx_ipv6 + 1'h1;
-			if(rx_l2_ethertype_is_arp)
-				perf_rx_arp		<= perf_rx_arp + 1'h1;
+			if(rx_l2_bus.ethertype_is_ipv4)
+				perf.rx_ipv4	<= perf.rx_ipv4 + 1'h1;
+			if(rx_l2_bus.ethertype_is_ipv6)
+				perf.rx_ipv6	<= perf.rx_ipv6 + 1'h1;
+			if(rx_l2_bus.ethertype_is_arp)
+				perf.rx_arp		<= perf.rx_arp + 1'h1;
 
 		end
 	end
@@ -107,7 +92,7 @@ module Ethernet2TypeDecoder(
 
 		rx_l2_bus.data_valid	<= 0;
 		rx_temp_valid			<= 0;
-		rx_l2_headers_valid		<= 0;
+		rx_l2_bus.headers_valid	<= 0;
 
 		//Forward flags
 		rx_l2_bus.start		<= mac_rx_bus.start;
@@ -144,13 +129,13 @@ module Ethernet2TypeDecoder(
 				//Don't care about mac_rx_bus.bytes_valid since the packet can never be this short
 				//(if it ends early we'll get a drop request from the MAC and skip it)
 				if(rx_count == 0)
-					rx_l2_dst_mac[47:16]		<= mac_rx_bus.data;
+					rx_l2_bus.dst_mac[47:16]		<= mac_rx_bus.data;
 				else if(rx_count == 1) begin
-					rx_l2_dst_mac[15:0]			<= mac_rx_bus.data[31:16];
-					rx_l2_src_mac[47:32]		<= mac_rx_bus.data[15:0];
+					rx_l2_bus.dst_mac[15:0]			<= mac_rx_bus.data[31:16];
+					rx_l2_bus.src_mac[47:32]		<= mac_rx_bus.data[15:0];
 				end
 				else if(rx_count == 2)
-					rx_l2_src_mac[31:0]			<= mac_rx_bus.data;
+					rx_l2_bus.src_mac[31:0]			<= mac_rx_bus.data;
 
 				//Next block is either the ethertype plus two bytes of data, or an 802.1q tag
 				else if(rx_count == 3) begin
@@ -159,29 +144,29 @@ module Ethernet2TypeDecoder(
 					if(mac_rx_bus.data[31:16] == ETHERTYPE_DOT1Q) begin
 						rx_frame_has_vlan		<= 1;
 
-						rx_l2_priority			<= mac_rx_bus.data[15:13];
-						rx_l2_drop_eligible		<= mac_rx_bus.data[12];
-						rx_l2_vlan_id			<= mac_rx_bus.data[11:0];
+						rx_l2_bus.qos_pri		<= mac_rx_bus.data[15:13];
+						rx_l2_bus.drop_eligible	<= mac_rx_bus.data[12];
+						rx_l2_bus.vlan_id		<= mac_rx_bus.data[11:0];
 					end
 
 					//Nope, insert a dummy vlan tag with default values and store the ethertype
 					else begin
 						rx_frame_has_vlan		<= 0;
 
-						rx_l2_priority			<= 0;
-						rx_l2_drop_eligible		<= 1;
-						rx_l2_vlan_id			<= 1;
+						rx_l2_bus.qos_pri		<= 0;
+						rx_l2_bus.drop_eligible	<= 1;
+						rx_l2_bus.vlan_id		<= 1;
 
-						rx_l2_ethertype			<= mac_rx_bus.data[31:16];
-						rx_l2_ethertype_is_ipv4	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV4);
-						rx_l2_ethertype_is_ipv6	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV6);
-						rx_l2_ethertype_is_arp	<= (mac_rx_bus.data[31:16] == ETHERTYPE_ARP);
-						rx_l2_headers_valid		<= 1;
+						rx_l2_bus.ethertype			<= mac_rx_bus.data[31:16];
+						rx_l2_bus.ethertype_is_ipv4	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV4);
+						rx_l2_bus.ethertype_is_ipv6	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV6);
+						rx_l2_bus.ethertype_is_arp	<= (mac_rx_bus.data[31:16] == ETHERTYPE_ARP);
+						rx_l2_bus.headers_valid		<= 1;
 					end
 
 					//If not in promiscuous mode, and we get a unicast that's not for us, drop it
 					//(accept all multicasts)
-					if(!promisc_mode && !rx_l2_dst_mac[40] && (rx_l2_dst_mac != our_mac_address) ) begin
+					if(!promisc_mode && !rx_l2_bus.dst_mac[40] && (rx_l2_bus.dst_mac != our_mac_address) ) begin
 						rx_l2_bus.drop			<= 1;
 						rx_active				<= 0;
 					end
@@ -190,11 +175,11 @@ module Ethernet2TypeDecoder(
 
 				//If we have a 802.1q tag, the NEXT cycle has the ethertype
 				else if( (rx_count == 4) && (rx_frame_has_vlan) ) begin
-					rx_l2_ethertype				<= mac_rx_bus.data[31:16];
-					rx_l2_ethertype_is_ipv4		<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV4);
-					rx_l2_ethertype_is_ipv6		<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV6);
-					rx_l2_ethertype_is_arp		<= (mac_rx_bus.data[31:16] == ETHERTYPE_ARP);
-					rx_l2_headers_valid			<= 1;
+					rx_l2_bus.ethertype			<= mac_rx_bus.data[31:16];
+					rx_l2_bus.ethertype_is_ipv4	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV4);
+					rx_l2_bus.ethertype_is_ipv6	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV6);
+					rx_l2_bus.ethertype_is_arp	<= (mac_rx_bus.data[31:16] == ETHERTYPE_ARP);
+					rx_l2_bus.headers_valid		<= 1;
 				end
 
 				//Nope, just normal frame payload.
@@ -259,7 +244,7 @@ module Ethernet2TypeDecoder(
 			rx_l2_bus.bytes_valid	<= 0;
 			rx_l2_bus.data			<= 0;
 
-			rx_l2_headers_valid		<= 0;
+			rx_l2_bus.headers_valid	<= 0;
 		end
 
 	end

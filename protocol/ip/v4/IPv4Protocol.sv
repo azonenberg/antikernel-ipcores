@@ -42,12 +42,10 @@ module IPv4Protocol(
 	input wire[31:0]		our_broadcast_address,
 
 	//Incoming Ethernet data
-	input wire EthernetBus	rx_l2_bus,
-	input wire				rx_l2_headers_valid,
-	input wire				rx_l2_ethertype_is_ipv4,
+	input wire EthernetRxL2Bus	rx_l2_bus,
 
 	//Outbound data (same clock domain as incoming)
-	output EthernetTxL2Bus	tx_l2_bus					= {1'h0, 1'h0, 1'h0, 32'h0, 48'h0, 16'h0, 1'h0, 1'h0},
+	output EthernetTxArpBus	tx_l2_bus					= {1'h0, 1'h0, 1'h0, 32'h0, 32'h0, 1'h0, 1'h0},
 
 	//Interface to upper level protocol
 	output EthernetBus		rx_l3_bus			 		= {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
@@ -197,8 +195,8 @@ module IPv4Protocol(
 
 				//Wait for layer 2 headers to be read
 				//Drop anything that's not an IPv4 packet
-				if(rx_l2_headers_valid) begin
-					if(rx_l2_ethertype_is_ipv4)
+				if(rx_l2_bus.headers_valid) begin
+					if(rx_l2_bus.ethertype_is_ipv4)
 						rx_state		<= RX_STATE_HEADER_1;
 					else begin
 						rx_state		<= RX_STATE_IDLE;
@@ -555,14 +553,11 @@ module IPv4Protocol(
 						tx_state		<= TX_STATE_HEADER_0;
 
 						//Precompute total packet length
-						tx_total_len	<= 8'd20 + tx_l3_payload_len;
+						tx_total_len		<= 8'd20 + tx_l3_payload_len;
 
-						tx_bytes_left	<= tx_l3_payload_len;
+						tx_bytes_left		<= tx_l3_payload_len;
 
-						//For now, cheat and send all outbound traffic to the broadcast MAC address.
-						//This is stupidly wasteful but will help with initial bringup
-						//TODO: fix this
-						tx_l2_bus.dst_mac	<= 48'hffffffffffff;
+						tx_l2_bus.dst_ip	<= tx_l3_dst_ip;
 					end
 
 			end	//end TX_STATE_IDLE
