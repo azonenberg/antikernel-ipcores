@@ -29,7 +29,7 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "EthernetBus.svh"
+`include "IPv4Bus.svh"
 
 module ICMPv4Protocol(
 
@@ -37,12 +37,7 @@ module ICMPv4Protocol(
 	input wire				clk,
 
 	//Incoming data bus from IP stack
-	input wire EthernetBus	rx_l3_bus,
-	input wire[15:0]		rx_l3_payload_len,
-	input wire				rx_l3_protocol_is_icmp,
-	input wire[31:0]		rx_l3_src_ip,
-	input wire[31:0]		rx_l3_dst_ip,
-	input wire				rx_l3_headers_valid,
+	input wire IPv4RxBus	rx_l3_bus,
 
 	//Outbound data bus to IP stack
 	//(src ip and protocol are added by IP stack)
@@ -56,7 +51,6 @@ module ICMPv4Protocol(
 	//Performance counters
 	output reg[63:0]		perf_icmp_rx		= 0,
 	output reg[63:0]		perf_icmp_tx		= 0,
-	output reg[63:0]		perf_icmp_dropped	= 0,
 	output reg[63:0]		perf_icmp_csumfail	= 0
 );
 
@@ -64,7 +58,7 @@ module ICMPv4Protocol(
 	// Performance counters
 
 	always @(posedge clk) begin
-		if(rx_l3_bus.commit && rx_l3_protocol_is_icmp)
+		if(rx_l3_bus.commit && rx_l3_bus.protocol_is_icmp)
 			perf_icmp_rx	<= perf_icmp_rx + 1'h1;
 		if(tx_l3_bus.commit)
 			perf_icmp_tx	<= perf_icmp_tx + 1'h1;
@@ -73,23 +67,25 @@ module ICMPv4Protocol(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// State machine constants
 
-	localparam RX_STATE_IDLE		= 4'h0;
-	localparam RX_STATE_HEADER_0	= 4'h1;
-	localparam RX_STATE_HEADER_1	= 4'h2;
-	localparam RX_STATE_PING_HEADER	= 4'h3;
-	localparam RX_STATE_PING_BODY	= 4'h4;
+	enum logic[3:0]
+	{
+		RX_STATE_IDLE			= 4'h0,
+		RX_STATE_HEADER_0		= 4'h1,
+		RX_STATE_HEADER_1		= 4'h2,
+		RX_STATE_PING_HEADER	= 4'h3,
+		RX_STATE_PING_BODY		= 4'h4
+	} rx_state = RX_STATE_IDLE;
 
-	localparam TX_STATE_IDLE		= 4'h0;
-	localparam TX_STATE_HEADER		= 4'h1;
-	localparam TX_STATE_BODY		= 4'h2;
-	localparam TX_STATE_COMMIT		= 4'h3;
+	enum logic[3:0]
+	{
+		TX_STATE_IDLE			= 4'h0,
+		TX_STATE_HEADER			= 4'h1,
+		TX_STATE_BODY			= 4'h2,
+		TX_STATE_COMMIT			= 4'h3
+	} tx_state = TX_STATE_IDLE;
 
 	localparam ICMP_TYPE_ECHO_REPLY		= 8'h00;
 	localparam ICMP_TYPE_ECHO_REQUEST	= 8'h08;
-
-	reg[3:0]	rx_state			= RX_STATE_IDLE;
-
-	reg[3:0]	tx_state			= TX_STATE_IDLE;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX packet buffer
@@ -187,10 +183,6 @@ module ICMPv4Protocol(
 
 		tx_fifo_rd_ff			<= tx_fifo_rd;
 
-		//DEBUG
-		if( rx_l3_bus.start && (rx_state != RX_STATE_IDLE) )
-			perf_icmp_dropped	<= 1;
-
 		//RX state machine
 		case(rx_state)
 
@@ -210,10 +202,10 @@ module ICMPv4Protocol(
 			//Wait for IP headers
 			RX_STATE_HEADER_0: begin
 
-				if(rx_l3_headers_valid) begin
+				if(rx_l3_bus.headers_valid) begin
 
 					//Drop anything that isn't ICMP, or too small to be a valid ICMP packet
-					if( (rx_l3_payload_len < 8) || !rx_l3_protocol_is_icmp ) begin
+					if( (rx_l3_bus.payload_len < 8) || !rx_l3_bus.protocol_is_icmp ) begin
 						tx_l3_bus.drop	<= 1;
 						rx_state		<= RX_STATE_IDLE;
 					end
@@ -326,15 +318,15 @@ module ICMPv4Protocol(
 					//We don't need a fifo for the type/code/id/seq fields as those will be used 3 clocks from now,
 					//and we can't get another packet to here that quickly.
 					else begin
-						tx_l3_payload_len	<= rx_l3_payload_len;
-						tx_l3_dst_ip		<= rx_l3_src_ip;
+						tx_l3_payload_len	<= rx_l3_bus.payload_len;
+						tx_l3_dst_ip		<= rx_l3_bus.src_ip;
 						tx_type				<= ICMP_TYPE_ECHO_REPLY;
 						tx_code				<= 8'h0;
 						tx_l3_bus.start		<= 1;
 						rx_state			<= RX_STATE_IDLE;
 						tx_ping_id			<= rx_ping_id;
 						tx_ping_seq			<= rx_ping_seq;
-						tx_bytes_left		<= { rx_l3_payload_len - 'd8 };
+						tx_bytes_left		<= { rx_l3_bus.payload_len - 'd8 };
 					end
 				end
 

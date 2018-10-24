@@ -30,6 +30,7 @@
 ***********************************************************************************************************************/
 
 `include "EthernetBus.svh"
+`include "IPv4Bus.svh"
 
 module IPv4Protocol(
 
@@ -46,21 +47,10 @@ module IPv4Protocol(
 	input wire EthernetRxL2Bus	rx_l2_bus,
 
 	//Outbound data (same clock domain as incoming)
-	output EthernetTxArpBus	tx_l2_bus					= {1'h0, 1'h0, 1'h0, 32'h0, 32'h0, 1'h0, 1'h0},
+	output EthernetTxArpBus	tx_l2_bus					= {$bits(EthernetTxArpBus){1'b0}},
 
 	//Interface to upper level protocol
-	output EthernetBus		rx_l3_bus			 		= {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
-
-	output reg[15:0]		rx_l3_payload_len			= 0,	//size of upper layer payload only
-															//(not the IP datagram length)
-	output reg[7:0]			rx_l3_protocol				= 0,
-	output reg				rx_l3_protocol_is_icmp		= 0,
-	output reg				rx_l3_protocol_is_udp		= 0,
-	output reg				rx_l3_protocol_is_tcp		= 0,
-	output reg[31:0]		rx_l3_src_ip				= 0,
-	output reg[31:0]		rx_l3_dst_ip				= 0,
-	output reg				rx_l3_headers_valid			= 0,
-	output wire[15:0]		rx_l3_pseudo_header_csum,
+	output IPv4RxBus		rx_l3_bus			 		= {$bits(IPv4RxBus){1'b0}},
 
 	//Transmit data from upper level protocol
 	input wire EthernetBus	tx_l3_bus,
@@ -76,17 +66,18 @@ module IPv4Protocol(
 
 	`include "../IPProtocols.vh"
 
-	localparam	RX_STATE_IDLE		= 4'h0;
-	localparam	RX_STATE_HEADER_0	= 4'h1;
-	localparam	RX_STATE_HEADER_1	= 4'h2;
-	localparam	RX_STATE_HEADER_2	= 4'h3;
-	localparam	RX_STATE_HEADER_3	= 4'h4;
-	localparam	RX_STATE_HEADER_4	= 4'h5;
-	localparam	RX_STATE_HEADER_5	= 4'h6;
-	localparam	RX_STATE_BODY		= 4'h7;
-	localparam	RX_STATE_PADDING	= 4'h8;
-
-	reg[3:0]	rx_state			= RX_STATE_IDLE;
+	enum logic[3:0]
+	{
+		RX_STATE_IDLE		= 4'h0,
+		RX_STATE_HEADER_0	= 4'h1,
+		RX_STATE_HEADER_1	= 4'h2,
+		RX_STATE_HEADER_2	= 4'h3,
+		RX_STATE_HEADER_3	= 4'h4,
+		RX_STATE_HEADER_4	= 4'h5,
+		RX_STATE_HEADER_5	= 4'h6,
+		RX_STATE_BODY		= 4'h7,
+		RX_STATE_PADDING	= 4'h8
+	} rx_state = RX_STATE_IDLE;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX checksum calculation
@@ -118,7 +109,7 @@ module IPv4Protocol(
 		case(rx_state)
 
 			RX_STATE_HEADER_2: begin
-				rx_phdr_din		<= rx_l3_payload_len;
+				rx_phdr_din		<= rx_l3_bus.payload_len;
 				rx_phdr_process	<= 1;
 			end
 
@@ -134,6 +125,8 @@ module IPv4Protocol(
 		endcase
 
 	end
+
+	logic[15:0] rx_l3_pseudo_header_csum;
 	InternetChecksum32bit rx_phdr_checksum(
 		.clk(clk),
 		.load(1'b0),
@@ -143,6 +136,9 @@ module IPv4Protocol(
 		.sumout(rx_l3_pseudo_header_csum),
 		.csumout()
 	);
+
+	always_comb
+		rx_l3_bus.pseudo_header_csum	<= rx_l3_pseudo_header_csum;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX datapath
@@ -173,7 +169,7 @@ module IPv4Protocol(
 		rx_l3_bus.data_valid	<= 0;
 		rx_l3_bus.bytes_valid	<= 0;
 		rx_l3_bus.commit		<= 0;
-		rx_l3_headers_valid		<= 0;
+		rx_l3_bus.headers_valid	<= 0;
 
 		case(rx_state)
 
@@ -239,8 +235,8 @@ module IPv4Protocol(
 
 						//Valid, figure out how big the payload is
 						else begin
-							rx_l3_payload_len	<= rx_l2_bus.data[15:0] - 16'd20;
-							rx_state			<= RX_STATE_HEADER_2;
+							rx_l3_bus.payload_len	<= rx_l2_bus.data[15:0] - 16'd20;
+							rx_state				<= RX_STATE_HEADER_2;
 						end
 					end
 
@@ -294,10 +290,10 @@ module IPv4Protocol(
 
 					else begin
 						//rx_ttl					<= rx_l2_bus.data[31:24];
-						rx_l3_protocol				<= rx_l2_bus.data[23:16];
-						rx_l3_protocol_is_icmp		<= (rx_l2_bus.data[23:16] == IP_PROTO_ICMP);
-						rx_l3_protocol_is_udp		<= (rx_l2_bus.data[23:16] == IP_PROTO_UDP);
-						rx_l3_protocol_is_tcp		<= (rx_l2_bus.data[23:16] == IP_PROTO_TCP);
+						rx_l3_bus.protocol			<= rx_l2_bus.data[23:16];
+						rx_l3_bus.protocol_is_icmp	<= (rx_l2_bus.data[23:16] == IP_PROTO_ICMP);
+						rx_l3_bus.protocol_is_udp	<= (rx_l2_bus.data[23:16] == IP_PROTO_UDP);
+						rx_l3_bus.protocol_is_tcp	<= (rx_l2_bus.data[23:16] == IP_PROTO_TCP);
 						//rx_header_checksum		<= rx_l2_bus.data[15:0];
 
 						rx_state					<= RX_STATE_HEADER_4;
@@ -318,7 +314,7 @@ module IPv4Protocol(
 					end
 
 					else begin
-						rx_l3_src_ip				<= rx_l2_bus.data;
+						rx_l3_bus.src_ip			<= rx_l2_bus.data;
 						rx_state					<= RX_STATE_HEADER_5;
 					end
 
@@ -337,7 +333,7 @@ module IPv4Protocol(
 					end
 
 					else begin
-						rx_l3_dst_ip				<= rx_l2_bus.data;
+						rx_l3_bus.dst_ip			<= rx_l2_bus.data;
 
 						//See if the packet is intended for us
 						//This means either our unicast address, our subnet's broadcast address,
@@ -347,7 +343,7 @@ module IPv4Protocol(
 							(rx_l2_bus.data == 32'hffffffff) ) begin
 
 							rx_state				<= RX_STATE_BODY;
-							rx_l3_headers_valid		<= 1;
+							rx_l3_bus.headers_valid	<= 1;
 
 						end
 
@@ -375,9 +371,9 @@ module IPv4Protocol(
 
 					//If we've reached the end of the packet body, anything afterward is padding
 					//Ignore it. Also, tell upper level protocol to do so
-					if(payload_bytes_next >= rx_l3_payload_len) begin
+					if(payload_bytes_next >= rx_l3_bus.payload_len) begin
 						rx_state				<= RX_STATE_PADDING;
-						rx_l3_bus.bytes_valid	<= rx_l3_payload_len - payload_bytes_so_far;
+						rx_l3_bus.bytes_valid	<= rx_l3_bus.payload_len - payload_bytes_so_far;
 					end
 
 				end

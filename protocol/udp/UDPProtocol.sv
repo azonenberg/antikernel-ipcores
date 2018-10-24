@@ -29,7 +29,7 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "EthernetBus.svh"
+`include "IPv4Bus.svh"
 
 module UDPProtocol(
 
@@ -38,14 +38,7 @@ module UDPProtocol(
 
 	//Incoming data bus from IP stack
 	//TODO: make this parameterizable for IPv4/IPv6, for now we only do v4
-	input wire EthernetBus	rx_l3_bus,
-
-	input wire[15:0]	rx_l3_payload_len,
-	input wire			rx_l3_protocol_is_udp,
-	input wire[31:0]	rx_l3_src_ip,
-	input wire[31:0]	rx_l3_dst_ip,
-	input wire			rx_l3_headers_valid,
-	input wire[15:0]	rx_l3_pseudo_header_csum,
+	input wire IPv4RxBus	rx_l3_bus,
 
 	//Outbound bus to applications
 	output reg			rx_l4_start			= 0,
@@ -67,10 +60,10 @@ module UDPProtocol(
 
 	InternetChecksum32bit rx_csum(
 		.clk(clk),
-		.load(rx_l3_headers_valid),
+		.load(rx_l3_bus.headers_valid),
 		.reset(1'b0),
 		.process(rx_l3_bus.data_valid),
-		.din(rx_l3_bus.data_valid ? rx_l3_bus.data : rx_l3_pseudo_header_csum),
+		.din(rx_l3_bus.data_valid ? rx_l3_bus.data : rx_l3_bus.pseudo_header_csum),
 		.sumout(),
 		.csumout(rx_checksum_expected)
 	);
@@ -78,15 +71,16 @@ module UDPProtocol(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX datapath
 
-	localparam RX_STATE_IDLE		= 4'h0;
-	localparam RX_STATE_HEADER_0	= 4'h1;
-	localparam RX_STATE_HEADER_1	= 4'h2;
-	localparam RX_STATE_HEADER_2	= 4'h3;
-	localparam RX_STATE_BODY		= 4'h4;
-	localparam RX_STATE_PADDING		= 4'h5;
-	localparam RX_STATE_CHECKSUM	= 4'h6;
-
-	reg[3:0]	rx_state			= RX_STATE_IDLE;
+	enum logic[3:0]
+	{
+		RX_STATE_IDLE		= 4'h0,
+		RX_STATE_HEADER_0	= 4'h1,
+		RX_STATE_HEADER_1	= 4'h2,
+		RX_STATE_HEADER_2	= 4'h3,
+		RX_STATE_BODY		= 4'h4,
+		RX_STATE_PADDING	= 4'h5,
+		RX_STATE_CHECKSUM	= 4'h6
+	} rx_state = RX_STATE_IDLE;
 
 	reg[15:0]	rx_l4_bytes_left	= 0;
 
@@ -117,8 +111,8 @@ module UDPProtocol(
 			//Wait until layer 3 says it's actually a UDP packet
 			//Drop anything too small for UDP headers, or not UDP
 			RX_STATE_HEADER_0: begin
-				if(rx_l3_headers_valid) begin
-					if( (rx_l3_payload_len < 8) || !rx_l3_protocol_is_udp ) begin
+				if(rx_l3_bus.headers_valid) begin
+					if( (rx_l3_bus.payload_len < 8) || !rx_l3_bus.protocol_is_udp ) begin
 						rx_l4_drop			<= 1;
 						rx_state			<= RX_STATE_IDLE;
 					end
