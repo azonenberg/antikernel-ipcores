@@ -30,6 +30,7 @@
 ***********************************************************************************************************************/
 
 `include "IPv4Bus.svh"
+`include "ICMPv4Bus.svh"
 `include "IPProtocols.vh"
 
 module ICMPv4Protocol(
@@ -48,9 +49,7 @@ module ICMPv4Protocol(
 	//TODO: allow originating pings etc?
 
 	//Performance counters
-	output reg[63:0]		perf_icmp_rx		= 0,
-	output reg[63:0]		perf_icmp_tx		= 0,
-	output reg[63:0]		perf_icmp_csumfail	= 0
+	output ICMPv4PerformanceCounters	perf	= {$bits(ICMPv4PerformanceCounters){1'b0}}
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -64,9 +63,9 @@ module ICMPv4Protocol(
 
 	always @(posedge clk) begin
 		if(rx_l3_bus.commit && rx_l3_bus.protocol_is_icmp)
-			perf_icmp_rx	<= perf_icmp_rx + 1'h1;
+			perf.packets_rx	<= perf.packets_rx + 1'h1;
 		if(tx_l3_bus.commit)
-			perf_icmp_tx	<= perf_icmp_tx + 1'h1;
+			perf.packets_tx	<= perf.packets_tx + 1'h1;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -314,7 +313,7 @@ module ICMPv4Protocol(
 						rx_state			<= RX_STATE_IDLE;
 						tx_l3_bus.drop		<= 1;
 						tx_fifo_rst			<= 1;
-						perf_icmp_csumfail	<= perf_icmp_csumfail + 1'h1;
+						perf.rx_csum_fail	<= perf.rx_csum_fail + 1'h1;
 					end
 
 					//Reply to the incoming ping! Save our headers
