@@ -40,6 +40,7 @@ module IPv4Protocol(
 	input wire[31:0]		our_ip_address,
 	input wire[31:0]		our_subnet_mask,
 	input wire[31:0]		our_broadcast_address,
+	input wire[31:0]		default_gateway,
 
 	//Incoming Ethernet data
 	input wire EthernetRxL2Bus	rx_l2_bus,
@@ -557,7 +558,14 @@ module IPv4Protocol(
 
 						tx_bytes_left		<= tx_l3_payload_len;
 
-						tx_l2_bus.dst_ip	<= tx_l3_dst_ip;
+						//Target in the local subnet? Route directly to it
+						if( (tx_l3_dst_ip & our_subnet_mask) == (our_ip_address & our_subnet_mask) )
+							tx_l2_bus.dst_ip	<= tx_l3_dst_ip;
+
+						//Nope, go through our router
+						else
+							tx_l2_bus.dst_ip	<= default_gateway;
+
 					end
 
 			end	//end TX_STATE_IDLE

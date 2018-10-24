@@ -485,6 +485,15 @@ module ARPCache #(
 					rd_data.mac[47:40], rd_data.mac[39:32], rd_data.mac[31:24],
 					rd_data.mac[23:16], rd_data.mac[15:8], rd_data.mac[7:0]
 					);
+
+				//If we use a cache entry, mark it as still in use so it won't age out
+				wr_en			<= 1;
+				wr_addr			<= rd_data_addr;
+				wr_data.valid	<= 1;
+				wr_data.age		<= 0;
+				wr_data.ip		<= rd_data.ip;
+				wr_data.mac		<= rd_data.mac;
+
 			end
 
 			//Learning. If we found the entry already in the cache, update it and go back to idle.

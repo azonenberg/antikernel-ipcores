@@ -75,7 +75,9 @@ typedef struct packed
 								//Valid bits are left aligned in data
 								//1 = 31:24, 2 = 31:16, 3 = 31:8, 4 = 31:0
 	logic[31:0]	data;			//actual packet content
-	logic[31:0]	dst_ip;
+	logic[31:0]	dst_ip;			//NOTE: This is the NEXT HOP ip address, not the ultimate destination
+								//(used for MAC address lookup).
+								//If the destination is outside our local subnet this is the default router's IP.
 
 	logic		commit;			//asserted for one cycle at end of packet if checksum was good
 	logic		drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
