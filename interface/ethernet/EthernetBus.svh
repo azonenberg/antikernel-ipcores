@@ -50,8 +50,6 @@ typedef struct packed
 								//1 = 31:24, 2 = 31:16, 3 = 31:8, 4 = 31:0
 	logic[31:0]	data;			//actual packet content
 
-	//These signals are only used for RX-side (coming from the NIC) traffic.
-	//They are ignored in the TX direction and should not be written to.
 	logic		commit;			//asserted for one cycle at end of packet if checksum was good
 	logic		drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
 } EthernetBus;

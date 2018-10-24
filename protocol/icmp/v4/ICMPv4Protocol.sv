@@ -30,6 +30,7 @@
 ***********************************************************************************************************************/
 
 `include "IPv4Bus.svh"
+`include "IPProtocols.vh"
 
 module ICMPv4Protocol(
 
@@ -41,9 +42,7 @@ module ICMPv4Protocol(
 
 	//Outbound data bus to IP stack
 	//(src ip and protocol are added by IP stack)
-	output EthernetBus		tx_l3_bus			=  {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
-	output reg[15:0]		tx_l3_payload_len,
-	output reg[31:0]		tx_l3_dst_ip		= 0,
+	output IPv4TxBus		tx_l3_bus			=  {$bits(IPv4TxBus){1'b0}},
 
 	//no layer-4 bus, we handle all ICMP traffic internally
 	//TODO: allow originating pings etc?
@@ -53,6 +52,12 @@ module ICMPv4Protocol(
 	output reg[63:0]		perf_icmp_tx		= 0,
 	output reg[63:0]		perf_icmp_csumfail	= 0
 );
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Tie off constant fields
+
+	always_comb
+		tx_l3_bus.protocol	<= IP_PROTO_ICMP;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Performance counters
@@ -318,15 +323,15 @@ module ICMPv4Protocol(
 					//We don't need a fifo for the type/code/id/seq fields as those will be used 3 clocks from now,
 					//and we can't get another packet to here that quickly.
 					else begin
-						tx_l3_payload_len	<= rx_l3_bus.payload_len;
-						tx_l3_dst_ip		<= rx_l3_bus.src_ip;
-						tx_type				<= ICMP_TYPE_ECHO_REPLY;
-						tx_code				<= 8'h0;
-						tx_l3_bus.start		<= 1;
-						rx_state			<= RX_STATE_IDLE;
-						tx_ping_id			<= rx_ping_id;
-						tx_ping_seq			<= rx_ping_seq;
-						tx_bytes_left		<= { rx_l3_bus.payload_len - 'd8 };
+						tx_l3_bus.payload_len	<= rx_l3_bus.payload_len;
+						tx_l3_bus.dst_ip		<= rx_l3_bus.src_ip;
+						tx_type					<= ICMP_TYPE_ECHO_REPLY;
+						tx_code					<= 8'h0;
+						tx_l3_bus.start			<= 1;
+						rx_state				<= RX_STATE_IDLE;
+						tx_ping_id				<= rx_ping_id;
+						tx_ping_seq				<= rx_ping_seq;
+						tx_bytes_left			<= { rx_l3_bus.payload_len - 'd8 };
 					end
 				end
 

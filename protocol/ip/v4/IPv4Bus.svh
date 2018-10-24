@@ -65,4 +65,22 @@ typedef struct packed
 	logic		drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
 } IPv4RxBus;
 
+typedef struct packed
+{
+	logic		start;			//asserted for one cycle before a frame starts
+	logic		data_valid;		//asserted when data is ready to be processed
+	logic[2:0]	bytes_valid;	//when data_valid is set, indicated number of valid bytes in data
+								//Valid bits are left aligned in data
+								//1 = 31:24, 2 = 31:16, 3 = 31:8, 4 = 31:0
+	logic[31:0]	data;			//actual packet content
+
+	logic[15:0]	payload_len;	//size of upper layer payload only
+								//(not the IP datagram length)
+	logic[7:0]	protocol;
+	logic[31:0]	dst_ip;
+
+	logic		commit;
+	logic		drop;
+} IPv4TxBus;
+
 `endif

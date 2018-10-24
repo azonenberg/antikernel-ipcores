@@ -53,10 +53,7 @@ module IPv4Protocol(
 	output IPv4RxBus		rx_l3_bus			 		= {$bits(IPv4RxBus){1'b0}},
 
 	//Transmit data from upper level protocol
-	input wire EthernetBus	tx_l3_bus,
-	input wire[15:0]		tx_l3_payload_len,
-	input wire[31:0]		tx_l3_dst_ip,
-	input wire[7:0]			tx_l3_protocol
+	input wire IPv4TxBus	tx_l3_bus
 
 	//TODO: performance counters
 	);
@@ -503,7 +500,7 @@ module IPv4Protocol(
 			//Insert length, TTL, protocol
 			TX_STATE_HEADER_0: begin
 				tx_checksum_process		<= 1;
-				tx_checksum_din			<= {8'hff, tx_l3_protocol, tx_total_len};
+				tx_checksum_din			<= {8'hff, tx_l3_bus.protocol, tx_total_len};
 			end	//end TX_STATE_HEADER_0
 
 			//Insert source IP (TODO: bake this into init value so we can skip the idle in TX_STATE_HEADER_0)
@@ -515,7 +512,7 @@ module IPv4Protocol(
 			//Insert dest IP
 			TX_STATE_HEADER_2: begin
 				tx_checksum_process		<= 1;
-				tx_checksum_din			<= tx_l3_dst_ip;
+				tx_checksum_din			<= tx_l3_bus.dst_ip;
 			end	//end TX_STATE_HEADER_2
 
 		endcase
@@ -545,18 +542,18 @@ module IPv4Protocol(
 					//sending stuff right away.
 					//Ignore any request to send less than 8 bytes, all layer-3 protocols have >=8 bytes of headers
 					//and we can optimize a bit by guaranteeing this.
-					if(tx_l3_bus.start && (tx_l3_payload_len > 8) ) begin
+					if(tx_l3_bus.start && (tx_l3_bus.payload_len > 8) ) begin
 						tx_l2_bus.start	<= 1;
 						tx_state		<= TX_STATE_HEADER_0;
 
 						//Precompute total packet length
-						tx_total_len		<= 8'd20 + tx_l3_payload_len;
+						tx_total_len		<= 8'd20 + tx_l3_bus.payload_len;
 
-						tx_bytes_left		<= tx_l3_payload_len;
+						tx_bytes_left		<= tx_l3_bus.payload_len;
 
 						//Target in the local subnet? Route directly to it
-						if( (tx_l3_dst_ip & our_subnet_mask) == (our_ip_address & our_subnet_mask) )
-							tx_l2_bus.dst_ip	<= tx_l3_dst_ip;
+						if( (tx_l3_bus.dst_ip & our_subnet_mask) == (our_ip_address & our_subnet_mask) )
+							tx_l2_bus.dst_ip	<= tx_l3_bus.dst_ip;
 
 						//Nope, go through our router
 						else
@@ -598,7 +595,7 @@ module IPv4Protocol(
 			TX_STATE_HEADER_4: begin
 				tx_l2_bus.data_valid	<= 1;
 				tx_l2_bus.bytes_valid	<= 4;
-				tx_l2_bus.data			<= {8'hff, tx_l3_protocol, tx_header_checksum};
+				tx_l2_bus.data			<= {8'hff, tx_l3_bus.protocol, tx_header_checksum};
 
 				tx_state				<= TX_STATE_HEADER_5;
 			end	//end TX_STATE_HEADER_4
@@ -619,7 +616,7 @@ module IPv4Protocol(
 			TX_STATE_HEADER_6: begin
 				tx_l2_bus.data_valid	<= 1;
 				tx_l2_bus.bytes_valid	<= 4;
-				tx_l2_bus.data			<= tx_l3_dst_ip;
+				tx_l2_bus.data			<= tx_l3_bus.dst_ip;
 
 				tx_fifo_rd				<= 1;
 
