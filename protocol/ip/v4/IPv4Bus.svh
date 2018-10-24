@@ -43,6 +43,14 @@
 
 typedef struct packed
 {
+	logic[31:0]	address;
+	logic[31:0]	mask;
+	logic[31:0]	broadcast;
+	logic[31:0]	gateway;
+} IPv4Config;
+
+typedef struct packed
+{
 	logic		start;			//asserted for one cycle before a frame starts
 	logic		data_valid;		//asserted when data is ready to be processed
 	logic[2:0]	bytes_valid;	//when data_valid is set, indicated number of valid bytes in data

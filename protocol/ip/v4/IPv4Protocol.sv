@@ -35,25 +35,18 @@
 module IPv4Protocol(
 
 	//Clocks
-	input wire				clk,
+	input wire					clk,
 
 	//Constant-ish state data
-	input wire[31:0]		our_ip_address,
-	input wire[31:0]		our_subnet_mask,
-	input wire[31:0]		our_broadcast_address,
-	input wire[31:0]		default_gateway,
+	input wire IPv4Config		ip_config,
 
-	//Incoming Ethernet data
+	//Interface to MAC
 	input wire EthernetRxL2Bus	rx_l2_bus,
-
-	//Outbound data (same clock domain as incoming)
-	output EthernetTxArpBus	tx_l2_bus					= {$bits(EthernetTxArpBus){1'b0}},
+	output EthernetTxArpBus		tx_l2_bus					= {$bits(EthernetTxArpBus){1'b0}},
 
 	//Interface to upper level protocol
-	output IPv4RxBus		rx_l3_bus			 		= {$bits(IPv4RxBus){1'b0}},
-
-	//Transmit data from upper level protocol
-	input wire IPv4TxBus	tx_l3_bus
+	output IPv4RxBus			rx_l3_bus			 		= {$bits(IPv4RxBus){1'b0}},
+	input wire IPv4TxBus		tx_l3_bus
 
 	//TODO: performance counters
 	);
@@ -335,8 +328,8 @@ module IPv4Protocol(
 						//See if the packet is intended for us
 						//This means either our unicast address, our subnet's broadcast address,
 						//or the global broadcast address.
-						if( (rx_l2_bus.data == our_ip_address) ||
-							(rx_l2_bus.data == our_broadcast_address) ||
+						if( (rx_l2_bus.data == ip_config.address) ||
+							(rx_l2_bus.data == ip_config.broadcast) ||
 							(rx_l2_bus.data == 32'hffffffff) ) begin
 
 							rx_state				<= RX_STATE_BODY;
@@ -345,6 +338,7 @@ module IPv4Protocol(
 						end
 
 						//Nope, it's for somebody else. Drop it.
+						//TODO: performance counter here
 						else begin
 							rx_state				<= RX_STATE_IDLE;
 							rx_l3_bus.drop			<= 1;
@@ -506,7 +500,7 @@ module IPv4Protocol(
 			//Insert source IP (TODO: bake this into init value so we can skip the idle in TX_STATE_HEADER_0)
 			TX_STATE_HEADER_1: begin
 				tx_checksum_process		<= 1;
-				tx_checksum_din			<= our_ip_address;
+				tx_checksum_din			<= ip_config.address;
 			end	//end TX_STATE_HEADER_1
 
 			//Insert dest IP
@@ -552,12 +546,12 @@ module IPv4Protocol(
 						tx_bytes_left		<= tx_l3_bus.payload_len;
 
 						//Target in the local subnet? Route directly to it
-						if( (tx_l3_bus.dst_ip & our_subnet_mask) == (our_ip_address & our_subnet_mask) )
+						if( (tx_l3_bus.dst_ip & ip_config.mask) == (ip_config.address & ip_config.mask) )
 							tx_l2_bus.dst_ip	<= tx_l3_bus.dst_ip;
 
 						//Nope, go through our router
 						else
-							tx_l2_bus.dst_ip	<= default_gateway;
+							tx_l2_bus.dst_ip	<= ip_config.gateway;
 
 					end
 
@@ -604,7 +598,7 @@ module IPv4Protocol(
 			TX_STATE_HEADER_5: begin
 				tx_l2_bus.data_valid	<= 1;
 				tx_l2_bus.bytes_valid	<= 4;
-				tx_l2_bus.data			<= our_ip_address;
+				tx_l2_bus.data			<= ip_config.address;
 
 				tx_fifo_rd				<= 1;
 
