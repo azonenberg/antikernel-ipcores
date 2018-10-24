@@ -83,8 +83,8 @@ module ARPManager #(
 	//TODO: When a cache entry gets old, send an ARP query for the target IP pre-emptively
 	//rather than waiting for it to expire.
 
-	wire		lookup_en	= ipv4_tx_l2_bus.start;
-	wire[31:0]	lookup_ip	= ipv4_tx_l2_bus.dst_ip;
+	logic		lookup_en	= 0;
+	logic[31:0]	lookup_ip	= 0;
 
 	wire		lookup_done;
 	wire		lookup_hit;
@@ -113,20 +113,165 @@ module ARPManager #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Buffer incoming traffic until we know where it goes
 
+	localparam L2_BUS_SIZE = $bits(EthernetTxArpBus);
+
+	logic	tx_fifo_wr	= 0;
+	logic	tx_fifo_rd	= 0;
+	wire	tx_fifo_empty;
+
+	wire[5:0]	tx_fifo_rsize;
+
+	EthernetTxArpBus tx_fifo_rdata;
+
+	SingleClockFifo #(
+		.WIDTH(L2_BUS_SIZE),
+		.DEPTH(32),
+		.USE_BLOCK(0),
+		.OUT_REG(1)
+	) tx_fifo (
+		.clk(clk),
+		.wr(tx_fifo_wr),
+		.din(ipv4_tx_l2_bus),
+
+		.rd(tx_fifo_rd),
+		.dout(tx_fifo_rdata),
+		.overflow(),
+		.underflow(),
+		.empty(tx_fifo_empty),
+		.full(),
+		.rsize(tx_fifo_rsize),
+		.wsize(),
+		.reset()
+	);
+
+	always_comb begin
+		tx_fifo_wr	<= 0;
+
+		//Only write if something is happening
+		if(ipv4_tx_l2_bus.start)
+			tx_fifo_wr	<= 1;
+		if(ipv4_tx_l2_bus.data_valid)
+			tx_fifo_wr	<= 1;
+		if(ipv4_tx_l2_bus.commit || ipv4_tx_l2_bus.drop)
+			tx_fifo_wr	<= 1;
+
+	end
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Address lookup and insertion
 
-	always_ff @(posedge clk) begin
-	end
+	enum logic[3:0]
+	{
+		TX_STATE_IDLE		= 4'h0,
+		TX_STATE_LOOKUP_0	= 4'h1,
+		TX_STATE_LOOKUP_1	= 4'h2,
+		TX_STATE_BODY		= 4'h3
+	} tx_state = TX_STATE_IDLE;
 
-	always_comb begin
-		ipv4_tx_arp_bus.start		<= ipv4_tx_l2_bus.start;
-		ipv4_tx_arp_bus.data_valid	<= ipv4_tx_l2_bus.data_valid;
-		ipv4_tx_arp_bus.bytes_valid	<= ipv4_tx_l2_bus.bytes_valid;
-		ipv4_tx_arp_bus.data		<= ipv4_tx_l2_bus.data;
-		ipv4_tx_arp_bus.commit		<= ipv4_tx_l2_bus.commit;
-		ipv4_tx_arp_bus.drop		<= ipv4_tx_l2_bus.drop;
-		ipv4_tx_arp_bus.dst_mac		<= 48'hffffffffffff;
+	logic	tx_fifo_rd_ff	= 0;
+
+	always_ff @(posedge clk) begin
+
+		tx_fifo_rd				<= 0;
+		lookup_en				<= 0;
+		tx_fifo_rd_ff			<= tx_fifo_rd;
+
+		ipv4_tx_arp_bus.start		<= 0;
+		ipv4_tx_arp_bus.drop		<= 0;
+		ipv4_tx_arp_bus.commit		<= 0;
+		ipv4_tx_arp_bus.data_valid	<= 0;
+
+		case(tx_state)
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Wait for somebody to send a packet
+
+			TX_STATE_IDLE: begin
+
+				if(!tx_fifo_empty) begin
+					tx_fifo_rd	<= 1;
+					tx_state	<= TX_STATE_LOOKUP_0;
+				end
+
+			end	//end TX_STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Wait for FIFO read and do table lookup
+
+			TX_STATE_LOOKUP_0: begin
+				if(!tx_fifo_rd) begin
+
+					//If this isn't a start command, drop the packet (should never happen)
+					if(!tx_fifo_rdata.start)
+						tx_state	<= TX_STATE_IDLE;
+
+					//It's a start command. Look up the MAC address.
+					else begin
+						lookup_en	<= 1;
+						lookup_ip	<= tx_fifo_rdata.dst_ip;
+						tx_state	<= TX_STATE_LOOKUP_1;
+					end
+
+				end
+			end	//end TX_STATE_LOOKUP_0
+
+			TX_STATE_LOOKUP_1: begin
+
+				//Lookup has completed.
+				//For now, don't even check the result. Use whatever came back as the destination (miss = broadcast)
+				if(lookup_done) begin
+					ipv4_tx_arp_bus.start	<= 1;
+					ipv4_tx_arp_bus.dst_mac	<= lookup_mac;
+
+					tx_fifo_rd				<= 1;
+					tx_state				<= TX_STATE_BODY;
+				end
+
+			end	//end TX_STATE_LOOKUP_1
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Packet data
+
+			TX_STATE_BODY: begin
+
+				//If there's at least one word of data in the FIFO
+				//(after the one we're popping now) submit another read requst
+				if(tx_fifo_rsize > 1)
+					tx_fifo_rd	<= 1;
+
+				//If there is read data, send it.
+				if(tx_fifo_rd_ff) begin
+
+					//Commit or drop request? We're done.
+					if(tx_fifo_rdata.commit || tx_fifo_rdata.drop) begin
+						ipv4_tx_arp_bus.commit	<= tx_fifo_rdata.commit;
+						ipv4_tx_arp_bus.drop	<= tx_fifo_rdata.drop;
+
+						//Cancel any outstanding read.
+						tx_fifo_rd				<= 0;
+
+						//If there's a read in progress this cycle, jump right into the next lookup
+						if(tx_fifo_rd)
+							tx_state			<= TX_STATE_LOOKUP_0;
+
+						//Otherwise we're done
+						else
+							tx_state			<= TX_STATE_IDLE;
+					end
+
+					//Nope, normal packet data
+					else begin
+						ipv4_tx_arp_bus.data_valid	<= tx_fifo_rdata.data_valid;
+						ipv4_tx_arp_bus.data		<= tx_fifo_rdata.data;
+						ipv4_tx_arp_bus.bytes_valid	<= tx_fifo_rdata.bytes_valid;
+					end
+
+				end
+
+			end	//end TX_STATE_BODY
+
+		endcase
+
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

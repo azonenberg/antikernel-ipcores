@@ -266,6 +266,8 @@ module ARPCache #(
 					target_hash		<= lookup_hash;
 					target_ip		<= lookup_ip;
 
+					lookup_mac		<= 48'hff_ff_ff_ff_ff_ff;	//default to broadcast if we can't find it
+
 					$display("[%t] Looking up IP %d.%d.%d.%d",
 						$time(), lookup_ip[31:24], lookup_ip[23:16], lookup_ip[15:8], lookup_ip[7:0]);
 				end
