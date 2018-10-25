@@ -36,7 +36,13 @@
 
 	TODO: refactor this when we have more ethertypes to use generate loops or something
  */
-module EthernetTransmitArbiter (
+module EthernetTransmitArbiter #(
+	parameter PACKET_DEPTH	= 8192,		//Packet-data FIFO is 32 bits wide x this many words
+										//Default 8192 = 32768 bytes
+										//(21 standard frames, 3 jumbo frames, 512 min-sized frames)
+
+	parameter HEADER_DEPTH	= 512		//Depth of header FIFO, in packets
+)(
 
 	//Clocks
 	input wire					clk,
@@ -46,19 +52,13 @@ module EthernetTransmitArbiter (
 	input wire EthernetTxL2Bus	arp_tx_l2_bus,
 
 	//Outbound data to the MAC
-	output EthernetTxL2Bus		tx_l2_bus				= {1'h0, 1'h0, 1'h0, 32'h0, 48'h0, 16'h0, 1'h0, 1'h0},
+	output EthernetTxL2Bus		tx_l2_bus				= { $bits(EthernetTxL2Bus){1'b0} },
 
 	output EthernetArbiterPerformanceCounters	perf	= {64'h0, 64'h0, 64'h0, 64'h0}
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Configuration
-
-	parameter PACKET_DEPTH	= 8192;		//Packet-data FIFO is 32 bits wide x this many words
-										//Default 8192 = 32768 bytes
-										//(21 standard frames, 3 jumbo frames, 512 min-sized frames)
-
-	parameter HEADER_DEPTH	= 512;		//Depth of header FIFO, in packets
 
 	localparam PACKET_BITS	= $clog2(PACKET_DEPTH);
 	localparam HEADER_BITS	= $clog2(HEADER_DEPTH);
@@ -456,82 +456,5 @@ module EthernetTransmitArbiter (
 		endcase
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug LA
-
-	/*
-	wire	trig_out;
-	reg		trig_out_ack	= 0;
-
-	always @(posedge clk) begin
-		trig_out_ack	<= trig_out;
-	end
-
-	ila_0 ila(
-		.clk(clk),
-
-		.probe0(ipv4_tx_l2_bus.start),
-		.probe1(ipv4_tx_l2_bus.data_valid),
-		.probe2(ipv4_tx_l2_bus.bytes_valid),
-		.probe3(ipv4_tx_l2_bus.data),
-		.probe4(ipv4_tx_l2_bus.commit),
-		.probe5(ipv4_tx_l2_bus.drop),
-		.probe6(ipv4_tx_l2_bus.dst_mac),
-		.probe7(ipv4_packet_active),
-
-		.probe8(arp_tx_l2_bus.start),
-		.probe9(arp_tx_l2_bus.data_valid),
-		.probe10(arp_tx_l2_bus.bytes_valid),
-		.probe11(arp_tx_l2_bus.data),
-		.probe12(arp_tx_l2_bus.commit),
-		.probe13(arp_tx_l2_bus.drop),
-		.probe14(arp_tx_l2_bus.dst_mac),
-		.probe15(arp_packet_active),
-
-		.probe16(tx_l2_bus.start),
-		.probe17(tx_l2_bus.data_valid),
-		.probe18(tx_l2_bus.bytes_valid),
-		.probe19(tx_l2_bus.data),
-		.probe20(tx_l2_bus.commit),
-		.probe21(tx_l2_bus.drop),
-		.probe22(tx_l2_bus.dst_mac),
-		.probe23(tx_l2_bus.ethertype),
-
-		.probe24(ipv4_tx_frame_size),
-		.probe25(arp_tx_frame_size),
-		.probe26(ipv4_tx_l2_bus_commit_ff),
-		.probe27(arp_tx_l2_bus_commit_ff),
-		.probe28(state),
-
-		.probe29(ipv4_rd_en),
-		.probe30(ipv4_rd_offset),
-		.probe31(ipv4_pop_packet),
-		.probe32(ipv4_pop_size),
-		.probe33(ipv4_rd_data),
-
-		.probe34(arp_rd_en),
-		.probe35(arp_rd_offset),
-		.probe36(arp_pop_packet),
-		.probe37(arp_pop_size),
-		.probe38(arp_rd_data),
-
-		.probe39(ipv4_header_fifo_avail),
-		.probe40(arp_header_fifo_avail),
-
-		.probe41(ipv4_packet_len),
-		.probe42(ipv4_packet_mac),
-		.probe43(arp_packet_len),
-		.probe44(arp_packet_mac),
-		.probe45(tx_bytes_left),
-		.probe46(ipv4_header_rd_en),
-		.probe47(arp_header_rd_en),
-		.probe48(ipv4_payload_fifo_free),
-		.probe49(ipv4_rd_avail),
-
-		.trig_out(trig_out),
-		.trig_out_ack(trig_out_ack)
-	);
-	*/
 
 endmodule

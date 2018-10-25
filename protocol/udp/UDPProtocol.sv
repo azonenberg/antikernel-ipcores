@@ -40,9 +40,11 @@ module UDPProtocol(
 	//Incoming data bus from IP stack
 	//TODO: make this parameterizable for IPv4/IPv6, for now we only do v4
 	input wire IPv4RxBus	rx_l3_bus,
+	output IPv4TxBus		tx_l3_bus	=	{$bits(IPv4TxBus){1'b0}},
 
 	//Outbound bus to applications
-	output UDPv4RxBus		rx_l4_bus	=	{$bits(UDPv4RxBus){1'b0}}
+	output UDPv4RxBus		rx_l4_bus	=	{$bits(UDPv4RxBus){1'b0}},
+	input UDPv4TxBus		tx_l4_bus
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -212,6 +214,29 @@ module UDPProtocol(
 
 			rx_state	<= RX_STATE_IDLE;
 		end
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX datapath
+
+	enum logic[3:0]
+	{
+		TX_STATE_IDLE		= 4'h0
+	} tx_state = TX_STATE_IDLE;
+
+	always_ff @(posedge clk) begin
+
+		tx_l3_bus.start		<= 0;
+		tx_l3_bus.commit	<= 0;
+		tx_l3_bus.drop		<= 0;
+
+		case(tx_state)
+
+			TX_STATE_IDLE: begin
+			end	//end TX_STATE_IDLE
+
+		endcase
 
 	end
 

@@ -56,4 +56,21 @@ typedef struct packed
 	logic		drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
 } UDPv4RxBus;
 
+typedef struct packed
+{
+	logic		start;
+	logic[31:0]	dst_ip;
+	logic[15:0]	src_port;
+	logic[15:0]	dst_port;
+
+	logic		data_valid;
+	logic[2:0]	bytes_valid;
+	logic[31:0]	data;
+
+	logic[15:0]	payload_len;
+
+	logic		commit;
+	logic		drop;
+} UDPv4TxBus;
+
 `endif

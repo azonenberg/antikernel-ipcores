@@ -61,7 +61,8 @@ module TCPIPStack #(
 	input wire					mac_tx_ready,
 
 	//UDP socket interface
-	output UDPv4RxBus			udpv4_rx_bus
+	output UDPv4RxBus			udpv4_rx_bus,
+	input UDPv4TxBus			udpv4_tx_bus
 
 	//TODO: performance counters
 );
@@ -185,7 +186,7 @@ module TCPIPStack #(
 	// Layer 3 IPv4
 
 	IPv4RxBus	ipv4_rx_l3_bus;
-	IPv4TxBus	icmp_ipv4_tx_l3_bus;
+	IPv4TxBus	ipv4_tx_l3_bus;
 
 	IPv4Protocol ipv4(
 		.clk(clk_ipstack),
@@ -202,15 +203,35 @@ module TCPIPStack #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// IPv4 transmit arbiter
+
+	IPv4TxBus	icmp_ipv4_tx_l3_bus;
+	IPv4TxBus	udp_ipv4_tx_l3_bus;
+
+	//Tie off unused protocol ports
+	IPv4TxBus	tcp_ipv4_tx_l3_bus = {$bits(IPv4TxBus){1'b0}};
+
+	IPv4TransmitArbiter ip_arbiter(
+		.clk(clk_ipstack),
+
+		.icmp_bus(icmp_ipv4_tx_l3_bus),
+		.tcp_bus(tcp_ipv4_tx_l3_bus),
+		.udp_bus(udp_ipv4_tx_l3_bus),
+
+		.ipv4_bus(ipv4_tx_l3_bus)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Layer 4 UDP (for IPv4)
 
 	UDPProtocol udp_ipv4(
 		.clk(clk_ipstack),
 
 		.rx_l3_bus(ipv4_rx_l3_bus),
-		.rx_l4_bus(udpv4_rx_bus)
+		.rx_l4_bus(udpv4_rx_bus),
 
-		//TODO: implement UDP TX
+		.tx_l3_bus(udp_ipv4_tx_l3_bus),
+		.tx_l4_bus(udpv4_tx_bus)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
