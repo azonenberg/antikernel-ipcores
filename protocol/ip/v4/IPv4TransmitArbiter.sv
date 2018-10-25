@@ -71,7 +71,7 @@ module IPv4TransmitArbiter #(
 	) icmp_fifo (
 		.clk(clk),
 		.wr(icmp_fifo_wr),
-		.din(icmp_bus.data),
+		.din(icmp_bus),
 
 		.rd(icmp_fifo_rd),
 		.dout(icmp_fifo_rdata),
@@ -97,7 +97,7 @@ module IPv4TransmitArbiter #(
 	) tcp_fifo (
 		.clk(clk),
 		.wr(tcp_fifo_wr),
-		.din(tcp_bus.data),
+		.din(tcp_bus),
 
 		.rd(tcp_fifo_rd),
 		.dout(tcp_fifo_rdata),
@@ -123,7 +123,7 @@ module IPv4TransmitArbiter #(
 	) udp_fifo (
 		.clk(clk),
 		.wr(udp_fifo_wr),
-		.din(udp_bus.data),
+		.din(udp_bus),
 
 		.rd(udp_fifo_rd),
 		.dout(udp_fifo_rdata),

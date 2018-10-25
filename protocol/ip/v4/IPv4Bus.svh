@@ -41,6 +41,8 @@
 `ifndef IPv4Bus_h
 `define IPv4Bus_h
 
+`include "IPProtocols.svh"
+
 typedef struct packed
 {
 	logic[31:0]	address;
@@ -60,7 +62,7 @@ typedef struct packed
 
 	logic[15:0]	payload_len;	//size of upper layer payload only
 								//(not the IP datagram length)
-	logic[7:0]	protocol;
+	ipproto_t	protocol;
 	logic		protocol_is_icmp;
 	logic		protocol_is_udp;
 	logic		protocol_is_tcp;
@@ -84,7 +86,7 @@ typedef struct packed
 
 	logic[15:0]	payload_len;	//size of upper layer payload only
 								//(not the IP datagram length)
-	logic[7:0]	protocol;
+	ipproto_t	protocol;
 	logic[31:0]	dst_ip;
 
 	logic		commit;

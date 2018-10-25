@@ -220,23 +220,96 @@ module UDPProtocol(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX datapath
 
+	//For now, send packets with no che=cksum (rely on the 802.3 FCS)
+
+	logic[2:0]	tx_valid_ff		= 0;
+	logic[2:0]	tx_valid_ff2	= 0;
+
+	logic[31:0]	tx_data_ff		= 0;
+	logic[31:0]	tx_data_ff2		= 0;
+
+	logic		committed		= 0;
+
 	enum logic[3:0]
 	{
-		TX_STATE_IDLE		= 4'h0
+		TX_STATE_IDLE			= 4'h0,
+		TX_STATE_HEADER_0		= 4'h1,
+		TX_STATE_HEADER_1		= 4'h2,
+		TX_STATE_BODY			= 4'h3,
+		TX_STATE_COMMIT			= 4'h4
 	} tx_state = TX_STATE_IDLE;
 
 	always_ff @(posedge clk) begin
 
-		tx_l3_bus.start		<= 0;
-		tx_l3_bus.commit	<= 0;
-		tx_l3_bus.drop		<= 0;
+		tx_l3_bus.start			<= 0;
+		tx_l3_bus.commit		<= 0;
+		tx_l3_bus.drop			<= 0;
+		tx_l3_bus.data_valid	<= 0;
+
+		//Tiny FIFO of incoming data
+		tx_data_ff				<= tx_l4_bus.data;
+		tx_data_ff2				<= tx_data_ff;
+		tx_valid_ff				<= tx_l4_bus.data_valid ? tx_l4_bus.bytes_valid : 3'b0;
+		tx_valid_ff2			<= tx_valid_ff;
+
+		if(tx_l4_bus.commit)
+			committed			<= 1;
 
 		case(tx_state)
 
 			TX_STATE_IDLE: begin
+				committed					<= 0;
+
+				if(tx_l4_bus.start) begin
+					tx_l3_bus.start			<= 1;
+					tx_l3_bus.dst_ip		<= tx_l4_bus.dst_ip;
+					tx_l3_bus.payload_len	<= tx_l4_bus.payload_len + 4'd8;
+					tx_l3_bus.protocol		<= IP_PROTO_UDP;
+					tx_state				<= TX_STATE_HEADER_0;
+				end
 			end	//end TX_STATE_IDLE
 
+			//Port header
+			TX_STATE_HEADER_0: begin
+				tx_l3_bus.data_valid		<= 1;
+				tx_l3_bus.bytes_valid		<= 4;
+				tx_l3_bus.data				<= { tx_l4_bus.src_port, tx_l4_bus.dst_port };
+				tx_state					<= TX_STATE_HEADER_1;
+			end	//end TX_STATE_HEADER_0
+
+			//Checksum/length header
+			TX_STATE_HEADER_1: begin
+				tx_l3_bus.data_valid		<= 1;
+				tx_l3_bus.bytes_valid		<= 4;
+				tx_l3_bus.data				<= { tx_l4_bus.payload_len, 16'h0 };
+				tx_state					<= TX_STATE_BODY;
+			end //end TX_STATE_HEADER_1
+
+			//Message content
+			TX_STATE_BODY: begin
+				tx_l3_bus.data_valid		<= 1;
+				tx_l3_bus.bytes_valid		<= tx_valid_ff2;
+				tx_l3_bus.data				<= tx_data_ff2;
+
+				if(tx_valid_ff == 0)
+					tx_state				<= TX_STATE_COMMIT;
+
+			end //end TX_STATE_BODY
+
+			TX_STATE_COMMIT: begin
+				if(committed || tx_l4_bus.commit) begin
+					tx_l3_bus.commit		<= 1;
+					tx_state				<= TX_STATE_IDLE;
+				end
+			end	//end TX_STATE_COMMIT
+
 		endcase
+
+		//If we get a drop request, drop everything
+		if(tx_l4_bus.drop) begin
+			tx_state		<= TX_STATE_IDLE;
+			tx_l3_bus.drop	<= 1;
+		end
 
 	end
 

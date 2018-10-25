@@ -31,7 +31,7 @@
 
 `include "IPv4Bus.svh"
 `include "ICMPv4Bus.svh"
-`include "IPProtocols.vh"
+`include "IPProtocols.svh"
 
 module ICMPv4Protocol(
 

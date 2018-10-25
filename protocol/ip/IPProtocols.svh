@@ -27,6 +27,14 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-localparam IP_PROTO_ICMP	= 8'h01;
-localparam IP_PROTO_TCP		= 8'h06;
-localparam IP_PROTO_UDP		= 8'h11;
+`ifndef IPProtocols_svh
+`define IPProtocols_svh
+
+typedef enum logic[7:0]
+{
+	IP_PROTO_ICMP	= 8'h01,
+	IP_PROTO_TCP	= 8'h06,
+	IP_PROTO_UDP	= 8'h11
+} ipproto_t;
+
+`endif

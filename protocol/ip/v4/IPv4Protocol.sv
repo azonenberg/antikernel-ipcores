@@ -31,6 +31,7 @@
 
 `include "EthernetBus.svh"
 `include "IPv4Bus.svh"
+`include "IPProtocols.svh"
 
 module IPv4Protocol(
 
@@ -53,8 +54,6 @@ module IPv4Protocol(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// State values for receiver (need this before checksum so we can ignore the incoming checksum properly)
-
-	`include "../IPProtocols.vh"
 
 	enum logic[3:0]
 	{
@@ -280,7 +279,7 @@ module IPv4Protocol(
 
 					else begin
 						//rx_ttl					<= rx_l2_bus.data[31:24];
-						rx_l3_bus.protocol			<= rx_l2_bus.data[23:16];
+						rx_l3_bus.protocol			<= ipproto_t'(rx_l2_bus.data[23:16]);
 						rx_l3_bus.protocol_is_icmp	<= (rx_l2_bus.data[23:16] == IP_PROTO_ICMP);
 						rx_l3_bus.protocol_is_udp	<= (rx_l2_bus.data[23:16] == IP_PROTO_UDP);
 						rx_l3_bus.protocol_is_tcp	<= (rx_l2_bus.data[23:16] == IP_PROTO_TCP);
