@@ -56,7 +56,7 @@ module RGMIIMACWrapper(
 	output EthernetRxBus		mac_rx_bus,
 
 	input wire EthernetTxBus	mac_tx_bus,
-	input wire 					mac_tx_ready,
+	output wire 				mac_tx_ready,
 
 	output wire					link_up
 
@@ -69,6 +69,8 @@ module RGMIIMACWrapper(
 	wire		gmii_rxc;
 	GmiiBus		gmii_rx_bus;
 	GmiiBus		gmii_tx_bus;
+
+	assign		mac_rx_clk	= gmii_rxc;
 
 	RGMIIToGMIIBridge rgmii_bridge(
 		.rgmii_rxc(rgmii_rxc),

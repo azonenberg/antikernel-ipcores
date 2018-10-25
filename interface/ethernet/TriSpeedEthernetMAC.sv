@@ -51,7 +51,7 @@ module TriSpeedEthernetMAC(
 	input wire					link_up,
 
 	//Data bus to/from upper layer stack (synchronous to GMII RX/TX clocks)
-	output EthernetRxBus		rx_bus 				= {$size(EthernetRxBus){1'b0}},
+	output EthernetRxBus		rx_bus 				= {$bits(EthernetRxBus){1'b0}},
 	input wire EthernetTxBus	tx_bus,
 
 	//Flow control - set false during a frame or IFG, true when ready for the next frame

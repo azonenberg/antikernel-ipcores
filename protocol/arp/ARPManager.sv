@@ -61,6 +61,14 @@ module ARPManager #(
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Tie off constant ports
+
+	`include "Ethertypes.svh"
+
+	always_comb
+		ipv4_tx_arp_bus.ethertype	<= ETHERTYPE_ARP;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Aging counter
 
 	reg[31:0]	aging_count = 0;
@@ -141,7 +149,7 @@ module ARPManager #(
 		.full(),
 		.rsize(tx_fifo_rsize),
 		.wsize(),
-		.reset()
+		.reset(1'b0)
 	);
 
 	always_comb begin
