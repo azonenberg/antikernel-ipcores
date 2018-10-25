@@ -281,7 +281,7 @@ module UDPProtocol(
 			TX_STATE_HEADER_1: begin
 				tx_l3_bus.data_valid		<= 1;
 				tx_l3_bus.bytes_valid		<= 4;
-				tx_l3_bus.data				<= { tx_l4_bus.payload_len, 16'h0 };
+				tx_l3_bus.data				<= { tx_l3_bus.payload_len, 16'h0 };
 				tx_state					<= TX_STATE_BODY;
 			end //end TX_STATE_HEADER_1
 
