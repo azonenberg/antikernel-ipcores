@@ -27,7 +27,15 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-localparam ETHERTYPE_IPV4 	= 16'h0800;
-localparam ETHERTYPE_ARP  	= 16'h0806;
-localparam ETHERTYPE_DOT1Q	= 16'h8100;
-localparam ETHERTYPE_IPV6 	= 16'h86dd;
+`ifndef Ethertypes_h
+`define Ethertypes_h
+
+typedef enum logic[15:0]
+{
+	ETHERTYPE_IPV4 	= 16'h0800,
+	ETHERTYPE_ARP  	= 16'h0806,
+	ETHERTYPE_DOT1Q	= 16'h8100,
+	ETHERTYPE_IPV6 	= 16'h86dd
+} ethertype_t;
+
+`endif

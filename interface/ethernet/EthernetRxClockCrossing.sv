@@ -42,15 +42,15 @@
 module EthernetRxClockCrossing(
 
 	//Incoming frames from the MAC
-	input wire				gmii_rxc,
-	input wire EthernetBus	mac_rx_bus,
+	input wire					gmii_rxc,
+	input wire EthernetRxBus	mac_rx_bus,
 
 	//Outgoing frames to the L2 decoder
-	input wire				sys_clk,
-	output EthernetBus		cdc_rx_bus = {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
+	input wire					sys_clk,
+	output EthernetRxBus		cdc_rx_bus = {$bits(EthernetRxBus){1'b0}},
 
 	//Performance counters
-	output logic[63:0]	perf_rx_cdc_frames			= 0
+	output logic[63:0]			perf_rx_cdc_frames			= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

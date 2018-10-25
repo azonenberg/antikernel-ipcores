@@ -264,7 +264,7 @@ module EthernetTransmitArbiter (
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Muxing and output logic
 
-	`include "Ethertypes.vh"
+	`include "Ethertypes.svh"
 
 	localparam STATE_IDLE					= 4'h0;
 	localparam STATE_ARP_HEADER_READ		= 4'h1;

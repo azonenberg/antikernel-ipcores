@@ -44,18 +44,18 @@ module TriSpeedEthernetMAC(
 	input wire GmiiBus			gmii_rx_bus,
 
 	input wire					gmii_tx_clk,
-	output GmiiBus				gmii_tx_bus = {1'b0, 1'b0, 8'b0},
+	output GmiiBus				gmii_tx_bus 		= {1'b0, 1'b0, 8'b0},
 
 	//Link state flags (reset stuff as needed when link is down)
 	//Synchronous to RX clock
 	input wire					link_up,
 
 	//Data bus to/from upper layer stack (synchronous to GMII RX/TX clocks)
-	output EthernetBus			rx_bus = {1'h0, 1'h0, 1'h0, 32'h0, 1'h0, 1'h0},
+	output EthernetRxBus		rx_bus 				= {$size(EthernetRxBus){1'b0}},
 	input wire EthernetTxBus	tx_bus,
 
 	//Flow control - set false during a frame or IFG, true when ready for the next frame
-	output logic				tx_ready				= 1,
+	output logic				tx_ready			= 1,
 
 	//Performance counters (sync to tx or rx clock, as appropriate)
 	output GigabitMacPerformanceCounters	perf	= { 64'h0, 64'h0, 64'h0 }
@@ -284,7 +284,7 @@ module TriSpeedEthernetMAC(
 		.clk(gmii_tx_clk),
 
 		.wr(tx_bus.data_valid),
-		.din(tx_bus.data),
+		.din(tx_bus.data[7:0]),
 
 		.rd(tx_fifo_pop),
 		.dout(tx_fifo_rdata),

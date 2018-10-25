@@ -41,6 +41,9 @@
 `ifndef EthernetBus_h
 `define EthernetBus_h
 
+`include "Ethertypes.svh"
+
+//Inbound packet data bus
 typedef struct packed
 {
 	logic		start;			//asserted for one cycle before a frame starts
@@ -52,7 +55,7 @@ typedef struct packed
 
 	logic		commit;			//asserted for one cycle at end of packet if checksum was good
 	logic		drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
-} EthernetBus;
+} EthernetRxBus;
 
 //Bus from elastic buffer to MAC
 typedef struct packed
@@ -91,7 +94,7 @@ typedef struct packed
 								//1 = 31:24, 2 = 31:16, 3 = 31:8, 4 = 31:0
 	logic[31:0]	data;			//actual packet content
 	logic[47:0]	dst_mac;		//destination MAC address (source implicit)
-	logic[15:0]	ethertype;
+	ethertype_t	ethertype;
 
 	logic		commit;			//asserted for one cycle at end of packet if checksum was good
 	logic		drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
@@ -113,7 +116,7 @@ typedef struct packed
 	logic		headers_valid;		//Indicates the following fields of the structure are valid
 	logic[47:0]	dst_mac;
 	logic[47:0]	src_mac;
-	logic[15:0]	ethertype;
+	ethertype_t	ethertype;
 	logic		ethertype_is_ipv4;
 	logic		ethertype_is_ipv6;
 	logic		ethertype_is_arp;

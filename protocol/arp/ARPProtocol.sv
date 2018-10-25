@@ -44,7 +44,7 @@ module ARPProtocol(
 	input wire EthernetRxL2Bus	rx_l2_bus,
 
 	//Outbound data (same clock domain as incoming)
-	output EthernetTxL2Bus		tx_l2_bus			= {1'h0, 1'h0, 1'h0, 32'h0, 48'h0, 16'h0, 1'h0, 1'h0},
+	output EthernetTxL2Bus		tx_l2_bus			= {$bits(EthernetTxL2Bus){1'b0}},
 
 	//New mappings we've learned (to cache)
 	output logic				learn_valid	= 0,
@@ -88,9 +88,15 @@ module ARPProtocol(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Process incoming ARP requests
+	// Tie off constant ports
 
-	`include "../../interface/ethernet/Ethertypes.vh"
+	`include "Ethertypes.svh"
+
+	always_comb
+		tx_l2_bus.ethertype	<= ETHERTYPE_ARP;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Process incoming ARP requests
 
 	enum logic[4:0]
 	{
