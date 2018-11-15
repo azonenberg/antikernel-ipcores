@@ -64,7 +64,7 @@ module UART(
 	output reg			txactive	= 0);
 
 	//1/4 of the clock divisor (for 90 degree phase offset)
-	wire[14:0] clkdiv_offset;
+	wire[13:0] clkdiv_offset;
 	assign clkdiv_offset = clkdiv[15:2];
 
 	///////////////////////////////////////////////////////////////////////////////////////////////
