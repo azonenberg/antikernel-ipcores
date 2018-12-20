@@ -1,4 +1,4 @@
-`timescale 1ns / 1ps
+`timescale 1ps / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
@@ -31,48 +31,21 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief DDS squarewave oscillator for producing arbitrary frequencies (with some jitter) in simulation.
-
-	Periods may be specified with resolution smaller than the simulation time scale. This may be useful for generating
-	extremely high frequency clocks.
-
-	Instead of delays being measured in clock cycles as with SquarewaveDDS, they're measured in picoseconds.
+	@brief Counter that measures the period of an incoming clock in picoseconds
  */
-module UnclockedSimulationSquarewaveDDS(
-	input wire			sync_rst,
-
-	input wire[31:0]	real_part,
-	input wire[31:0]	frac_part,
-
-	output logic		dout		= 0
+module SimulationClockPeriodCounter(
+	input wire	clk,
+	output logic[31:0]	period_ps = 1
 );
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-	logic[32:0]	frac_accum	= 0;
+	logic[63:0] start;
 
 	always begin
-
-		//prevent zero-delay oscillation during reset etc
-		if(real_part == 0)
-			#1;
-
-		#(0.001 * real_part);
-		frac_accum = frac_accum + frac_part;
-		if(frac_accum[32]) begin
-			frac_accum[32]	= 0;
-			#0.001;
-		end
-		dout = 0;
-
-		#(0.001 * real_part);
-		frac_accum = frac_accum + frac_part;
-		if(frac_accum[32]) begin
-			frac_accum[32]	= 0;
-			#0.001;
-		end
-		dout = 1;
-
+		@(posedge clk);
+		start = $time();
+		@(negedge clk);
+		@(posedge clk);
+		period_ps = $time() - start;
 	end
 
 endmodule

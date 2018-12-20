@@ -1,4 +1,5 @@
-`timescale 1ns / 1ps
+`timescale 1ps / 1ps
+`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
@@ -31,48 +32,50 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief DDS squarewave oscillator for producing arbitrary frequencies (with some jitter) in simulation.
-
-	Periods may be specified with resolution smaller than the simulation time scale. This may be useful for generating
-	extremely high frequency clocks.
-
-	Instead of delays being measured in clock cycles as with SquarewaveDDS, they're measured in picoseconds.
+	@brief A very simple "PLL" that synthesizes a clock locked to the frequency of an incoming signal
  */
-module UnclockedSimulationSquarewaveDDS(
-	input wire			sync_rst,
+module SimulationPLL(
+	input wire			refclk,
+	input wire[31:0]	multiplier,
 
-	input wire[31:0]	real_part,
-	input wire[31:0]	frac_part,
-
-	output logic		dout		= 0
+	output wire			clkout
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Measure the speed of the incoming clock
 
-	logic[32:0]	frac_accum	= 0;
+	wire[31:0]	incoming_period;
+	SimulationClockPeriodCounter counter(
+		.clk(refclk),
+		.period_ps(incoming_period)
+	);
 
-	always begin
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Calculate period of the outbound clock
 
-		//prevent zero-delay oscillation during reset etc
-		if(real_part == 0)
-			#1;
-
-		#(0.001 * real_part);
-		frac_accum = frac_accum + frac_part;
-		if(frac_accum[32]) begin
-			frac_accum[32]	= 0;
-			#0.001;
-		end
-		dout = 0;
-
-		#(0.001 * real_part);
-		frac_accum = frac_accum + frac_part;
-		if(frac_accum[32]) begin
-			frac_accum[32]	= 0;
-			#0.001;
-		end
-		dout = 1;
-
+	real			incoming_period_f;
+	real 			toggle_delay;
+	logic[31:0] 	toggle_real;
+	real			toggle_delta;
+	real			toggle_frac_scaled;
+	logic[31:0]		toggle_frac;
+	always_comb begin
+		incoming_period_f	= $itor(incoming_period);
+		toggle_delay		= incoming_period_f / (2 * multiplier);
+		toggle_real			= $floor(toggle_delay);
+		toggle_delta		= toggle_delay - $floor(toggle_delay);
+		toggle_frac_scaled	= toggle_delta * $pow(2, 32);
+		toggle_frac			= $rtoi(toggle_frac_scaled);
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// DDS the up-scaled waveform
+
+	UnclockedSimulationSquarewaveDDS dds(
+		.sync_rst(0),
+		.real_part(toggle_real),
+		.frac_part(toggle_frac),
+		.dout(clkout)
+	);
 
 endmodule
