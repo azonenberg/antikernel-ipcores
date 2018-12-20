@@ -31,14 +31,14 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief DDS squarewave oscillator for producing arbitrary frequencies (with some jitter) from a reference clock
+	@brief DDS squarewave oscillator for producing arbitrary frequencies (with some jitter) in simulation.
 
-	Note, real and fractional part are the *toggle* period (half the waveform period).
+	Periods may be specified with resolution smaller than the simulation time scale. This may be useful for generating
+	extremely high frequency clocks.
 
-	The real part must be >1 since it's impossible, even with DDS, to toggle more than once per refclk.
+	Instead of delays being measured in clock cycles as with SquarewaveDDS, they're measured in picoseconds.
  */
-module SquarewaveDDS(
-	input wire			clk,
+module UnclockedSimulationSquarewaveDDS(
 	input wire			sync_rst,
 
 	input wire[31:0]	real_part,
@@ -49,40 +49,25 @@ module SquarewaveDDS(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	logic[31:0]	frac_accum	= 0;
-	logic[31:0]	count		= 0;
-	wire[32:0]	next_accum	= frac_accum + frac_part;
+	logic[32:0]	frac_accum	= 0;
 
-	wire[31:0]	count_next	= count + 1'h1;
+	always begin
 
-	always_ff @(posedge clk) begin
-
-		//Synchronous reset to phase align the output predictably
-		if(sync_rst) begin
-			frac_accum	<= 0;
-			count		<= 0;
-			dout		<= 0;
+		#(0.001 * real_part);
+		frac_accum = frac_accum + frac_part;
+		if(frac_accum[32]) begin
+			frac_accum[32]	= 0;
+			#0.001;
 		end
+		dout = 0;
 
-		//Bump real counter every clock. Fractional only increments on toggles
-		count			<= count_next;
-
-		//Add an extra cycle of delay if the fractional part has a carry out
-		if(next_accum[32]) begin
-			if(count_next > real_part) begin
-				count		<= 0;
-				frac_accum	<= next_accum[31:0];
-				dout		<= ~dout;
-			end
+		#(0.001 * real_part);
+		frac_accum = frac_accum + frac_part;
+		if(frac_accum[32]) begin
+			frac_accum[32]	= 0;
+			#0.001;
 		end
-
-		//Not carrying but still toggling
-		else if(count_next >= real_part) begin
-			count		<= 0;
-			frac_accum	<= next_accum[31:0];
-			dout		<= ~dout;
-		end
-
+		dout = 1;
 
 	end
 
