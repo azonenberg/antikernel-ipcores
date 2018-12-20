@@ -72,7 +72,7 @@ module SimulationPLL(
 	// DDS the up-scaled waveform
 
 	UnclockedSimulationSquarewaveDDS dds(
-		.sync_rst(0),
+		.sync_rst(1'b0),
 		.real_part(toggle_real),
 		.frac_part(toggle_frac),
 		.dout(clkout)
