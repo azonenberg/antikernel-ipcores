@@ -35,10 +35,14 @@
  */
 module SimulationClockPeriodCounter(
 	input wire	clk,
-	output logic[31:0]	period_ps = 1
+	output logic[31:0]	period_ps
 );
 
 	logic[63:0] start;
+
+	initial begin
+		period_ps = 1;
+	end
 
 	always begin
 		@(posedge clk);

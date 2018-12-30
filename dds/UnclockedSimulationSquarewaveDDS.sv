@@ -44,12 +44,17 @@ module UnclockedSimulationSquarewaveDDS(
 	input wire[31:0]	real_part,
 	input wire[31:0]	frac_part,
 
-	output logic		dout		= 0
+	output logic		dout
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	logic[32:0]	frac_accum	= 0;
+	logic[32:0]	frac_accum;
+
+	initial begin
+		frac_accum = 0;
+		dout = 0;
+	end
 
 	always begin
 
