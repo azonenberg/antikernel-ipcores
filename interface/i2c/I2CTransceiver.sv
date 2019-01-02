@@ -33,7 +33,7 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief I2C transceiver
+	@brief I2C master-mode transceiver
 
 	Note that this core uses active-high ACKs, not active-low as seen on the wire!
  */
