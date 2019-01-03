@@ -241,6 +241,9 @@ module INA226 #(
 
 
 			STATE_POLL_2: begin
+				if(rdata_valid)
+					bus_voltage	<= {saved_rdata, rdata};
+
 				if(ready) begin
 
 					select		<= 1;
@@ -248,8 +251,6 @@ module INA226 #(
 					we			<= 0;
 
 					state		<= STATE_POLL_3;
-
-					bus_voltage	<= {saved_rdata, rdata};
 				end
 			end	//end STATE_POLL_2
 
@@ -259,8 +260,9 @@ module INA226 #(
 			end	//end STATE_POLL_3
 
 			STATE_POLL_4: begin
-				if(ready) begin
+				if(rdata_valid)
 					current_scaled	<= { saved_rdata, rdata };
+				if(ready) begin
 					close			<= 1;
 					poll_done		<= 1;
 					state			<= STATE_IDLE;
