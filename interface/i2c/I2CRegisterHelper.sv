@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
@@ -85,7 +86,8 @@ module I2CRegisterHelper #(
 		STATE_READ_ADDR					= 4'h7,
 		STATE_READ_DATA 				= 4'h8,
 		STATE_WRITE_WAIT				= 4'h9,
-		STATE_WRITE_DATA				= 4'ha
+		STATE_WRITE_DATA				= 4'ha,
+		STATE_STOP						= 4'hb
 	} state = STATE_IDLE;
 
 	localparam ADDR_BITS 	= $clog2(ADDR_BYTES);
@@ -237,8 +239,8 @@ module I2CRegisterHelper #(
 					bytes_left		<= bytes_left - 1'h1;
 
 					if(bytes_left == 1) begin
-						ready		<= 1;
-						state		<= STATE_OPEN_IDLE;
+						cin.stop_en		<= 1;
+						state			<= STATE_STOP;
 					end
 
 					else
@@ -267,8 +269,8 @@ module I2CRegisterHelper #(
 					bytes_left		<= bytes_left - 1'h1;
 
 					if(bytes_left == 1) begin
-						ready		<= 1;
-						state		<= STATE_OPEN_IDLE;
+						cin.stop_en		<= 1;
+						state			<= STATE_STOP;
 					end
 
 					else begin
@@ -278,6 +280,16 @@ module I2CRegisterHelper #(
 
 				end
 			end	//end STATE_WRITE_DATA
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Wait for stop
+
+			STATE_STOP: begin
+				if(!cout.busy) begin
+					ready		<= 1;
+					state		<= STATE_OPEN_IDLE;
+				end
+			end	//end STATE_STOP
 
 		endcase
 

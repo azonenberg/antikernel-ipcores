@@ -66,7 +66,8 @@ module I2CArbiter #(
 
 		//clear unused ports
 		for(i=0; i<NUM_PORTS; i=i+1)
-			driver_cout[i] <= {$bits(i2c_out_t){1'b0}};
+			driver_cout[i]	<= {$bits(i2c_out_t){1'b0}};
+		txvr_cin			<= {$bits(i2c_in_t){1'b0}};
 
 		if(port_active) begin
 			txvr_cin					<= driver_cin[selected_port];
