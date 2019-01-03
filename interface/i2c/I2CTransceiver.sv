@@ -90,7 +90,6 @@ module I2CTransceiver(
 		STATE_RESTART_2	= 4'ha
 	} state = STATE_IDLE;
 
-	logic[3:0] state = STATE_IDLE;
 	assign cout.busy =
 		(state != STATE_IDLE) |
 		cin.start_en |
