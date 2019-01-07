@@ -101,6 +101,13 @@ module ReconfigurablePLL #(
 	parameter			OUT4_MIN_PERIOD		= 10.000,
 	parameter			OUT5_MIN_PERIOD		= 10.000,
 
+	parameter			OUT0_DEFAULT_PHASE	= 0.000,
+	parameter			OUT1_DEFAULT_PHASE	= 0.000,
+	parameter			OUT2_DEFAULT_PHASE	= 0.000,
+	parameter			OUT3_DEFAULT_PHASE	= 0.000,
+	parameter			OUT4_DEFAULT_PHASE	= 0.000,
+	parameter			OUT5_DEFAULT_PHASE	= 0.000,
+
 	//Set true to automatically start in Fmax state
 	parameter			ACTIVE_ON_START			= 0,
 
@@ -142,6 +149,17 @@ module ReconfigurablePLL #(
 	// Sanity checks for timing analysis
 
 	`include "ReconfigurablePLL_limits.vh"
+
+	//verify a suported device is selected
+	`ifndef XILINX_SPARTAN6
+	`ifndef XILINX_ARTIX7
+	`ifndef XILINX_KINTEX7
+	`ifndef XILINX_VIRTEX7
+	choke me;
+	`endif
+	`endif
+	`endif
+	`endif
 
 	//Sanity checks for target parameters
 	integer speed;
@@ -322,12 +340,12 @@ module ReconfigurablePLL #(
 				.CLKOUT5_DIVIDE(outdiv5),
 
 				//Set default phases to 0
-				.CLKOUT0_PHASE(0.0),
-				.CLKOUT1_PHASE(0.0),
-				.CLKOUT2_PHASE(0.0),
-				.CLKOUT3_PHASE(0.0),
-				.CLKOUT4_PHASE(0.0),
-				.CLKOUT5_PHASE(0.0),
+				.CLKOUT0_PHASE(OUT0_DEFAULT_PHASE),
+				.CLKOUT1_PHASE(OUT1_DEFAULT_PHASE),
+				.CLKOUT2_PHASE(OUT2_DEFAULT_PHASE),
+				.CLKOUT3_PHASE(OUT3_DEFAULT_PHASE),
+				.CLKOUT4_PHASE(OUT4_DEFAULT_PHASE),
+				.CLKOUT5_PHASE(OUT5_DEFAULT_PHASE),
 
 				//Set default duty cycle to 0.5
 				.CLKOUT0_DUTY_CYCLE(0.5),
@@ -436,11 +454,20 @@ module ReconfigurablePLL #(
 		end
 
 		//If no valid PLL configurations were found, give up
+		//(run simulation to debug)
 		else begin
-			initial begin
-				$display("ReconfigurablePLL: No good PLL settings found");
-				$finish;
-			end
+			`ifdef SIMULATION
+				initial begin
+					$display("ReconfigurablePLL: No good PLL settings found");
+					$display("%d", find_pll_config(
+						IN0_PERIOD * 1000, `XILINX_SPEEDGRADE,
+						OUT0_MIN_PERIOD * 1000, OUT1_MIN_PERIOD * 1000, OUT2_MIN_PERIOD * 1000,
+						OUT3_MIN_PERIOD * 1000,	OUT4_MIN_PERIOD * 1000,	OUT5_MIN_PERIOD * 1000));
+					$finish;
+				end
+			`else
+				//choke me;
+			`endif
 		end
 
 	endgenerate
