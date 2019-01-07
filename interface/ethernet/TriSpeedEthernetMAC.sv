@@ -81,7 +81,7 @@ module TriSpeedEthernetMAC(
 
 	//Do it 8 bits wide, every clock, to save area
 	wire		rx_crc_reset	= (rx_state == RX_STATE_PREAMBLE);
-	wire		rx_crc_update	= gmii_rx_bus.en && (rx_state == RX_STATE_FRAME_DATA);
+	wire		rx_crc_update	= gmii_rx_bus.en && (rx_state == RX_STATE_FRAME_DATA) && gmii_rx_bus.dvalid;
 	wire[31:0]	rx_crc_calculated;
 
 	CRC32_Ethernet rx_crc_calc(
@@ -100,11 +100,13 @@ module TriSpeedEthernetMAC(
 	reg[31:0]	rx_crc_calculated_ff5	= 0;
 
 	always_ff @(posedge gmii_rx_clk) begin
-		rx_crc_calculated_ff5	<= rx_crc_calculated_ff4;
-		rx_crc_calculated_ff4	<= rx_crc_calculated_ff3;
-		rx_crc_calculated_ff3	<= rx_crc_calculated_ff2;
-		rx_crc_calculated_ff2	<= rx_crc_calculated_ff;
-		rx_crc_calculated_ff	<= rx_crc_calculated;
+		if(gmii_rx_bus.dvalid) begin
+			rx_crc_calculated_ff5	<= rx_crc_calculated_ff4;
+			rx_crc_calculated_ff4	<= rx_crc_calculated_ff3;
+			rx_crc_calculated_ff3	<= rx_crc_calculated_ff2;
+			rx_crc_calculated_ff2	<= rx_crc_calculated_ff;
+			rx_crc_calculated_ff	<= rx_crc_calculated;
+		end
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -136,119 +138,122 @@ module TriSpeedEthernetMAC(
 		rx_bus.commit			<= 0;
 		rx_bus.drop				<= 0;
 
-		case(rx_state)
+		if(gmii_rx_bus.dvalid) begin
 
-			//Wait for a new frame to start
-			RX_STATE_IDLE: begin
+			case(rx_state)
 
-				//Ignore rx_er outside of a packet
+				//Wait for a new frame to start
+				RX_STATE_IDLE: begin
 
-				//Something is here!
-				if(gmii_rx_bus.en) begin
+					//Ignore rx_er outside of a packet
 
-					//Should be a preamble (55 55 55 ...)
-					if( (gmii_rx_bus.data == 8'h55) && !gmii_rx_bus.er )
-						rx_state			<= RX_STATE_PREAMBLE;
+					//Something is here!
+					if(gmii_rx_bus.en) begin
 
-					//Anything else is a problem, ignore it
-					else
-						rx_state			<= RX_STATE_DROP;
-				end
+						//Should be a preamble (55 55 55 ...)
+						if( (gmii_rx_bus.data == 8'h55) && !gmii_rx_bus.er )
+							rx_state			<= RX_STATE_PREAMBLE;
 
-			end	//end RX_STATE_IDLE
-
-			//Wait for SFD
-			RX_STATE_PREAMBLE: begin
-
-				//Drop frame if it truncates before the SFD
-				if(!gmii_rx_bus.en)
-					rx_state				<= RX_STATE_IDLE;
-
-				//Tell the upper layer we are starting the frame when we hit the SFD.
-				//No point in even telling them about runt packets that end during the preamble.
-				else if(gmii_rx_bus.data == 8'hd5) begin
-					rx_bus.start			<= 1;
-					rx_bytepos				<= 0;
-					rx_state				<= RX_STATE_FRAME_DATA;
-					rx_frame_data_valid_adv	<= 0;
-				end
-
-				//Still preamble, keep going
-				else if(gmii_rx_bus.data == 8'h55) begin
-				end
-
-				//Anything else before the SFD is an error, drop it.
-				//Don't have to tell upper layer as we never even told them a frame was coming.
-				else
-					rx_state				<= RX_STATE_DROP;
-
-			end	//end RX_STATE_PREAMBLE
-
-			//Actual packet data
-			RX_STATE_FRAME_DATA: begin
-
-				//End of frame - push any fractional message word that might be waiting
-				if(!gmii_rx_bus.en) begin
-					rx_state				<= RX_STATE_CRC;
-
-					if(rx_bytepos != 0) begin
-						rx_bus.bytes_valid	<= rx_bytepos;
-						rx_bus.data_valid	<= 1;
+						//Anything else is a problem, ignore it
+						else
+							rx_state			<= RX_STATE_DROP;
 					end
 
-					case(rx_bytepos)
+				end	//end RX_STATE_IDLE
 
-						1: rx_bus.data		<= { rx_frame_data_adv[31:24], 24'h0 };
-						2: rx_bus.data		<= { rx_frame_data_adv[31:16], 16'h0 };
-						3: rx_bus.data		<= { rx_frame_data_adv[31:8], 8'h0 };
+				//Wait for SFD
+				RX_STATE_PREAMBLE: begin
 
-					endcase
+					//Drop frame if it truncates before the SFD
+					if(!gmii_rx_bus.en)
+						rx_state				<= RX_STATE_IDLE;
 
-				end
+					//Tell the upper layer we are starting the frame when we hit the SFD.
+					//No point in even telling them about runt packets that end during the preamble.
+					else if(gmii_rx_bus.data == 8'hd5) begin
+						rx_bus.start			<= 1;
+						rx_bytepos				<= 0;
+						rx_state				<= RX_STATE_FRAME_DATA;
+						rx_frame_data_valid_adv	<= 0;
+					end
 
-				//Frame data
-				else begin
-					rx_pending_data			<= { rx_pending_data[23:0], gmii_rx_bus.data };
-					rx_bytepos				<= rx_bytepos + 1'h1;
+					//Still preamble, keep going
+					else if(gmii_rx_bus.data == 8'h55) begin
+					end
 
-					//We've received a full word!
-					if(rx_bytepos == 3) begin
+					//Anything else before the SFD is an error, drop it.
+					//Don't have to tell upper layer as we never even told them a frame was coming.
+					else
+						rx_state				<= RX_STATE_DROP;
 
-						//Save this word in the buffer for next time around
-						rx_frame_data_valid_adv	<= 1;
-						rx_frame_data_adv		<= { rx_pending_data[23:0], gmii_rx_bus.data };
+				end	//end RX_STATE_PREAMBLE
 
-						//Send the PREVIOUS word to the host
-						//We need a pipeline delay because of the CRC - don't want to get the CRC confused with application layer data!
-						if(rx_frame_data_valid_adv) begin
+				//Actual packet data
+				RX_STATE_FRAME_DATA: begin
+
+					//End of frame - push any fractional message word that might be waiting
+					if(!gmii_rx_bus.en) begin
+						rx_state				<= RX_STATE_CRC;
+
+						if(rx_bytepos != 0) begin
+							rx_bus.bytes_valid	<= rx_bytepos;
 							rx_bus.data_valid	<= 1;
-							rx_bus.data			<= rx_frame_data_adv;
-							rx_bus.bytes_valid	<= 4;
 						end
 
+						case(rx_bytepos)
+
+							1: rx_bus.data		<= { rx_frame_data_adv[31:24], 24'h0 };
+							2: rx_bus.data		<= { rx_frame_data_adv[31:16], 16'h0 };
+							3: rx_bus.data		<= { rx_frame_data_adv[31:8], 8'h0 };
+
+						endcase
+
 					end
+
+					//Frame data
+					else begin
+						rx_pending_data			<= { rx_pending_data[23:0], gmii_rx_bus.data };
+						rx_bytepos				<= rx_bytepos + 1'h1;
+
+						//We've received a full word!
+						if(rx_bytepos == 3) begin
+
+							//Save this word in the buffer for next time around
+							rx_frame_data_valid_adv	<= 1;
+							rx_frame_data_adv		<= { rx_pending_data[23:0], gmii_rx_bus.data };
+
+							//Send the PREVIOUS word to the host
+							//We need a pipeline delay because of the CRC - don't want to get the CRC confused with application layer data!
+							if(rx_frame_data_valid_adv) begin
+								rx_bus.data_valid	<= 1;
+								rx_bus.data			<= rx_frame_data_adv;
+								rx_bus.bytes_valid	<= 4;
+							end
+
+						end
+					end
+
+				end	//end RX_STATE_FRAME_DATA
+
+				RX_STATE_CRC: begin
+					rx_state			<= RX_STATE_IDLE;
+
+					//Validate the CRC (details depend on length of the packet)
+					if(rx_crc_calculated_ff5 == rx_crc_expected)
+						rx_bus.commit	<= 1;
+					else
+						rx_bus.drop		<= 1;
+
 				end
 
-			end	//end RX_STATE_FRAME_DATA
+				//If skipping a frame due to a fault, ignore everything until the frame ends
+				RX_STATE_DROP: begin
+					if(!gmii_rx_bus.en)
+						rx_state		<= RX_STATE_IDLE;
+				end	//end RX_STATE_DROP
 
-			RX_STATE_CRC: begin
-				rx_state			<= RX_STATE_IDLE;
-
-				//Validate the CRC (details depend on length of the packet)
-				if(rx_crc_calculated_ff5 == rx_crc_expected)
-					rx_bus.commit	<= 1;
-				else
-					rx_bus.drop		<= 1;
-
-			end
-
-			//If skipping a frame due to a fault, ignore everything until the frame ends
-			RX_STATE_DROP: begin
-				if(!gmii_rx_bus.en)
-					rx_state		<= RX_STATE_IDLE;
-			end	//end RX_STATE_DROP
-
-		endcase
+			endcase
+		end
 
 	end
 

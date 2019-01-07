@@ -38,6 +38,7 @@
 
 typedef struct packed
 {
+	logic		dvalid;	//asserted alternate cycles during 10/100 mode
 	logic		en;
 	logic		er;
 	logic[7:0]	data;
