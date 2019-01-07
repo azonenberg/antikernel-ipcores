@@ -35,23 +35,20 @@
 
 	Supports Spartan-6 and 7 series.
  */
-module DDROutputBuffer(clk_p, clk_n, dout, din0, din1);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O and parameter declarations
-
-	parameter WIDTH = 16;
-
+module DDROutputBuffer #(
+	parameter WIDTH = 16
+) (
 	//Clocks
-	input wire clk_p;
-	input wire clk_n;
+	input wire clk_p,
+	input wire clk_n,
 
 	//Output data
-	output wire[WIDTH-1:0] dout;
+	output wire[WIDTH-1:0] dout,
 
 	//Input data (clk_p domain)
-	input wire[WIDTH-1:0] din0;
-	input wire[WIDTH-1:0] din1;
+	input wire[WIDTH-1:0] din0,
+	input wire[WIDTH-1:0] din1
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// The IO buffers
