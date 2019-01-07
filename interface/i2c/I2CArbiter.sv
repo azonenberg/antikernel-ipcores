@@ -78,6 +78,7 @@ module I2CArbiter #(
 	//Arbitration
 	logic[NUM_PORTS-1:0]	pending	= 0;
 	logic[PORT_BITS-1:0]	rr_port	= 0;
+	integer j;
 	always_ff @(posedge clk) begin
 
 		//Clear flags
@@ -110,16 +111,16 @@ module I2CArbiter #(
 
 		//Arbitration step 2: lowest numbered port wins
 		else if(pending) begin
-			for(i=0; i<NUM_PORTS; i=i+1) begin
+			for(j=0; j<NUM_PORTS; j=j+1) begin
 
 				//If we already activated another port, don't ACK another
 				if(port_active) begin
 				end
 
-				else if(pending[i]) begin
+				else if(pending[j]) begin
 					port_active		= 1;
-					selected_port	<= i;
-					driver_ack[i]	<= 1;
+					selected_port	<= j;
+					driver_ack[j]	<= 1;
 				end
 
 			end
