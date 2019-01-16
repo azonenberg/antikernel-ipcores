@@ -41,7 +41,12 @@ module EthernetTransmitArbiter #(
 										//Default 8192 = 32768 bytes
 										//(21 standard frames, 3 jumbo frames, 512 min-sized frames)
 
-	parameter HEADER_DEPTH	= 512		//Depth of header FIFO, in packets
+	parameter ARP_PACKET_DEPTH	= 512,	//Packet-data FIFO is 32 bits wide x this many words
+										//Default 512 = 2048 bytes
+										//(1 max sized frame, 44 ARP replies)
+
+	parameter HEADER_DEPTH		= 512,	//Depth of header FIFO, in packets
+	parameter ARP_HEADER_DEPTH	= 64
 )(
 
 	//Clocks
@@ -60,8 +65,10 @@ module EthernetTransmitArbiter #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Configuration
 
-	localparam PACKET_BITS	= $clog2(PACKET_DEPTH);
-	localparam HEADER_BITS	= $clog2(HEADER_DEPTH);
+	localparam PACKET_BITS		= $clog2(PACKET_DEPTH);
+	localparam ARP_PACKET_BITS	= $clog2(ARP_PACKET_DEPTH);
+	localparam HEADER_BITS		= $clog2(HEADER_DEPTH);
+	localparam ARP_HEADER_BITS	= $clog2(ARP_HEADER_DEPTH);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Input data FIFOs
@@ -105,18 +112,18 @@ module EthernetTransmitArbiter #(
 		.rd_reset(1'b0)
 	);
 
-	wire[PACKET_BITS:0]		arp_payload_fifo_free;
-	reg						arp_packet_active	= 0;
+	wire[ARP_PACKET_BITS:0]		arp_payload_fifo_free;
+	reg							arp_packet_active	= 0;
 
-	reg						arp_rd_en		= 0;
-	reg[PACKET_BITS-1:0]	arp_rd_offset	= 0;
-	reg						arp_pop_packet	= 0;
-	reg[PACKET_BITS:0]		arp_pop_size	= 0;
-	wire[31:0]				arp_rd_data;
+	reg							arp_rd_en			= 0;
+	reg[ARP_PACKET_BITS-1:0]	arp_rd_offset		= 0;
+	reg							arp_pop_packet		= 0;
+	reg[ARP_PACKET_BITS:0]		arp_pop_size		= 0;
+	wire[31:0]					arp_rd_data;
 
 	CrossClockPacketFifo #(
 		.WIDTH(32),
-		.DEPTH(PACKET_DEPTH)
+		.DEPTH(ARP_PACKET_DEPTH)
 	) arp_payload_fifo (
 		.wr_clk(clk),
 		.wr_en(arp_tx_l2_bus.data_valid && arp_packet_active),
@@ -154,7 +161,7 @@ module EthernetTransmitArbiter #(
 				perf.ipv4_dropped	<= perf.ipv4_dropped + 1'h1;
 		end
 		if(arp_tx_l2_bus.start) begin
-			if(arp_payload_fifo_free > 2250) begin
+			if(arp_payload_fifo_free > 128) begin	//arp packets are much smaller
 				arp_packet_active	<= 1;
 				arp_tx_frame_size	<= 0;
 			end
@@ -222,20 +229,20 @@ module EthernetTransmitArbiter #(
 		.rd_reset(1'b0)
 	);
 
-	wire[HEADER_BITS:0]	arp_header_fifo_free;
-	reg					arp_tx_l2_bus_commit_ff	= 0;
+	wire[ARP_HEADER_BITS:0]	arp_header_fifo_free;
+	reg						arp_tx_l2_bus_commit_ff	= 0;
 
-	wire[HEADER_BITS:0]	arp_header_fifo_avail;
+	wire[ARP_HEADER_BITS:0]	arp_header_fifo_avail;
 
-	reg					arp_header_rd_en	= 0;
+	reg						arp_header_rd_en	= 0;
 
-	wire[63:0]			arp_header;
-	wire[15:0]			arp_packet_len		= arp_header[63:48];
-	wire[47:0]			arp_packet_mac		= arp_header[47:0];
+	wire[63:0]				arp_header;
+	wire[15:0]				arp_packet_len		= arp_header[63:48];
+	wire[47:0]				arp_packet_mac		= arp_header[47:0];
 
 	CrossClockPacketFifo #(
 		.WIDTH(64),
-		.DEPTH(HEADER_DEPTH)
+		.DEPTH(ARP_HEADER_DEPTH)
 	) arp_header_fifo (
 		.wr_clk(clk),
 		.wr_en(arp_tx_l2_bus.commit),
