@@ -53,8 +53,8 @@ module RGMIIToGMIIBridge #(
 	output wire			gmii_rxc,
 	output GmiiBus		gmii_rx_bus = {1'b0, 1'b0, 1'b0, 8'b0},
 
-	input wire			gmii_txc,
-	input wire			gmii_txc_90,
+	input wire			gmii_txc,		//must be 125 MHz regardless of speed
+	input wire			clk_250mhz,		//must be phase aligned with and 4x speed of gmii_txc
 	input wire GmiiBus	gmii_tx_bus,
 
 	//In-band status (if supported by the PHY)
@@ -218,29 +218,176 @@ module RGMIIToGMIIBridge #(
 	endgenerate
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Synchronize link speed into TX clock domain
+
+	lspeed_t	link_speed_ff		= LINK_SPEED_10M;
+	logic		link_speed_change	= 0;
+
+	always_ff @(posedge gmii_rxc) begin
+		link_speed_change	<= (link_speed_ff != link_speed);
+		link_speed_ff		<= link_speed;
+	end
+
+	wire[1:0]	link_speed_sync_raw;
+	lspeed_t	link_speed_sync = lspeed_t'(link_speed_sync_raw);
+
+	RegisterSynchronizer #(
+		.WIDTH(2),
+		.INIT(0)
+	) sync_link_speed(
+		.clk_a(gmii_rxc),
+		.en_a(link_speed_change),
+		.ack_a(),
+		.reg_a(link_speed),
+
+		.clk_b(gmii_txc),
+		.updated_b(),
+		.reg_b(link_speed_sync_raw)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX side
 
-	/*
-	DDROutputBuffer #
-	(
-		.WIDTH(1)
-	) txc_output
-	(
-		.clk_p(gmii_txc_90),
-		.clk_n(~gmii_txc_90),
-		.dout(rgmii_txc),
-		.din0(1'b1),
-		.din1(1'b0)
+	logic[3:0]	clock_dout 		= 4'b0000;
+	logic[7:0]	clock_count		= 8'h0;
+	logic		update_data		= 0;
+
+	//Clock phasing control
+	always_ff @(posedge gmii_txc) begin
+
+		//Gig mode: send clock phased to rise half a cycle after our data goes out
+		if(link_speed_sync == LINK_SPEED_1000M) begin
+			clock_dout		<= 4'b0110;
+			update_data		<= 1;
+		end
+
+		//10/100 mode: nice long delays between toggles
+		else begin
+
+			update_data		<= 0;
+
+			if(gmii_tx_bus.dvalid) begin
+				clock_count	<= 0;
+				clock_dout	<= 4'b0000;
+			end
+
+			clock_count <= clock_count + 1'h1;
+
+			//10M: we want 2.5 MHz so toggle at 5 MT/s (every 25 cycles)
+			if( (link_speed_sync == LINK_SPEED_10M) && (clock_count == 24) ) begin
+				clock_count		<= 0;
+				if(clock_dout)
+					update_data	<= 1;
+				clock_dout		<= ~clock_dout;
+			end
+
+			//100M: we want 25 MHz. this adds a bit of fun since we're dividing by 5
+			//edge is at nominal cycle 2.5
+			else if(link_speed_sync == LINK_SPEED_100M) begin
+
+				case(clock_count)
+
+					0:	clock_dout	<= 4'b0000;
+					1:	clock_dout	<= 4'b0000;
+					2:	clock_dout	<= 4'b1100;	//serdes sends LSB first so 1100 is a rising edge!
+					3:	clock_dout	<= 4'b1111;
+					4: begin
+						clock_dout	<= 4'b1111;
+						clock_count	<= 0;
+						update_data	<= 1;
+					end
+
+				endcase
+
+			end
+
+		end
+
+	end
+
+	//reset for 256 clocks after boot
+	logic		oserdes_rst	= 1;
+	logic[7:0]	rst_count	= 0;
+	always_ff @(posedge gmii_txc) begin
+		if(oserdes_rst) begin
+			rst_count <= rst_count + 1'h1;
+			if(rst_count == 8'hff)
+				oserdes_rst	<= 0;
+		end
+	end
+
+	OSERDESE2 #(
+		.DATA_RATE_OQ("DDR"),
+		.DATA_RATE_TQ("BUF"),
+		.DATA_WIDTH(4),
+		.SERDES_MODE("MASTER"),
+		.TRISTATE_WIDTH(1)
+	) txc_output (
+		.OQ(rgmii_txc),
+		.OFB(),
+		.TQ(),
+		.TFB(),
+		.SHIFTOUT1(),
+		.SHIFTOUT2(),
+		.CLK(clk_250mhz),
+		.CLKDIV(gmii_txc),
+		.D1(clock_dout[0]),
+		.D2(clock_dout[1]),
+		.D3(clock_dout[2]),
+		.D4(clock_dout[3]),
+		.D5(1'b0),	//unused
+		.D6(1'b0),	//unused
+		.D7(1'b0),	//unused
+		.D8(1'b0),	//unused
+		.TCE(1'b1),
+		.OCE(1'b1),
+		.TBYTEIN(1'b0),
+		.TBYTEOUT(),
+		.RST(oserdes_rst),
+		.SHIFTIN1(1'b0),
+		.SHIFTIN2(1'b0),
+		.T1(1'b0),
+		.T2(1'b0),
+		.T3(1'b0),
+		.T4(1'b0)
 	);
-	*/
-	assign rgmii_txc = 0;	//TODO
+
+	//In 10/100 mode alternate sending low nibble twice and high nibble twice
+	logic	tx_phase	= 0;
+	logic	tx_en_ff	= 0;
+
+	always_ff @(posedge gmii_txc) begin
+		tx_en_ff		<= gmii_tx_bus.en;
+		if(gmii_tx_bus.en && !tx_en_ff)
+			tx_phase	<= 0;
+		if(update_data)
+			tx_phase	<= !tx_phase;
+	end
+
+	logic[3:0]	tx_data_hi;
+	logic[3:0]	tx_data_lo;
+
+	always_comb begin
+		if(link_speed_sync == LINK_SPEED_1000M) begin
+			tx_data_lo	<= gmii_tx_bus.data[3:0];
+			tx_data_hi	<= gmii_tx_bus.data[7:4];
+		end
+		else if(tx_phase == 0) begin
+			tx_data_lo	<= gmii_tx_bus.data[3:0];
+			tx_data_hi	<= gmii_tx_bus.data[3:0];
+		end
+		else if(tx_phase == 1) begin
+			tx_data_lo	<= gmii_tx_bus.data[7:4];
+			tx_data_hi	<= gmii_tx_bus.data[7:4];
+		end
+	end
 
 	DDROutputBuffer #(.WIDTH(4)) rgmii_txd_oddr2(
 		.clk_p(gmii_txc),
 		.clk_n(~gmii_txc),
 		.dout(rgmii_txd),
-		.din0(gmii_tx_bus.data[3:0]),
-		.din1(gmii_tx_bus.data[7:4])
+		.din0(tx_data_lo),
+		.din1(tx_data_hi)
 		);
 
 	DDROutputBuffer #(.WIDTH(1)) rgmii_txe_oddr2(

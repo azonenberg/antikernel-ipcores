@@ -35,6 +35,8 @@
 	@brief Controller for Cypress HyperRAM
 
 	For now, accesses are hard coded to 32-byte (8 word) burst length and alignment.
+
+	TODO: use SV structs for bus stuff!
  */
 module HyperRAMController(
 
@@ -67,7 +69,7 @@ module HyperRAMController(
 	output reg[7:0]		capacity_mbits	= 0
 );
 
-	parameter SIM = 0;
+	parameter SIMULATION = 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O buffers
@@ -427,7 +429,7 @@ module HyperRAMController(
 
 	localparam STATE_BOOT_HOLD	= 4'hf;
 
-	reg[3:0]	state			= SIM ? STATE_BOOT_0 : STATE_BOOT_HOLD;
+	reg[3:0]	state			= SIMULATION ? STATE_BOOT_0 : STATE_BOOT_HOLD;
 
 	reg[7:0]	count			= 0;
 
@@ -631,9 +633,10 @@ module HyperRAMController(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug LA
 
+	/*
 	generate
 
-		if(!SIM) begin
+		if(!SIMULATION) begin
 
 			reg		trig_out_ack	= 0;
 
@@ -694,5 +697,6 @@ module HyperRAMController(
 			assign trig_out = 0;
 
 	endgenerate
+	*/
 
 endmodule

@@ -269,7 +269,7 @@ module TriSpeedEthernetMAC(
 		link_speed_ff		<= link_speed;
 	end
 
-	wire		link_speed_sync_raw;
+	wire[1:0]	link_speed_sync_raw;
 	lspeed_t	link_speed_sync = lspeed_t'(link_speed_sync_raw);
 
 	RegisterSynchronizer #(
@@ -307,7 +307,7 @@ module TriSpeedEthernetMAC(
 	//Has to have room for an entire packet. No jumbo frame support for the moment.
 	logic		tx_fifo_pop	= 0;
 	wire[7:0]	tx_fifo_rdata;
-	wire[10:0]	tx_fifo_rsize;
+	wire[11:0]	tx_fifo_rsize;
 
 	logic[10:0]	tx_frame_len = 0;
 
@@ -337,7 +337,7 @@ module TriSpeedEthernetMAC(
 
 	logic		tx_en			= 0;
 	logic[7:0]	tx_data			= 0;
-	wire		tx_crc_update	= (tx_state == TX_STATE_FRAME_DATA) || (tx_state == TX_STATE_PADDING) && dvalid_adv;
+	wire		tx_crc_update	= ( (tx_state == TX_STATE_FRAME_DATA) || (tx_state == TX_STATE_PADDING) ) && dvalid_adv;
 	wire[31:0]	tx_crc;
 	logic[7:0]	tx_crc_din;
 

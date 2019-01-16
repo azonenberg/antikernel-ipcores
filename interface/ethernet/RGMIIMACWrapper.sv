@@ -40,7 +40,7 @@ module RGMIIMACWrapper(
 
 	//Clocking
 	input wire					clk_125mhz,
-	input wire					clk_125mhz_90,
+	input wire					clk_250mhz,
 
 	//RGMII signals to off-chip device
 	input wire					rgmii_rxc,
@@ -87,7 +87,7 @@ module RGMIIMACWrapper(
 		.gmii_rx_bus(gmii_rx_bus),
 
 		.gmii_txc(clk_125mhz),
-		.gmii_txc_90(clk_125mhz_90),
+		.clk_250mhz(clk_250mhz),
 		.gmii_tx_bus(gmii_tx_bus),
 
 		.link_up(link_up),

@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -87,6 +87,9 @@ module ReconfigurablePLL #(
 
 	//Set the corresponding bit high to use a local clock buffer on the output
 	parameter			OUTPUT_BUF_LOCAL	= 6'b000000,
+
+	//Set the corresponding bit high to use an I/O clock buffer on the output
+	parameter			OUTPUT_BUF_IO		= 6'b000000,
 
 	//INPUT clock periods
 	parameter			IN0_PERIOD			= 50.0,		//50 ns = 20 MHz
@@ -239,6 +242,18 @@ module ReconfigurablePLL #(
 				ClockBuffer #(
 					.CE(OUTPUT_GATE[i]? "YES" : "NO"),
 					.TYPE("LOCAL")
+				) output_buf (
+					.clkin(clkout_raw[i]),
+					.ce(locked),
+					.clkout(clkout[i])
+				);
+			end
+
+			//Do an I/O clock buffer if needed
+			else if(OUTPUT_BUF_IO[i]) begin
+				ClockBuffer #(
+					.CE(OUTPUT_GATE[i]? "YES" : "NO"),
+					.TYPE("IO")
 				) output_buf (
 					.clkin(clkout_raw[i]),
 					.ce(locked),

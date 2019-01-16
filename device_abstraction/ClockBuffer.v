@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -39,7 +39,7 @@ module ClockBuffer(clkin, ce, clkout);
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O / parameter declarations
 
-	parameter TYPE = "LOCAL";	//Set to LOCAL or GLOBAL
+	parameter TYPE = "LOCAL";	//Set to LOCAL, GLOBAL, or "IO"
 								//LOCAL is a hint and may not always be possible
 	parameter CE = "YES";		//Set to YES or NO
 								//If NO, ce input is ignored and clock is always enabled
@@ -67,7 +67,7 @@ module ClockBuffer(clkin, ce, clkout);
 				`ifdef XILINX_SPARTAN6
 					BUFGCE clk_buf(.I(clkin), .O(clkout), .CE(ce));
 					initial begin
-						$display("WARNING: Using BUFGCE instead of BUFHCE for ClockBuffer TYPE=\"LOCAL\", CE=\"YES\" since S6 has no BUFHCE");
+						$warning("Using BUFGCE instead of BUFHCE for ClockBuffer TYPE=\"LOCAL\", CE=\"YES\" since S6 has no BUFHCE");
 					end
 				`else
 					BUFHCE clk_buf(.I(clkin), .O(clkout), .CE(ce));
@@ -77,8 +77,7 @@ module ClockBuffer(clkin, ce, clkout);
 			//Parameter error
 			else begin
 				initial begin
-					$display("ERROR: ClockBuffer CE argument must be \"YES\" or \"NO\"");
-					$finish;
+					$fatal("ERROR: ClockBuffer CE argument must be \"YES\" or \"NO\"");
 				end
 			end
 
@@ -102,8 +101,24 @@ module ClockBuffer(clkin, ce, clkout);
 			//Parameter error
 			else begin
 				initial begin
-					$display("ERROR: ClockBuffer CE argument must be \"YES\" or \"NO\"");
-					$finish;
+					$fatal("ERROR: ClockBuffer CE argument must be \"YES\" or \"NO\"");
+				end
+			end
+
+		end
+
+		//High-speed I/O clock
+		else if(TYPE == "IO") begin
+
+			if(CE == "NO") begin
+				(* DONT_TOUCH = "true" *)	//force the buffer to not get optimized out
+				BUFIO clk_buf(.I(clkin), .O(clkout));
+			end
+
+			//Parameter error
+			else begin
+				initial begin
+					$fatal("ERROR: ClockBuffer CE argument must be \"NO\" for TYPE == \"IO\"");
 				end
 			end
 
@@ -112,8 +127,7 @@ module ClockBuffer(clkin, ce, clkout);
 		//Parameter error
 		else begin
 			initial begin
-				$display("ERROR: ClockBuffer TYPE argument must be \"GLOBAL\" or \"LOCAL\"");
-				$finish;
+				$fatal("ERROR: ClockBuffer TYPE argument must be \"GLOBAL\" or \"LOCAL\"");
 			end
 		end
 
