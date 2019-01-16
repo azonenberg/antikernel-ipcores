@@ -58,7 +58,9 @@ module RGMIIMACWrapper(
 	input wire EthernetTxBus	mac_tx_bus,
 	output wire 				mac_tx_ready,
 
-	output wire					link_up
+	//gmii_rxc domain
+	output wire					link_up,
+	output lspeed_t				link_speed
 
 	//TODO: performance counters
 	);
@@ -88,7 +90,8 @@ module RGMIIMACWrapper(
 		.gmii_txc_90(clk_125mhz_90),
 		.gmii_tx_bus(gmii_tx_bus),
 
-		.link_up(link_up)
+		.link_up(link_up),
+		.link_speed(link_speed)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -102,6 +105,7 @@ module RGMIIMACWrapper(
 		.gmii_tx_bus(gmii_tx_bus),
 
 		.link_up(link_up),
+		.link_speed(link_speed),
 
 		.rx_bus(mac_rx_bus),
 		.tx_bus(mac_tx_bus),

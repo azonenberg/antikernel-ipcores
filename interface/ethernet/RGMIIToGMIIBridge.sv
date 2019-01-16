@@ -36,7 +36,8 @@
 	@brief GMII to [R]GMII converter
  */
 module RGMIIToGMIIBridge #(
-	parameter PHY_INTERNAL_DELAY = 0	//TODO: debug KSZ9031 RGMII 2.0 internal delay
+	parameter PHY_INTERNAL_DELAY_RX = 1		//when enabled, the PHY provides internal delays and we don't have to
+											//do any phase shifting on the input
 )(
 
 	//RGMII signals to off-chip device
@@ -57,24 +58,16 @@ module RGMIIToGMIIBridge #(
 	input wire GmiiBus	gmii_tx_bus,
 
 	//In-band status (if supported by the PHY)
-	output logic		link_up		= 0
+	output logic		link_up		= 0,
+	output lspeed_t		link_speed	= LINK_SPEED_10M
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX side
 
-	typedef enum logic[1:0]
-	{
-		LINK_SPEED_1000M = 2,
-		LINK_SPEED_100M = 1,
-		LINK_SPEED_10M = 0
-	} lspeed_t;
-
-	lspeed_t link_speed;
-
 	wire	gmii_rxc_raw;
 	generate
-		if(PHY_INTERNAL_DELAY) begin
+		if(PHY_INTERNAL_DELAY_RX) begin
 			assign gmii_rxc_raw = rgmii_rxc;
 		end
 		else begin
@@ -119,7 +112,7 @@ module RGMIIToGMIIBridge #(
 		wire[7:0]	rx_parallel_data;
 
 		//Convert DDR to SDR signals
-		if(PHY_INTERNAL_DELAY) begin
+		if(PHY_INTERNAL_DELAY_RX) begin
 			DDRInputBuffer #(.WIDTH(4)) rgmii_rxd_iddr2(
 				.clk_p(gmii_rxc),
 				.clk_n(~gmii_rxc),
@@ -135,7 +128,15 @@ module RGMIIToGMIIBridge #(
 				.dout1(gmii_rxc_parallel[1])
 				);
 
-			assign rx_parallel_data	= gmii_rx_data_parallel;
+			//Register the signals by one cycle
+			always_ff @(posedge gmii_rxc) begin
+				gmii_rx_data_parallel_ff	<= gmii_rx_data_parallel;
+				gmii_rxc_parallel_ff		<= gmii_rxc_parallel;
+			end
+
+			//Shuffle the nibbles data back to where they should be.
+			assign rx_parallel_data	= { gmii_rx_data_parallel[7:4], gmii_rx_data_parallel_ff[3:0] };
+
 		end
 		else begin
 			DDRInputBuffer #(.WIDTH(4)) rgmii_rxd_iddr2(
@@ -219,6 +220,7 @@ module RGMIIToGMIIBridge #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX side
 
+	/*
 	DDROutputBuffer #
 	(
 		.WIDTH(1)
@@ -230,6 +232,8 @@ module RGMIIToGMIIBridge #(
 		.din0(1'b1),
 		.din1(1'b0)
 	);
+	*/
+	assign rgmii_txc = 0;	//TODO
 
 	DDROutputBuffer #(.WIDTH(4)) rgmii_txd_oddr2(
 		.clk_p(gmii_txc),
@@ -250,12 +254,25 @@ module RGMIIToGMIIBridge #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Decode in-band link state
 
-	always_ff @(posedge gmii_rxc) begin
-		if(!gmii_rx_bus.en && !gmii_rx_er_int) begin
+	//In-band status flags
+	logic	false_carrier	= 0;
 
-			//Inter-frame gap
-			link_up		<= gmii_rx_bus.data[0];
-			link_speed	<= lspeed_t'(gmii_rx_bus.data[2:1]);
+	always_ff @(posedge gmii_rxc) begin
+		false_carrier	<= 0;
+
+		//Decode in-band status
+		if(!gmii_rx_bus.en) begin
+
+			//Normal inter-frame gap. Decode link state/speed
+			if(!gmii_rx_er_int) begin
+				link_up		<= gmii_rx_bus.data[0];
+				link_speed	<= lspeed_t'(gmii_rx_bus.data[2:1]);
+			end
+
+			else begin
+				if(gmii_rx_bus.data == 8'h0e)
+					false_carrier	<= 1;
+			end
 
 		end
 	end

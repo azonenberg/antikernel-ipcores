@@ -39,7 +39,7 @@
  */
 module TriSpeedEthernetMAC(
 
-	//XMGII bus
+	//GMII bus
 	input wire					gmii_rx_clk,
 	input wire GmiiBus			gmii_rx_bus,
 
@@ -49,6 +49,7 @@ module TriSpeedEthernetMAC(
 	//Link state flags (reset stuff as needed when link is down)
 	//Synchronous to RX clock
 	input wire					link_up,
+	input wire lspeed_t			link_speed,
 
 	//Data bus to/from upper layer stack (synchronous to GMII RX/TX clocks)
 	output EthernetRxBus		rx_bus 				= {$bits(EthernetRxBus){1'b0}},
@@ -258,6 +259,34 @@ module TriSpeedEthernetMAC(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Synchronize link speed into TX clock domain
+
+	lspeed_t	link_speed_ff		= LINK_SPEED_10M;
+	logic		link_speed_change	= 0;
+
+	always_ff @(posedge gmii_rx_clk) begin
+		link_speed_change	<= (link_speed_ff != link_speed);
+		link_speed_ff		<= link_speed;
+	end
+
+	wire		link_speed_sync_raw;
+	lspeed_t	link_speed_sync = lspeed_t'(link_speed_sync_raw);
+
+	RegisterSynchronizer #(
+		.WIDTH(2),
+		.INIT(0)
+	) sync_link_speed(
+		.clk_a(gmii_rx_clk),
+		.en_a(link_speed_change),
+		.ack_a(),
+		.reg_a(link_speed),
+
+		.clk_b(gmii_tx_clk),
+		.updated_b(),
+		.reg_b(link_speed_sync_raw)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX stuff
 
 	enum logic[3:0]
@@ -274,16 +303,17 @@ module TriSpeedEthernetMAC(
 
 	logic[3:0] tx_count	= 0;
 
-	//Tiny FIFO for packet data that showed up during the preamble
+	//Need a larger FIFO to support 10/100 mode since packets always show up at gigabit rate
+	//Has to have room for an entire packet. No jumbo frame support for the moment.
 	logic		tx_fifo_pop	= 0;
 	wire[7:0]	tx_fifo_rdata;
-	wire[4:0]	tx_fifo_rsize;
+	wire[10:0]	tx_fifo_rsize;
 
 	logic[10:0]	tx_frame_len = 0;
 
 	SingleClockFifo #(
 		.WIDTH(8),
-		.DEPTH(16),
+		.DEPTH(2048),
 		.USE_BLOCK(0)
 	) tx_fifo (
 		.clk(gmii_tx_clk),
@@ -303,9 +333,11 @@ module TriSpeedEthernetMAC(
 		.reset(tx_bus.start)		//wipe any existing junk when a frame starts
 	);
 
+	logic		dvalid_adv			= 0;
+
 	logic		tx_en			= 0;
 	logic[7:0]	tx_data			= 0;
-	wire		tx_crc_update	= (tx_state == TX_STATE_FRAME_DATA) || (tx_state == TX_STATE_PADDING);
+	wire		tx_crc_update	= (tx_state == TX_STATE_FRAME_DATA) || (tx_state == TX_STATE_PADDING) && dvalid_adv;
 	wire[31:0]	tx_crc;
 	logic[7:0]	tx_crc_din;
 
@@ -324,128 +356,186 @@ module TriSpeedEthernetMAC(
 		.crc_flipped(tx_crc)
 	);
 
+	//Generate pulses every byte
+	logic[7:0]	gmii_speed_count	= 0;
 	always_ff @(posedge gmii_tx_clk) begin
 
-		gmii_tx_bus.en		<= 0;
-		gmii_tx_bus.er		<= 0;
-		gmii_tx_bus.data	<= 0;
+		case(link_speed_sync)
+			LINK_SPEED_10M: begin
 
-		tx_en		<= 0;
-		tx_data		<= 0;
+				if(gmii_speed_count >= 99) begin
+					dvalid_adv			<= 1;
+					gmii_speed_count	<= 0;
+				end
+
+				else begin
+					dvalid_adv			<= 0;
+					gmii_speed_count	<= gmii_speed_count + 1'h1;
+				end
+
+			end
+
+			LINK_SPEED_100M: begin
+
+				if(gmii_speed_count >= 9) begin
+					dvalid_adv			<= 1;
+					gmii_speed_count	<= 0;
+				end
+
+				else begin
+					dvalid_adv			<= 0;
+					gmii_speed_count	<= gmii_speed_count + 1'h1;
+				end
+
+			end
+
+			LINK_SPEED_1000M: begin
+				dvalid_adv			<= 1;
+				gmii_speed_count	<= 0;
+			end
+
+		endcase
+
+	end
+
+	logic	start_pending	= 0;
+	always_ff @(posedge gmii_tx_clk) begin
 
 		tx_fifo_pop	<= 0;
 
-		//Pipeline delay on GMII TX bus, so we have time to compute the CRC
-		gmii_tx_bus.en		<= tx_en;
-		gmii_tx_bus.data	<= tx_data;
+		gmii_tx_bus.dvalid	<= dvalid_adv;
 
-		if(tx_state != TX_STATE_IDLE)
-			tx_frame_len	<= tx_frame_len + 1'h1;
+		if(tx_bus.start)
+			start_pending	<= 1;
 
-		case(tx_state)
+		if(dvalid_adv) begin
 
-			//If a new frame is starting, begin the preamble while buffering the message content
-			TX_STATE_IDLE: begin
-				tx_frame_len		<= 0;
+			gmii_tx_bus.en		<= 0;
+			gmii_tx_bus.er		<= 0;
+			gmii_tx_bus.data	<= 0;
 
-				if(tx_bus.start) begin
-					tx_ready		<= 0;
+			//Pipeline delay on GMII TX bus, so we have time to compute the CRC
+			tx_en				<= 0;
+			tx_data				<= 0;
+			gmii_tx_bus.en		<= tx_en;
+			gmii_tx_bus.data	<= tx_data;
+
+			if(tx_state != TX_STATE_IDLE)
+				tx_frame_len	<= tx_frame_len + 1'h1;
+
+			case(tx_state)
+
+				//If a new frame is starting, begin the preamble while buffering the message content
+				TX_STATE_IDLE: begin
+					tx_frame_len		<= 0;
+
+					if(tx_bus.start || start_pending) begin
+						tx_ready		<= 0;
+						tx_en			<= 1;
+						tx_data			<= 8'h55;
+						tx_count		<= 1;
+						tx_state		<= TX_STATE_PREAMBLE;
+						tx_frame_len	<= 1;
+						start_pending	<= 0;
+					end
+				end	//end TX_STATE_IDLE
+
+				//Send the preamble
+				TX_STATE_PREAMBLE: begin
+
 					tx_en			<= 1;
 					tx_data			<= 8'h55;
-					tx_count		<= 1;
-					tx_state		<= TX_STATE_PREAMBLE;
-					tx_frame_len	<= 1;
-				end
-			end	//end TX_STATE_IDLE
 
-			//Send the preamble
-			TX_STATE_PREAMBLE: begin
+					tx_count		<= tx_count + 1'h1;
 
-				tx_en			<= 1;
-				tx_data			<= 8'h55;
+					//Start popping message data a cycle early in gig mode to allow for FIFO latency
+					if(link_speed_sync == LINK_SPEED_1000M) begin
+						if(tx_count >= 6)
+							tx_fifo_pop	<= 1;
+					end
 
-				tx_count		<= tx_count + 1'h1;
+					//In 10/100 mode, we have plenty of time so don't advance the pop
+					else if(tx_count == 7)
+						tx_fifo_pop	<= 1;
 
-				//Start popping message data
-				if(tx_count >= 6)
-					tx_fifo_pop	<= 1;
+					if(tx_count == 7) begin
+						tx_data		<= 8'hd5;
+						tx_count	<= 0;
+						tx_state	<= TX_STATE_FRAME_DATA;
+					end
 
-				if(tx_count == 7) begin
-					tx_data		<= 8'hd5;
-					tx_count	<= 0;
-					tx_state	<= TX_STATE_FRAME_DATA;
-				end
+				end	//end TX_STATE_PREAMBLE
 
-			end	//end TX_STATE_PREAMBLE
+				TX_STATE_FRAME_DATA: begin
 
-			TX_STATE_FRAME_DATA: begin
+					//Not last word? Pop it
+					if(tx_fifo_rsize > 1)
+						tx_fifo_pop	<= 1;
 
-				//Not last word? Pop it
-				if(tx_fifo_rsize > 1)
-					tx_fifo_pop	<= 1;
+					//Packet must be at least 66 bytes including preamble
+					else begin
+						if(tx_frame_len > 66)
+							tx_state	<= TX_STATE_CRC_0;
+						else
+							tx_state	<= TX_STATE_PADDING;
+					end
 
-				//Packet must be at least 66 bytes including preamble
-				else begin
+					tx_en	<= 1;
+					tx_data	<= tx_fifo_rdata;
+
+				end	//end TX_STATE_FRAME_DATA
+
+				//Wait for CRC calculation
+				TX_STATE_CRC_0: begin
+					tx_state	<= TX_STATE_CRC_1;
+				end	//end TX_STATE_CRC_0
+
+				//Actually send the CRC
+				TX_STATE_CRC_1: begin
+
+					//Transmit directly (no forwarding)
+					gmii_tx_bus.en	<= 1;
+
+					tx_count	<= tx_count + 1'h1;
+
+					if(tx_count == 3) begin
+						tx_count	<= 0;
+						tx_state	<= TX_STATE_IFG;
+					end
+
+					case(tx_count)
+						0:	gmii_tx_bus.data	<= tx_crc[31:24];
+						1:	gmii_tx_bus.data	<= tx_crc[23:16];
+						2:	gmii_tx_bus.data	<= tx_crc[15:8];
+						3:	gmii_tx_bus.data	<= tx_crc[7:0];
+
+					endcase
+				end	//end TX_STATE_CRC_1
+
+				//Pad frame out to 68 bytes including preamble but not FCS
+				TX_STATE_PADDING: begin
+					tx_en	<= 1;
+					tx_data	<= 0;
+
 					if(tx_frame_len > 66)
 						tx_state	<= TX_STATE_CRC_0;
-					else
-						tx_state	<= TX_STATE_PADDING;
-				end
 
-				tx_en	<= 1;
-				tx_data	<= tx_fifo_rdata;
+				end	//end TX_STATE_PADDING
 
-			end	//end TX_STATE_FRAME_DATA
+				//Inter-frame gap (min 12 octets)
+				TX_STATE_IFG: begin
+					tx_count		<= tx_count + 1'h1;
 
-			//Wait for CRC calculation
-			TX_STATE_CRC_0: begin
-				tx_state	<= TX_STATE_CRC_1;
-			end	//end TX_STATE_CRC_0
+					if(tx_count == 11) begin
+						tx_ready	<= 1;
+						tx_state	<= TX_STATE_IDLE;
+					end
 
-			//Actually send the CRC
-			TX_STATE_CRC_1: begin
+				end	//end TX_STATE_IFG
 
-				//Transmit directly (no forwarding)
-				gmii_tx_bus.en	<= 1;
+			endcase
 
-				tx_count	<= tx_count + 1'h1;
-
-				if(tx_count == 3) begin
-					tx_count	<= 0;
-					tx_state	<= TX_STATE_IFG;
-				end
-
-				case(tx_count)
-					0:	gmii_tx_bus.data	<= tx_crc[31:24];
-					1:	gmii_tx_bus.data	<= tx_crc[23:16];
-					2:	gmii_tx_bus.data	<= tx_crc[15:8];
-					3:	gmii_tx_bus.data	<= tx_crc[7:0];
-
-				endcase
-			end	//end TX_STATE_CRC_1
-
-			//Pad frame out to 68 bytes including preamble but not FCS
-			TX_STATE_PADDING: begin
-				tx_en	<= 1;
-				tx_data	<= 0;
-
-				if(tx_frame_len > 66)
-					tx_state	<= TX_STATE_CRC_0;
-
-			end	//end TX_STATE_PADDING
-
-			//Inter-frame gap (min 12 octets)
-			TX_STATE_IFG: begin
-				tx_count		<= tx_count + 1'h1;
-
-				if(tx_count == 11) begin
-					tx_ready	<= 1;
-					tx_state	<= TX_STATE_IDLE;
-				end
-
-			end	//end TX_STATE_IFG
-
-		endcase
+		end
 
 	end
 
