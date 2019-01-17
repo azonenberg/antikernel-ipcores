@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -47,92 +47,76 @@
 	dout_concat[2*n-1 : n]	= storage[dout_concat_offset + 1]
 	etc
  */
-module MemoryMacro(
-	porta_clk, porta_en, porta_addr, porta_we, porta_din, porta_dout,
-	portb_clk, portb_en, portb_addr, portb_we, portb_din, portb_dout
+module MemoryMacro #(
 
-	`ifdef FORMAL
-	, porta_dout_comb, portb_dout_comb, dout_concat, dout_concat_offset
-	`endif
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Parameter declarations
-
-	//dimensions of the array
-	parameter WIDTH = 16;
-	parameter DEPTH = 512;
-
-	//number of bits in the address bus
-	`include "../synth_helpers/clog2.vh"
-	localparam ADDR_BITS = clog2(DEPTH);
-
-	//set true to enable port B
-	parameter DUAL_PORT = 1;
+	//Dimensions of the array
+	parameter WIDTH = 16,
+	parameter DEPTH = 512,
 
 	//set true to use block RAM, false for distributed RAM
-	parameter USE_BLOCK = 1;
+	parameter USE_BLOCK = 1,
 
 	//set 0 to not register outputs
 	//set 1 to register outputs with one stage
 	//set 2 to register outputs with two stages
 	//note that USE_BLOCK requires OUT_REG to be nonzero.
 	//Read enables are ignored if OUT_REG is zero.
-	parameter OUT_REG = 1;
+	parameter OUT_REG = 1,
+
+	//set true to enable reads on port B
+	parameter DUAL_PORT = 1,
 
 	//set true to enable writes on port B (ignored if not dual port)
-	parameter TRUE_DUAL = 1;
+	parameter TRUE_DUAL = 1,
 
 	//Initialize to address
-	parameter INIT_ADDR = 0;
+	parameter INIT_ADDR = 0,
 
 	//Initialization file (set to empty string to fill with zeroes)
-	parameter INIT_FILE = "";
+	parameter INIT_FILE = "",
 
 	//If neither INIT_ADDR nor INIT_FILE is set, set to INIT_VALUE
-	parameter INIT_VALUE = {WIDTH{1'h0}};
+	parameter INIT_VALUE = {WIDTH{1'h0}},
 
 	//NO INITIALIZATION AT ALL - dangerous!
-	parameter NO_INIT = 0;
+	parameter NO_INIT = 0,
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O declarations
+	//number of bits in the address bus
+	localparam ADDR_BITS = $clog2(DEPTH)
+) (
+	input wire					porta_clk,
+	input wire					porta_en,
+	input wire[ADDR_BITS-1 : 0]	porta_addr,
+	input wire					porta_we,
+	input wire[WIDTH-1 : 0]		porta_din,
+	output wire[WIDTH-1 : 0]	porta_dout,
 
-	input wire					porta_clk;
-	input wire					porta_en;
-	input wire[ADDR_BITS-1 : 0]	porta_addr;
-	input wire					porta_we;
-	input wire[WIDTH-1 : 0]		porta_din;
-	output wire[WIDTH-1 : 0]	porta_dout;
-
-	input wire					portb_clk;
-	input wire					portb_en;
-	input wire[ADDR_BITS-1 : 0]	portb_addr;
-	input wire					portb_we;
-	input wire[WIDTH-1 : 0]		portb_din;
-	output wire[WIDTH-1 : 0]	portb_dout;
+	input wire					portb_clk,
+	input wire					portb_en,
+	input wire[ADDR_BITS-1 : 0]	portb_addr,
+	input wire					portb_we,
+	input wire[WIDTH-1 : 0]		portb_din,
+	output wire[WIDTH-1 : 0]	portb_dout
 
 	`ifdef FORMAL
-
+	,
 	//Always-combinatorial output used by formal tools to inspect the memory
-	output wire[WIDTH-1 : 0]		porta_dout_comb;
-	output wire[WIDTH-1 : 0]		portb_dout_comb;
+	output wire[WIDTH-1 : 0]		porta_dout_comb,
+	output wire[WIDTH-1 : 0]		portb_dout_comb,
 
 	//Concatenated copy of the entire memory used by formal tools
-	output wire[WIDTH*DEPTH-1 : 0]	dout_concat;
+	output wire[WIDTH*DEPTH-1 : 0]	dout_concat,
 
-	input wire[ADDR_BITS-1 : 0]		dout_concat_offset;
-
+	input wire[ADDR_BITS-1 : 0]		dout_concat_offset
 	`endif
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Sanity checks
 
 	initial begin
-		if(USE_BLOCK && !OUT_REG) begin
-			$display("[MemoryMacro] Block RAM requires output registers");
-			$finish;
-		end
+		if(USE_BLOCK && !OUT_REG)
+			$fatal("[MemoryMacro] Block RAM requires at least one output register");
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

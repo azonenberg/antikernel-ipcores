@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -35,33 +35,23 @@
 
 	For now, we only support synthesis-time fixed delay values (no runtime tuning).
  */
-module IODelayBlock(
-	i_pad, i_fabric, i_fabric_serdes,
-	o_pad, o_fabric,
-	input_en
+module IODelayBlock #(
+	parameter WIDTH = 16,
+
+	parameter INPUT_DELAY	= 100,		//picoseconds
+	parameter OUTPUT_DELAY	= 100,		//picoseconds
+	parameter DIRECTION		= "INPUT",	//INPUT or OUTPUT only support for now (no IO mode yet)
+	parameter IS_CLOCK		= 0
+) (
+	input wire[WIDTH-1 : 0]		i_pad,				//input from pad to rx datapath
+	output wire[WIDTH-1 : 0]	i_fabric,			//output from rx datapath to fabric
+	output wire[WIDTH-1 : 0]	i_fabric_serdes,	//output from rx datapath to input SERDES
+
+	output wire[WIDTH-1 : 0]	o_pad,				//output from tx datapath to pad
+	input wire[WIDTH-1 : 0]		o_fabric,			//input from fabric or serdes to tx datapath
+
+	input wire		input_en						//high = input, low = output
 	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Parameter declarations
-
-	parameter WIDTH = 16;
-
-	parameter INPUT_DELAY	= 100;		//picoseconds
-	parameter OUTPUT_DELAY	= 100;		//picoseconds
-	parameter DIRECTION		= "INPUT";	//INPUT or OUTPUT only support for now (no IO mode yet)
-	parameter IS_CLOCK		= 0;
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// I/O declarations
-
-	input wire[WIDTH-1 : 0]		i_pad;				//input from pad to rx datapath
-	output wire[WIDTH-1 : 0]	i_fabric;			//output from rx datapath to fabric
-	output wire[WIDTH-1 : 0]	i_fabric_serdes;	//output from rx datapath to input SERDES
-
-	output wire[WIDTH-1 : 0]	o_pad;				//output from tx datapath to pad
-	input wire[WIDTH-1 : 0]		o_fabric;			//input from fabric or serdes to tx datapath
-
-	input wire		input_en;						//high = input, low = output
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Delay tap calculation
@@ -70,7 +60,9 @@ module IODelayBlock(
 	localparam SPEED_GRADE = `XILINX_SPEEDGRADE;
 
 	//Pull in chip-specific speed grade info
+	`ifdef XILINX_SPARTAN6
 	`include "IODelayBlock_spartan6.vh"
+	`endif
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual delay block
@@ -88,14 +80,12 @@ module IODelayBlock(
 				//Sanity check, max number of taps is 255
 				initial begin
 					if(input_delay_taps > 255) begin
-						$display("ERROR: IODelayBlock computed >255 taps (%d) for input delay value %d ps",
+						$fatal("ERROR: IODelayBlock computed >255 taps (%d) for input delay value %d ps",
 							input_delay_taps, INPUT_DELAY);
-						$finish;
 					end
 					if(output_delay_taps > 255) begin
-						$display("ERROR: IODelayBlock computed >255 taps (%d) for output delay value %d ps",
+						$fatal("ERROR: IODelayBlock computed >255 taps (%d) for output delay value %d ps",
 							output_delay_taps, OUTPUT_DELAY);
-						$finish;
 					end
 				end
 
@@ -132,9 +122,9 @@ module IODelayBlock(
 				//Print stats
 				initial begin
 					if(i == 0) begin
-						$display("INFO: Target input delay for IODelayBlock is %d ps, actual is %d - %d",
+						$info("INFO: Target input delay for IODelayBlock is %d ps, actual is %d - %d",
 							INPUT_DELAY, s6_iodelay_val(input_delay_taps) / 3, s6_iodelay_val(input_delay_taps));
-						$display("INFO: Target output delay for IODelayBlock is %d ps, actual is %d - %d",
+						$info("INFO: Target output delay for IODelayBlock is %d ps, actual is %d - %d",
 							OUTPUT_DELAY, s6_iodelay_val(output_delay_taps) / 3, s6_iodelay_val(output_delay_taps));
 					end
 				end
@@ -154,14 +144,12 @@ module IODelayBlock(
 				//Sanity check, max number of taps is 31
 				initial begin
 					if(input_delay_taps > 31) begin
-						$display("ERROR: IODelayBlock computed >31 taps (%d) for input delay value %d ps",
+						$fatal("ERROR: IODelayBlock computed >31 taps (%d) for input delay value %d ps",
 							input_delay_taps, INPUT_DELAY);
-						$finish;
 					end
 					if(output_delay_taps > 31) begin
-						$display("ERROR: IODelayBlock computed >31 taps (%d) for input delay value %d ps",
+						$fatal("ERROR: IODelayBlock computed >31 taps (%d) for input delay value %d ps",
 							output_delay_taps, OUTPUT_DELAY);
-						$finish;
 					end
 				end
 
@@ -211,9 +199,9 @@ module IODelayBlock(
 				//Print stats
 				initial begin
 					if(i == 0) begin
-						$display("INFO: Target input delay for IODelayBlock is %d ps, actual is %d",
+						$info("INFO: Target input delay for IODelayBlock is %d ps, actual is %d",
 							INPUT_DELAY, input_delay_taps * tap_size);
-						$display("INFO: Target output delay for IODelayBlock is %d ps, actual is %d",
+						$info("INFO: Target output delay for IODelayBlock is %d ps, actual is %d",
 							OUTPUT_DELAY, input_delay_taps * tap_size);
 					end
 				end
