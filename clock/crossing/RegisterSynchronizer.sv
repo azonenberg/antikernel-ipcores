@@ -42,6 +42,7 @@ module RegisterSynchronizer #(
 	input wire				en_a,
 	output wire				ack_a,
 	input wire[WIDTH-1:0]	reg_a,
+	input wire				reset_a,
 
 	input wire				clk_b,
 	output logic			updated_b 	= 0,
@@ -53,11 +54,20 @@ module RegisterSynchronizer #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Control plane
 
-	wire	update_b;
+	wire				update_b;
+
+	logic[WIDTH-1:0]	reg_a_ff = 0;
+
+	always_ff @(posedge clk_a) begin
+		reg_a_ff		<= reg_a;
+
+		if(reset_a)
+			reg_a_ff	<= INIT;
+	end
 
 	PulseSynchronizer sync_en(
 		.clk_a(clk_a),
-		.pulse_a(en_a),
+		.pulse_a(en_a || reset_a),
 		.clk_b(clk_b),
 		.pulse_b(update_b)
 	);
@@ -69,14 +79,14 @@ module RegisterSynchronizer #(
 		.pulse_b(ack_a)
 	);
 
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Data plane
 
 	always_ff @(posedge clk_b) begin
 		updated_b	<= update_b;
+
 		if(update_b)
-			reg_b	<= reg_a;
+			reg_b	<= reg_a_ff;
 	end
 
 endmodule
