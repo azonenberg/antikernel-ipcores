@@ -1,9 +1,10 @@
 `timescale 1ns / 1ps
+`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -28,55 +29,121 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-/**
-	@file
-	@author Andrew D. Zonenberg
-	@brief Wrapper around PulseSynchronizer for synchronizing a register from a management/JTAG domain to
-	a SoC internal domain.
- */
-module RegisterSynchronizer #(
-	parameter WIDTH = 16,
-	parameter INIT = 0
-) (
-	input wire				clk_a,
-	input wire				en_a,
-	output wire				ack_a,
-	input wire[WIDTH-1:0]	reg_a,
+`include "IPv4Bus.svh"
+`include "TCPv4Bus.svh"
 
-	input wire				clk_b,
-	output reg				updated_b 	= 0,
+module TCPProtocol(
 
-	(* DONT_TOUCH *)
-	output reg[WIDTH-1:0]	reg_b		= INIT
-	);
+	//Clocks
+	input wire				clk,
+
+	//Incoming data bus from IP stack
+	//TODO: make this parameterizable for IPv4/IPv6, for now we only do v4
+	input wire IPv4RxBus	rx_l3_bus,
+	output IPv4TxBus		tx_l3_bus	=	{$bits(IPv4TxBus){1'b0}},
+
+	//Outbound bus to applications
+	output TCPv4RxBus		rx_l4_bus	=	{$bits(TCPv4RxBus){1'b0}},
+	input TCPv4TxBus		tx_l4_bus
+);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Control plane
+	// Socket state
 
-	wire	update_b;
+	//The SocketManager stores mappings from (sport, dport, client_ip) to socket handles.
+	//We need to store other state ourselves.
+	SocketManager #(
+		.WAYS(4),
+		.LATENCY(2),
+		.BINS(256)
+	) state_mgr (
+		.clk(clk),
 
-	PulseSynchronizer sync_en(
-		.clk_a(clk_a),
-		.pulse_a(en_a),
-		.clk_b(clk_b),
-		.pulse_b(update_b)
+		.lookup_en(),
+		.lookup_headers(),
+		.lookup_done(),
+		.lookup_hit(),
+		.lookup_sockid(),
+
+		.insert_en(),
+		.insert_headers(),
+		.insert_done(),
+		.insert_fail(),
+		.insert_sockid(),
+
+		.remove_en(),
+		.remove_sockid(),
+		.remove_done(),
+
+		.aging_tick(),
+		.max_age()
 	);
 
-	PulseSynchronizer sync_ack(
-		.clk_a(clk_b),
-		.pulse_a(update_b),
-		.clk_b(clk_a),
-		.pulse_b(ack_a)
-	);
-
+	typedef struct
+	{
+		logic[31:0]	tx_seq;		//Starting sequence number for our next outbound segment
+		logic[31:0]	rx_seq;		//Expected sequence number of the next inbound segment
+		logic[15:0] tx_window;	//max window we're able to send
+	} tcpstate_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Data plane
+	// RX datapath
 
-	always @(posedge clk_b) begin
-		updated_b	<= update_b;
-		if(update_b)
-			reg_b	<= reg_a;
+	enum logic[3:0]
+	{
+		RX_STATE_IDLE		= 4'h0,
+		RX_STATE_HEADER_0	= 4'h1,
+		RX_STATE_HEADER_1	= 4'h2,
+		RX_STATE_HEADER_2	= 4'h3
+	} rx_state = RX_STATE_IDLE;
+
+	always_ff @(posedge clk) begin
+
+		case(rx_state)
+
+			//Start when we get a new packet
+			RX_STATE_IDLE: begin
+
+				if(rx_l3_bus.start)
+					rx_state			<= RX_STATE_HEADER_0;
+
+			end	//end RX_STATE_IDLE
+
+			RX_STATE_HEADER_0: begin
+				if(rx_l3_bus.headers_valid) begin
+					if( (rx_l3_bus.payload_len < 20) || !rx_l3_bus.protocol_is_tcp )
+						rx_state			<= RX_STATE_IDLE;
+					else
+						rx_state			<= RX_STATE_HEADER_1;
+
+				end
+			end	//end RX_STATE_HEADER_0
+
+			RX_STATE_HEADER_1: begin
+				if(rx_l3_bus.data_valid) begin
+
+					//Drop truncated packets
+					if(rx_l3_bus.bytes_valid != 4)
+						rx_state	<= RX_STATE_IDLE;
+
+					else begin
+						rx_l4_bus.src_port	<= rx_l3_bus.data[31:16];
+						rx_l4_bus.dst_port	<= rx_l3_bus.data[15:0];
+						rx_state			<= RX_STATE_HEADER_2;
+					end
+
+				end
+			end	//end RX_STATE_HEADER_1
+
+			RX_STATE_HEADER_2: begin
+				rx_state	<= RX_STATE_IDLE;
+			end	//end RX_STATE_HEADER_2
+
+		endcase
+
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX datapath
 
 endmodule

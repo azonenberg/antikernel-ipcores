@@ -268,8 +268,10 @@ module ARPCache #(
 
 					lookup_mac		<= 48'hff_ff_ff_ff_ff_ff;	//default to broadcast if we can't find it
 
-					$display("[%t] Looking up IP %d.%d.%d.%d",
-						$time(), lookup_ip[31:24], lookup_ip[23:16], lookup_ip[15:8], lookup_ip[7:0]);
+					`ifdef SIMULATION
+						$display("[%t] [%m] Looking up IP %0d.%0d.%0d.%0d",
+							$time(), lookup_ip[31:24], lookup_ip[23:16], lookup_ip[15:8], lookup_ip[7:0]);
+					`endif
 				end
 
 				//Nope, check for stuff to learn
@@ -282,12 +284,14 @@ module ARPCache #(
 					target_hash		<= learn_hash;
 					target_ip		<= learn_pending_ip;
 
-					$display("[%t] Learning IP %d.%d.%d.%d is at MAC %02x:%02x:%02x:%02x:%02x:%02x",
-						$time(),
-						learn_pending_ip[31:24], learn_pending_ip[23:16], learn_pending_ip[15:8], learn_pending_ip[7:0],
-						learn_pending_mac[47:40], learn_pending_mac[39:32], learn_pending_mac[31:24],
-						learn_pending_mac[23:16], learn_pending_mac[15:8], learn_pending_mac[7:0]
-						);
+					`ifdef SIMULATION
+						$display("[%t] [%m] Learning IP %0d.%0d.%0d.%0d is at MAC %02x:%02x:%02x:%02x:%02x:%02x",
+							$time(),
+							learn_pending_ip[31:24], learn_pending_ip[23:16], learn_pending_ip[15:8], learn_pending_ip[7:0],
+							learn_pending_mac[47:40], learn_pending_mac[39:32], learn_pending_mac[31:24],
+							learn_pending_mac[23:16], learn_pending_mac[15:8], learn_pending_mac[7:0]
+							);
+					`endif
 
 					//To start, any cache line is suitable to replace
 					best_age		<= 0;
@@ -296,9 +300,11 @@ module ARPCache #(
 
 				//Lowest priority: aging check
 				else if(age_pending) begin
-					$display("[%t] Starting aging pass", $time());
-					if(age_addr != 0)
-						$display("WARNING: previous pass wasn't done!");
+					`ifdef SIMULATIOn
+						$display("[%t] [%m] Starting aging pass", $time());
+						if(age_addr != 0)
+							$display("[%t] [%m] WARNING: previous pass wasn't done!", $time());
+					`endif
 					rd_en			<= 1;
 					rd_addr			<= 0;
 					age_pending		<= 0;
@@ -334,11 +340,14 @@ module ARPCache #(
 				if(rd_data.valid && (rd_data.age > max_age) ) begin
 					wr_data.valid	<= 0;
 
-					$display("[%t] Cache entry for IP %d.%d.%d.%d at MAC %02x:%02x:%02x:%02x:%02x:%02x has aged out",
-						$time(),
-						rd_data.ip[31:24], rd_data.ip[23:16], rd_data.ip[15:8], rd_data.ip[7:0],
-						rd_data.mac[47:40], rd_data.mac[39:32], rd_data.mac[31:24],
-						rd_data.mac[23:16], rd_data.mac[15:8], rd_data.mac[7:0]);
+					`ifdef SIMULATION
+						$display("[%t] [%m] Cache entry for IP %0d.%0d.%0d.%0d at MAC %02x:%02x:%02x:%02x:%02x:%02x has aged out",
+							$time(),
+							rd_data.ip[31:24], rd_data.ip[23:16], rd_data.ip[15:8], rd_data.ip[7:0],
+							rd_data.mac[47:40], rd_data.mac[39:32], rd_data.mac[31:24],
+							rd_data.mac[23:16], rd_data.mac[15:8], rd_data.mac[7:0]);
+					`endif
+
 				end
 
 				//If not, it just got older
@@ -445,12 +454,14 @@ module ARPCache #(
 			STATE_LEARN_5: begin
 
 				//We didn't find the address in the table. Need to learn it!
-				$display("[%t] Not in cache - learning IP %d.%d.%d.%d at MAC %02x:%02x:%02x:%02x:%02x:%02x",
-					$time(),
-					learn_ip[31:24], learn_ip[23:16], learn_ip[15:8], learn_ip[7:0],
-					learn_mac[47:40], learn_mac[39:32], learn_mac[31:24],
-					learn_mac[23:16], learn_mac[15:8], learn_mac[7:0]
-					);
+				`ifdef SIMULATION
+					$display("[%t] [%m] Not in cache - learning IP %0d.%0d.%0d.%0d at MAC %02x:%02x:%02x:%02x:%02x:%02x",
+						$time(),
+						learn_ip[31:24], learn_ip[23:16], learn_ip[15:8], learn_ip[7:0],
+						learn_mac[47:40], learn_mac[39:32], learn_mac[31:24],
+						learn_mac[23:16], learn_mac[15:8], learn_mac[7:0]
+						);
+				`endif
 
 				wr_en			<= 1;
 				wr_addr			<= best_addr;
@@ -479,12 +490,14 @@ module ARPCache #(
 				lookup_mac	<= rd_data.mac;
 				state		<= STATE_IDLE;
 
-				$display("[%t] Hit! IP %d.%d.%d.%d is at MAC %02x:%02x:%02x:%02x:%02x:%02x",
-					$time(),
-					lookup_ip[31:24], lookup_ip[23:16], lookup_ip[15:8], lookup_ip[7:0],
-					rd_data.mac[47:40], rd_data.mac[39:32], rd_data.mac[31:24],
-					rd_data.mac[23:16], rd_data.mac[15:8], rd_data.mac[7:0]
-					);
+				`ifdef SIMULATION
+					$display("[%t] [%m] Hit! IP %0d.%0d.%0d.%0d is at MAC %02x:%02x:%02x:%02x:%02x:%02x",
+						$time(),
+						lookup_ip[31:24], lookup_ip[23:16], lookup_ip[15:8], lookup_ip[7:0],
+						rd_data.mac[47:40], rd_data.mac[39:32], rd_data.mac[31:24],
+						rd_data.mac[23:16], rd_data.mac[15:8], rd_data.mac[7:0]
+						);
+				`endif
 
 				//If we use a cache entry, mark it as still in use so it won't age out
 				wr_en			<= 1;
@@ -498,12 +511,14 @@ module ARPCache #(
 
 			//Learning. If we found the entry already in the cache, update it and go back to idle.
 			if( (state == STATE_LEARN_2) || (state == STATE_LEARN_3) || (state == STATE_LEARN_4) ) begin
-				$display("[%t] Hit! Refreshing IP %d.%d.%d.%d at MAC %02x:%02x:%02x:%02x:%02x:%02x",
-					$time(),
-					learn_ip[31:24], learn_ip[23:16], learn_ip[15:8], learn_ip[7:0],
-					learn_mac[47:40], learn_mac[39:32], learn_mac[31:24],
-					learn_mac[23:16], learn_mac[15:8], learn_mac[7:0]
-					);
+				`ifdef SIMULATION
+					$display("[%t] [%m] Hit! Refreshing IP %0d.%0d.%0d.%0d at MAC %02x:%02x:%02x:%02x:%02x:%02x",
+						$time(),
+						learn_ip[31:24], learn_ip[23:16], learn_ip[15:8], learn_ip[7:0],
+						learn_mac[47:40], learn_mac[39:32], learn_mac[31:24],
+						learn_mac[23:16], learn_mac[15:8], learn_mac[7:0]
+						);
+				`endif
 
 				wr_en			<= 1;
 				wr_addr			<= rd_data_addr;

@@ -116,7 +116,7 @@ module MemoryMacro #(
 
 	initial begin
 		if(USE_BLOCK && !OUT_REG)
-			$fatal("[MemoryMacro] Block RAM requires at least one output register");
+			$fatal(1, "Block RAM requires at least one output register");
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

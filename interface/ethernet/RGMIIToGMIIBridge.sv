@@ -109,7 +109,7 @@ module RGMIIToGMIIBridge #(
 		logic[7:0]	gmii_rx_data_parallel_ff	= 0;
 		logic[1:0]	gmii_rxc_parallel_ff		= 0;
 
-		wire[7:0]	rx_parallel_data;
+		logic[7:0]	rx_parallel_data;
 
 		//Convert DDR to SDR signals
 		if(PHY_INTERNAL_DELAY_RX) begin
@@ -135,7 +135,12 @@ module RGMIIToGMIIBridge #(
 			end
 
 			//Shuffle the nibbles data back to where they should be.
-			assign rx_parallel_data	= { gmii_rx_data_parallel[7:4], gmii_rx_data_parallel_ff[3:0] };
+			always_comb begin
+				if(link_speed == LINK_SPEED_1000M)
+					rx_parallel_data <= gmii_rx_data_parallel_ff;
+				else
+					rx_parallel_data <= { gmii_rx_data_parallel[7:4], gmii_rx_data_parallel_ff[3:0] };
+			end
 
 		end
 		else begin
@@ -257,7 +262,7 @@ module RGMIIToGMIIBridge #(
 
 		//Gig mode: send clock phased to rise half a cycle after our data goes out
 		if(link_speed_sync == LINK_SPEED_1000M) begin
-			clock_dout		<= 4'b0110;
+			clock_dout		<= 4'b1001;
 			update_data		<= 1;
 		end
 

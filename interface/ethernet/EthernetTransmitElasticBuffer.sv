@@ -147,7 +147,7 @@ module EthernetTransmitElasticBuffer #(
 
 		.rd_clk(mac_tx_clk),
 		.rd_en(header_rd_en),
-		.rd_offset(1'b0),
+		.rd_offset({HEADER_BITS{1'b0}}),
 		.rd_pop_single(header_pop),
 		.rd_pop_packet(1'b0),
 		.rd_packet_size({HEADER_BITS{1'b0}}),

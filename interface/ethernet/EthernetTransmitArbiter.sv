@@ -220,10 +220,10 @@ module EthernetTransmitArbiter #(
 
 		.rd_clk(clk),
 		.rd_en(ipv4_header_rd_en),
-		.rd_offset(1'b0),
+		.rd_offset({HEADER_BITS{1'b0}}),
 		.rd_pop_single(ipv4_pop_packet),	//one packet is one word
 		.rd_pop_packet(1'b0),
-		.rd_packet_size(1'h0),
+		.rd_packet_size({HEADER_BITS{1'b0}}),
 		.rd_data(ipv4_header),
 		.rd_size(ipv4_header_fifo_avail),
 		.rd_reset(1'b0)
@@ -254,10 +254,10 @@ module EthernetTransmitArbiter #(
 
 		.rd_clk(clk),
 		.rd_en(arp_header_rd_en),
-		.rd_offset(1'b0),
+		.rd_offset({ARP_HEADER_BITS{1'b0}}),
 		.rd_pop_single(arp_pop_packet),
 		.rd_pop_packet(1'b0),
-		.rd_packet_size(1'h0),
+		.rd_packet_size({ARP_HEADER_BITS{1'b0}}),
 		.rd_data(arp_header),
 		.rd_size(arp_header_fifo_avail),
 		.rd_reset(1'b0)
@@ -273,16 +273,18 @@ module EthernetTransmitArbiter #(
 
 	`include "Ethertypes.svh"
 
-	localparam STATE_IDLE					= 4'h0;
-	localparam STATE_ARP_HEADER_READ		= 4'h1;
-	localparam STATE_ARP_BODY				= 4'h2;
-	localparam STATE_ARP_COMMIT				= 4'h3;
-	localparam STATE_IPV4_HEADER_READ		= 4'h4;
-	localparam STATE_IPV4_BODY				= 4'h5;
-	localparam STATE_IPV4_COMMIT			= 4'h6;
+	enum logic[3:0]
+	{
+		STATE_IDLE				= 4'h0,
+		STATE_ARP_HEADER_READ	= 4'h1,
+		STATE_ARP_BODY			= 4'h2,
+		STATE_ARP_COMMIT		= 4'h3,
+		STATE_IPV4_HEADER_READ	= 4'h4,
+		STATE_IPV4_BODY			= 4'h5,
+		STATE_IPV4_COMMIT		= 4'h6
+	} state = STATE_IDLE;
 
-	reg[3:0]	state			= STATE_IDLE;
-	reg[15:0]	tx_bytes_left	= 0;
+	logic[15:0]	tx_bytes_left	= 0;
 
 	always_ff @(posedge clk) begin
 

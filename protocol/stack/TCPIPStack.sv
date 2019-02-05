@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -32,6 +32,7 @@
 `include "EthernetBus.svh"
 `include "IPv4Bus.svh"
 `include "UDPv4Bus.svh"
+`include "TCPv4Bus.svh"
 
 /**
 	@file
@@ -62,7 +63,11 @@ module TCPIPStack #(
 
 	//UDP socket interface
 	output UDPv4RxBus			udpv4_rx_bus,
-	input UDPv4TxBus			udpv4_tx_bus
+	input UDPv4TxBus			udpv4_tx_bus,
+
+	//TCP socket interface
+	output TCPv4RxBus			tcpv4_rx_l4_bus,
+	input TCPv4TxBus			tcpv4_tx_l4_bus
 
 	//TODO: performance counters
 );
@@ -207,9 +212,7 @@ module TCPIPStack #(
 
 	IPv4TxBus	icmp_ipv4_tx_l3_bus;
 	IPv4TxBus	udp_ipv4_tx_l3_bus;
-
-	//Tie off unused protocol ports
-	IPv4TxBus	tcp_ipv4_tx_l3_bus = {$bits(IPv4TxBus){1'b0}};
+	IPv4TxBus	tcp_ipv4_tx_l3_bus;
 
 	IPv4TransmitArbiter ip_arbiter(
 		.clk(clk_ipstack),
@@ -246,5 +249,17 @@ module TCPIPStack #(
 		.perf()
 	);
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Layer 4 TCP (for IPv4)
+
+	TCPProtocol tcp_ipv4(
+		.clk(clk_ipstack),
+
+		.rx_l3_bus(ipv4_rx_l3_bus),
+		.rx_l4_bus(tcpv4_rx_l4_bus),
+
+		.tx_l3_bus(tcp_ipv4_tx_l3_bus),
+		.tx_l4_bus(tcpv4_tx_l4_bus)
+	);
 
 endmodule

@@ -331,6 +331,18 @@ module ICMPv4Protocol(
 						tx_ping_id				<= rx_ping_id;
 						tx_ping_seq				<= rx_ping_seq;
 						tx_bytes_left			<= { rx_l3_bus.payload_len - 'd8 };
+
+						`ifdef SIMULATION
+							$display("[%t] [%m] %0d bytes from %0d.%0d.%0d.%0d: icmp_seq=%0d",
+								$time(),
+								rx_l3_bus.payload_len - 'd8,
+								rx_l3_bus.src_ip[31:24],
+								rx_l3_bus.src_ip[23:16],
+								rx_l3_bus.src_ip[15:8],
+								rx_l3_bus.src_ip[7:0],
+								rx_ping_seq
+								);
+						`endif
 					end
 				end
 

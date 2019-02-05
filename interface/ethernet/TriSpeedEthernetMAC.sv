@@ -37,7 +37,9 @@
 	@author Andrew D. Zonenberg
 	@brief 10/100/1000 Mbps Ethernet MAC
  */
-module TriSpeedEthernetMAC(
+module TriSpeedEthernetMAC #(
+	parameter RX_CRC_DISABLE	= 0
+)(
 
 	//GMII bus
 	input wire					gmii_rx_clk,
@@ -59,7 +61,7 @@ module TriSpeedEthernetMAC(
 	output logic				tx_ready			= 1,
 
 	//Performance counters (sync to tx or rx clock, as appropriate)
-	output GigabitMacPerformanceCounters	perf	= { 64'h0, 64'h0, 64'h0 }
+	output GigabitMacPerformanceCounters	perf	= {$bits(GigabitMacPerformanceCounters){1'b0}}
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -240,7 +242,7 @@ module TriSpeedEthernetMAC(
 					rx_state			<= RX_STATE_IDLE;
 
 					//Validate the CRC (details depend on length of the packet)
-					if(rx_crc_calculated_ff5 == rx_crc_expected)
+					if( (rx_crc_calculated_ff5 == rx_crc_expected) || RX_CRC_DISABLE )
 						rx_bus.commit	<= 1;
 					else
 						rx_bus.drop		<= 1;
@@ -270,11 +272,13 @@ module TriSpeedEthernetMAC(
 	end
 
 	wire[1:0]	link_speed_sync_raw;
-	lspeed_t	link_speed_sync = lspeed_t'(link_speed_sync_raw);
+	lspeed_t	link_speed_sync;
+	always_comb
+		link_speed_sync <= lspeed_t'(link_speed_sync_raw);
 
 	RegisterSynchronizer #(
 		.WIDTH(2),
-		.INIT(0)
+		.INIT(LINK_SPEED_1000M)
 	) sync_link_speed(
 		.clk_a(gmii_rx_clk),
 		.en_a(link_speed_change),
