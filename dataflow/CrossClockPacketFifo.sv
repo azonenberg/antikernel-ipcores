@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -38,67 +38,78 @@
 	Note that the FIFO does not actually store any metadata about how large the packets are. This information must be
 	transmitted in-band or using a separate FIFO.
  */
-module CrossClockPacketFifo(
-	wr_clk, wr_en, wr_data, wr_reset, wr_size, wr_commit, wr_rollback,
-	rd_clk, rd_en, rd_offset, rd_pop_single, rd_pop_packet, rd_packet_size, rd_data, rd_size, rd_reset
+module CrossClockPacketFifo #(
+	parameter WIDTH 	= 32,
+	parameter DEPTH		= 11'd1024,
+
+	parameter ADDR_BITS = $clog2(DEPTH)
+)(
+	//WRITE port (all signals in wr_clk domain)
+	input wire					wr_clk,			//Clock for write port
+	input wire					wr_en,			//Assert wr_en and put data on wr_data to push
+	input wire[WIDTH-1:0]		wr_data,
+	input wire					wr_reset,		//Reset write side of the FIFO
+	output wire[ADDR_BITS:0]	wr_size,		//needs to be one bigger than pointers to hold fully empty size
+	input wire					wr_commit,		//Assert this to say "everything we've written is legal to read"
+	input wire					wr_rollback,	//Assert this to discard everything pushed since the last commit
+
+	//READ port (all signals in rd_clk domain)
+	input wire					rd_clk,
+	input wire					rd_en,			//Read a word
+	input wire[ADDR_BITS-1:0]	rd_offset,		//Offset from packet start for random access reads
+	input wire					rd_pop_single,	//Pop one word (exclusive with rd_pop_packet)
+	input wire					rd_pop_packet,	//Pop an entire packet (exclusive with rd_pop_single)
+	input wire[ADDR_BITS:0]		rd_packet_size,	//Size of the packet to pop
+	output wire[WIDTH-1:0]		rd_data,
+	output wire[ADDR_BITS:0]	rd_size,
+	input wire					rd_reset
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// IO declarations
+	// FIFO pointers
 
-	parameter WIDTH 	= 32;
-	parameter DEPTH		= 11'd1024;
+	logic[ADDR_BITS:0] 	data_wptr		= 0;							//extra bit for empty/full detect
+	wire[ADDR_BITS-1:0] data_wptr_low	= data_wptr[ADDR_BITS-1:0];		//actual pointer
 
-	//number of bits in the address bus
-	`include "../synth_helpers/clog2.vh"
-	localparam ADDR_BITS = clog2(DEPTH);
-
-	//WRITE port (all signals in wr_clk domain)
-	input wire					wr_clk;			//Clock for write port
-	input wire					wr_en;			//Assert wr_en and put data on wr_data to push
-	input wire[WIDTH-1:0]		wr_data;
-	input wire					wr_reset;		//Reset write side of the FIFO
-	output wire[ADDR_BITS:0]	wr_size;		//needs to be one bigger than pointers to hold fully empty size
-	input wire					wr_commit;		//Assert this to say "everything we've written is legal to read"
-	input wire					wr_rollback;	//Assert this to discard everything pushed since the last commit
-
-	//READ port (all signals in rd_clk domain)
-	input wire					rd_clk;
-	input wire					rd_en;			//Read a word
-	input wire[ADDR_BITS-1:0]	rd_offset;		//Offset from packet start for random access reads
-	input wire					rd_pop_single;	//Pop one word (exclusive with rd_pop_packet)
-	input wire					rd_pop_packet;	//Pop an entire packet (exclusive with rd_pop_single)
-	input wire[ADDR_BITS:0]		rd_packet_size;	//Size of the packet to pop
-	output reg[WIDTH-1:0]		rd_data	= 0;
-	output wire[ADDR_BITS:0]	rd_size;
-	input wire					rd_reset;
+	logic[ADDR_BITS:0] data_rptr		= 0;							//extra bit for empty/full detect
+	wire[ADDR_BITS-1:0] data_rptr_off	= data_rptr[ADDR_BITS-1:0] + rd_offset;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual memory block
 
-	(* RAM_STYLE="block" *) reg[WIDTH-1:0] data[DEPTH-1:0];
+	MemoryMacro #(
+		.WIDTH(WIDTH),
+		.DEPTH(DEPTH),
+		.USE_BLOCK(1),
+		.OUT_REG(1),
+		.DUAL_PORT(1),
+		.TRUE_DUAL(0),
+		.INIT_VALUE({WIDTH{1'h0}})
+	) data_mem (
+		.porta_clk(wr_clk),
+		.porta_en(wr_en),
+		.porta_addr(data_wptr_low[ADDR_BITS-1:0]),
+		.porta_we(wr_en),
+		.porta_din(wr_data),
+		.porta_dout(),
 
-	//Initialization
-	integer i;
-	initial begin
-		for(i=0; i<DEPTH; i = i+1)
-			data[i] <= 0;
-	end
+		.portb_clk(rd_clk),
+		.portb_en(rd_en),
+		.portb_addr(data_rptr_off),
+		.portb_we(1'b0),
+		.portb_din({WIDTH{1'h0}}),
+		.portb_dout(rd_data)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Write logic (input clock domain)
 
-	reg[ADDR_BITS:0] 	data_wptr			= 0;							//extra bit for empty/full detect
-	wire[ADDR_BITS-1:0] data_wptr_low		= data_wptr[ADDR_BITS-1:0];		//actual pointer
+	logic[ADDR_BITS:0]	data_wptr_committed	= 0;
 
-	reg[ADDR_BITS:0]	data_wptr_committed	= 0;
+	always_ff @(posedge wr_clk) begin
 
-	always @(posedge wr_clk) begin
-
-		if(wr_en) begin
-			data[data_wptr_low] <= wr_data;
+		if(wr_en)
 			data_wptr 			<= data_wptr + 1'h1;
-		end
 
 		//commit/rollback have higher precedence than writes
 		//but lower than resets
@@ -114,12 +125,8 @@ module CrossClockPacketFifo(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Read logic (output clock domain)
 
-	reg[ADDR_BITS:0] data_rptr		= 0;							//extra bit for empty/full detect
-
-	wire[ADDR_BITS-1:0] data_rptr_off	= data_rptr[ADDR_BITS-1:0] + rd_offset;
-
 	//Pointer manipulation
-	always @(posedge rd_clk) begin
+	always_ff @(posedge rd_clk) begin
 
 		if(rd_pop_single) begin
 			if(rd_size != 0)
@@ -132,23 +139,17 @@ module CrossClockPacketFifo(
 			data_rptr <= 0;
 	end
 
-	//Read logic
-	always @(posedge rd_clk) begin
-		if(rd_en)
-			rd_data <= data[data_rptr_off];
-	end
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Tail pointer synchronization from input to output clock domain
 
 	//Tail pointer
 	//This is the lowest address to which writes are guaranteed to have committed.
-	reg[ADDR_BITS:0] data_tail					= 0;
+	logic[ADDR_BITS:0] data_tail				= 0;
 	assign rd_size = data_tail - data_rptr;
 
 	//Synchronization stuff
 	wire tail_sync_busy;
-	reg tail_wr_en								= 0;
+	logic tail_wr_en							= 0;
 	wire tail_wr_ack;
 	wire tail_rd_en;
 	HandshakeSynchronizer sync_tail(
@@ -163,8 +164,8 @@ module CrossClockPacketFifo(
 	);
 
 	//Write side state machine
-	reg[ADDR_BITS:0] data_tail_wdata			= 0;
-	always @(posedge wr_clk) begin
+	logic[ADDR_BITS:0] data_tail_wdata			= 0;
+	always_ff @(posedge wr_clk) begin
 
 		tail_wr_en <= 0;
 
@@ -177,7 +178,7 @@ module CrossClockPacketFifo(
 	end
 
 	//Read side
-	always @(posedge rd_clk) begin
+	always_ff @(posedge rd_clk) begin
 		if(tail_rd_en)
 			data_tail <= data_tail_wdata;
 		if(rd_reset)
@@ -189,12 +190,12 @@ module CrossClockPacketFifo(
 
 	//Head pointer
 	//This is the highest address from which reads are guaranteed to have committed
-	reg[ADDR_BITS:0] data_head					= 0;
+	logic[ADDR_BITS:0] data_head				= 0;
 	assign wr_size = DEPTH + data_head - data_wptr;
 
 	//Synchronization stuff
 	wire head_sync_busy;
-	reg head_rd_en								= 0;
+	logic head_rd_en							= 0;
 	wire head_rd_ack;
 	wire head_wr_en;
 	HandshakeSynchronizer sync_head(
@@ -209,8 +210,8 @@ module CrossClockPacketFifo(
 	);
 
 	//Read side state machine
-	reg[ADDR_BITS:0] data_head_wdata			= 0;
-	always @(posedge rd_clk) begin
+	logic[ADDR_BITS:0] data_head_wdata			= 0;
+	always_ff @(posedge rd_clk) begin
 
 		head_rd_en <= 0;
 
@@ -223,7 +224,7 @@ module CrossClockPacketFifo(
 	end
 
 	//Write side
-	always @(posedge wr_clk) begin
+	always_ff @(posedge wr_clk) begin
 		if(head_wr_en)
 			data_head <= data_head_wdata;
 		if(wr_reset)

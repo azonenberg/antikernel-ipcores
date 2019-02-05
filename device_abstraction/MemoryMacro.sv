@@ -128,9 +128,6 @@ module MemoryMacro #(
 	(* RAM_STYLE = rstyle *)
 	reg[WIDTH-1 : 0]			storage[DEPTH-1 : 0];
 
-	//Width capped to 32 for initialization
-	localparam PWIDTH = (WIDTH > 32) ? 32 : WIDTH;
-
 	//Initialization
 	integer i;
 	generate
@@ -142,7 +139,7 @@ module MemoryMacro #(
 			//address fill
 			else if(INIT_ADDR) begin
 				for(i=0; i<DEPTH; i=i+1)
-					storage[i] <= i[PWIDTH-1 : 0];
+					storage[i] <= i[WIDTH-1 : 0];
 			end
 
 			//file load
@@ -152,7 +149,7 @@ module MemoryMacro #(
 			//zero fill otherwise
 			else begin
 				for(i=0; i<DEPTH; i=i+1)
-					storage[i] <= INIT_VALUE[PWIDTH-1 : 0];
+					storage[i] <= INIT_VALUE[WIDTH-1 : 0];
 			end
 
 		end
