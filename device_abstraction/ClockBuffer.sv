@@ -77,7 +77,7 @@ module ClockBuffer(clkin, ce, clkout);
 			//Parameter error
 			else begin
 				initial begin
-					$fatal("ERROR: ClockBuffer CE argument must be \"YES\" or \"NO\"");
+					$fatal(0, "ERROR: ClockBuffer CE argument must be \"YES\" or \"NO\"");
 				end
 			end
 
@@ -101,7 +101,7 @@ module ClockBuffer(clkin, ce, clkout);
 			//Parameter error
 			else begin
 				initial begin
-					$fatal("ERROR: ClockBuffer CE argument must be \"YES\" or \"NO\"");
+					$fatal(0, "ERROR: ClockBuffer CE argument must be \"YES\" or \"NO\"");
 				end
 			end
 
@@ -118,7 +118,7 @@ module ClockBuffer(clkin, ce, clkout);
 			//Parameter error
 			else begin
 				initial begin
-					$fatal("ERROR: ClockBuffer CE argument must be \"NO\" for TYPE == \"IO\"");
+					$fatal(0, "ERROR: ClockBuffer CE argument must be \"NO\" for TYPE == \"IO\"");
 				end
 			end
 
@@ -127,7 +127,7 @@ module ClockBuffer(clkin, ce, clkout);
 		//Parameter error
 		else begin
 			initial begin
-				$fatal("ERROR: ClockBuffer TYPE argument must be \"GLOBAL\" or \"LOCAL\"");
+				$fatal(0, "ERROR: ClockBuffer TYPE argument must be \"GLOBAL\" or \"LOCAL\"");
 			end
 		end
 
