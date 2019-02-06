@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -49,16 +49,16 @@ module EthernetMDIOTransceiver (
 
 	input	wire[4:0]	phy_md_addr,
 
-	output	reg			mdio_tx_data	= 0,
-	output	reg			mdio_tx_en		= 0,
+	output	logic		mdio_tx_data	= 0,
+	output	logic		mdio_tx_en		= 0,
 	input	wire		mdio_rx_data,
 
-	output	reg			mdc			 	= 0,
+	output	logic		mdc			 	= 0,
 
 	output	wire		mgmt_busy_fwd,
 	input	wire[4:0]	phy_reg_addr,
 	input	wire[15:0]	phy_wr_data,
-	output	reg[15:0]	phy_rd_data		= 0,
+	output	logic[15:0]	phy_rd_data		= 0,
 	input	wire		phy_reg_wr,
 	input	wire		phy_reg_rd
 	);
@@ -68,11 +68,11 @@ module EthernetMDIOTransceiver (
 
 	//125 / 2.5 MHz = 50x slower (400 ns, minimum allowed period)
 	//Slow down by 60x instead (30 cycles between rising/falling edges) just to be safe
-	reg[5:0] 	mdc_count 		 	= 0;
-	reg 		mdc_rising_edge		= 0;
-	reg 		mdc_falling_edge	= 0;
+	logic[5:0] 	mdc_count 		 	= 0;
+	logic 		mdc_rising_edge		= 0;
+	logic 		mdc_falling_edge	= 0;
 
-	always @(posedge clk_125mhz) begin
+	always_ff @(posedge clk_125mhz) begin
 		mdc_rising_edge		<= 0;
 		mdc_falling_edge	<= 0;
 
@@ -101,31 +101,32 @@ module EthernetMDIOTransceiver (
 	localparam MGMT_OP_WR			= 1;
 
 	//State values for management interface
-	localparam MGMT_STATE_IDLE		= 0;
-	localparam MGMT_STATE_PRE		= 1;
-	localparam MGMT_STATE_ST		= 2;
-	localparam MGMT_STATE_OP		= 3;
-	localparam MGMT_STATE_PHYAD		= 4;
-	localparam MGMT_STATE_REGAD		= 5;
-	localparam MGMT_STATE_TA		= 6;
-	localparam MGMT_STATE_DATA		= 7;
-	localparam MGMT_STATE_IFG		= 8;
+	enum logic[3:0]
+	{
+		MGMT_STATE_IDLE		= 4'h0,
+		MGMT_STATE_PRE		= 4'h1,
+		MGMT_STATE_ST		= 4'h2,
+		MGMT_STATE_OP		= 4'h3,
+		MGMT_STATE_PHYAD	= 4'h4,
+		MGMT_STATE_REGAD	= 4'h5,
+		MGMT_STATE_TA		= 4'h6,
+		MGMT_STATE_DATA		= 4'h7,
+		MGMT_STATE_IFG		= 4'h8
+	} mgmt_state 			= MGMT_STATE_IDLE;
 
-	reg[3:0]	mgmt_state 			= MGMT_STATE_IDLE;
+	logic[5:0]	mgmt_count			= 0;					//internal counter, meaning depends on state
 
-	reg[5:0]	mgmt_count			= 0;					//internal counter, meaning depends on state
+	logic[15:0]	phy_wr_data_ff		= 0;
 
-	reg[15:0]	phy_wr_data_ff		= 0;
+	logic		mgmt_op				= MGMT_OP_RD;
 
-	reg			mgmt_op				= MGMT_OP_RD;
-
-	reg			mgmt_busy			= 0;
+	logic		mgmt_busy			= 0;
 	assign		mgmt_busy_fwd		= mgmt_busy | phy_reg_wr | phy_reg_rd;
 
 	//Internal read data buffer
-	reg[15:0]	phy_rd_data_raw		= 0;
+	logic[15:0]	phy_rd_data_raw		= 0;
 
-	always @(posedge clk_125mhz) begin
+	always_ff @(posedge clk_125mhz) begin
 		case(mgmt_state)
 
 			//////////////////////////////////////////////////////////////////////////////////////////
