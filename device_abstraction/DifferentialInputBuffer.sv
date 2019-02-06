@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -46,21 +46,19 @@ module DifferentialInputBuffer #(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// The buffer array
-	
+
 	initial begin
 		if( (OPTIMIZE == "SPEED") || (OPTIMIZE == "POWER") ) begin
 		end
-		
+
 		else begin
-			//Invalid speed/power combo
-			//TODO: better way to abort in vivado?
-			while(1) $finish;
+			$fatal(0, "Invalid optimization goal (must be SPEED or POWER)");
 		end
 	end
-	
+
 	genvar g;
 	for(g=0; g<WIDTH; g=g+1) begin : ibufs
-	
+
 		IBUFDS #(
 			.IOSTANDARD(IOSTANDARD),
 			.IBUF_LOW_PWR(OPTIMIZE == "POWER" ? "TRUE" : "FALSE"),
@@ -70,7 +68,7 @@ module DifferentialInputBuffer #(
 			.IB(pad_in_n[g]),
 			.O(fabric_out[g])
 		);
-		
+
 	end
 
 endmodule
