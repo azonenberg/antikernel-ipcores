@@ -5,7 +5,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -31,166 +31,119 @@
 ***********************************************************************************************************************/
 
 /**
-	@brief Bridge from SGMII to GMII
+	@file
+	@author Andrew D. Zonenberg
+	@brief 8B/10B line code receiver and comma aligner
+
+	TODO: consider splitting decoder and comma aligner into separate blocks?
  */
-module SGMIIToGMIIBridge(
+module Decode8b10b(
+	input wire			clk,
 
-	//SGMII interface (connect directly to top-level pads)
-	input wire			sgmii_rx_clk_p,		//625 MHz RX clock
-	input wire			sgmii_rx_clk_n,
+	input wire			codeword_valid,
+	input wire[9:0]		codeword_in,
 
-	input wire			sgmii_rx_data_p,	//1250 Mbps DDR RX data, aligned to sgmii_rx_clk (8b10b coded)
-	input wire			sgmii_rx_data_n,
+	output logic		data_valid	= 0,
+	output logic[7:0]	data		= 0,
+	output logic		data_is_ctl	= 0,
 
-	output wire			gmii_rx_clk,
-
-	output wire[7:0]	debug_led
+	output logic		disparity_err	= 0,
+	output logic		symbol_err		= 0,
+	output logic		locked			= 0,
+	output logic		bitslip			= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Differential I/O buffers
+	// Comma detector
 
-	wire	rx_clk;
+	logic[9:0]	codeword_in_ff	= 0;
+	wire[19:0]	comma_window	= {codeword_in_ff, codeword_in };
 
-	DifferentialInputBuffer #(
-		.WIDTH(1),
-		.IOSTANDARD("LVDS"),
-		.ODT(1),
-		.OPTIMIZE("SPEED")
-	) ibuf_clk (
-		.pad_in_p(sgmii_rx_clk_p),
-		.pad_in_n(sgmii_rx_clk_n),
-		.fabric_out(rx_clk)
-	);
+	logic		comma_found;
+	logic[4:0]	comma_found_pos;
+	logic		comma_found_polarity;
 
-	wire	rx_data_serial;
+	integer	i;
 
-	DifferentialInputBuffer #(
-		.WIDTH(1),
-		.IOSTANDARD("LVDS"),
-		.ODT(1),
-		.OPTIMIZE("SPEED")
-	) ibuf_data (
-		.pad_in_p(sgmii_rx_data_p),
-		.pad_in_n(sgmii_rx_data_n),
-		.fabric_out(rx_data_serial)
-	);
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug toggler
+	always_ff @(posedge clk) begin
 
-	/*
-	ODDR #
-	(
-		.DDR_CLK_EDGE("SAME_EDGE"),
-		.SRTYPE("ASYNC"),
-		.INIT(0)
-	) ddr_obuf
-	(
-		.C(clk_250mhz),
-		.D1(1'b0),
-		.D2(1'b1),
-		.CE(1'b1),
-		.R(1'b0),
-		.S(1'b0),
-		.Q(debug_clk)
-	);
-	*/
-	/*
-	reg		toggle = 0;
-	assign	debug_clk = toggle;
+		comma_found	<= 0;
 
-	always @(posedge clk_250mhz) begin
-		toggle <= ~toggle;
-	end
-	*/
+		if(codeword_valid) begin
+			codeword_in_ff	<= codeword_in;
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// RX PLL (locked to the RX clock)
+			for(i=0; i<10; i=i+1) begin
 
-	wire 	pll_locked;
+				//Positive comma
+				if(comma_window[i +: 5] == 5'b11111) begin
+					comma_found				<= 1;
+					comma_found_pos			<= i;
+					comma_found_polarity	<= 1;
+				end
 
-	wire	serdes_clk_raw;
-	wire	gmii_rx_clk_raw;
+				//Negative comma
+				if(comma_window[i +: 5] == 5'b00000) begin
+					comma_found				<= 1;
+					comma_found_pos			<= i;
+					comma_found_polarity	<= 0;
+				end
 
-	//TODO: abstraction for this
-	wire clkfb;
-	MMCME4_BASE #(
-		.BANDWIDTH("OPTIMIZED"),
+			end
 
-		.CLKIN1_PERIOD(1.600),		//625 MHz Fin
-		.DIVCLK_DIVIDE(2),			//312.5 MHz to the PFD
-		.CLKFBOUT_MULT_F(4),		//1.25 GHz Fvco
-		.CLKFBOUT_PHASE(0),
+		end
 
-		.STARTUP_WAIT("FALSE"),		//Don't wait for PLL to lock at startup
-
-		.CLKOUT1_DIVIDE(2),			//625 MHz clock for SERDES
-		.CLKOUT2_DIVIDE(5),			//125 MHz clock for GMII subsystem
-		.CLKOUT3_DIVIDE(1),
-		.CLKOUT4_DIVIDE(1),
-		.CLKOUT5_DIVIDE(1),
-		.CLKOUT6_DIVIDE(1),
-
-		.CLKOUT1_DUTY_CYCLE(0.5),
-		.CLKOUT2_DUTY_CYCLE(0.5),
-		.CLKOUT3_DUTY_CYCLE(0.5),
-		.CLKOUT4_DUTY_CYCLE(0.5),
-		.CLKOUT5_DUTY_CYCLE(0.5),
-		.CLKOUT6_DUTY_CYCLE(0.5),
-
-		.CLKOUT1_PHASE(0),
-		.CLKOUT2_PHASE(0),
-		.CLKOUT3_PHASE(0),
-		.CLKOUT4_PHASE(0),
-		.CLKOUT5_PHASE(0),
-		.CLKOUT6_PHASE(0)
-
-	) pll (
-		.CLKFBIN(clkfb),
-		.CLKFBOUT(clkfb),
-
-		.CLKIN1(rx_clk),
-
-		.CLKOUT1(serdes_clk_raw),
-		.CLKOUT2(gmii_rx_clk_raw),
-		.CLKOUT3(),
-		.CLKOUT4(),
-		.CLKOUT5(),
-		.CLKOUT6(),
-
-		.LOCKED(pll_locked),
-
-		.PWRDWN(0),
-
-		.RST(0)
-	);
-
-	ClockBuffer #(
-		.TYPE("GLOBAL"),
-		.CE("YES")
-	) bufg_gmii_clk (
-		.clkin(gmii_rx_clk_raw),
-		.clkout(gmii_rx_clk),
-		.ce(pll_locked)
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug LED blinky
-
-	assign	debug_led[7:3] = 0;
-	assign	debug_led[2] = count2[21];
-	assign	debug_led[1] = pll_locked;
-	assign	debug_led[0] = count[21];
-
-	reg[21:0] count = 0;
-	reg[21:0] count2 = 0;
-	always @(posedge gmii_rx_clk) begin
-		count	<= count + 1'h1;
-	end
-	always @(posedge rx_clk) begin
-		count2	<= count2 + 1'h1;
 	end
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Comma aligner
+
+	logic[7:0]	comma_count	= 0;
+	logic[7:0]	bad_commas	= 0;
+
+	logic		codeword_valid_ff	= 0;
+
+	always_ff @(posedge clk) begin
+
+		bitslip				<= 0;
+
+		codeword_valid_ff	<= codeword_valid;
+
+		if(codeword_valid_ff && comma_found) begin
+
+			comma_count	<= comma_count + 1'h1;
+
+			//All three legal 8b/10b comma characters have the comma at bits 7:3.
+			//If we see one anywhere else, that's an indication we're out of sync.
+			if(comma_found_pos != 3)
+				bad_commas	<= bad_commas + 1'h1;
+
+			//Every 256 commas, see what our alignment looks like.
+			if(comma_count == 8'hff) begin
+				bad_commas	<= 0;
+
+				//If a lot of them are in the wrong place, realign
+				if(bad_commas > 128) begin
+					locked	<= 0;
+					bitslip	<= 1;
+				end
+
+				//If we have no bad commas, we're properly aligned.
+				else if(bad_commas == 0)
+					locked	<= 1;
+
+			end
+
+		end
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// RX decoder
+
+	//6-to-5 decoder
+	logic signed[2:0]	rx_5b_disparity	= 0;
+	logic[4:0]			rx_5b_value		= 0;
+	logic				rx_5b_control	= 0;
 
 endmodule
