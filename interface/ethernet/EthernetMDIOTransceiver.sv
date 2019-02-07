@@ -155,7 +155,7 @@ module EthernetMDIOTransceiver (
 			//////////////////////////////////////////////////////////////////////////////////////////
 			// Generic PHY register operations
 
-			//22.2.4.5.2 - preamble (32 contiguous 1 bits)
+			//22.2.4.5.2 - preamble (minimum 32 contiguous 1 bits)
 			MGMT_STATE_PRE: begin
 				if(mdc_falling_edge) begin
 					mdio_tx_en		<= 1;
@@ -317,7 +317,7 @@ module EthernetMDIOTransceiver (
 						phy_wr_data_ff		<= {phy_wr_data_ff[14:0], 1'b0};
 
 						//Just wrote the last bit, we're done
-						if(mgmt_count == 15) begin
+						if(mgmt_count == 16) begin
 							mgmt_state		<= MGMT_STATE_IFG;
 							mgmt_count		<= 0;
 						end
