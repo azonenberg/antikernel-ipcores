@@ -30,12 +30,16 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "GmiiBus.svh"
+
 /**
 	@brief Bridge from SGMII to GMII
 
 	Initial "quick and dirty" implementation has no CDR and requires RX clock.
  */
 module SGMIIToGMIIBridge(
+
+	input wire			clk_125mhz,
 
 	//SGMII interface (connect directly to top-level pads)
 	input wire			sgmii_rx_clk_p,		//625 MHz RX clock
@@ -44,7 +48,12 @@ module SGMIIToGMIIBridge(
 	input wire			sgmii_rx_data_p,	//1250 Mbps DDR RX data, aligned to sgmii_rx_clk (8b10b coded)
 	input wire			sgmii_rx_data_n,
 
-	output wire			gmii_rx_clk
+	output wire			gmii_rx_clk,
+
+	output wire			link_up,
+	output lspeed_t		link_speed,
+
+	output GmiiBus		rx_gmii_bus
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -252,6 +261,47 @@ module SGMIIToGMIIBridge(
 		.symbol_err(rx_symbol_err),
 		.bitslip(rx_bitslip),
 		.locked(rx_locked)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Transmit 8b/10b coder
+
+	wire		tx_clk;
+	wire		tx_data_is_ctl;
+	wire[7:0]	tx_data;
+
+	wire[9:0]	tx_codeword;
+
+	Encode8b10b tx_encoder(
+		.clk(tx_clk),
+
+		.data_is_ctl(tx_data_is_ctl),
+		.data(tx_data),
+
+		.codeword(tx_codeword)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// 1000base-X / SGMII PCS
+
+	GigBaseXPCS pcs(
+		.clk_125mhz(clk_125mhz),
+
+		.sgmii_mode(1'b1),
+
+		.rx_clk(symbol_clk),
+		.rx_data_valid(rx_data_valid),
+		.rx_data_is_ctl(rx_data_is_ctl),
+		.rx_data(rx_data),
+
+		.link_up(link_up),
+		.link_speed(link_speed),
+
+		.rx_gmii_bus(rx_gmii_bus),
+
+		.tx_clk(tx_clk),
+		.tx_data_is_ctl(tx_data_is_ctl),
+		.tx_data(tx_data)
 	);
 
 endmodule
