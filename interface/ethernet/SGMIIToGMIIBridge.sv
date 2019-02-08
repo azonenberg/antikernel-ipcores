@@ -83,7 +83,13 @@ module SGMIIToGMIIBridge(
 
 	wire	serdes_clk_raw;
 	wire	gmii_rx_clk_raw;
-	wire	symbol_clk_raw;
+
+	//Stick a BUFG into the clock feedback path so that we can compensate for buffer delays
+	wire	clkfb_bufg;
+	BUFG feedback_buf(
+		.I(clkfb),
+		.O(clkfb_bufg)
+	);
 
 	//TODO: abstraction for this
 	wire clkfb;
@@ -99,7 +105,7 @@ module SGMIIToGMIIBridge(
 
 		.CLKOUT1_DIVIDE(2),			//625 MHz clock for SERDES
 		.CLKOUT2_DIVIDE(5),			//125 MHz clock for GMII subsystem
-		.CLKOUT3_DIVIDE(8),			//156.25 MHz clock for PCS
+		.CLKOUT3_DIVIDE(1),
 		.CLKOUT4_DIVIDE(1),
 		.CLKOUT5_DIVIDE(1),
 		.CLKOUT6_DIVIDE(1),
@@ -119,14 +125,14 @@ module SGMIIToGMIIBridge(
 		.CLKOUT6_PHASE(0)
 
 	) pll (
-		.CLKFBIN(clkfb),
+		.CLKFBIN(clkfb_bufg),
 		.CLKFBOUT(clkfb),
 
 		.CLKIN1(rx_clk),
 
 		.CLKOUT1(serdes_clk_raw),
 		.CLKOUT2(gmii_rx_clk_raw),
-		.CLKOUT3(symbol_clk_raw),
+		.CLKOUT3(),
 		.CLKOUT4(),
 		.CLKOUT5(),
 		.CLKOUT6(),
@@ -148,13 +154,14 @@ module SGMIIToGMIIBridge(
 	);
 
 	wire	symbol_clk;
-	ClockBuffer #(
-		.TYPE("GLOBAL"),
-		.CE("YES")
-	) bufg_symbol_clk (
-		.clkin(symbol_clk_raw),
-		.clkout(symbol_clk),
-		.ce(pll_locked)
+
+	BUFGCE_DIV #(
+		.BUFGCE_DIVIDE(4)
+	) bufg_symbol_clk(
+		.I(serdes_clk_raw),
+		.CLR(1'b0),
+		.CE(1'b1),
+		.O(symbol_clk)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
