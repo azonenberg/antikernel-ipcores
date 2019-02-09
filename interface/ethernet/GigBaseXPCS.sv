@@ -77,7 +77,7 @@ module GigBaseXPCS(
 	// TX autonegotiation
 
 	//Dummy state machine for now
-	logic[3:0] count = 0;
+	logic[2:0] count = 0;
 	always_ff @(posedge tx_clk) begin
 
 		count		<= count + 1'h1;
