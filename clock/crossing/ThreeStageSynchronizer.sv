@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -33,45 +33,42 @@
 	@author Andrew D. Zonenberg
 	@brief Three-stage flipflop-based synchronizer
  */
-module ThreeStageSynchronizer(
+module ThreeStageSynchronizer #(
+	parameter INIT		= 0,
+	parameter IN_REG	= 1
+)(
 	input wire clk_in,
 	input wire din,
 	input wire clk_out,
 
 	(* ASYNC_REG = "TRUE" *)
-	output reg dout	= 0
+	output logic dout	= INIT
     );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The flipflops
 
-	reg dout0;
+	logic dout0;
 
-	(* ASYNC_REG = "TRUE" *) reg dout1;
-
-	parameter IN_REG = 1;
-
+	(* ASYNC_REG = "TRUE" *) logic dout1;
 	generate
 
+		//First stage: FF in the transmitting domain
 		if(IN_REG) begin
-
-			//First stage: FF in the transmitting domain
-			always @(posedge clk_in) begin
+			always_ff @(posedge clk_in)
 				dout0	<= din;
-			end
-
 		end
 
+		//Assume first stage is registered already in the sending module
 		else begin
-			always @(*) begin
+			always_comb
 				dout0	<= din;
-			end
 		end
 
 	endgenerate
 
 	//Two stages in the receiving clock domain
-	always @(posedge clk_out) begin
+	always_ff @(posedge clk_out) begin
 		dout1	<= dout0;
 		dout	<= dout1;
 	end
