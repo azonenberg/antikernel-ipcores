@@ -48,6 +48,9 @@ module SGMIIToGMIIBridge(
 	input wire			sgmii_rx_data_p,	//1250 Mbps DDR RX data, aligned to sgmii_rx_clk (8b10b coded)
 	input wire			sgmii_rx_data_n,
 
+	output wire			sgmii_tx_data_p,
+	output wire			sgmii_tx_data_n,
+
 	output wire			gmii_rx_clk,
 
 	output wire			link_up,
@@ -83,6 +86,17 @@ module SGMIIToGMIIBridge(
 		.pad_in_p(sgmii_rx_data_p),
 		.pad_in_n(sgmii_rx_data_n),
 		.fabric_out(rx_data_serial)
+	);
+
+	wire	tx_data_serial;
+
+	DifferentialOutputBuffer #(
+		.WIDTH(1),
+		.IOSTANDARD("LVDS")
+	) obuf_data (
+		.pad_out_p(sgmii_tx_data_p),
+		.pad_out_n(sgmii_tx_data_n),
+		.fabric_in(tx_data_serial)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -285,7 +299,7 @@ module SGMIIToGMIIBridge(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transmit cross-clock FIFO
 
-	logic		tx_fifo_rd;
+	wire		tx_fifo_rd;
 	wire[9:0]	tx_fifo_symbol;
 	wire[5:0]	tx_fifo_rsize;
 
@@ -311,12 +325,54 @@ module SGMIIToGMIIBridge(
 		.rd_underflow()
 	);
 
-	//Temporary test driver until we have a gearbox
-	always_ff @(posedge symbol_clk) begin
-		tx_fifo_rd	<= 0;
-		if(tx_fifo_rsize > 8)
-			tx_fifo_rd	<= 1;
-	end
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Transmit gearbox
+
+	wire[7:0]	serdes_tx_data;
+
+	Gearbox10To8 tx_gearbox (
+		.clk(symbol_clk),
+		.fifo_ready(tx_fifo_rsize > 8),
+		.fifo_rd_en(tx_fifo_rd),
+		.fifo_rd_data(tx_fifo_symbol),
+
+		.dout(serdes_tx_data)
+	);
+
+	wire[7:0] serdes_tx_data_mirrored =
+	{
+		serdes_tx_data[0],
+		serdes_tx_data[1],
+		serdes_tx_data[2],
+		serdes_tx_data[3],
+		serdes_tx_data[4],
+		serdes_tx_data[5],
+		serdes_tx_data[6],
+		serdes_tx_data[7]
+	};
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Serialize the outbound TX data
+
+	OSERDESE3 #(
+		.DATA_WIDTH(8),
+		.INIT(0),
+		.ODDR_MODE("FALSE"),
+		.OSERDES_D_BYPASS("FALSE"),
+		.OSERDES_T_BYPASS("FALSE"),
+		.IS_CLK_INVERTED(0),
+		.IS_CLKDIV_INVERTED(0),
+		.IS_RST_INVERTED(0),
+		.SIM_DEVICE("ULTRASCALE_PLUS")
+	) tx_serdes (
+		.CLK(serdes_clk_raw),
+		.CLKDIV(symbol_clk),
+		.D(serdes_tx_data_mirrored),
+		.OQ(tx_data_serial),
+		.RST(serdes_reset),
+		.T_OUT(),
+		.T(8'h0)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// 1000base-X / SGMII PCS
