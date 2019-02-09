@@ -162,6 +162,7 @@ module SGMIIToGMIIBridge(
 		.ce(pll_locked)
 	);
 
+	//156.25 MHz symbol clock
 	wire	symbol_clk;
 
 	BUFGCE_DIV #(
@@ -280,6 +281,42 @@ module SGMIIToGMIIBridge(
 
 		.codeword(tx_codeword)
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Transmit cross-clock FIFO
+
+	logic		tx_fifo_rd;
+	wire[9:0]	tx_fifo_symbol;
+	wire[5:0]	tx_fifo_rsize;
+
+	//Push at 125 MHz, pop at 156.25
+	CrossClockFifo #(
+		.WIDTH(10),
+		.DEPTH(32),
+		.USE_BLOCK(0),
+		.OUT_REG(1)
+	) tx_fifo (
+		.wr_clk(tx_clk),
+		.wr_en(1'b1),
+		.wr_data(tx_codeword),
+		.wr_size(),
+		.wr_full(),
+		.wr_overflow(),
+
+		.rd_clk(symbol_clk),
+		.rd_en(tx_fifo_rd),
+		.rd_data(tx_fifo_symbol),
+		.rd_size(tx_fifo_rsize),
+		.rd_empty(),
+		.rd_underflow()
+	);
+
+	//Temporary test driver until we have a gearbox
+	always_ff @(posedge symbol_clk) begin
+		tx_fifo_rd	<= 0;
+		if(tx_fifo_rsize > 8)
+			tx_fifo_rd	<= 1;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// 1000base-X / SGMII PCS
