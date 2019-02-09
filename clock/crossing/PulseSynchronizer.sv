@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -37,20 +37,20 @@
 	window in which two consecutive pulses may be read as one.
  */
 module PulseSynchronizer(
-	input wire	clk_a,
-	input wire	pulse_a,
+	input wire		clk_a,
+	input wire		pulse_a,
 
-	input wire	clk_b,
-	output reg	pulse_b = 0
+	input wire		clk_b,
+	output logic	pulse_b = 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transmit side
 
-	reg		tx_a	= 0;
+	logic		tx_a	= 0;
 
 	//Toggle every time we get a pulse
-	always @(posedge clk_a) begin
+	always_ff @(posedge clk_a) begin
 		if(pulse_a)
 			tx_a	<= ~tx_a;
 	end
@@ -66,10 +66,10 @@ module PulseSynchronizer(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Receive side
 
-	reg		rx_a_ff	= 0;
+	logic		rx_a_ff	= 0;
 
 	//Pulse every time we get a toggle
-	always @(posedge clk_b) begin
+	always_ff @(posedge clk_b) begin
 		rx_a_ff	<= rx_a;
 		pulse_b	<= (rx_a_ff != rx_a);
 	end
