@@ -280,43 +280,48 @@ module Encode8b10b(
 			case(tx_3b_code)
 
 				0: begin
-					tx_4b_code_if_neg	<= 4'b1011;
-					tx_4b_code_if_pos	<= 4'b0100;
+					tx_4b_code_if_neg		<= 4'b1011;
+					tx_4b_code_if_pos		<= 4'b0100;
 				end
 
 				1: begin
-					tx_4b_code_if_neg	<= 4'b0110;
-					tx_4b_code_if_pos	<= 4'b1001;
+					tx_4b_code_if_neg		<= 4'b0110;
+					tx_4b_code_if_pos		<= 4'b1001;
+					tx_4b_disparity_flip	<= 0;
 				end
 
 				2: begin
-					tx_4b_code_if_neg	<= 4'b1010;
-					tx_4b_code_if_pos	<= 4'b0101;
+					tx_4b_code_if_neg		<= 4'b1010;
+					tx_4b_code_if_pos		<= 4'b0101;
+					tx_4b_disparity_flip	<= 0;
 				end
 
 				3: begin
-					tx_4b_code_if_neg	<= 4'b1100;
-					tx_4b_code_if_pos	<= 4'b0011;
+					tx_4b_code_if_neg		<= 4'b1100;
+					tx_4b_code_if_pos		<= 4'b0011;
+					tx_4b_disparity_flip	<= 0;
 				end
 
 				4: begin
-					tx_4b_code_if_neg	<= 4'b1101;
-					tx_4b_code_if_pos	<= 4'b0010;
+					tx_4b_code_if_neg		<= 4'b1101;
+					tx_4b_code_if_pos		<= 4'b0010;
 				end
 
 				5: begin
-					tx_4b_code_if_neg	<= 4'b0101;
-					tx_4b_code_if_pos	<= 4'b1010;
+					tx_4b_code_if_neg		<= 4'b0101;
+					tx_4b_code_if_pos		<= 4'b1010;
+					tx_4b_disparity_flip	<= 0;
 				end
 
 				6: begin
-					tx_4b_code_if_neg	<= 4'b1001;
-					tx_4b_code_if_pos	<= 4'b0110;
+					tx_4b_code_if_neg		<= 4'b1001;
+					tx_4b_code_if_pos		<= 4'b0110;
+					tx_4b_disparity_flip	<= 0;
 				end
 
 				7: begin
-					tx_4b_code_if_neg	<= 4'b0111;
-					tx_4b_code_if_pos	<= 4'b1000;
+					tx_4b_code_if_neg		<= 4'b0111;
+					tx_4b_code_if_pos		<= 4'b1000;
 				end
 
 			endcase
@@ -327,8 +332,8 @@ module Encode8b10b(
 			case(tx_3b_code)
 
 				0: begin
-					tx_4b_code_if_neg	<= 4'b1011;
-					tx_4b_code_if_pos	<= 4'b0100;
+					tx_4b_code_if_neg		<= 4'b1011;
+					tx_4b_code_if_pos		<= 4'b0100;
 				end
 
 				1: begin
@@ -344,13 +349,13 @@ module Encode8b10b(
 				end
 
 				3: begin
-					tx_4b_code_if_neg	<= 4'b1100;
-					tx_4b_code_if_pos	<= 4'b0011;
+					tx_4b_code_if_neg		<= 4'b1100;
+					tx_4b_code_if_pos		<= 4'b0011;
 				end
 
 				4: begin
-					tx_4b_code_if_neg	<= 4'b1101;
-					tx_4b_code_if_pos	<= 4'b0010;
+					tx_4b_code_if_neg		<= 4'b1101;
+					tx_4b_code_if_pos		<= 4'b0010;
 				end
 
 				5: begin
@@ -368,8 +373,8 @@ module Encode8b10b(
 				7: begin
 
 					//default to primary coding
-					tx_4b_code_if_neg	<= 4'b1110;
-					tx_4b_code_if_pos	<= 4'b0001;
+					tx_4b_code_if_neg		<= 4'b1110;
+					tx_4b_code_if_pos		<= 4'b0001;
 
 					//alternate coding Dx.A7 to avoid unwanted commas
 					if( (tx_5b_code == 17) || (tx_5b_code == 18) || (tx_5b_code == 20) )
