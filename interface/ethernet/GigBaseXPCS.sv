@@ -173,7 +173,7 @@ module GigBaseXPCS(
 
 				//Read first half of config register
 				RX_ANEG_REG_0: begin
-					rx_aneg_cfg[15:8]		<= rx_fdata;
+					rx_aneg_cfg[7:0]		<= rx_fdata;
 					rx_aneg_state			<= RX_ANEG_REG_1;
 
 					if(rx_fdata_is_ctl)
@@ -185,7 +185,7 @@ module GigBaseXPCS(
 					rx_aneg_state			<= RX_ANEG_WAIT_FOR_C;
 
 					if(!rx_fdata_is_ctl) begin
-						rx_aneg_cfg[7:0]	<= rx_fdata;
+						rx_aneg_cfg[15:8]	<= rx_fdata;
 						rx_aneg_cfg_valid	<= 1;
 					end
 				end	//end RX_ANEG_REG_1
@@ -277,8 +277,8 @@ module GigBaseXPCS(
 				tx_aneg_data_is_ctl	<= 1;
 			end
 			1: 	tx_aneg_data		<= 8'hb5;
-			2:	tx_aneg_data		<= tx_config_reg[15:8];
-			3:	tx_aneg_data		<= tx_config_reg[7:0];
+			2:	tx_aneg_data		<= tx_config_reg[7:0];
+			3:	tx_aneg_data		<= tx_config_reg[15:8];
 
 			//C2 ordered set: K28.5, D2.2, status
 			4: begin
@@ -286,8 +286,8 @@ module GigBaseXPCS(
 				tx_aneg_data_is_ctl	<= 1;
 			end
 			5: 	tx_aneg_data		<= 8'h42;
-			6:	tx_aneg_data		<= tx_config_reg[15:8];
-			7:	tx_aneg_data		<= tx_config_reg[7:0];
+			6:	tx_aneg_data		<= tx_config_reg[7:0];
+			7:	tx_aneg_data		<= tx_config_reg[15:8];
 
 		endcase
 
