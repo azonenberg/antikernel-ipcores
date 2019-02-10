@@ -116,12 +116,14 @@ module GigBaseXPCS(
 	logic		tx_aneg_data_is_ctl	= 0;
 	logic[7:0]	tx_aneg_data		= 0;
 
+	logic		tx_link_data_is_ctl	= 0;
+	logic[7:0]	tx_link_data		= 0;
+
 	always_ff @(posedge clk_125mhz) begin
 
-		//TODO
 		if(link_up) begin
-			tx_data_is_ctl	<= 0;
-			tx_data			<= 0;
+			tx_data_is_ctl	<= tx_link_data_is_ctl;
+			tx_data			<= tx_link_data;
 		end
 
 		else begin
@@ -207,7 +209,8 @@ module GigBaseXPCS(
 		ANEG_ABILITY_DETECT	= 3'h3,
 		ANEG_ACK_DETECT		= 3'h4,
 		ANEG_COMPLETE_ACK	= 3'h5,
-		ANEG_IDLE_DETECT	= 3'h6
+		ANEG_IDLE_DETECT	= 3'h6,
+		ANEG_LINK_OK		= 3'h7
 	} aneg_state = ANEG_ENABLE;
 
 	logic[31:0] link_timer	= 0;
@@ -216,8 +219,15 @@ module GigBaseXPCS(
 
 	//1.6 ms in SGMII mode, 10 ms in 1000base-X mode
 	wire[31:0]	link_timer_target = sgmii_mode ? 199999 : 1249999;
-
 	wire		link_timer_done = (link_timer == link_timer_target);
+
+	logic[15:0]	rx_aneg_cfg_ff		= 0;
+	logic[15:0]	rx_aneg_cfg_ff2		= 0;
+	logic		rx_aneg_cfg_match	= 0;
+
+	logic		idle_match			= 0;
+	logic[1:0]	idle_count			= 0;
+	logic		last_was_k285		= 0;
 
 	always_ff @(posedge clk_125mhz) begin
 
@@ -225,6 +235,28 @@ module GigBaseXPCS(
 			link_timer	<= link_timer + 1'h1;
 		if(link_timer_done)
 			link_timer	<= 0;
+
+		//Detect config matches
+		if(rx_aneg_cfg_valid) begin
+			idle_count			<= 0;
+			idle_match			<= 0;
+
+			rx_aneg_cfg_ff		<= rx_aneg_cfg;
+			rx_aneg_cfg_ff2		<= rx_aneg_cfg_ff;
+			rx_aneg_cfg_match	<= (rx_aneg_cfg_ff == rx_aneg_cfg) && (rx_aneg_cfg_ff2 == rx_aneg_cfg);
+		end
+
+		//Detect idle matches
+		if(rx_fifo_rd_valid) begin
+			last_was_k285	<= (rx_fdata == 8'hbc) && rx_fdata_is_ctl;
+
+			if( (rx_fdata == 8'h50) && !rx_fdata_is_ctl && last_was_k285) begin
+				idle_count <= idle_count + 1'h1;
+				if(idle_count == 3)
+					idle_match	<= 1;
+			end
+
+		end
 
 		case(aneg_state)
 
@@ -239,7 +271,7 @@ module GigBaseXPCS(
 					aneg_state		<= ANEG_ABILITY_DETECT;
 					tx_config_reg	<=
 					{
-						1'b0,			//Next page
+						1'b0,			//No next page
 						sgmii_mode,		//ACK in 1000base-X mode, constant 1 in SGMII mode
 						2'b0,			//No remote fault
 						3'b0,			//Reserved
@@ -252,44 +284,182 @@ module GigBaseXPCS(
 			end	//end ANEG_RESTART
 
 			ANEG_ABILITY_DETECT: begin
+
+				if(rx_aneg_cfg_match && (rx_aneg_cfg != 0) ) begin
+					rx_aneg_cfg_match	<= 0;
+					rx_aneg_cfg_ff2		<= 0;
+					rx_aneg_cfg_ff		<= 0;
+
+					//TODO: verify full duplex
+
+					//save link speed in SGMII mode
+					if(sgmii_mode) begin
+						case(rx_aneg_cfg[11:10])
+							0: link_speed <= LINK_SPEED_10M;
+							1: link_speed <= LINK_SPEED_100M;
+							2: link_speed <= LINK_SPEED_1000M;
+						endcase
+					end
+
+					aneg_state				<= ANEG_ACK_DETECT;
+
+					//Jump back to enable state if we get invalid configuration
+					//(half duplex)
+					if(sgmii_mode && !rx_aneg_cfg[12])
+						aneg_state			<= ANEG_ENABLE;
+					if(!sgmii_mode && !rx_aneg_cfg[5])
+						aneg_state			<= ANEG_ENABLE;
+
+				end
+
 			end	//end ANEG_ABILITY_DETECT
+
+			ANEG_ACK_DETECT: begin
+
+				//Set outbound ACK bit
+				tx_config_reg[14]	<= 1;
+
+				if(rx_aneg_cfg_match && rx_aneg_cfg[14]) begin
+					link_timer			<= 1;
+					aneg_state			<= ANEG_COMPLETE_ACK;
+				end
+
+				//Reset if the other end resets
+				if(rx_aneg_cfg_match && (rx_aneg_cfg == 0) )
+					aneg_state			<= ANEG_ENABLE;
+
+			end	//end ANEG_ACK_DETECT
+
+			ANEG_COMPLETE_ACK: begin
+
+				//Reset if the other end resets
+				if(rx_aneg_cfg_match && (rx_aneg_cfg == 0) )
+					aneg_state			<= ANEG_ENABLE;
+
+				//If we start getting idles, skip IDLE_DETECT and go right to link up
+				if(idle_match) begin
+					link_up				<= 1;
+					link_timer			<= 1;
+					aneg_state			<= ANEG_LINK_OK;
+				end
+
+				if(link_timer_done) begin
+
+					//All good? Start sending idles
+					if(rx_aneg_cfg_match && rx_aneg_cfg[14]) begin
+						link_timer			<= 1;
+						aneg_state			<= ANEG_IDLE_DETECT;
+					end
+
+					//Something changed, bail
+					else
+						aneg_state			<= ANEG_ENABLE;
+
+				end
+			end	//end ANEG_COMPLETE_ACK
+
+			ANEG_IDLE_DETECT: begin
+
+				//Reset if the other end resets
+				if(rx_aneg_cfg_match && (rx_aneg_cfg == 0) )
+					aneg_state			<= ANEG_ENABLE;
+
+				if(link_timer_done && idle_match) begin
+					link_up				<= 1;
+					link_timer			<= 1;
+					aneg_state			<= ANEG_LINK_OK;
+				end
+
+			end	//end ANEG_IDLE_DETECT
+
+			//Link is up!
+			//TODO: drop on excessive code errors or loss of 8b/10b sync
+			ANEG_LINK_OK: begin
+
+				//If we get an idle, reset the link timer
+				if(idle_match)
+					link_timer			<= 1;
+
+				//If link timer wraps without any idles, the link must have dropped.
+				//If we get a /C/ ordered set, drop the link immediately because the other end is down.
+				if(link_timer_done || rx_aneg_cfg_valid) begin
+					link_up				<= 0;
+					aneg_state			<= ANEG_ENABLE;
+				end
+
+			end	//end ANEG_LINK_OK
 
 		endcase
 
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX idle / data transmits
+
+	logic	tx_idle_count = 0;
+
+	always_ff @(posedge tx_clk) begin
+		tx_idle_count			<= !tx_idle_count;
+
+		tx_link_data_is_ctl		<= 0;
+
+		//I2 ordered set: K28.5 D16.2
+		if(tx_idle_count) begin
+			tx_link_data		<= 8'hbc;
+			tx_link_data_is_ctl	<= 1;
+		end
+		else
+			tx_link_data		<= 8'h50;
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX autonegotiation transmit logic
 
-	//Dummy state machine for now
 	logic[2:0] tx_aneg_count = 0;
 	always_ff @(posedge tx_clk) begin
 
-		tx_aneg_count	<= tx_aneg_count + 1'h1;
+		tx_aneg_count		<= tx_aneg_count + 1'h1;
 
 		tx_aneg_data_is_ctl	<= 0;
 
-		case(tx_aneg_count)
+		if(aneg_state == ANEG_IDLE_DETECT) begin
 
-			//C1 ordered set: K28.5, D21.5, status
-			0: begin
+			//I2 ordered set: K28.5 D16.2
+			if(tx_aneg_count[0]) begin
 				tx_aneg_data		<= 8'hbc;
 				tx_aneg_data_is_ctl	<= 1;
 			end
-			1: 	tx_aneg_data		<= 8'hb5;
-			2:	tx_aneg_data		<= tx_config_reg[7:0];
-			3:	tx_aneg_data		<= tx_config_reg[15:8];
+			else
+				tx_aneg_data		<= 8'h50;
 
-			//C2 ordered set: K28.5, D2.2, status
-			4: begin
-				tx_aneg_data		<= 8'hbc;
-				tx_aneg_data_is_ctl	<= 1;
-			end
-			5: 	tx_aneg_data		<= 8'h42;
-			6:	tx_aneg_data		<= tx_config_reg[7:0];
-			7:	tx_aneg_data		<= tx_config_reg[15:8];
+		end
 
-		endcase
+		else begin
+
+			case(tx_aneg_count)
+
+				//C1 ordered set: K28.5, D21.5, status
+				0: begin
+					tx_aneg_data		<= 8'hbc;
+					tx_aneg_data_is_ctl	<= 1;
+				end
+				1: 	tx_aneg_data		<= 8'hb5;
+				2:	tx_aneg_data		<= tx_config_reg[7:0];
+				3:	tx_aneg_data		<= tx_config_reg[15:8];
+
+				//C2 ordered set: K28.5, D2.2, status
+				4: begin
+					tx_aneg_data		<= 8'hbc;
+					tx_aneg_data_is_ctl	<= 1;
+				end
+				5: 	tx_aneg_data		<= 8'h42;
+				6:	tx_aneg_data		<= tx_config_reg[7:0];
+				7:	tx_aneg_data		<= tx_config_reg[15:8];
+
+			endcase
+
+		end
 
 	end
 
