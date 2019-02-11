@@ -35,29 +35,14 @@
 
 	Note that the reset line clears the FIFO to the empty state, regardless of the power-on init value
  */
-module SingleClockFifo(
-	clk,
-	wr, din,
-	rd, dout,
-	overflow, underflow, empty, full, rsize, wsize, reset
+module SingleClockFifo #(
+	parameter WIDTH = 32,
+	parameter DEPTH = 512,
 
-	`ifdef FORMAL
-	, dout_formal
-	`endif
-    );
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Parameter declarations
-
-	parameter WIDTH = 32;
-	parameter DEPTH = 512;
-
-	//number of bits in the address bus
-	`include "../synth_helpers/clog2.vh"
-	localparam ADDR_BITS = clog2(DEPTH);
+	localparam ADDR_BITS = $clog2(DEPTH),
 
 	//set true to use block RAM, false for distributed RAM
-	parameter USE_BLOCK = 1;
+	parameter USE_BLOCK = 1,
 
 	//Specifies the register mode for outputs.
 	//When FALSE:
@@ -67,50 +52,48 @@ module SingleClockFifo(
 	// * dout updates on the clk edge after a read when the fifo has data in it
 	// * assert rd, read dout the following cycle
 	// * dout is stable until next rd pulse
-	parameter OUT_REG = 1;
+	parameter OUT_REG = 1,
 
 	//Initialize to address (takes precedence over INIT_FILE)
-	parameter INIT_ADDR = 0;
+	parameter INIT_ADDR = 0,
 
 	//Initialization file (set to empty string to fill with zeroes)
-	parameter INIT_FILE = "";
+	parameter INIT_FILE = "",
 
 	//Default if neither is set is to initialize to zero
 
 	//Set to true for the FIFO to begin in the "full" state
-	parameter INIT_FULL = 0;
+	parameter INIT_FULL = 0
+)(
+	input wire					clk,
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// IO declarations
+	input wire					wr,
+	input wire[WIDTH-1:0]		din,
 
-	input wire					clk;
+	input wire					rd,
+	output wire[WIDTH-1:0]		dout,
 
-	input wire					wr;
-	input wire[WIDTH-1:0]		din;
+	output logic				overflow = 0,
+	output logic				underflow = 0,
 
-	input wire					rd;
-	output wire[WIDTH-1:0]		dout;
+	output wire					empty,
+	output wire					full,
 
-	output reg					overflow = 0;
-	output reg					underflow = 0;
+	output wire[ADDR_BITS:0]	rsize,
+	output wire[ADDR_BITS:0]	wsize,
 
-	output wire					empty;
-	output wire					full;
-
-	output wire[ADDR_BITS:0]	rsize;
-	output wire[ADDR_BITS:0]	wsize;
-
-	input wire					reset;
+	input wire					reset,
 
 	`ifdef FORMAL
-	output reg[WIDTH*DEPTH-1 : 0] dout_formal;
+	output logic[WIDTH*DEPTH-1 : 0] dout_formal
 	`endif
+    );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Control logic
 
-	reg[ADDR_BITS:0]			rpos = 0;						//extra bit for full/empty detect
-	reg[ADDR_BITS:0] 			wpos = INIT_FULL ? DEPTH : 0;
+	logic[ADDR_BITS:0]			rpos = 0;					//extra bit for full/empty detect
+	logic[ADDR_BITS:0] 			wpos = INIT_FULL ? DEPTH : 0;
 
 	wire[ADDR_BITS:0]			irpos = rpos + 1'd1;
 	wire[ADDR_BITS:0]			iwpos = wpos + 1'd1;
@@ -128,7 +111,7 @@ module SingleClockFifo(
 	//The number of spaces available for us to write to
 	assign wsize				= DEPTH[ADDR_BITS:0] + rpos - wpos;
 
-	always @(posedge clk) begin
+	always_ff @(posedge clk) begin
 		overflow <= 0;
 		underflow <= 0;
 
@@ -226,7 +209,7 @@ module SingleClockFifo(
 	`ifdef FORMAL
 
 		integer i;
-		always @(*) begin
+		always_comb begin
 
 			for(i=0; i<DEPTH; i=i+1) begin
 
