@@ -52,11 +52,10 @@ module SGMIIToGMIIBridge(
 	output wire			sgmii_tx_data_n,
 
 	output wire			gmii_rx_clk,
+	output GmiiBus		gmii_rx_bus,
 
 	output wire			link_up,
-	output lspeed_t		link_speed,
-
-	output GmiiBus		rx_gmii_bus
+	output lspeed_t		link_speed
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -393,7 +392,7 @@ module SGMIIToGMIIBridge(
 		.link_up(link_up),
 		.link_speed(link_speed),
 
-		.rx_gmii_bus(rx_gmii_bus),
+		.gmii_rx_bus(gmii_rx_bus),
 
 		.tx_clk(tx_clk),
 		.tx_data_is_ctl(tx_data_is_ctl),

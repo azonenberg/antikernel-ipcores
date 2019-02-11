@@ -60,7 +60,7 @@ module GigBaseXPCS(
 	output lspeed_t		link_speed	= LINK_SPEED_1000M,
 
 	//RX GMII interface. Clock is always 125 MHz regardless of link speed.
-	output GmiiBus		rx_gmii_bus,
+	output GmiiBus		gmii_rx_bus	= {$bits(GmiiBus){1'b0}},
 
 	//TX SERDES interface. 125 MHz.
 	output wire			tx_clk,
@@ -156,10 +156,6 @@ module GigBaseXPCS(
 
 		rx_aneg_cfg_valid	<= 0;
 
-		//1000base-X mode is always gigabit
-		if(!sgmii_mode)
-			link_speed	<= LINK_SPEED_1000M;
-
 		if(rx_fifo_rd_valid) begin
 
 			case(rx_aneg_state)
@@ -240,6 +236,10 @@ module GigBaseXPCS(
 			link_timer	<= link_timer + 1'h1;
 		if(link_timer_done)
 			link_timer	<= 0;
+
+		//1000base-X mode is always gigabit
+		if(!sgmii_mode)
+			link_speed	<= LINK_SPEED_1000M;
 
 		//Detect config matches
 		if(rx_aneg_cfg_valid) begin
@@ -473,6 +473,40 @@ module GigBaseXPCS(
 				7:	tx_aneg_data		<= tx_config_reg[15:8];
 
 			endcase
+
+		end
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// RX frame decoding
+
+	always_ff @(posedge clk_125mhz) begin
+		gmii_rx_bus.dvalid	<= 1;	//TODO: handle 10/100 mode
+
+		//Wait for start-of-frame character K27.7
+		if(!gmii_rx_bus.en) begin
+			if(rx_fdata_is_ctl && (rx_fdata == 8'hfb) ) begin
+				gmii_rx_bus.en		<= 1;
+				gmii_rx_bus.data	<= 8'h55;
+			end
+		end
+
+		//Forward frame data
+		else begin
+
+			//Look for end-of-frame character K29.7
+			if(rx_fdata_is_ctl && (rx_fdata == 8'hfd) )
+				gmii_rx_bus.en		<= 0;
+
+			//Look for error propagation character K30.7
+			else if(rx_fdata_is_ctl && (rx_fdata == 8'hfe) )
+				gmii_rx_bus.er		<= 1;
+
+			else
+				gmii_rx_bus.data	<= rx_fdata;
+
+			//TODO: handle other control characters including error propagation
 
 		end
 
