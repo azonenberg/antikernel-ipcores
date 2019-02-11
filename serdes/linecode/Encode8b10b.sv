@@ -39,6 +39,7 @@ module Encode8b10b(
 	input wire			clk,
 
 	input wire			data_is_ctl,
+	input wire			force_disparity_negative,
 	input wire[7:0]		data,
 
 	output logic[9:0]	codeword	= 0
@@ -66,10 +67,34 @@ module Encode8b10b(
 		//K/x
 		if(data_is_ctl) begin
 
-			if(tx_5b_code == 28) begin
-				tx_6b_code_if_neg	<= 6'b001111;
-				tx_6b_code_if_pos	<= 6'b110000;
-			end
+			case(tx_5b_code)
+
+				23: begin
+					tx_6b_code_if_neg	<= 6'b111010;
+					tx_6b_code_if_pos	<= 6'b000101;
+				end
+
+				27: begin
+					tx_6b_code_if_neg	<= 6'b110110;
+					tx_6b_code_if_pos	<= 6'b001001;
+				end
+
+				28: begin
+					tx_6b_code_if_neg	<= 6'b001111;
+					tx_6b_code_if_pos	<= 6'b110000;
+				end
+
+				29: begin
+					tx_6b_code_if_neg	<= 6'b101110;
+					tx_6b_code_if_pos	<= 6'b010001;
+				end
+
+				30: begin
+					tx_6b_code_if_neg	<= 6'b011110;
+					tx_6b_code_if_pos	<= 6'b100001;
+				end
+
+			endcase
 
 		end
 
@@ -399,7 +424,7 @@ module Encode8b10b(
 
 	always_ff @(posedge clk) begin
 
-		if(tx_disparity_negative) begin
+		if(tx_disparity_negative || force_disparity_negative) begin
 			codeword[9:4]	<= tx_6b_code_if_neg;
 			if(tx_6b_disparity_flip)
 				codeword[3:0]	<= tx_4b_code_if_pos;
@@ -419,6 +444,9 @@ module Encode8b10b(
 
 		if(tx_disparity_flip)
 			tx_disparity_negative	<= !tx_disparity_negative;
+
+		if(force_disparity_negative)
+			tx_disparity_negative	<= !tx_disparity_flip;
 
 	end
 

@@ -64,8 +64,9 @@ module GigBaseXPCS(
 
 	//TX SERDES interface. 125 MHz.
 	output wire			tx_clk,
-	output logic		tx_data_is_ctl	= 0,
-	output logic[7:0]	tx_data	= 0
+	output logic		tx_data_is_ctl				= 0,
+	output logic[7:0]	tx_data						= 0,
+	output logic		tx_force_disparity_negative	= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -115,20 +116,24 @@ module GigBaseXPCS(
 
 	logic		tx_aneg_data_is_ctl	= 0;
 	logic[7:0]	tx_aneg_data		= 0;
+	logic		tx_aneg_force_disparity_negative	= 0;
 
-	logic		tx_link_data_is_ctl	= 0;
-	logic[7:0]	tx_link_data		= 0;
+	logic		tx_link_data_is_ctl					= 0;
+	logic[7:0]	tx_link_data						= 0;
+	logic		tx_link_force_disparity_negative	= 0;
 
 	always_ff @(posedge clk_125mhz) begin
 
 		if(link_up) begin
-			tx_data_is_ctl	<= tx_link_data_is_ctl;
-			tx_data			<= tx_link_data;
+			tx_data_is_ctl				<= tx_link_data_is_ctl;
+			tx_data						<= tx_link_data;
+			tx_force_disparity_negative	<= tx_link_force_disparity_negative;
 		end
 
 		else begin
-			tx_data_is_ctl	<= tx_aneg_data_is_ctl;
-			tx_data			<= tx_aneg_data;
+			tx_data_is_ctl				<= tx_aneg_data_is_ctl;
+			tx_data						<= tx_aneg_data;
+			tx_force_disparity_negative	<= tx_aneg_force_disparity_negative;
 		end
 
 	end
@@ -155,7 +160,7 @@ module GigBaseXPCS(
 		if(!sgmii_mode)
 			link_speed	<= LINK_SPEED_1000M;
 
-		if(!link_up && rx_fifo_rd_valid) begin
+		if(rx_fifo_rd_valid) begin
 
 			case(rx_aneg_state)
 
@@ -217,8 +222,8 @@ module GigBaseXPCS(
 
 	logic[15:0]	tx_config_reg	= 0;
 
-	//1.6 ms in SGMII mode, 10 ms in 1000base-X mode
-	wire[31:0]	link_timer_target = sgmii_mode ? 199999 : 1249999;
+	//10 ms in 1000base-X mode. 2 us in SGMII mode (default for DP83867)
+	wire[31:0]	link_timer_target = sgmii_mode ? 249 : 1249999;
 	wire		link_timer_done = (link_timer == link_timer_target);
 
 	logic[15:0]	rx_aneg_cfg_ff		= 0;
@@ -290,17 +295,6 @@ module GigBaseXPCS(
 					rx_aneg_cfg_ff2		<= 0;
 					rx_aneg_cfg_ff		<= 0;
 
-					//TODO: verify full duplex
-
-					//save link speed in SGMII mode
-					if(sgmii_mode) begin
-						case(rx_aneg_cfg[11:10])
-							0: link_speed <= LINK_SPEED_10M;
-							1: link_speed <= LINK_SPEED_100M;
-							2: link_speed <= LINK_SPEED_1000M;
-						endcase
-					end
-
 					aneg_state				<= ANEG_ACK_DETECT;
 
 					//Jump back to enable state if we get invalid configuration
@@ -312,6 +306,13 @@ module GigBaseXPCS(
 
 				end
 
+				//If we start getting idles, the link is up - maybe doesn't have negotiation enabled
+				if(idle_match) begin
+					link_up				<= 1;
+					link_timer			<= 1;
+					aneg_state			<= ANEG_LINK_OK;
+				end
+
 			end	//end ANEG_ABILITY_DETECT
 
 			ANEG_ACK_DETECT: begin
@@ -320,6 +321,16 @@ module GigBaseXPCS(
 				tx_config_reg[14]	<= 1;
 
 				if(rx_aneg_cfg_match && rx_aneg_cfg[14]) begin
+
+					//save link speed in SGMII mode
+					if(sgmii_mode) begin
+						case(rx_aneg_cfg[11:10])
+							0: link_speed <= LINK_SPEED_10M;
+							1: link_speed <= LINK_SPEED_100M;
+							2: link_speed <= LINK_SPEED_1000M;
+						endcase
+					end
+
 					link_timer			<= 1;
 					aneg_state			<= ANEG_COMPLETE_ACK;
 				end
@@ -328,6 +339,13 @@ module GigBaseXPCS(
 				if(rx_aneg_cfg_match && (rx_aneg_cfg == 0) )
 					aneg_state			<= ANEG_ENABLE;
 
+				//If we start getting idles, the link is up - maybe doesn't have negotiation enabled
+				if(link_timer_done && idle_match) begin
+					link_up				<= 1;
+					link_timer			<= 1;
+					aneg_state			<= ANEG_LINK_OK;
+				end
+
 			end	//end ANEG_ACK_DETECT
 
 			ANEG_COMPLETE_ACK: begin
@@ -335,13 +353,6 @@ module GigBaseXPCS(
 				//Reset if the other end resets
 				if(rx_aneg_cfg_match && (rx_aneg_cfg == 0) )
 					aneg_state			<= ANEG_ENABLE;
-
-				//If we start getting idles, skip IDLE_DETECT and go right to link up
-				if(idle_match) begin
-					link_up				<= 1;
-					link_timer			<= 1;
-					aneg_state			<= ANEG_LINK_OK;
-				end
 
 				if(link_timer_done) begin
 
@@ -401,15 +412,17 @@ module GigBaseXPCS(
 	always_ff @(posedge tx_clk) begin
 		tx_idle_count			<= !tx_idle_count;
 
-		tx_link_data_is_ctl		<= 0;
+		tx_link_data_is_ctl						<= 0;
+		tx_link_force_disparity_negative		<= 0;
 
 		//I2 ordered set: K28.5 D16.2
 		if(tx_idle_count) begin
-			tx_link_data		<= 8'hbc;
-			tx_link_data_is_ctl	<= 1;
+			tx_link_data						<= 8'hbc;
+			tx_link_data_is_ctl					<= 1;
+			tx_link_force_disparity_negative	<= 1;
 		end
 		else
-			tx_link_data		<= 8'h50;
+			tx_link_data						<= 8'h50;
 
 	end
 
@@ -419,19 +432,21 @@ module GigBaseXPCS(
 	logic[2:0] tx_aneg_count = 0;
 	always_ff @(posedge tx_clk) begin
 
-		tx_aneg_count		<= tx_aneg_count + 1'h1;
+		tx_aneg_count						<= tx_aneg_count + 1'h1;
 
-		tx_aneg_data_is_ctl	<= 0;
+		tx_aneg_data_is_ctl					<= 0;
+		tx_aneg_force_disparity_negative	<= 0;
 
 		if(aneg_state == ANEG_IDLE_DETECT) begin
 
 			//I2 ordered set: K28.5 D16.2
 			if(tx_aneg_count[0]) begin
-				tx_aneg_data		<= 8'hbc;
-				tx_aneg_data_is_ctl	<= 1;
+				tx_aneg_data						<= 8'hbc;
+				tx_aneg_data_is_ctl					<= 1;
+				tx_aneg_force_disparity_negative	<= 1;
 			end
 			else
-				tx_aneg_data		<= 8'h50;
+				tx_aneg_data						<= 8'h50;
 
 		end
 

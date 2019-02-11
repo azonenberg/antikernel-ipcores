@@ -287,11 +287,14 @@ module SGMIIToGMIIBridge(
 
 	wire[9:0]	tx_codeword;
 
+	wire		tx_force_disparity_negative;
+
 	Encode8b10b tx_encoder(
 		.clk(tx_clk),
 
 		.data_is_ctl(tx_data_is_ctl),
 		.data(tx_data),
+		.force_disparity_negative(tx_force_disparity_negative),
 
 		.codeword(tx_codeword)
 	);
@@ -394,7 +397,8 @@ module SGMIIToGMIIBridge(
 
 		.tx_clk(tx_clk),
 		.tx_data_is_ctl(tx_data_is_ctl),
-		.tx_data(tx_data)
+		.tx_data(tx_data),
+		.tx_force_disparity_negative(tx_force_disparity_negative)
 	);
 
 endmodule

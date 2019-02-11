@@ -374,7 +374,6 @@ module Decode8b10b(
 		if(codeword_valid) begin
 
 			//Separate coding for K*.x and D*.x!
-
 			if(rx_5b_control) begin
 				case(rx_4b_code)
 
@@ -522,12 +521,97 @@ module Decode8b10b(
 	logic				rx_disparity_negative	= 1;
 
 	always_ff @(posedge clk) begin
-		symbol_err	<= rx_3b_error || rx_5b_error;
-		data_is_ctl	<= rx_5b_control;
-		data		<= { rx_3b_value, rx_5b_value };
+		symbol_err	<= 0;
+		data_is_ctl	<= 0;
+		data		<= 0;
+
 		data_valid	<= codeword_valid;
 
 		disparity_err			<= 0;
+
+		//Exceptions to the normal coding rules for a few codes
+		case(codeword_in)
+
+			//K28.7
+			10'b0011111000: begin
+				data_is_ctl	<= 1;
+				data		<= 8'hFC;
+			end
+			10'b1100000111: begin
+				data_is_ctl	<= 1;
+				data		<= 8'hFC;
+			end
+
+			//K23.7
+			10'b1110101000: begin
+				data_is_ctl	<= 1;
+				data		<= 8'hf7;
+			end
+			10'b0001010111: begin
+				data_is_ctl	<= 1;
+				data		<= 8'hf7;
+			end
+
+			//K27.7
+			10'b1101101000: begin
+				data_is_ctl	<= 1;
+				data		<= 8'hfb;
+			end
+			10'b0010010111: begin
+				data_is_ctl	<= 1;
+				data		<= 8'hfb;
+			end
+
+			//K29.7
+			10'b1011101000: begin
+				data_is_ctl	<= 1;
+				data		<= 8'hfd;
+			end
+			10'b0100010111: begin
+				data_is_ctl	<= 1;
+				data		<= 8'hfd;
+			end
+
+			//K30.7
+			10'b0111101000: begin
+				data_is_ctl	<= 1;
+				data		<= 8'hfe;
+			end
+			10'b1000010111: begin
+				data_is_ctl	<= 1;
+				data		<= 8'hfe;
+			end
+
+			//D17.7
+			10'b1000110111:
+				data		<= 8'hf1;
+
+			//D18.7
+			10'b0100110111:
+				data		<= 8'hf2;
+
+			//D20.7
+			10'b0010110111:
+				data		<= 8'hf4;
+
+			//D11.7
+			10'b1101001000:
+				data		<= 8'heb;
+
+			//D13.7
+			10'b1011001000:
+				data		<= 8'hed;
+
+			//D14.7
+			10'b0111001000:
+				data		<= 8'hee;
+
+			default: begin
+				symbol_err	<= rx_3b_error || rx_5b_error;
+				data_is_ctl	<= rx_5b_control;
+				data		<= { rx_3b_value, rx_5b_value };
+			end
+		endcase
 
 		//Disparity toggles based on the current value
 		if(rx_disparity_negative && (rx_total_disparity == 2) )
