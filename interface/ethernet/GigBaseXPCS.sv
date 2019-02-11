@@ -62,6 +62,10 @@ module GigBaseXPCS(
 	//RX GMII interface. Clock is always 125 MHz regardless of link speed.
 	output GmiiBus		gmii_rx_bus	= {$bits(GmiiBus){1'b0}},
 
+	//TX GMII interface. 125 MHz but need not be clk_125mhz domain
+	input wire			gmii_tx_clk,
+	input GmiiBus		gmii_tx_bus,
+
 	//TX SERDES interface. 125 MHz.
 	output wire			tx_clk,
 	output logic		tx_data_is_ctl				= 0,

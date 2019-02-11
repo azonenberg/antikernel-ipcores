@@ -54,6 +54,9 @@ module SGMIIToGMIIBridge(
 	output wire			gmii_rx_clk,
 	output GmiiBus		gmii_rx_bus,
 
+	output wire			gmii_tx_clk,
+	output GmiiBus		gmii_tx_bus,
+
 	output wire			link_up,
 	output lspeed_t		link_speed
 	);
@@ -106,13 +109,6 @@ module SGMIIToGMIIBridge(
 	wire	serdes_clk_raw;
 	wire	gmii_rx_clk_raw;
 
-	//Stick a BUFG into the clock feedback path so that we can compensate for buffer delays
-	wire	clkfb_bufg;
-	BUFG feedback_buf(
-		.I(clkfb),
-		.O(clkfb_bufg)
-	);
-
 	//TODO: abstraction for this
 	wire clkfb;
 	MMCME4_BASE #(
@@ -147,7 +143,7 @@ module SGMIIToGMIIBridge(
 		.CLKOUT6_PHASE(0)
 
 	) pll (
-		.CLKFBIN(clkfb_bufg),
+		.CLKFBIN(clkfb),
 		.CLKFBOUT(clkfb),
 
 		.CLKIN1(rx_clk),
@@ -393,6 +389,8 @@ module SGMIIToGMIIBridge(
 		.link_speed(link_speed),
 
 		.gmii_rx_bus(gmii_rx_bus),
+		.gmii_tx_clk(gmii_tx_clk),
+		.gmii_tx_bus(gmii_tx_bus),
 
 		.tx_clk(tx_clk),
 		.tx_data_is_ctl(tx_data_is_ctl),
