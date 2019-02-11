@@ -82,9 +82,10 @@ module SingleClockFifo #(
 	output wire[ADDR_BITS:0]	rsize,
 	output wire[ADDR_BITS:0]	wsize,
 
-	input wire					reset,
+	input wire					reset
 
 	`ifdef FORMAL
+	,
 	output logic[WIDTH*DEPTH-1 : 0] dout_formal
 	`endif
     );
