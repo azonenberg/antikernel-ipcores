@@ -166,7 +166,6 @@ module CrossClockPacketFifo #(
 		.en_a(wr_commit),
 		.ack_a(),
 		.reg_a(data_wptr),
-		.reset_a(wr_reset),
 
 		.clk_b(rd_clk),
 		.updated_b(),
@@ -189,7 +188,6 @@ module CrossClockPacketFifo #(
 		.en_a(rptr_updated),
 		.ack_a(),
 		.reg_a(data_rptr),
-		.reset_a(rd_reset),
 
 		.clk_b(wr_clk),
 		.updated_b(),
