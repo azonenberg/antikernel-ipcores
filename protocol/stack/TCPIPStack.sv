@@ -66,8 +66,8 @@ module TCPIPStack #(
 	input UDPv4TxBus			udpv4_tx_bus,
 
 	//TCP socket interface
-	output TCPv4RxBus			tcpv4_rx_l4_bus,
-	input TCPv4TxBus			tcpv4_tx_l4_bus
+	output TCPv4RxBus			tcpv4_rx_bus,
+	input TCPv4TxBus			tcpv4_tx_bus
 
 	//TODO: performance counters
 );
@@ -256,10 +256,10 @@ module TCPIPStack #(
 		.clk(clk_ipstack),
 
 		.rx_l3_bus(ipv4_rx_l3_bus),
-		.rx_l4_bus(tcpv4_rx_l4_bus),
+		.rx_l4_bus(tcpv4_rx_bus),
 
 		.tx_l3_bus(tcp_ipv4_tx_l3_bus),
-		.tx_l4_bus(tcpv4_tx_l4_bus)
+		.tx_l4_bus(tcpv4_tx_bus)
 	);
 
 endmodule
