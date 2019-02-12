@@ -434,6 +434,7 @@ module GigBaseXPCS(
 	logic	tx_idle_count	= 0;
 
 	logic	tx_en_ff		= 0;
+	logic	first_idle		= 0;
 
 	always_ff @(posedge tx_clk) begin
 		tx_idle_count						<= !tx_idle_count;
@@ -460,6 +461,8 @@ module GigBaseXPCS(
 
 			tx_link_data					<= 8'hfd;
 			tx_link_data_is_ctl				<= 1;
+
+			first_idle						<= 1;
 		end
 
 		//In between frames? Send I2 ordered set: K28.5 D16.2
@@ -467,13 +470,16 @@ module GigBaseXPCS(
 			tx_link_data						<= 8'hbc;
 			tx_link_data_is_ctl					<= 1;
 		end
+
 		else begin
 
 			tx_link_data						<= 8'h50;
 
 			//Adjust disparity between frames if needed (send /I1/, D5.6, instead of D16.2)
-			if(!tx_disparity_negative)
+			if(first_idle && !tx_disparity_negative)
 				tx_link_data					<= 8'hC5;
+
+			first_idle							<= 0;
 
 		end
 
