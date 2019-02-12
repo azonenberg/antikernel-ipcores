@@ -111,7 +111,6 @@ module CrossClockFifo #(
 		.en_a(wr_ptr_update),
 		.ack_a(wr_ptr_ack),
 		.reg_a(wr_ptr),
-		.reset_a(1'b0),
 
 		.clk_b(rd_clk),
 		.updated_b(),
@@ -130,7 +129,6 @@ module CrossClockFifo #(
 		.en_a(rd_ptr_update),
 		.ack_a(rd_ptr_ack),
 		.reg_a(rd_ptr),
-		.reset_a(1'b0),
 
 		.clk_b(wr_clk),
 		.updated_b(),
