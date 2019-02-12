@@ -83,10 +83,23 @@ module GigBaseXPCS(
 
 	//TODO: buffer 4 code groups at a time, drop an idle set if the fifo is too full
 
-	wire	rx_fifo_empty;
-	wire	rx_fifo_rd = !rx_fifo_empty;
+	wire		rx_fifo_empty;
 
-	logic	rx_fifo_rd_valid	= 0;
+	//Let the FIFO fill up a bit before we start reading
+	wire[5:0]	rx_fifo_rsize;
+	logic		rx_fifo_rd			= 0;
+	logic		fifo_initial_fill	= 0;
+	always_ff @(posedge clk_125mhz) begin
+		if(rx_fifo_empty)
+			fifo_initial_fill	<= 0;
+		if(rx_fifo_rsize > 16)
+			fifo_initial_fill	<= 1;
+	end
+	always_comb begin
+		rx_fifo_rd	<= fifo_initial_fill && !rx_fifo_empty;
+	end
+
+	logic		rx_fifo_rd_valid	= 0;
 	always_ff @(posedge clk_125mhz) begin
 		rx_fifo_rd_valid	<= rx_fifo_rd;
 	end
@@ -110,7 +123,7 @@ module GigBaseXPCS(
 		.rd_clk(clk_125mhz),
 		.rd_en(rx_fifo_rd),
 		.rd_data({rx_fdata_is_ctl, rx_fdata}),
-		.rd_size(),
+		.rd_size(rx_fifo_rsize),
 		.rd_empty(rx_fifo_empty),
 		.rd_underflow()
 	);
@@ -257,13 +270,20 @@ module GigBaseXPCS(
 
 		//Detect idle matches
 		if(rx_fifo_rd_valid) begin
-			last_was_k285	<= (rx_fdata == 8'hbc) && rx_fdata_is_ctl;
+			last_was_k285	<= 0;
 
-			if( (rx_fdata == 8'h50) && !rx_fdata_is_ctl && last_was_k285) begin
+			//Look for K28.5 D16.2 (idle-2)
+			if( (rx_fdata == 8'hbc) && rx_fdata_is_ctl)
+				last_was_k285	<= 1;
+			else if( (rx_fdata == 8'h50) && !rx_fdata_is_ctl && last_was_k285) begin
 				idle_count <= idle_count + 1'h1;
 				if(idle_count == 3)
 					idle_match	<= 1;
 			end
+
+			//Not idle-matching as soon as anything else shows up
+			else
+				idle_match	<= 0;
 
 		end
 
@@ -486,18 +506,24 @@ module GigBaseXPCS(
 	// RX frame decoding
 
 	always_ff @(posedge clk_125mhz) begin
+
 		gmii_rx_bus.dvalid	<= 1;	//TODO: handle 10/100 mode
+		gmii_rx_bus.er		<= 0;
 
 		//Wait for start-of-frame character K27.7
-		if(!gmii_rx_bus.en) begin
-			if(rx_fdata_is_ctl && (rx_fdata == 8'hfb) ) begin
-				gmii_rx_bus.en		<= 1;
-				gmii_rx_bus.data	<= 8'h55;
-			end
+		if(rx_fdata_is_ctl && (rx_fdata == 8'hfb) ) begin
+			gmii_rx_bus.en		<= 1;
+			gmii_rx_bus.data	<= 8'h55;
+		end
+
+		//If we see an idle, the frame is over
+		else if(idle_match) begin
+			gmii_rx_bus.en	<= 0;
+			gmii_rx_bus.er	<= 1;
 		end
 
 		//Forward frame data
-		else begin
+		else if(gmii_rx_bus.en) begin
 
 			//Look for end-of-frame character K29.7
 			if(rx_fdata_is_ctl && (rx_fdata == 8'hfd) )
@@ -507,7 +533,7 @@ module GigBaseXPCS(
 			else if(rx_fdata_is_ctl && (rx_fdata == 8'hfe) )
 				gmii_rx_bus.er		<= 1;
 
-			else
+			else if(!rx_fdata_is_ctl)
 				gmii_rx_bus.data	<= rx_fdata;
 
 			//TODO: handle other control characters including error propagation
