@@ -53,10 +53,10 @@ module Gearbox8To10(
 );
 
 	logic[3:0]	temp_valid	= 0;
-	logic[7:0]	temp_buf	= 0;	//max 8 bits, if we hit 10 we'd have sent last cycle
+	logic[8:0]	temp_buf	= 0;	//max 9 bits, if we hit 10 we'd have sent last cycle
 
 	//Figure out current capacity including the buffered and inbound data
-	logic[15:0]	buffer_fwd;
+	logic[16:0]	buffer_fwd;
 	logic[4:0]	valid_fwd;
 	always_comb begin
 
@@ -88,45 +88,50 @@ module Gearbox8To10(
 
 			case(valid_fwd)
 
-				//Max capacity is 8 bits in temp buffer plus 8 arriving = 16
+				//Max capacity is 9 bits in temp buffer plus 8 arriving = 17
+				17: begin
+					dout		<= buffer_fwd[16:7];
+					temp_buf	<= { 2'h0, buffer_fwd[6:0] };
+				end
+
 				16: begin
 					dout		<= buffer_fwd[15:6];
-					temp_buf	<= {10'h0, buffer_fwd[5:0]};
+					temp_buf	<= { 3'h0, buffer_fwd[5:0] };
 				end
 
 				15: begin
 					dout		<= buffer_fwd[14:5];
-					temp_buf	<= {11'h0, buffer_fwd[4:0]};
+					temp_buf	<= { 4'h0, buffer_fwd[4:0] };
 				end
 
 				14: begin
 					dout		<= buffer_fwd[13:4];
-					temp_buf	<= {12'h0, buffer_fwd[3:0]};
+					temp_buf	<= { 5'h0, buffer_fwd[3:0] };
 				end
 
 				13: begin
 					dout		<= buffer_fwd[12:3];
-					temp_buf	<= {13'h0, buffer_fwd[2:0]};
+					temp_buf	<= { 6'h0, buffer_fwd[2:0] };
 				end
 
 				12: begin
 					dout		<= buffer_fwd[11:2];
-					temp_buf	<= {14'h0, buffer_fwd[1:0]};
+					temp_buf	<= { 7'h0, buffer_fwd[1:0] };
 				end
 
 				11: begin
 					dout		<= buffer_fwd[10:1];
-					temp_buf	<= {15'h0, buffer_fwd[0]};
+					temp_buf	<= { 8'h0, buffer_fwd[0] };
 				end
 
 				10: begin
 					dout		<= buffer_fwd[9:0];
-					temp_buf	<= 0;
+					temp_buf	<= 9'h0;
 				end
 
 				//Not enough data to send.
 				default: begin
-					temp_buf	<= buffer_fwd;
+					temp_buf	<= buffer_fwd[8:0];
 				end
 
 			endcase
