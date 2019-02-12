@@ -70,7 +70,8 @@ module GigBaseXPCS(
 	output wire			tx_clk,
 	output logic		tx_data_is_ctl				= 0,
 	output logic[7:0]	tx_data						= 0,
-	output logic		tx_force_disparity_negative	= 0
+	output logic		tx_force_disparity_negative	= 0,
+	input wire			tx_disparity_negative
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -137,14 +138,13 @@ module GigBaseXPCS(
 
 	logic		tx_link_data_is_ctl					= 0;
 	logic[7:0]	tx_link_data						= 0;
-	logic		tx_link_force_disparity_negative	= 0;
 
 	always_ff @(posedge clk_125mhz) begin
 
 		if(link_up) begin
 			tx_data_is_ctl				<= tx_link_data_is_ctl;
 			tx_data						<= tx_link_data;
-			tx_force_disparity_negative	<= tx_link_force_disparity_negative;
+			tx_force_disparity_negative	<= 0;
 		end
 
 		else begin
@@ -431,22 +431,51 @@ module GigBaseXPCS(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX idle / data transmits
 
-	logic	tx_idle_count = 0;
+	logic	tx_idle_count	= 0;
+
+	logic	tx_en_ff		= 0;
 
 	always_ff @(posedge tx_clk) begin
-		tx_idle_count			<= !tx_idle_count;
+		tx_idle_count						<= !tx_idle_count;
 
-		tx_link_data_is_ctl						<= 0;
-		tx_link_force_disparity_negative		<= 0;
+		tx_link_data_is_ctl					<= 0;
 
-		//I2 ordered set: K28.5 D16.2
-		if(tx_idle_count) begin
+		tx_en_ff							<= gmii_tx_bus.en;
+
+		//Starting a frame? Replace the first preamble byte with a SOF
+		if(gmii_tx_bus.en && !tx_en_ff) begin
+			tx_link_data					<= 8'hfb;
+			tx_link_data_is_ctl				<= 1;
+		end
+
+		//Sending data? Forward it on as-is
+		else if(gmii_tx_bus.en)
+			tx_link_data					<= gmii_tx_bus.data;
+
+		//End of frame? Send end symbol then begin sending idle ordered sets
+		else if(!gmii_tx_bus.en && tx_en_ff) begin
+
+			//make sure we start at correct phase
+			tx_idle_count					<= 1;
+
+			tx_link_data					<= 8'hfd;
+			tx_link_data_is_ctl				<= 1;
+		end
+
+		//In between frames? Send I2 ordered set: K28.5 D16.2
+		else if(tx_idle_count) begin
 			tx_link_data						<= 8'hbc;
 			tx_link_data_is_ctl					<= 1;
-			tx_link_force_disparity_negative	<= 1;
 		end
-		else
+		else begin
+
 			tx_link_data						<= 8'h50;
+
+			//Adjust disparity between frames if needed (send /I1/, D5.6, instead of D16.2)
+			if(!tx_disparity_negative)
+				tx_link_data					<= 8'hC5;
+
+		end
 
 	end
 
