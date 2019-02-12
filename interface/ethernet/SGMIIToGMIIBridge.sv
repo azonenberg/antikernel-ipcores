@@ -52,8 +52,8 @@ module SGMIIToGMIIBridge(
 	output wire			gmii_rx_clk,
 	output GmiiBus		gmii_rx_bus,
 
-	output wire			gmii_tx_clk,
-	output GmiiBus		gmii_tx_bus,
+	input wire			gmii_tx_clk,
+	input GmiiBus		gmii_tx_bus,
 
 	output wire			link_up,
 	output lspeed_t		link_speed
@@ -281,6 +281,7 @@ module SGMIIToGMIIBridge(
 	wire[9:0]	tx_codeword;
 
 	wire		tx_force_disparity_negative;
+	wire		tx_disparity_negative;
 
 	Encode8b10b tx_encoder(
 		.clk(tx_clk),
@@ -289,7 +290,8 @@ module SGMIIToGMIIBridge(
 		.data(tx_data),
 		.force_disparity_negative(tx_force_disparity_negative),
 
-		.codeword(tx_codeword)
+		.codeword(tx_codeword),
+		.tx_disparity_negative(tx_disparity_negative)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -393,7 +395,8 @@ module SGMIIToGMIIBridge(
 		.tx_clk(tx_clk),
 		.tx_data_is_ctl(tx_data_is_ctl),
 		.tx_data(tx_data),
-		.tx_force_disparity_negative(tx_force_disparity_negative)
+		.tx_force_disparity_negative(tx_force_disparity_negative),
+		.tx_disparity_negative(tx_disparity_negative)
 	);
 
 endmodule

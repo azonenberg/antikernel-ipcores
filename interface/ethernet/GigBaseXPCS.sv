@@ -431,57 +431,115 @@ module GigBaseXPCS(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX idle / data transmits
 
-	logic	tx_idle_count	= 0;
-
-	logic	tx_en_ff		= 0;
-	logic	first_idle		= 0;
+	enum logic[2:0]
+	{
+		TX_STATE_I2_0	= 0,	//Send K28.5 (I2 first half)
+		TX_STATE_I2_1	= 1,	//Send D16.2 (I2 second half)
+		TX_STATE_START	= 2,	//Send SOF
+		TX_STATE_FRAME	= 3,	//Send frame data
+		TX_STATE_END_0	= 4,	//Send EPD2
+		TX_STATE_I1_0	= 5,	//Send K28.5 (I1 first half)
+		TX_STATE_I1_1	= 6		//Send D5.6  (I1 second half)
+	} tx_state = TX_STATE_I2_0;
 
 	always_ff @(posedge tx_clk) begin
-		tx_idle_count						<= !tx_idle_count;
-
 		tx_link_data_is_ctl					<= 0;
 
-		tx_en_ff							<= gmii_tx_bus.en;
+		case(tx_state)
 
-		//Starting a frame? Replace the first preamble byte with a SOF
-		if(gmii_tx_bus.en && !tx_en_ff) begin
-			tx_link_data					<= 8'hfb;
-			tx_link_data_is_ctl				<= 1;
-		end
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Between frames? Send idles and wait for a packet to start
 
-		//Sending data? Forward it on as-is
-		else if(gmii_tx_bus.en)
-			tx_link_data					<= gmii_tx_bus.data;
+			TX_STATE_I2_0: begin
 
-		//End of frame? Send end symbol then begin sending idle ordered sets
-		else if(!gmii_tx_bus.en && tx_en_ff) begin
+				//Starting a frame? Replace the first preamble byte with a SOF
+				if(gmii_tx_bus.en) begin
+					tx_link_data					<= 8'hfb;
+					tx_link_data_is_ctl				<= 1;
+					tx_state						<= TX_STATE_FRAME;
+				end
 
-			//make sure we start at correct phase
-			tx_idle_count					<= 1;
+				//Send K28.5
+				else begin
+					tx_link_data					<= 8'hbc;
+					tx_link_data_is_ctl				<= 1;
+					tx_state						<= TX_STATE_I2_1;
+				end
 
-			tx_link_data					<= 8'hfd;
-			tx_link_data_is_ctl				<= 1;
+			end	//end TX_STATE_I2_0
 
-			first_idle						<= 1;
-		end
+			TX_STATE_I2_1: begin
 
-		//In between frames? Send I2 ordered set: K28.5 D16.2
-		else if(tx_idle_count) begin
-			tx_link_data						<= 8'hbc;
-			tx_link_data_is_ctl					<= 1;
-		end
+				//Send D16.2 regardless to finish the current idle
+				tx_link_data						<= 8'h50;
 
-		else begin
+				//If starting, send the SOF next cycle
+				if(gmii_tx_bus.en)
+					tx_state						<= TX_STATE_START;
+				else
+					tx_state						<= TX_STATE_I2_0;
 
-			tx_link_data						<= 8'h50;
+			end	//end TX_STATE_I2_1
 
-			//Adjust disparity between frames if needed (send /I1/, D5.6, instead of D16.2)
-			if(first_idle && !tx_disparity_negative)
-				tx_link_data					<= 8'hC5;
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Frame in progress
 
-			first_idle							<= 0;
+			TX_STATE_START: begin
+				tx_link_data						<= 8'hfb;
+				tx_link_data_is_ctl					<= 1;
+				tx_state							<= TX_STATE_FRAME;
+			end	//end TX_STATE_START
 
-		end
+			TX_STATE_FRAME: begin
+
+				//Sending data? Forward it on as-is
+				if(gmii_tx_bus.en)
+					tx_link_data					<= gmii_tx_bus.data;
+
+				//End of frame? Send end symbol
+				else begin
+					tx_link_data						<= 8'hfd;
+					tx_link_data_is_ctl					<= 1;
+
+					tx_state							<= TX_STATE_END_0;
+				end
+
+			end	//end TX_STATE_FRAME
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Terminate a frame
+
+			//Send EPD2
+			TX_STATE_END_0: begin
+				tx_link_data						<= 8'hf7;
+				tx_link_data_is_ctl					<= 1;
+
+				//Adjust disparity between frames if needed (send /I1/, D5.6, instead of D16.2)
+				if(!tx_disparity_negative)
+					tx_state						<= TX_STATE_I1_0;
+				else
+					tx_state						<= TX_STATE_I2_0;
+
+			end	//end TX_STATE_END_0
+
+			//TODO: send EPD3 padding if needed
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Fix up disparity at end of frame
+
+			TX_STATE_I1_0: begin
+				tx_link_data					<= 8'hbc;
+				tx_link_data_is_ctl				<= 1;
+				tx_state						<= TX_STATE_I1_1;
+			end	//end TX_STATE_I1_0
+
+			TX_STATE_I1_1: begin
+				tx_link_data					<= 8'hc5;
+				tx_link_data_is_ctl				<= 0;
+				tx_state						<= TX_STATE_I2_0;
+			end	//end TX_STATE_I1_1
+
+		endcase
 
 	end
 
