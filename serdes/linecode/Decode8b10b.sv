@@ -450,6 +450,11 @@ module Decode8b10b(
 			else begin
 				case(rx_4b_code)
 
+					4'b0001: begin
+						rx_3b_disparity	<= -2;
+						rx_3b_value		<= 7;
+					end
+
 					4'b0010: begin
 						rx_3b_disparity	<= -2;
 						rx_3b_value		<= 4;

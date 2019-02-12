@@ -42,7 +42,9 @@ module Encode8b10b(
 	input wire			force_disparity_negative,
 	input wire[7:0]		data,
 
-	output logic[9:0]	codeword	= 0
+	output logic[9:0]	codeword	= 0,
+
+	output logic		tx_disparity_negative	= 1
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -376,6 +378,7 @@ module Encode8b10b(
 				3: begin
 					tx_4b_code_if_neg		<= 4'b1100;
 					tx_4b_code_if_pos		<= 4'b0011;
+					tx_4b_disparity_flip	<= 0;
 				end
 
 				4: begin
@@ -419,8 +422,6 @@ module Encode8b10b(
 	// Final coder
 
 	wire	tx_disparity_flip 		= tx_4b_disparity_flip ^ tx_6b_disparity_flip;
-
-	logic	tx_disparity_negative	= 1;
 
 	always_ff @(posedge clk) begin
 
