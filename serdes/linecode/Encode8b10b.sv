@@ -106,18 +106,18 @@ module Encode8b10b(
 			case(tx_5b_code)
 
 				0: begin
-					tx_6b_code_if_neg	<= 6'b100111;
-					tx_6b_code_if_pos	<= 6'b011000;
+					tx_6b_code_if_neg		<= 6'b100111;
+					tx_6b_code_if_pos		<= 6'b011000;
 				end
 
 				1: begin
-					tx_6b_code_if_neg	<= 6'b011101;
-					tx_6b_code_if_pos	<= 6'b100010;
+					tx_6b_code_if_neg		<= 6'b011101;
+					tx_6b_code_if_pos		<= 6'b100010;
 				end
 
 				2: begin
-					tx_6b_code_if_neg	<= 6'b101101;
-					tx_6b_code_if_pos	<= 6'b010010;
+					tx_6b_code_if_neg		<= 6'b101101;
+					tx_6b_code_if_pos		<= 6'b010010;
 				end
 
 				3: begin
@@ -127,8 +127,8 @@ module Encode8b10b(
 				end
 
 				4: begin
-					tx_6b_code_if_neg	<= 6'b110101;
-					tx_6b_code_if_pos	<= 6'b001010;
+					tx_6b_code_if_neg		<= 6'b110101;
+					tx_6b_code_if_pos		<= 6'b001010;
 				end
 
 				5: begin
@@ -144,13 +144,14 @@ module Encode8b10b(
 				end
 
 				7: begin
-					tx_6b_code_if_neg	<= 6'b111000;
-					tx_6b_code_if_pos	<= 6'b000111;
+					tx_6b_code_if_neg		<= 6'b111000;
+					tx_6b_code_if_pos		<= 6'b000111;
+					tx_6b_disparity_flip	<= 0;
 				end
 
 				8: begin
-					tx_6b_code_if_neg	<= 6'b111001;
-					tx_6b_code_if_pos	<= 6'b000110;
+					tx_6b_code_if_neg		<= 6'b111001;
+					tx_6b_code_if_pos		<= 6'b000110;
 				end
 
 				9: begin
@@ -190,13 +191,13 @@ module Encode8b10b(
 				end
 
 				15: begin
-					tx_6b_code_if_neg	<= 6'b010111;
-					tx_6b_code_if_pos	<= 6'b101000;
+					tx_6b_code_if_neg		<= 6'b010111;
+					tx_6b_code_if_pos		<= 6'b101000;
 				end
 
 				16: begin
-					tx_6b_code_if_neg	<= 6'b011011;
-					tx_6b_code_if_pos	<= 6'b100100;
+					tx_6b_code_if_neg		<= 6'b011011;
+					tx_6b_code_if_pos		<= 6'b100100;
 				end
 
 				17: begin
@@ -236,13 +237,13 @@ module Encode8b10b(
 				end
 
 				23: begin
-					tx_6b_code_if_neg	<= 6'b111010;
-					tx_6b_code_if_pos	<= 6'b000101;
+					tx_6b_code_if_neg		<= 6'b111010;
+					tx_6b_code_if_pos		<= 6'b000101;
 				end
 
 				24: begin
-					tx_6b_code_if_neg	<= 6'b110011;
-					tx_6b_code_if_pos	<= 6'b001100;
+					tx_6b_code_if_neg		<= 6'b110011;
+					tx_6b_code_if_pos		<= 6'b001100;
 				end
 
 				25: begin
@@ -258,8 +259,8 @@ module Encode8b10b(
 				end
 
 				27: begin
-					tx_6b_code_if_neg	<= 6'b110110;
-					tx_6b_code_if_pos	<= 6'b001001;
+					tx_6b_code_if_neg		<= 6'b110110;
+					tx_6b_code_if_pos		<= 6'b001001;
 				end
 
 				28: begin
@@ -269,18 +270,18 @@ module Encode8b10b(
 				end
 
 				29: begin
-					tx_6b_code_if_neg	<= 6'b101110;
-					tx_6b_code_if_pos	<= 6'b010001;
+					tx_6b_code_if_neg		<= 6'b101110;
+					tx_6b_code_if_pos		<= 6'b010001;
 				end
 
 				30: begin
-					tx_6b_code_if_neg	<= 6'b011110;
-					tx_6b_code_if_pos	<= 6'b100001;
+					tx_6b_code_if_neg		<= 6'b011110;
+					tx_6b_code_if_pos		<= 6'b100001;
 				end
 
 				31: begin
-					tx_6b_code_if_neg	<= 6'b101011;
-					tx_6b_code_if_pos	<= 6'b010100;
+					tx_6b_code_if_neg		<= 6'b101011;
+					tx_6b_code_if_pos		<= 6'b010100;
 				end
 
 			endcase
