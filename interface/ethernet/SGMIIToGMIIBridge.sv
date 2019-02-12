@@ -39,8 +39,6 @@
  */
 module SGMIIToGMIIBridge(
 
-	input wire			clk_125mhz,
-
 	//SGMII interface (connect directly to top-level pads)
 	input wire			sgmii_rx_clk_p,		//625 MHz RX clock
 	input wire			sgmii_rx_clk_n,
@@ -122,7 +120,7 @@ module SGMIIToGMIIBridge(
 		.STARTUP_WAIT("FALSE"),		//Don't wait for PLL to lock at startup
 
 		.CLKOUT1_DIVIDE(2),			//625 MHz clock for SERDES
-		.CLKOUT2_DIVIDE(5),			//125 MHz clock for GMII subsystem
+		.CLKOUT2_DIVIDE(10),		//125 MHz clock for GMII subsystem
 		.CLKOUT3_DIVIDE(1),
 		.CLKOUT4_DIVIDE(1),
 		.CLKOUT5_DIVIDE(1),
@@ -376,7 +374,7 @@ module SGMIIToGMIIBridge(
 	// 1000base-X / SGMII PCS
 
 	GigBaseXPCS pcs(
-		.clk_125mhz(clk_125mhz),
+		.clk_125mhz(gmii_rx_clk_raw),
 
 		.sgmii_mode(1'b1),
 
