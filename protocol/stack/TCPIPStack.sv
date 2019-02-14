@@ -201,8 +201,6 @@ module TCPIPStack #(
 		.rx_l2_bus(rx_l2_bus),
 		.tx_l2_bus(ipv4_tx_l2_bus),
 
-		//TODO: Arbiter between multiple layer-4 protocols
-		//For now, hard-wire ICMP to the TX bus
 		.rx_l3_bus(ipv4_rx_l3_bus),
 		.tx_l3_bus(ipv4_tx_l3_bus)
 	);
