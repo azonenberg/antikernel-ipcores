@@ -193,6 +193,8 @@ module TCPIPStack #(
 	IPv4RxBus	ipv4_rx_l3_bus;
 	IPv4TxBus	ipv4_tx_l3_bus;
 
+	wire		ipv4_tx_busy;
+
 	IPv4Protocol ipv4(
 		.clk(clk_ipstack),
 
@@ -202,7 +204,9 @@ module TCPIPStack #(
 		.tx_l2_bus(ipv4_tx_l2_bus),
 
 		.rx_l3_bus(ipv4_rx_l3_bus),
-		.tx_l3_bus(ipv4_tx_l3_bus)
+		.tx_l3_bus(ipv4_tx_l3_bus),
+
+		.tx_busy(ipv4_tx_busy)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -219,7 +223,9 @@ module TCPIPStack #(
 		.tcp_bus(tcp_ipv4_tx_l3_bus),
 		.udp_bus(udp_ipv4_tx_l3_bus),
 
-		.ipv4_bus(ipv4_tx_l3_bus)
+		.ipv4_bus(ipv4_tx_l3_bus),
+
+		.tx_busy(ipv4_tx_busy)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -438,12 +438,17 @@ module GigBaseXPCS(
 		TX_STATE_START	= 2,	//Send SOF
 		TX_STATE_FRAME	= 3,	//Send frame data
 		TX_STATE_END_0	= 4,	//Send EPD2
-		TX_STATE_I1_0	= 5,	//Send K28.5 (I1 first half)
-		TX_STATE_I1_1	= 6		//Send D5.6  (I1 second half)
+		TX_STATE_END_1	= 5,	//Send EPD3
+		TX_STATE_I1_0	= 6,	//Send K28.5 (I1 first half)
+		TX_STATE_I1_1	= 7		//Send D5.6  (I1 second half)
 	} tx_state = TX_STATE_I2_0;
+
+	logic		tx_phase	= 0;
 
 	always_ff @(posedge tx_clk) begin
 		tx_link_data_is_ctl					<= 0;
+
+		tx_phase							<= !tx_phase;
 
 		case(tx_state)
 
@@ -461,6 +466,7 @@ module GigBaseXPCS(
 
 				//Send K28.5
 				else begin
+					tx_phase						<= 1;
 					tx_link_data					<= 8'hbc;
 					tx_link_data_is_ctl				<= 1;
 					tx_state						<= TX_STATE_I2_1;
@@ -514,15 +520,30 @@ module GigBaseXPCS(
 				tx_link_data						<= 8'hf7;
 				tx_link_data_is_ctl					<= 1;
 
+				if(tx_phase == 0)
+					tx_state	<= TX_STATE_END_1;
+
+				//Adjust disparity between frames if needed (send /I1/, D5.6, instead of D16.2)
+				else begin
+					if(!tx_disparity_negative)
+						tx_state						<= TX_STATE_I1_0;
+					else
+						tx_state						<= TX_STATE_I2_0;
+				end
+
+			end	//end TX_STATE_END_0
+
+			//Send EPD3 padding if needed
+			TX_STATE_END_1: begin
+				tx_link_data						<= 8'hf7;
+				tx_link_data_is_ctl					<= 1;
+
 				//Adjust disparity between frames if needed (send /I1/, D5.6, instead of D16.2)
 				if(!tx_disparity_negative)
 					tx_state						<= TX_STATE_I1_0;
 				else
 					tx_state						<= TX_STATE_I2_0;
-
-			end	//end TX_STATE_END_0
-
-			//TODO: send EPD3 padding if needed
+			end	//end TX_STATE_END_1
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Fix up disparity at end of frame
