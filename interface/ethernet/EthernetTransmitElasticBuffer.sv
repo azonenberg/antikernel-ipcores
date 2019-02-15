@@ -238,7 +238,7 @@ module EthernetTransmitElasticBuffer #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Read control logic
 
-	reg			tx_active			= 0;
+	reg			tx_active			= 1'b0;
 
 	reg[13:0]	tx_bytes_left		= 0;
 	reg[4:0]	tx_count			= 0;
