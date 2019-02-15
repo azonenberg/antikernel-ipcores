@@ -46,7 +46,8 @@ module IPv4TransmitArbiter #(
 	input wire IPv4TxBus		tcp_bus,
 	input wire IPv4TxBus		udp_bus,
 
-	output IPv4TxBus			ipv4_bus
+	output IPv4TxBus			ipv4_bus,
+	input wire					tx_busy
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -226,8 +227,13 @@ module IPv4TransmitArbiter #(
 
 			STATE_IDLE: begin
 
+				//IP stack has a bit of latency for header checksum calculation.
+				//Don't start the next packet until it's done with the previous one.
+				if(tx_busy) begin
+				end
+
 				//Pop the most-full fifo
-				if( (tcp_fifo_rsize >= udp_fifo_rsize) && (tcp_fifo_rsize >= icmp_fifo_rsize) && (tcp_fifo_rsize > 1) ) begin
+				else if( (tcp_fifo_rsize >= udp_fifo_rsize) && (tcp_fifo_rsize >= icmp_fifo_rsize) && (tcp_fifo_rsize > 1) ) begin
 					tcp_fifo_rd		<= 1;
 					state			<= STATE_TCP_0;
 				end

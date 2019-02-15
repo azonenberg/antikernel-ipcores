@@ -47,7 +47,9 @@ module IPv4Protocol(
 
 	//Interface to upper level protocol
 	output IPv4RxBus			rx_l3_bus			 		= {$bits(IPv4RxBus){1'b0}},
-	input wire IPv4TxBus		tx_l3_bus
+	input wire IPv4TxBus		tx_l3_bus,
+
+	output logic				tx_busy						= 0
 
 	//TODO: performance counters
 	);
@@ -516,6 +518,7 @@ module IPv4Protocol(
 	// TX datapath
 
 	reg[15:0]	tx_bytes_left	= 0;
+	logic[31:0]	tx_dst_ip		= 0;
 
 	always_ff @(posedge clk) begin
 
@@ -551,6 +554,9 @@ module IPv4Protocol(
 						//Nope, go through our router
 						else
 							tx_l2_bus.dst_ip	<= ip_config.gateway;
+
+						tx_dst_ip			<= tx_l3_bus.dst_ip;
+						tx_busy				<= 1;
 
 					end
 
@@ -609,7 +615,7 @@ module IPv4Protocol(
 			TX_STATE_HEADER_6: begin
 				tx_l2_bus.data_valid	<= 1;
 				tx_l2_bus.bytes_valid	<= 4;
-				tx_l2_bus.data			<= tx_l3_bus.dst_ip;
+				tx_l2_bus.data			<= tx_dst_ip;
 
 				tx_fifo_rd				<= 1;
 
@@ -646,6 +652,7 @@ module IPv4Protocol(
 
 			TX_STATE_COMMIT: begin
 				tx_l2_bus.commit	<= 1;
+				tx_busy				<= 0;
 				tx_state			<= TX_STATE_IDLE;
 			end	//end TX_STATE_COMMIT
 
@@ -654,6 +661,7 @@ module IPv4Protocol(
 		//At any time, if we abort the message in progress, reset stuff
 		if(tx_l3_bus.drop) begin
 			tx_state				<= TX_STATE_IDLE;
+			tx_busy					<= 0;
 			tx_l2_bus.drop			<= 1;
 		end
 
