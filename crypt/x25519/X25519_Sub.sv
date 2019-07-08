@@ -32,11 +32,13 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief X25519 adder
+	@brief X25519 subtractor
 
-	Derived from add() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
+	Derived from sub() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
+
+	Additive inverse modulo 2^(255-19) with no reduction.
  */
-module X25519_Add(
+module X25519_Sub(
 	input wire			clk,
 	input wire			en,
 	input wire[263:0]	a,
@@ -48,7 +50,7 @@ module X25519_Add(
 	always_ff @(posedge clk) begin
 		out_valid	<= en;
 		if(en)
-			out		<= a + b;
+			out		<= a + 264'h00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffda - b;
 	end
 
 endmodule
