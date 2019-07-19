@@ -49,24 +49,30 @@ module X25519_MultPass(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Index calculation
 
-	logic[4:0]	a_index[31:0];
 	logic[4:0]	b_index[31:0];
 
 	always_comb begin
 
 		for(integer j=0; j<32; j=j+1) begin
-
-			//just go down the array
-			a_index[j]	= j;
-
-			//wrap index if we go off the end
 			if(j <= i)
 				b_index[j]	= i - j;
 			else
 				b_index[j] = i - j + 32;
-
 		end
 
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Combinatorial input selection
+
+	logic[7:0]	a_muxed[31:0];
+	logic[7:0]	b_muxed[31:0];
+
+	always_comb begin
+		for(integer j=0; j<32; j=j+1) begin
+			a_muxed[j]	= a[j*8 +: 8];
+			b_muxed[j]	= b[b_index[j]*8 +: 8];
+		end
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -84,7 +90,7 @@ module X25519_MultPass(
 		if(en) begin
 			for(integer j=0; j<32; j=j+1) begin
 				stage2_do38[j]	<= (j > i);
-				stage2_tmp[j]	<= a[a_index[j]*8 +: 8] * b[b_index[j]*8 +: 8];
+				stage2_tmp[j]	<= a_muxed[j] * b_muxed[j];
 			end
 		end
 
