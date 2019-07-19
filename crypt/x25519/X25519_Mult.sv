@@ -34,7 +34,7 @@
 	@author Andrew D. Zonenberg
 	@brief X25519 multiplication
 
-	Derived from mult() + squeeze() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
+	Derived from mult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
 
 	NOT pipelined. a/b must not change until out_valid is asserted.
  */
@@ -65,12 +65,9 @@ module X25519_Mult(
 		.out(pass_out)
 	);
 
-	logic		stage2_en		= 0;
-
 	always_ff @(posedge clk) begin
 
 		stage1_en	<= 0;
-		stage2_en	<= 0;
 
 		//Start the first pass when we're started
 		if(en) begin
@@ -81,80 +78,21 @@ module X25519_Mult(
 		//Start the next pass when the current one finishes
 		if(pass_out_valid) begin
 			stage1_i				<= stage1_i + 1'h1;
-			if(stage1_i == 31)
-				stage2_en			<= 1;
-			else
+			if(stage1_i != 31)
 				stage1_en			<= 1;
 		end
 
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Step 2: carry propagation (part of the squeeze)
+	// Step 2: reduce the multiplier output
 
-	logic[31:0]		stage2_din[31:0];
-
-	logic[4:0]		stage2_i 		= 0;
-	wire[4:0]		stage2_i_inc	= stage2_i + 1'h1;
-	logic			stage2_active	= 0;
-
-	wire[31:0]		stage2_cur		= stage2_din[stage2_i];
-
-	logic[263:0]	stage3_din		= 0;
-	logic			stage3_en		= 0;
-	logic[263:0]	stage3_carryin	= 0;
-
-	always_ff @(posedge clk) begin
-
-		stage3_en	<= 0;
-
-		//Save the intermediate values as the multpass block finishes up
-		if(pass_out_valid)
-			stage2_din[stage1_i]	<= pass_out;
-
-		//Start the propagation process when the multpass'ing is done
-		//TODO: can we run this in parallel, rippling as the multiplication happens?
-		//That would likely save 30-ish cycles of latency!
-		if(stage2_en) begin
-			stage2_i		<= 0;
-			stage2_active	<= 1;
-		end
-
-		//Ripple carry
-		if(stage2_active) begin
-
-			//Save the low 8 bits
-			stage3_din[stage2_i*8 +: 8]		<= stage2_cur[7:0];
-
-			//If we're at the end, save the carry-out and feed it into the squeezer
-			if(stage2_i == 31) begin
-				stage3_din[263:256]			<= 0;
-				stage2_active				<= 0;
-				stage3_en					<= 1;
-				stage3_carryin				<= stage2_cur[31:7] * 19;
-
-				//not quite sure why we need to truncate this bit but seems necessary to match the C ref implementation
-				stage3_din[255]				<= 0;
-			end
-
-			//Otherwise propagate the carry bits into the next word.
-			else begin
-				stage2_din[stage2_i_inc]	<= stage2_cur[31:8] + stage2_din[stage2_i_inc];
-				stage2_i					<= stage2_i + 1'h1;
-			end
-
-		end
-
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Step 3: add the carry
-
-	X25519_Add squeeze(
+	X25519_StreamingSqueeze squeeze(
 		.clk(clk),
-		.en(stage3_en),
-		.a(stage3_din),
-		.b(stage3_carryin),
+		.en(en),
+		.din_valid(pass_out_valid),
+		.din_count(stage1_i),
+		.din(pass_out),
 		.out_valid(out_valid),
 		.out(out)
 	);

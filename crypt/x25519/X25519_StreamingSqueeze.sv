@@ -32,37 +32,87 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief X25519 reduction
+	@brief X25519 carry propagation and reduction
 
 	Derived from squeeze() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
 
-	Modular reduction of carries
-	Assumes the internal carrying is already propagated, unlike the original implementation.
  */
-module X25519_Squeeze(
+module X25519_StreamingSqueeze(
 	input wire			clk,
 	input wire			en,
-	input wire[263:0]	a,
-	output logic		out_valid	= 0,
-	output logic[263:0]	out = 0
-	);
 
-	logic			en_ff;
-	logic[254:0]	a_ff;
-	logic[31:0]		carry;
+	input wire			din_valid,
+	input wire[4:0]		din_count,
+	input wire[31:0]	din,
+
+	output wire			out_valid,
+	output wire[263:0]	out);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Carry propagation
+
+	logic[31:0]		stage2_din_ff	= 0;
+
+	logic[4:0]		stage2_i 		= 0;
+	logic[4:0]		stage2_i_ff		= 0;
+
+	logic[263:0]	stage3_din		= 0;
+	logic			stage3_en		= 0;
+	logic[263:0]	stage3_carryin	= 0;
+
+	logic			finishing		= 0;
+
 	always_ff @(posedge clk) begin
 
-		//First pipeline stage
-		en_ff		<= en;
+		stage3_en	<= 0;
+		finishing	<= 0;
+
+		//Reset counters when we start a new squeeze operation
 		if(en) begin
-			a_ff	<= a[254:0];
-			carry	<= 19*a[263:255];
+			stage2_i		<= 0;
+			stage2_i_ff		<= 0;
+			stage2_din_ff	<= 0;
 		end
 
-		//Second pipeline stage
-		out_valid	<= en_ff;
-		if(en_ff)
-			out		<= a_ff + carry;
+		//As each block of data comes off the multiplier, do the ripple carry
+		if(din_valid) begin
+
+			stage2_i_ff						<= stage2_i;
+
+			//Save the low 8 bits
+			stage3_din[stage2_i_ff*8 +: 8]	<= stage2_din_ff[7:0];
+
+			//Check if we're done
+			if(stage2_i == 31)
+				finishing					<= 1;
+
+			//Propagate the carry bits into the next word.
+			stage2_din_ff					<= stage2_din_ff[31:8] + din;
+			stage2_i						<= stage2_i + 1'h1;
+
+		end
+
+		//If we're at the end, save the carry-out and feed it into the squeezer
+		if(finishing) begin
+			stage3_din[stage2_i_ff*8 +: 8]	<= stage2_din_ff[7:0];
+			stage3_din[263:255]				<= 0;
+
+			stage3_en						<= 1;
+			stage3_carryin					<= stage2_din_ff[31:7] * 19;
+		end
+
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Add in the overflow
+
+	X25519_Add overflow_adder(
+		.clk(clk),
+		.en(stage3_en),
+		.a(stage3_din),
+		.b(stage3_carryin),
+		.out_valid(out_valid),
+		.out(out)
+	);
 
 endmodule
