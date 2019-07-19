@@ -42,8 +42,107 @@ module X25519_MultPass(
 	input wire[4:0]		i,
 	input wire[263:0]	a,
 	input wire[263:0]	b,
-	output logic		out_valid	= 0,
-	output logic[31:0]	out = 0
+	output wire			out_valid,
+	output wire[31:0]	out
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// First stage of multiplication
+
+	wire				stage2_en;
+	wire[31:0]			stage2_do38;
+	wire[511:0]			stage2_tmp;
+
+	X25519_MultPass_stage1 stage1(
+		.clk(clk),
+		.en(en),
+		.i(i),
+		.a(a),
+		.b(b),
+		.stage2_en(stage2_en),
+		.stage2_do38(stage2_do38),
+		.stage2_tmp(stage2_tmp)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Second stage of multiplication (only for one side of the diagonal)
+
+	wire				stage3_en;
+	wire[1023:0]		stage3_tmp;
+
+	X25519_MultPass_stage2 stage2(
+		.clk(clk),
+		.stage2_en(stage2_en),
+		.stage2_do38(stage2_do38),
+		.stage2_tmp(stage2_tmp),
+		.stage3_en(stage3_en),
+		.stage3_tmp(stage3_tmp)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Adder tree for the 32 temporary values. Do fanin of 4 per pipeline stage.
+
+	wire		stage4_en;
+	wire[255:0]	stage4_tmp;
+
+	ReductionAdder #(
+		.IN_WORD_WIDTH(32),
+		.OUT_WORD_WIDTH(32),
+		.IN_BLOCKS(32),
+		.REDUCTION(4)
+	) stage3 (
+		.clk(clk),
+		.en(stage3_en),
+		.din(stage3_tmp),
+		.dout_valid(stage4_en),
+		.dout(stage4_tmp)
+	);
+
+	wire		stage5_en;
+	wire[63:0]	stage5_tmp;
+
+	ReductionAdder #(
+		.IN_WORD_WIDTH(32),
+		.OUT_WORD_WIDTH(32),
+		.IN_BLOCKS(8),
+		.REDUCTION(4)
+	) stage4 (
+		.clk(clk),
+		.en(stage4_en),
+		.din(stage4_tmp),
+		.dout_valid(stage5_en),
+		.dout(stage5_tmp)
+	);
+
+	ReductionAdder #(
+		.IN_WORD_WIDTH(32),
+		.OUT_WORD_WIDTH(32),
+		.IN_BLOCKS(2),
+		.REDUCTION(2)
+	) stage5 (
+		.clk(clk),
+		.en(stage5_en),
+		.din(stage5_tmp),
+		.dout_valid(out_valid),
+		.dout(out)
+	);
+
+
+endmodule
+
+/**
+	@brief Helper for X25519_MultPass
+ */
+module X25519_MultPass_stage1(
+	input wire			clk,
+	input wire			en,
+	input wire[4:0]		i,
+	input wire[263:0]	a,
+	input wire[263:0]	b,
+
+	output logic		stage2_en	= 0,
+	output logic[31:0]	stage2_do38	= 0,
+	output logic[511:0]	stage2_tmp	= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -78,29 +177,37 @@ module X25519_MultPass(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// First stage of multiplication
 
-	logic[15:0]	stage2_tmp[31:0];
-
-	logic[31:0]	stage2_do38		= 0;
-	logic		stage2_en		= 0;
-
 	always_ff @(posedge clk) begin
 
 		stage2_en	<= en;
 
 		if(en) begin
 			for(integer j=0; j<32; j=j+1) begin
-				stage2_do38[j]	<= (j > i);
-				stage2_tmp[j]	<= a_muxed[j] * b_muxed[j];
+				stage2_do38[j]			<= (j > i);
+				stage2_tmp[j*16 +: 16]	<= a_muxed[j] * b_muxed[j];
 			end
 		end
 
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Second stage of multiplication (only for one side of the diagonal)
+endmodule
 
-	logic[31:0]	stage3_tmp[31:0];
-	logic		stage3_en		= 0;
+/**
+	@brief Helper for X25519_MultPass
+ */
+module X25519_MultPass_stage2(
+	input wire				clk,
+
+	input wire				stage2_en,
+	input wire [31:0]		stage2_do38,
+	input wire[511:0]		stage2_tmp,
+
+	output logic			stage3_en	= 0,
+	output logic[1023:0]	stage3_tmp	= 0
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Second multiplication stage
 
 	always_ff @(posedge clk) begin
 		stage3_en	<= stage2_en;
@@ -108,52 +215,12 @@ module X25519_MultPass(
 		if(stage2_en) begin
 			for(integer j=0; j<32; j=j+1) begin
 				if(stage2_do38[j])
-					stage3_tmp[j]	<= stage2_tmp[j] * 38;
+					stage3_tmp[j*32 +: 32]	<= stage2_tmp[j*16 +: 16] * 38;
 				else
-					stage3_tmp[j]	<= stage2_tmp[j];
+					stage3_tmp[j*32 +: 32]	<= stage2_tmp[j*16 +: 16];
 			end
 		end
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Adder tree for the 32 temporary values. Do fanin of 4 per pipeline stage.
-
-	logic[31:0]	stage4_tmp[7:0];
-	logic		stage4_en			= 0;
-
-	logic[31:0]	stage5_tmp[1:0];
-	logic		stage5_en			= 0;
-
-	always_ff @(posedge clk) begin
-		stage4_en	<= stage3_en;
-		stage5_en	<= stage4_en;
-		out_valid	<= stage5_en;
-
-		if(stage3_en) begin
-			for(integer j=0; j<8; j=j+1) begin
-				stage4_tmp[j]	<=
-					stage3_tmp[j*4 + 0] +
-					stage3_tmp[j*4 + 1] +
-					stage3_tmp[j*4 + 2] +
-					stage3_tmp[j*4 + 3];
-			end
-		end
-
-		if(stage4_en) begin
-			for(integer j=0; j<2; j=j+1) begin
-				stage5_tmp[j]	<=
-					stage4_tmp[j*4 + 0] +
-					stage4_tmp[j*4 + 1] +
-					stage4_tmp[j*4 + 2] +
-					stage4_tmp[j*4 + 3];
-			end
-		end
-
-		if(stage5_en)
-			out	<= stage5_tmp[0] + stage5_tmp[1];
-
-	end
-
 
 endmodule
