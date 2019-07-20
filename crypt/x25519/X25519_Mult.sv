@@ -55,12 +55,15 @@ module X25519_Mult(
 	wire		pass_out_valid;
 	wire[31:0]	pass_out;
 
+	//We need to rotate B by 8 bits to the left each iteration, but also reverse it at the start
+	logic[255:0]	b_rotated	= 0;
+
 	X25519_MultPass pass(
 		.clk(clk),
 		.en(stage1_en),
 		.i(stage1_i),
 		.a(a),
-		.b(b),
+		.b(b_rotated),
 		.out_valid(pass_out_valid),
 		.out(pass_out)
 	);
@@ -73,13 +76,22 @@ module X25519_Mult(
 		if(en) begin
 			stage1_en	<= 1;
 			stage1_i	<= 0;
+			for(integer i=0; i<32; i=i+1) begin
+				if(i != 31)
+					b_rotated[(i+1)*8 +: 8]	<= b[(31-i)*8 +: 8];
+				else
+					b_rotated[0*8 +: 8]	<= b[(31-i)*8 +: 8];
+			end
 		end
 
 		//Start the next pass when the current one finishes
 		if(pass_out_valid) begin
 			stage1_i				<= stage1_i + 1'h1;
-			if(stage1_i != 31)
+			if(stage1_i != 31) begin
 				stage1_en			<= 1;
+				b_rotated			<= { b_rotated[247:0], b_rotated[255:248] };
+			end
+
 		end
 
 	end

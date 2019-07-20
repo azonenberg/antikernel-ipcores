@@ -138,7 +138,7 @@ endmodule
 	input wire			en,
 	input wire[4:0]		i,
 	input wire[263:0]	a,
-	input wire[263:0]	b,
+	input wire[255:0]	b,
 
 	output logic		stage2_en	= 0,
 	output logic[31:0]	stage2_do38	= 0,
@@ -146,36 +146,18 @@ endmodule
 	output logic[511:0]	stage2_tmp	= 0
 	);
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Input selection
-
-	logic[7:0]	b_muxed[31:0];
-
-	logic		en_ff	= 0;
-
-	always_ff @(posedge clk) begin
-
-		en_ff	<= en;
-		for(integer j=0; j<32; j=j+1) begin
-			if(j <= i)
-				b_muxed[j]	= b[(i-j)*8 +: 8];
-			else
-				b_muxed[j]	= b[(i-j+32)*8 +: 8];
-		end
-
-	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// First stage of multiplication
 
 	always_ff @(posedge clk) begin
 
-		stage2_en	<= en_ff;
+		stage2_en	<= en;
 
-		if(en_ff) begin
+		if(en) begin
 			for(integer j=0; j<32; j=j+1) begin
 				stage2_do38[j]			<= (j > i);
-				stage2_tmp[j*16 +: 16]	<= a[j*8 +: 8] * b_muxed[j];
+				stage2_tmp[j*16 +: 16]	<= a[j*8 +: 8] * b[j*8 +: 8];
 			end
 		end
 
