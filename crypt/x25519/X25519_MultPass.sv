@@ -133,7 +133,7 @@ endmodule
 /**
 	@brief Helper for X25519_MultPass
  */
-module X25519_MultPass_stage1(
+(* USE_DSP="yes" *) module X25519_MultPass_stage1(
 	input wire			clk,
 	input wire			en,
 	input wire[4:0]		i,
@@ -142,36 +142,27 @@ module X25519_MultPass_stage1(
 
 	output logic		stage2_en	= 0,
 	output logic[31:0]	stage2_do38	= 0,
+
 	output logic[511:0]	stage2_tmp	= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Index calculation
+	// Input selection
 
-	logic[4:0]	b_index[31:0];
-
-	always_comb begin
-
-		for(integer j=0; j<32; j=j+1) begin
-			if(j <= i)
-				b_index[j]	= i - j;
-			else
-				b_index[j] = i - j + 32;
-		end
-
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Combinatorial input selection
-
-	logic[7:0]	a_muxed[31:0];
 	logic[7:0]	b_muxed[31:0];
 
-	always_comb begin
+	logic		en_ff	= 0;
+
+	always_ff @(posedge clk) begin
+
+		en_ff	<= en;
 		for(integer j=0; j<32; j=j+1) begin
-			a_muxed[j]	= a[j*8 +: 8];
-			b_muxed[j]	= b[b_index[j]*8 +: 8];
+			if(j <= i)
+				b_muxed[j]	= b[(i-j)*8 +: 8];
+			else
+				b_muxed[j]	= b[(i-j+32)*8 +: 8];
 		end
+
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -179,12 +170,12 @@ module X25519_MultPass_stage1(
 
 	always_ff @(posedge clk) begin
 
-		stage2_en	<= en;
+		stage2_en	<= en_ff;
 
-		if(en) begin
+		if(en_ff) begin
 			for(integer j=0; j<32; j=j+1) begin
 				stage2_do38[j]			<= (j > i);
-				stage2_tmp[j*16 +: 16]	<= a_muxed[j] * b_muxed[j];
+				stage2_tmp[j*16 +: 16]	<= a[j*8 +: 8] * b_muxed[j];
 			end
 		end
 

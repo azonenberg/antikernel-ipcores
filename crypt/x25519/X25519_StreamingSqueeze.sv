@@ -42,7 +42,6 @@ module X25519_StreamingSqueeze(
 	input wire			en,
 
 	input wire			din_valid,
-	input wire[4:0]		din_count,
 	input wire[31:0]	din,
 
 	output wire			out_valid,

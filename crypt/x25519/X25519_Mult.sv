@@ -91,7 +91,6 @@ module X25519_Mult(
 		.clk(clk),
 		.en(en),
 		.din_valid(pass_out_valid),
-		.din_count(stage1_i),
 		.din(pass_out),
 		.out_valid(out_valid),
 		.out(out)
