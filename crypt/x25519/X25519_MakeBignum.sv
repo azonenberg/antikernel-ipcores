@@ -34,90 +34,19 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief X25519 multiplication
-
-	Derived from mult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
-
-	NOT pipelined. a/b must not change until out_valid is asserted.
+	@brief X25519 bignum packing (combinatorial, just reshuffling wires)
  */
-module X25519_Mult(
-	input wire			clk,
-	input wire			en,
-	input wire[263:0]	a,
-	input wire[263:0]	b,
-	output wire			out_valid,
-	output wire[263:0]	out
+module X25519_MakeBignum(
+	input wire[263:0]	din,
+	output bignum_t		dout
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Step 0: make bignums for the input values
 
-	bignum_t	a_bignum;
-	bignum_t	b_bignum;
-
-	X25519_MakeBignum mbna(.din(a), .dout(a_bignum));
-	X25519_MakeBignum mbnb(.din(b), .dout(b_bignum));
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Step 1: run multpass to iteratively calculate one block of the output at a time
-
-	logic		stage1_en	= 0;
-	logic[4:0]	stage1_i	= 0;
-	wire		pass_out_valid;
-	wire[31:0]	pass_out;
-
-	//We need to rotate B by 8 bits to the left each iteration
-	bignum_t	b_rotated	= 0;
-
-	X25519_MultPass pass(
-		.clk(clk),
-		.en(stage1_en),
-		.i(stage1_i),
-		.a(a_bignum),
-		.b(b_rotated),
-		.out_valid(pass_out_valid),
-		.out(pass_out)
-	);
-
-	always_ff @(posedge clk) begin
-
-		stage1_en	<= 0;
-
-		//Start the first pass when we're ready
-		if(en) begin
-			stage1_en	<= 1;
-			stage1_i	<= 0;
-
-			for(integer i=0; i<31; i=i+1)
-				b_rotated.blocks[i+1]		<= b_bignum.blocks[31-i];
-			b_rotated.blocks[0] 			<= b_bignum.blocks[0];
-		end
-
-		//Start the next pass when the current one finishes
-		if(pass_out_valid) begin
-			stage1_i		<= stage1_i + 1'h1;
-			if(stage1_i != 31) begin
-				stage1_en	<= 1;
-
-				b_rotated.blocks[0]			<= b_rotated.blocks[31];
-				for(integer i=0; i<31; i=i+1)
-					b_rotated.blocks[i+1]	<= b_rotated.blocks[i];
-			end
-
-		end
-
+	always_comb begin
+		for(integer i=0; i<31; i=i+1)
+			dout.blocks[i].u = din[i*8 +: 8];
+		dout.blocks[31].u = din[263:248];		//allow overflow on the high block
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Step 2: reduce the multiplier output
-
-	X25519_StreamingSqueeze squeeze(
-		.clk(clk),
-		.en(en),
-		.din_valid(pass_out_valid),
-		.din(pass_out),
-		.out_valid(out_valid),
-		.out(out)
-	);
 
 endmodule

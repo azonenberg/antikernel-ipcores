@@ -29,19 +29,23 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "X25519_Types.svh"
+
 /**
 	@file
 	@author Andrew D. Zonenberg
 	@brief X25519 multiplication
 
 	Derived from mult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
+
+	BUG: Does not handle carry-outs in the high area properly!
  */
 module X25519_MultPass(
 	input wire			clk,
 	input wire			en,
 	input wire[4:0]		i,
-	input wire[263:0]	a,
-	input wire[263:0]	b,
+	input wire bignum_t	a,
+	input wire bignum_t	b,
 	output wire			out_valid,
 	output wire[31:0]	out
 	);
@@ -51,7 +55,7 @@ module X25519_MultPass(
 
 	wire				stage2_en;
 	wire[31:0]			stage2_do38;
-	wire[511:0]			stage2_tmp;
+	bignum32_t			stage2_tmp;
 
 	X25519_MultPass_stage1 stage1(
 		.clk(clk),
@@ -68,7 +72,7 @@ module X25519_MultPass(
 	// Second stage of multiplication (only for one side of the diagonal)
 
 	wire				stage3_en;
-	wire[1023:0]		stage3_tmp;
+	bignum32_t			stage3_tmp;
 
 	X25519_MultPass_stage2 stage2(
 		.clk(clk),
@@ -127,7 +131,6 @@ module X25519_MultPass(
 		.dout(out)
 	);
 
-
 endmodule
 
 /**
@@ -137,13 +140,13 @@ endmodule
 	input wire			clk,
 	input wire			en,
 	input wire[4:0]		i,
-	input wire[263:0]	a,
-	input wire[255:0]	b,
+	input wire bignum_t	a,
+	input wire bignum_t	b,
 
 	output logic		stage2_en	= 0,
 	output logic[31:0]	stage2_do38	= 0,
 
-	output logic[511:0]	stage2_tmp	= 0
+	output bignum32_t	stage2_tmp	= 0
 	);
 
 
@@ -157,7 +160,7 @@ endmodule
 		if(en) begin
 			for(integer j=0; j<32; j=j+1) begin
 				stage2_do38[j]			<= (j > i);
-				stage2_tmp[j*16 +: 16]	<= a[j*8 +: 8] * b[j*8 +: 8];
+				stage2_tmp.blocks[j]	<= a.blocks[j] * b.blocks[j];
 			end
 		end
 
@@ -172,11 +175,11 @@ module X25519_MultPass_stage2(
 	input wire				clk,
 
 	input wire				stage2_en,
-	input wire [31:0]		stage2_do38,
-	input wire[511:0]		stage2_tmp,
+	input wire[31:0]		stage2_do38,
+	input wire bignum32_t	stage2_tmp,
 
 	output logic			stage3_en	= 0,
-	output logic[1023:0]	stage3_tmp	= 0
+	output bignum32_t		stage3_tmp	= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -188,9 +191,9 @@ module X25519_MultPass_stage2(
 		if(stage2_en) begin
 			for(integer j=0; j<32; j=j+1) begin
 				if(stage2_do38[j])
-					stage3_tmp[j*32 +: 32]	<= stage2_tmp[j*16 +: 16] * 38;
+					stage3_tmp.blocks[j]	<= stage2_tmp.blocks[j] * 38;
 				else
-					stage3_tmp[j*32 +: 32]	<= stage2_tmp[j*16 +: 16];
+					stage3_tmp.blocks[j]	<= stage2_tmp.blocks[j];
 			end
 		end
 

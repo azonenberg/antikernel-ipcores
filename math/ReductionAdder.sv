@@ -40,7 +40,7 @@ module ReductionAdder #(
 	parameter IN_BLOCKS			= 16,
 	parameter REDUCTION			= 4,
 
-	localparam OUT_BLOCKS		= IN_BLOCKS / REDUCTION
+	localparam OUT_BLOCKS		= (IN_BLOCKS + REDUCTION-1) / REDUCTION	//divide and round up
 ) (
 	input wire									clk,
 

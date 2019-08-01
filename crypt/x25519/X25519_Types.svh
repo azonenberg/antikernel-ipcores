@@ -29,95 +29,27 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "X25519_Types.svh"
+`ifndef X25519_Types
+`define X25519_Types
 
-/**
-	@file
-	@author Andrew D. Zonenberg
-	@brief X25519 multiplication
+typedef struct packed
+{
+	logic[15:0]		u;
+} uint16_t;
 
-	Derived from mult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
+typedef struct packed
+{
+	uint16_t[31:0]	blocks;
+} bignum_t;
 
-	NOT pipelined. a/b must not change until out_valid is asserted.
- */
-module X25519_Mult(
-	input wire			clk,
-	input wire			en,
-	input wire[263:0]	a,
-	input wire[263:0]	b,
-	output wire			out_valid,
-	output wire[263:0]	out
-	);
+typedef struct packed
+{
+	logic[31:0]		u;
+} uint32_t;
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Step 0: make bignums for the input values
+typedef struct packed
+{
+	uint32_t[31:0]	blocks;
+} bignum32_t;
 
-	bignum_t	a_bignum;
-	bignum_t	b_bignum;
-
-	X25519_MakeBignum mbna(.din(a), .dout(a_bignum));
-	X25519_MakeBignum mbnb(.din(b), .dout(b_bignum));
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Step 1: run multpass to iteratively calculate one block of the output at a time
-
-	logic		stage1_en	= 0;
-	logic[4:0]	stage1_i	= 0;
-	wire		pass_out_valid;
-	wire[31:0]	pass_out;
-
-	//We need to rotate B by 8 bits to the left each iteration
-	bignum_t	b_rotated	= 0;
-
-	X25519_MultPass pass(
-		.clk(clk),
-		.en(stage1_en),
-		.i(stage1_i),
-		.a(a_bignum),
-		.b(b_rotated),
-		.out_valid(pass_out_valid),
-		.out(pass_out)
-	);
-
-	always_ff @(posedge clk) begin
-
-		stage1_en	<= 0;
-
-		//Start the first pass when we're ready
-		if(en) begin
-			stage1_en	<= 1;
-			stage1_i	<= 0;
-
-			for(integer i=0; i<31; i=i+1)
-				b_rotated.blocks[i+1]		<= b_bignum.blocks[31-i];
-			b_rotated.blocks[0] 			<= b_bignum.blocks[0];
-		end
-
-		//Start the next pass when the current one finishes
-		if(pass_out_valid) begin
-			stage1_i		<= stage1_i + 1'h1;
-			if(stage1_i != 31) begin
-				stage1_en	<= 1;
-
-				b_rotated.blocks[0]			<= b_rotated.blocks[31];
-				for(integer i=0; i<31; i=i+1)
-					b_rotated.blocks[i+1]	<= b_rotated.blocks[i];
-			end
-
-		end
-
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Step 2: reduce the multiplier output
-
-	X25519_StreamingSqueeze squeeze(
-		.clk(clk),
-		.en(en),
-		.din_valid(pass_out_valid),
-		.din(pass_out),
-		.out_valid(out_valid),
-		.out(out)
-	);
-
-endmodule
+`endif
