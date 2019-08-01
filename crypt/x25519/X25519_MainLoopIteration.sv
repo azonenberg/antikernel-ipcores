@@ -136,7 +136,6 @@ module X25519_MainLoopIteration(
 		.out_valid(b0_valid),
 		.out(b0_low));
 
-	//THIS IS GIVING WRONG RESULTS!!
 	X25519_Mult l4_b0_sqhi(
 		.clk(clk),
 		.en(a0_valid),
@@ -144,5 +143,82 @@ module X25519_MainLoopIteration(
 		.b(a0_high),
 		.out_valid(),
 		.out(b0_high));
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// mult(b1,a1,a0 + 32);
+	// mult(b1 + 32,a1 + 32,a0);
+
+	wire		b1_valid;
+	wire[263:0]	b1_low;
+	wire[263:0]	b1_high;
+
+	X25519_Mult l5_b1_low(
+		.clk(clk),
+		.en(a0_valid),
+		.a(a1_low),
+		.b(a0_high),
+		.out_valid(b1_valid),
+		.out(b1_low));
+
+	X25519_Mult l5_b1_high(
+		.clk(clk),
+		.en(a0_valid),
+		.a(a1_high),
+		.b(a0_low),
+		.out_valid(),
+		.out(b1_high));
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// add(c1,b1,b1 + 32);
+	// sub(c1 + 32,b1,b1 + 32);
+
+	wire		c1_valid;
+	wire[263:0]	c1_low;
+	wire[263:0]	c1_high;
+
+	X25519_Add l6_c1_add(
+		.clk(clk),
+		.en(b1_valid),
+		.a(b1_low),
+		.b(b1_high),
+		.out_valid(c1_valid),
+		.out(c1_low)
+	);
+
+	X25519_Sub l6_c1_sub(
+		.clk(clk),
+		.en(b1_valid),
+		.a(b1_low),
+		.b(b1_high),
+		.out_valid(),
+		.out(c1_high)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// square(r,c1 + 32);
+	// sub(s,b0,b0 + 32);
+
+	wire		r_valid;
+	wire[263:0]	r;
+
+	wire		s_valid;
+	wire[263:0]	s;
+
+	X25519_Mult l7_r(
+		.clk(clk),
+		.en(c1_valid),
+		.a(c1_high),
+		.b(c1_high),
+		.out_valid(r_valid),
+		.out(r));
+
+	X25519_Sub l7_s(
+		.clk(clk),
+		.en(b0_valid),
+		.a(b0_low),
+		.b(b0_high),
+		.out_valid(s_valid),
+		.out(s)
+	);
 
 endmodule
