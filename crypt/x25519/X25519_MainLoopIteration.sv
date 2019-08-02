@@ -221,4 +221,57 @@ module X25519_MainLoopIteration(
 		.out(s)
 	);
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// mult121665(t,s);
+
+	wire		t_valid;
+	wire[263:0]	t;
+
+	X25519_Mult121665 l8_t(
+		.clk(clk),
+		.en(s_valid),
+		.a(s),
+		.out_valid(t_valid),
+		.out(t));
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// add(u,t,b0);
+
+	wire		u_valid;
+	wire[263:0]	u;
+
+	X25519_Add l9_u(
+		.clk(clk),
+		.en(t_valid),
+		.a(t),
+		.b(b0_low),
+		.out_valid(u_valid),
+		.out(u)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// mult(xznb,b0,b0 + 32);
+	// mult(xznb + 32,s,u);
+
+	wire		xznb_low_valid;
+	wire[263:0]	xznb_low;
+	wire		xznb_high_valid;
+	wire[263:0]	xznb_high;
+
+	X25519_Mult l10_xznb_low(
+		.clk(clk),
+		.en(b0_valid),
+		.a(b0_low),
+		.b(b0_high),
+		.out_valid(xznb_low_valid),
+		.out(xznb_low));
+
+	X25519_Mult l10_xznb_high(
+		.clk(clk),
+		.en(u_valid),
+		.a(s),
+		.b(u),
+		.out_valid(xznb_high_valid),
+		.out(xznb_high));
+
 endmodule
