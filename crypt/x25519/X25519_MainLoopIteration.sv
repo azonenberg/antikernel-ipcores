@@ -44,6 +44,8 @@ module X25519_MainLoopIteration(
 	input wire[511:0]	xzm_in,
 	input wire			b,
 
+	input wire[263:0]	work_low,
+
 	output wire			out_valid,
 	output wire[511:0]	xzm_out,
 	output wire[511:0]	xzm1_out
@@ -273,5 +275,30 @@ module X25519_MainLoopIteration(
 		.b(u),
 		.out_valid(xznb_high_valid),
 		.out(xznb_high));
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// square(xzn1b,c1);
+	// mult(xzn1b + 32,r,work);
+
+	wire		xzn1b_low_valid;
+	wire[263:0]	xzn1b_low;
+	wire		xzn1b_high_valid;
+	wire[263:0]	xzn1b_high;
+
+	X25519_Mult l11_xzn1b_low(
+		.clk(clk),
+		.en(c1_valid),
+		.a(c1_low),
+		.b(c1_low),
+		.out_valid(xzn1b_low_valid),
+		.out(xzn1b_low));
+
+	X25519_Mult l11_xzn1b_lhigh(
+		.clk(clk),
+		.en(r_valid),
+		.a(r),
+		.b(work_low),
+		.out_valid(xzn1b_high_valid),
+		.out(xzn1b_high));
 
 endmodule
