@@ -33,41 +33,34 @@
 	@author Andrew D. Zonenberg
 	@brief On-die sensors for Xilinx 7-series devices
  */
-module OnDieSensors_7series(
-	clk,
-	die_temp, volt_core, volt_ram, volt_aux
-	);
-	
-	////////////////////////////////////////////////////////////////////////////////////////////////
-	// IO declarations
-	
-	//System clock frequency
-	parameter sysclk_hz						= 1000000;
+module OnDieSensors_7series #(
+	//System clock frequency, in Hz
+	parameter sysclk_hz						= 1000000
+)(
+	input wire clk,
 
-	input wire clk;
-	
 	//Sensor values
 	//All are 8.8 fixed point, for example 16'h0480 = 4.5 units.
 	//This can also be modeled as one LSB = 1/256 of a volt or deg C
-	output reg[15:0]		die_temp		= 0;	//Die temp, in deg C
-	output reg[15:0]		volt_core		= 0;	//Core voltage, in volts
-	output reg[15:0]		volt_ram		= 0;	//Block RAM voltage, in volts
-											//(may be same sensor as volt_core on some FPGAs)
-	output reg[15:0]		volt_aux		= 0;	//Auxiliary voltage, in volts
+	output logic[15:0]	die_temp	= 0,	//Die temp (degC)
+	output logic[15:0]	volt_core	= 0,	//VCCINT
+	output logic[15:0]	volt_ram	= 0,	//VCCBRAM
+	output logic[15:0]	volt_aux	= 0		//VCCAUX
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual XADC
-	
-	reg[15:0]	xadc_din		= 0;
+
+	logic[15:0]	xadc_din		= 0;
 	wire[15:0]	xadc_dout;
-	reg[6:0]	xadc_addr		= 0;
-	reg			xadc_en			= 0;
-	reg			xadc_we			= 0;
+	logic[6:0]	xadc_addr		= 0;
+	logic		xadc_en			= 0;
+	logic		xadc_we			= 0;
 	wire		xadc_ready;
 	wire[7:0]	xadc_alarm;
 	wire		xadc_overheat;
 	wire		xadc_busy;
-	reg			xadc_reset		= 1;
+	logic		xadc_reset		= 1;
 
 	XADC #(
 		.INIT_40(16'h2000),		//average 16 samples continously
@@ -123,28 +116,28 @@ module OnDieSensors_7series(
 		.JTAGMODIFIED(),
 		.JTAGBUSY()
 		);
-		
+
 	//Sanity check
 	//TODO: Separate clock domain if necessary (use this for DNA too?)
 	initial begin
 		if(sysclk_hz > 250000000) begin
-			$display("ERROR: 7 series XADC cannot run at >250 MHz and NOCSysinfo uses clk_noc as DCLK");
+			$display("ERROR: 7 series XADC cannot run at >250 MHz");
 			$finish;
 		end
 	end
-	
+
 	//Pipelined multiplier
-	reg[15:0] 	mult_a		= 0;
-	reg[31:0] 	mult_b		= 0;
+	logic[15:0] 	mult_a		= 0;
+	logic[31:0] 	mult_b		= 0;
 	(* MULT_STYLE = "PIPE_BLOCK" *)
-	reg[31:0]	mult_out	= 0;
-	reg[31:0] 	mult_out2	= 0;
-	reg[31:0] 	mult_out3	= 0;
-	reg			mult_en		= 0;
-	reg			mult_en2	= 0;
-	reg			mult_en3	= 0;
-	reg			mult_done	= 0;
-	always @(posedge clk) begin
+	logic[31:0]	mult_out	= 0;
+	logic[31:0] 	mult_out2	= 0;
+	logic[31:0] 	mult_out3	= 0;
+	logic			mult_en		= 0;
+	logic			mult_en2	= 0;
+	logic			mult_en3	= 0;
+	logic			mult_done	= 0;
+	always_ff @(posedge clk) begin
 		mult_en2	<= mult_en;
 		mult_en3	<= mult_en2;
 		mult_done	<= mult_en3;
@@ -152,25 +145,25 @@ module OnDieSensors_7series(
 		mult_out2	<= mult_out;
 		mult_out3	<= mult_out2;
 	end
-	
+
 	//Combined shift right is 8 bits for fixed point, plus 12 for divide, or 20 bits.
 	//This puts the radix point at bit 20, and the least significant fractional bit at bit 12.
 	wire[31:0] die_temp_raw = mult_out3[31:12] - 32'h11126;
-	
-	reg[3:0] xadc_state = 0;
-	reg[7:0] xadc_count = 0;
-	always @(posedge clk) begin
-		
+
+	logic[3:0] xadc_state = 0;
+	logic[7:0] xadc_count = 0;
+	always_ff @(posedge clk) begin
+
 		xadc_din		<= 0;
 		xadc_en			<= 0;
-		xadc_we			<= 0;			
+		xadc_we			<= 0;
 		mult_en			<= 0;
-		
+
 		//Just poll the sensors in a tight loop
 		//TODO: Can save some power by waiting a bit in between poll rounds?
 		//TODO: Sync to new-data alerts?
 		case(xadc_state)
-			
+
 			//Power-up reset
 			0: begin
 				xadc_reset	<= 1;
@@ -178,21 +171,21 @@ module OnDieSensors_7series(
 				if(xadc_count == 8'hff)
 					xadc_state	<= 1;
 			end
-			
+
 			1: begin
 				xadc_reset	<= 0;
 				xadc_count	<= xadc_count + 8'h1;
 				if(xadc_count == 8'hff)
 					xadc_state	<= 2;
 			end
-			
+
 			//Read temps
 			2: begin
 				xadc_en		<= 1;
 				xadc_addr	<= 16'h0000;
 				xadc_state	<= 3;
 			end
-			
+
 			//TEMP transfer function:
 			//temp = ((ADC * 503.975) / 4096) - 273.15
 			//In fixed point, this is ((ADC * 0x1F7.F9) / 4096) - 0x111.26
@@ -204,7 +197,7 @@ module OnDieSensors_7series(
 					xadc_state	<= 4;
 				end
 			end
-			
+
 			//Wait for multiply (do addition combinatorially elsewhere)
 			4: begin
 				if(mult_done) begin
@@ -212,11 +205,11 @@ module OnDieSensors_7series(
 					xadc_state	<= 5;
 				end
 			end
-			
+
 			//Read voltages
 			5: begin
 				if(!xadc_busy) begin
-					
+
 					//Prepare to read next voltage
 					if(xadc_addr == 0)		//Just did temp? Read VCCINT
 						xadc_addr	<= 1;
@@ -224,14 +217,14 @@ module OnDieSensors_7series(
 						xadc_addr	<= 2;
 					else if(xadc_addr == 2)	//Just did VCCAUX? Do VCCBRAM
 						xadc_addr	<= 6;
-			
+
 					//Go read it
 					xadc_en			<= 1;
 					xadc_state		<= 6;
-					
+
 				end
 			end
-			
+
 			//POWER transfer function
 			//volt = (ADC * 3) / 4096
 			6: begin
@@ -242,34 +235,34 @@ module OnDieSensors_7series(
 					xadc_state	<= 7;
 				end
 			end
-			
+
 			//Shift right by 12 bits, then add 8 fractional bits for a total shift of 4
 			7: begin
-				if(mult_done) begin					
+				if(mult_done) begin
 					case(xadc_addr)
 						1:	volt_core	<= mult_out3[19:4];
 						2:	volt_aux	<= mult_out3[19:4];
 						6:	volt_ram	<= mult_out3[19:4];
 					endcase
-					
+
 					//Restart if we read the last one
 					if(xadc_addr == 6)
 						xadc_state	<= 8;
 					else
 						xadc_state	<= 5;
-					
+
 				end
 			end
-			
+
 			//Repeat
 			8: begin
 				if(!xadc_busy) begin
 					xadc_state		<= 2;
 				end
 			end
-			
+
 		endcase
-		
+
 	end
-	
+
 endmodule
