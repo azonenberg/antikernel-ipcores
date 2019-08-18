@@ -48,28 +48,26 @@ module HyperRAMController(
 	output wire			ram_clk_n,	//(clk_n may be unused for 3.3V parts)
 	inout wire[7:0]		ram_dq,
 	inout wire			ram_dqs,
-	output reg			ram_cs_n = 1,
-	output reg			ram_rst_n = 1,
+	output logic		ram_cs_n = 1,
+	output logic		ram_rst_n = 1,
 
 	//Control signals
 	input wire			bus_en,
 	input wire			bus_rd,
 	input wire[31:0]	bus_addr,
-	output reg			bus_need_wdata	= 0,
+	output logic		bus_need_wdata	= 0,
 	input wire[31:0]	bus_wdata,
-	output reg			bus_rdata_valid	= 0,
-	output reg[31:0]	bus_rdata		= 0,
-	output reg			bus_done		= 0,
+	output logic		bus_rdata_valid	= 0,
+	output logic[31:0]	bus_rdata		= 0,
+	output logic		bus_done		= 0,
 
 	//Status signals
-	output reg			status_valid	= 0,
-	output reg			ram_ok			= 0,
-	output reg[4:0]		num_col_addrs	= 0,
-	output reg[5:0]		num_row_addrs	= 0,
-	output reg[7:0]		capacity_mbits	= 0
+	output logic		status_valid	= 0,
+	output logic		ram_ok			= 0,
+	output logic[4:0]	num_col_addrs	= 0,
+	output logic[5:0]	num_row_addrs	= 0,
+	output logic[7:0]	capacity_mbits	= 0
 );
-
-	parameter SIMULATION = 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O buffers
@@ -77,7 +75,7 @@ module HyperRAMController(
 	//Echo our 90-degree clock to the RAM
 	//(clk is center aligned to all of our signals)
 
-	reg		clk_oe	= 0;
+	logic		clk_oe	= 0;
 
 	DDROutputBuffer #(
 		.WIDTH(1)
@@ -101,8 +99,8 @@ module HyperRAMController(
 
 	wire[7:0]	ram_dq_in_ddr;
 	wire[7:0]	ram_dq_out_ddr;
-	reg			ram_dq_oe = 0;
-	reg			ram_dq_oe_ff;
+	logic		ram_dq_oe = 0;
+	logic		ram_dq_oe_ff;
 
 	BidirectionalBuffer #(
 		.WIDTH(8),
@@ -116,7 +114,7 @@ module HyperRAMController(
 
 	wire		ram_dqs_in_ddr;
 	wire		ram_dm_out_ddr;
-	reg			ram_dqsdm_oe	= 0;
+	logic		ram_dqsdm_oe	= 0;
 
 	BidirectionalBuffer #(
 		.WIDTH(1),
@@ -134,7 +132,7 @@ module HyperRAMController(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// DDR buffers
 
-	reg[15:0]	ram_dq_out	= 0;
+	logic[15:0]	ram_dq_out	= 0;
 
 	DDROutputBuffer #(
 		.WIDTH(8)
@@ -169,7 +167,7 @@ module HyperRAMController(
 		.din(ram_dqs_in_ddr)
 	);
 
-	reg[1:0]	ram_dm_out	= 0;
+	logic[1:0]	ram_dm_out	= 0;
 
 	DDROutputBuffer #(
 		.WIDTH(1)
@@ -190,11 +188,11 @@ module HyperRAMController(
 	//If dqs_in is 2'b10, we're correctly aligned to the burst
 	//If 2'b01, we need to bit slip by one DDR clock cycle
 	//Delay the data-valid flag during that
-	reg[15:0]	ram_dq_in_ff		= 0;
-	reg[1:0]	ram_dqs_in_ff		= 0;
-	reg[15:0]	ram_dq_in_aligned;
-	reg			ram_dq_in_valid;
-	always @(*) begin
+	logic[15:0]	ram_dq_in_ff		= 0;
+	logic[1:0]	ram_dqs_in_ff		= 0;
+	logic[15:0]	ram_dq_in_aligned;
+	logic		ram_dq_in_valid;
+	always_comb begin
 
 		//clear everything once chip is deselected
 		if(ram_cs_n) begin
@@ -216,7 +214,7 @@ module HyperRAMController(
 		end
 	end
 
-	always @(posedge clk) begin
+	always_ff @(posedge clk) begin
 		ram_dq_in_ff	<= ram_dq_in;
 		ram_dqs_in_ff	<= ram_dqs_in;
 		ram_dq_oe_ff 	<= ram_dq_oe;
@@ -225,38 +223,39 @@ module HyperRAMController(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// PHY state machine
 
-	localparam PHY_STATE_IDLE		= 4'h0;
-	localparam PHY_STATE_UADDR		= 4'h1;
-	localparam PHY_STATE_LADDR		= 4'h2;
-	localparam PHY_STATE_DQS_WAIT	= 4'h3;
-	localparam PHY_STATE_PRE_DATA	= 4'h4;
-	localparam PHY_STATE_READ_DATA	= 4'h5;
-	localparam PHY_STATE_WRITE_WAIT	= 4'h6;
-	localparam PHY_STATE_WRITE_DATA	= 4'h7;
-	localparam PHY_STATE_WRITE_LAST	= 4'h8;
-
-	reg[3:0]	phy_state		= PHY_STATE_IDLE;
-	reg[7:0]	burst_count		= 0;
+	enum logic[3:0]
+	{
+		PHY_STATE_IDLE			= 4'h0,
+		PHY_STATE_UADDR			= 4'h1,
+		PHY_STATE_LADDR			= 4'h2,
+		PHY_STATE_DQS_WAIT		= 4'h3,
+		PHY_STATE_PRE_DATA		= 4'h4,
+		PHY_STATE_READ_DATA		= 4'h5,
+		PHY_STATE_WRITE_WAIT	= 4'h6,
+		PHY_STATE_WRITE_DATA	= 4'h7,
+		PHY_STATE_WRITE_LAST	= 4'h8
+	} phy_state		= PHY_STATE_IDLE;
+	logic[7:0]	burst_count		= 0;
 
 	//Burst status
-	reg			burst_en			= 0;
-	reg[7:0]	burst_len			= 0;
-	reg			burst_done			= 0;
+	logic		burst_en			= 0;
+	logic[7:0]	burst_len			= 0;
+	logic		burst_done			= 0;
 
 	//Configuration for a read/write burst
-	reg			burst_rd_en			= 0;	//0 for writes
-	reg			burst_is_reg		= 0;	//1 for register access
-	reg			burst_is_linear		= 0;	//0 for wrapped
-	reg[28:0]	burst_upper_addr	= 0;
+	logic		burst_rd_en			= 0;	//0 for writes
+	logic		burst_is_reg		= 0;	//1 for register access
+	logic		burst_is_linear		= 0;	//0 for wrapped
+	logic[28:0]	burst_upper_addr	= 0;
 	//13-bit reserved field here, always zero
-	reg[2:0]	burst_lower_addr	= 0;
+	logic[2:0]	burst_lower_addr	= 0;
 
-	reg			phy_need_wdata		= 0;
-	reg[15:0]	phy_wdata			= 0;
+	logic		phy_need_wdata		= 0;
+	logic[15:0]	phy_wdata			= 0;
 
-	reg[7:0]	phy_count			= 0;
+	logic[7:0]	phy_count			= 0;
 
-	always @(posedge clk) begin
+	always_ff @(posedge clk) begin
 
 		burst_done				<= 0;
 		phy_need_wdata			<= 0;
@@ -418,28 +417,28 @@ module HyperRAMController(
 		2:0		lower column address
 	 */
 
-	localparam STATE_IDLE		= 4'h0;
-	localparam STATE_BOOT_0		= 4'h1;
-	localparam STATE_BOOT_1		= 4'h2;
-	localparam STATE_BOOT_2 	= 4'h3;
-	localparam STATE_BOOT_3 	= 4'h4;
-	localparam STATE_BOOT_4 	= 4'h5;
-	localparam STATE_READ		= 4'h6;
-	localparam STATE_WRITE		= 4'h7;
+	enum logic[3:0]
+	{
+		STATE_IDLE		= 4'h0,
+		STATE_BOOT_0	= 4'h1,
+		STATE_BOOT_1	= 4'h2,
+		STATE_BOOT_2 	= 4'h3,
+		STATE_BOOT_3 	= 4'h4,
+		STATE_BOOT_4 	= 4'h5,
+		STATE_READ		= 4'h6,
+		STATE_WRITE		= 4'h7,
+		STATE_BOOT_HOLD	= 4'hf
+	}	state			= /*STATE_BOOT_0 : */STATE_BOOT_HOLD;
 
-	localparam STATE_BOOT_HOLD	= 4'hf;
-
-	reg[3:0]	state			= SIMULATION ? STATE_BOOT_0 : STATE_BOOT_HOLD;
-
-	reg[7:0]	count			= 0;
+	logic[7:0]	count			= 0;
 
 	//debug
 	wire		trig_out;
 
-	reg			bus_phase				= 0;
-	reg[15:0]	ram_dq_in_aligned_ff	= 0;
+	logic		bus_phase				= 0;
+	logic[15:0]	ram_dq_in_aligned_ff	= 0;
 
-	always @(posedge clk) begin
+	always_ff @(posedge clk) begin
 
 		burst_en				<= 0;
 		bus_done				<= 0;
@@ -468,10 +467,10 @@ module HyperRAMController(
 					burst_upper_addr	<= bus_addr[31:3];	//TODO: support other row/col aspect ratios
 					burst_lower_addr	<= bus_addr[2:0];
 
-					if(bus_rd) begin
+					bus_phase			<= 0;
+
+					if(bus_rd)
 						state			<= STATE_READ;
-						bus_phase		<= 0;
-					end
 
 					else
 						state			<= STATE_WRITE;
@@ -633,70 +632,61 @@ module HyperRAMController(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug LA
 
-	/*
 	generate
+		logic		trig_out_ack	= 0;
 
-		if(!SIMULATION) begin
-
-			reg		trig_out_ack	= 0;
-
-			always @(posedge clk) begin
-				trig_out_ack	<= trig_out;
-			end
-
-			ila_0 ila(
-				.clk(clk),
-
-				.probe0(ram_dq_oe),
-				.probe1(ram_dqsdm_oe),
-				.probe2(ram_rst_n),
-				.probe3(state),
-				.probe4(phy_state),
-				.probe5(ram_dq_out),
-				.probe6(ram_dq_in),
-				.probe7(burst_rd_en),
-				.probe8(burst_is_reg),
-				.probe9(burst_is_linear),
-				.probe10(burst_upper_addr),
-				.probe11(burst_lower_addr),
-				.probe12(ram_dqs_in),
-				.probe13(burst_count),
-				.probe14(ram_dqsdm_oe),
-				.probe15(ram_cs_n),
-				.probe16(ram_dq_in_aligned),
-				.probe17(ram_dqs_in_ff),
-				.probe18(ram_dq_in_valid),
-
-				.probe19(status_valid),
-				.probe20(ram_ok),
-				.probe21(num_col_addrs),
-				.probe22(num_row_addrs),
-				.probe23(capacity_mbits),
-
-				.probe24(phy_need_wdata),
-				.probe25(phy_wdata),
-
-				.probe26(bus_en),
-				.probe27(bus_rd),
-				.probe28(bus_addr),
-				.probe29(bus_wdata),
-				.probe30(bus_rdata_valid),
-				.probe31(bus_rdata),
-				.probe32(bus_done),
-				.probe33(bus_need_wdata),
-
-				.probe34(phy_count),
-
-				.trig_out(trig_out),
-				.trig_out_ack(trig_out_ack)
-			);
-
+		always_ff @(posedge clk) begin
+			trig_out_ack	<= trig_out;
 		end
 
-		else
-			assign trig_out = 0;
+		ila_0 ila(
+			.clk(clk),
+
+			.probe0(ram_dq_oe),
+			.probe1(ram_dqsdm_oe),
+			.probe2(ram_rst_n),
+			.probe3(state),
+			.probe4(phy_state),
+			.probe5(ram_dq_out),
+			.probe6(ram_dq_in),
+			.probe7(burst_rd_en),
+			.probe8(burst_is_reg),
+			.probe9(burst_is_linear),
+			.probe10(burst_upper_addr),
+			.probe11(burst_lower_addr),
+			.probe12(ram_dqs_in),
+			.probe13(burst_count),
+			.probe14(ram_dqsdm_oe),
+			.probe15(ram_cs_n),
+			.probe16(ram_dq_in_aligned),
+			.probe17(ram_dqs_in_ff),
+			.probe18(ram_dq_in_valid),
+
+			.probe19(status_valid),
+			.probe20(ram_ok),
+			.probe21(num_col_addrs),
+			.probe22(num_row_addrs),
+			.probe23(capacity_mbits),
+
+			.probe24(phy_need_wdata),
+			.probe25(phy_wdata),
+
+			.probe26(bus_en),
+			.probe27(bus_rd),
+			.probe28(bus_addr),
+			.probe29(bus_wdata),
+			.probe30(bus_rdata_valid),
+			.probe31(bus_rdata),
+			.probe32(bus_done),
+			.probe33(bus_need_wdata),
+
+			.probe34(phy_count),
+			.probe35(bus_phase),
+
+			.trig_out(trig_out),
+			.trig_out_ack(trig_out_ack)
+		);
 
 	endgenerate
-	*/
 
 endmodule
