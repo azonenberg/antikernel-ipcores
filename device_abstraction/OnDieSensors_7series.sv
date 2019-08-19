@@ -33,11 +33,10 @@
 	@author Andrew D. Zonenberg
 	@brief On-die sensors for Xilinx 7-series devices
  */
-module OnDieSensors_7series #(
-	//System clock frequency, in Hz
-	parameter sysclk_hz						= 1000000
-)(
-	input wire clk,
+module OnDieSensors_7series(
+
+	//max 250 MHz across speed grades
+	input wire			clk,
 
 	//Sensor values
 	//All are 8.8 fixed point, for example 16'h0480 = 4.5 units.
@@ -116,15 +115,6 @@ module OnDieSensors_7series #(
 		.JTAGMODIFIED(),
 		.JTAGBUSY()
 		);
-
-	//Sanity check
-	//TODO: Separate clock domain if necessary (use this for DNA too?)
-	initial begin
-		if(sysclk_hz > 250000000) begin
-			$display("ERROR: 7 series XADC cannot run at >250 MHz");
-			$finish;
-		end
-	end
 
 	//Pipelined multiplier
 	logic[15:0] 	mult_a		= 0;
