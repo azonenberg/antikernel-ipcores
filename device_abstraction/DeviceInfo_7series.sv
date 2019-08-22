@@ -120,7 +120,7 @@ module DeviceInfo_7series(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// IDCODE (read from the ICAP)
 
-	logic[31:0]	icap_din	= 0;
+	logic[31:0]	icap_din	= 32'hffffffff;
 	logic		icap_cs_n	= 1;
 	logic		icap_wr_n	= 1;
 	wire[31:0]	icap_dout;
@@ -149,75 +149,48 @@ module DeviceInfo_7series(
 		.RDWRB(icap_wr_n)
 		);
 
-	enum logic[4:0]
+	enum logic[2:0]
 	{
-		ICAP_STATE_BOOT_HOLD	= 5'h00,
-		ICAP_STATE_INIT_0		= 5'h01,
-		ICAP_STATE_INIT_1		= 5'h02,
-		ICAP_STATE_INIT_2		= 5'h03,
-		ICAP_STATE_INIT_3		= 5'h04,
-		ICAP_STATE_INIT_4		= 5'h05,
-		ICAP_STATE_SYNC			= 5'h06,
-		ICAP_STATE_NOP			= 5'h07,
-		ICAP_STATE_HEADER		= 5'h08,
-		ICAP_STATE_PIPE			= 5'h09,
-		ICAP_STATE_READ			= 5'h0a,
-		ICAP_STATE_DONE			= 5'h0b
+		ICAP_STATE_BOOT_HOLD	= 3'h0,
+		ICAP_STATE_SYNC			= 3'h1,
+		ICAP_STATE_NOP			= 3'h2,
+		ICAP_STATE_HEADER		= 3'h3,
+		ICAP_STATE_PIPE			= 3'h4,
+		ICAP_STATE_READ			= 3'h5,
+		ICAP_STATE_DONE			= 3'h6
 	} icap_state = ICAP_STATE_BOOT_HOLD;
 
 	//see https://forums.xilinx.com/t5/Configuration/ICAPE2-documentation/td-p/453996
-	logic[3:0] count = 0;
+	logic[15:0] count = 1;
 	always_ff @(posedge clk) begin
 
 		case(icap_state)
 
+			//Wait a looong time for the ICAP to initialize properly
 			ICAP_STATE_BOOT_HOLD: begin
-				if(la_trig_out)
-				//if(boot_done)
-					icap_state	<= ICAP_STATE_INIT_0;
+				count	<= count + 1'h1;
+				if(count == 0) begin
+					icap_cs_n	<= 0;
+					icap_wr_n	<= 0;
+					icap_state	<= ICAP_STATE_SYNC;
+				end
 			end	//end ICAP_STATE_BOOT_HOLD
 
-			//Idle state
-			ICAP_STATE_INIT_0: begin
-				icap_din	<= 32'hffffffff;
-				icap_state	<= ICAP_STATE_INIT_1;
-			end	//end ICAP_STATE_INIT_0
-
-			//go to write mode while deselected
-			ICAP_STATE_INIT_1: begin
-				icap_wr_n	<= 0;
-				icap_state	<= ICAP_STATE_INIT_2;
-			end	//end ICAP_STATE_INIT_1
-
-			//select and write dummy word
-			ICAP_STATE_INIT_2: begin
-				icap_cs_n	<= 0;
-				icap_state	<= ICAP_STATE_INIT_3;
-			end	//end ICAP_STATE_INIT_2
-
-			//bus width 1
-			ICAP_STATE_INIT_3: begin
-				icap_cs_n	<= 0;
-				icap_din	<= 32'h000000bb;
-				icap_state	<= ICAP_STATE_INIT_4;
-			end	//end ICAP_STATE_INIT_3
-
-			ICAP_STATE_INIT_4: begin
-				icap_cs_n	<= 0;
-				icap_din	<= 32'h11220044;
-				icap_state	<= ICAP_STATE_SYNC;
-			end	//end ICAP_STATE_INIT_4
-
-			//Finally we can write the sync word!
+			//Write sync word
 			ICAP_STATE_SYNC: begin
 				icap_din	<= 32'haa995566;
 				icap_state	<= ICAP_STATE_NOP;
+				count		<= 0;
 			end	//end ICAP_STATE_SYNC
 
-			//Need a nop before doing anything else
+			//There is a two-cycle pipeline hazard period after the sync word in which we must write nops
+			//and all input is ignored.
 			ICAP_STATE_NOP: begin
+				count		<= count + 1'h1;
 				icap_din	<= 32'h20000000;
-				icap_state	<= ICAP_STATE_HEADER;
+
+				if(count == 1)
+					icap_state	<= ICAP_STATE_HEADER;
 			end	//end ICAP_STATE_NOP
 
 			//Request the read data
@@ -245,36 +218,49 @@ module DeviceInfo_7series(
 			//Read pipeline delay
 			ICAP_STATE_READ: begin
 				count <= count + 1;
-				if(count == 8)
+				if(count == 8) begin
 					icap_state	<= ICAP_STATE_DONE;
+					count		<= 0;
+				end
 				if(count == 3)
 					idcode	<= icap_dout_bswap;
 			end	//end ICAP_STATE_READ
 
-			//TODO: desync at the end??
+			//Desync at the end
 			ICAP_STATE_DONE: begin
-				icap_cs_n	<= 1;
+
+				if(count < 9)
+					count		<= count + 1;
+
+				//clear cs#
+				if(count == 0)
+					icap_cs_n	<= 1;
+
+				//go to write mode
+				if(count == 1)
+					icap_wr_n	<= 0;
+				if(count == 2) begin
+					icap_din	<= 32'h20000000;
+					icap_cs_n	<= 0;
+				end
+
+				//write CMD, 1 word, DESYNC
+				if(count == 4)
+					icap_din	<= 32'h30008001;
+				if(count == 5)
+					icap_din	<= 32'h0000000d;
+
+				//more nops
+				if(count == 6)
+					icap_din	<= 32'h20000000;
+
+				if(count == 8)
+					icap_cs_n	<= 1;
+
 			end	//end ICAP_STATE_DONE
 
 		endcase
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug LA
-
-	ila scope(
-		.clk(clk),
-		.probe0(icap_din_bswap),
-		.probe1(icap_cs_n),
-		.probe2(icap_wr_n),
-		.probe3(icap_dout_bswap),
-		.probe4(icap_state),
-		.probe5(count),
-		.probe6(32'h0),
-		.probe7(32'h0),
-		.trig_out(la_trig_out),
-		.trig_out_ack(la_trig_out)
-	);
 
 endmodule
