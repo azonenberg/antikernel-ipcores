@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -61,7 +61,9 @@ module UART(
 	output reg			tx			= 1,
 	input wire[7:0]		tx_data,
 	input wire			tx_en,
-	output reg			txactive	= 0);
+	output reg			txactive	= 0,
+	output reg			tx_done		= 0
+	);
 
 	//1/4 of the clock divisor (for 90 degree phase offset)
 	wire[14:0] clkdiv_offset;
@@ -171,6 +173,8 @@ module UART(
 
 	always @(posedge clk) begin
 
+		tx_done	<= 0;
+
 		//Time to start sending a new byte?
 		if(tx_en) begin
 
@@ -235,6 +239,7 @@ module UART(
 				else if(txbitcount == 9) begin
 					txbitcount	<= 0;
 					txactive	<= 0;
+					tx_done		<= 1;
 				end
 
 			end

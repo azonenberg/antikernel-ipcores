@@ -67,7 +67,6 @@ module DeviceInfo_7series(
 	} dna_read_state = DNA_READ_STATE_BOOT_0;
 
 	logic[6:0] dna_read_count	= 0;
-	logic boot_done				= 0;
 
 	always_ff @(posedge clk) begin
 
@@ -104,7 +103,6 @@ module DeviceInfo_7series(
 				//Done?
 				if(dna_read_count == 55) begin
 					dna_read_state	<= DNA_READ_STATE_DONE;
-					boot_done		<= 1;
 					die_serial[56]	<= 1'b1;
 				end
 			end	//end DNA_READ_STATE_READ
