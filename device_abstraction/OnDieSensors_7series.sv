@@ -33,7 +33,9 @@
 	@author Andrew D. Zonenberg
 	@brief On-die sensors for Xilinx 7-series devices
  */
-module OnDieSensors_7series(
+module OnDieSensors_7series #(
+	parameter EXT_IN_ENABLE = 16'h0
+)(
 
 	//max 250 MHz across speed grades
 	input wire			clk,
@@ -44,7 +46,11 @@ module OnDieSensors_7series(
 	output logic[15:0]	die_temp	= 0,	//Die temp (degC)
 	output logic[15:0]	volt_core	= 0,	//VCCINT
 	output logic[15:0]	volt_ram	= 0,	//VCCBRAM
-	output logic[15:0]	volt_aux	= 0		//VCCAUX
+	output logic[15:0]	volt_aux	= 0,	//VCCAUX
+	
+	//External analog input values
+	//Full scale = 1V
+	output logic[191:0]	ext_in		= 0		//ADn = n*12 +: 12
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -71,11 +77,11 @@ module OnDieSensors_7series(
 		.INIT_46(16'h0000),		//factory test
 		.INIT_47(16'h0000),		//factory test
 		.INIT_48(16'h4701),		//VCCBRAM, VCCAUX, VCCINT, temp, cal
-		.INIT_49(16'h0000),		//no aux channels
+		.INIT_49(EXT_IN_ENABLE),//bitmask of enabled external channels
 		.INIT_4A(16'h4700),		//do averaging on all selected channels
-		.INIT_4B(16'h0000),		//no aux channels
+		.INIT_4B(EXT_IN_ENABLE),//do averaging on all external channels in use
 		.INIT_4C(16'h0000),		//internal sensors unipolar
-		.INIT_4D(16'h0000),		//external inputs unipolar (but not used)
+		.INIT_4D(16'h0000),		//external inputs unipolar
 		.INIT_4E(16'h0000),		//no additional settling time
 		.INIT_4F(16'h0000),		//no additional settling time
 		.INIT_50(16'hb5ed),		//temp alarm +85C
@@ -87,7 +93,8 @@ module OnDieSensors_7series(
 		.INIT_56(16'h91eb),		//vccaux alarm 1.71V
 		.INIT_57(16'hae4e),		//reset thermal shutdown at 70C
 		.INIT_58(16'h5999),		//vccbram alarm 1.05V
-		//59 - 5b reserved
+		//59 - 5b are alarm thresholds for zynq PS, ignored for now
+		//TODO: specify them on zynq
 		.INIT_5C(16'h5111)		//vccbram alarm 0.95V
 	) xadc (
 		.DI(xadc_din),
@@ -235,17 +242,44 @@ module OnDieSensors_7series(
 						6:	volt_ram	<= mult_out3[19:4];
 					endcase
 
-					//Restart if we read the last one
-					if(xadc_addr == 6)
+					//If we read the last one, move on to the external inputs
+					if(xadc_addr == 6) begin
 						xadc_state	<= 8;
+						xadc_addr	<= 16;	//first result register
+					end
 					else
 						xadc_state	<= 5;
 
 				end
 			end
+			
+			//Read external inputs (regardless of whether they're enabled, for now)
+			8: begin
+				if(!xadc_busy) begin
+					xadc_en		<= 1;
+					xadc_state	<= 9;
+				end
+			end
+			
+			//Process results
+			9: begin
+				if(xadc_ready) begin
+					
+					//Last one? Stop
+					if(xadc_addr[3:0] == 4'hf)
+						xadc_state	<= 10;
+						
+					//No, save this and prepare to read the next one
+					else begin
+						xadc_addr								<= xadc_addr + 1'h1;
+						ext_in[ xadc_addr[3:0] * 12 +: 12 ]		<= xadc_dout[15:4];
+					end
+					
+				end
+			end
 
 			//Repeat
-			8: begin
+			10: begin
 				if(!xadc_busy) begin
 					xadc_state		<= 2;
 				end
