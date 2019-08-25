@@ -40,6 +40,9 @@ module OnDieSensors_7series #(
 	//max 250 MHz across speed grades
 	input wire			clk,
 
+	input wire[15:0]	vin_p,
+	input wire[15:0]	vin_n,
+
 	//Sensor values
 	//All are 8.8 fixed point, for example 16'h0480 = 4.5 units.
 	//This can also be modeled as one LSB = 1/256 of a volt or deg C
@@ -47,7 +50,7 @@ module OnDieSensors_7series #(
 	output logic[15:0]	volt_core	= 0,	//VCCINT
 	output logic[15:0]	volt_ram	= 0,	//VCCBRAM
 	output logic[15:0]	volt_aux	= 0,	//VCCAUX
-	
+
 	//External analog input values
 	//Full scale = 1V
 	output logic[191:0]	ext_in		= 0		//ADn = n*12 +: 12
@@ -109,8 +112,8 @@ module OnDieSensors_7series #(
 		.CONVSTCLK(1'b0),
 		.VP(1'b0),
 		.VN(1'b0),
-		.VAUXP(16'h0),
-		.VAUXN(16'h0),
+		.VAUXP(vin_p),
+		.VAUXN(vin_n),
 		.ALM(xadc_alarm),
 		.OT(xadc_overheat),
 		.MUXADDR(),				//no external mux
@@ -148,7 +151,7 @@ module OnDieSensors_7series #(
 	wire[31:0] die_temp_raw = mult_out3[31:12] - 32'h11126;
 
 	logic[3:0] xadc_state = 0;
-	logic[7:0] xadc_count = 0;
+	logic[9:0] xadc_count = 0;
 	always_ff @(posedge clk) begin
 
 		xadc_din		<= 0;
@@ -252,30 +255,37 @@ module OnDieSensors_7series #(
 
 				end
 			end
-			
+
 			//Read external inputs (regardless of whether they're enabled, for now)
 			8: begin
 				if(!xadc_busy) begin
 					xadc_en		<= 1;
+					xadc_count	<= 0;
 					xadc_state	<= 9;
 				end
 			end
-			
+
 			//Process results
 			9: begin
 				if(xadc_ready) begin
-					
+
 					//Last one? Stop
 					if(xadc_addr[3:0] == 4'hf)
 						xadc_state	<= 10;
-						
+
 					//No, save this and prepare to read the next one
 					else begin
 						xadc_addr								<= xadc_addr + 1'h1;
 						ext_in[ xadc_addr[3:0] * 12 +: 12 ]		<= xadc_dout[15:4];
 					end
-					
+
 				end
+
+				//if we get stuck, abort
+				//(not sure why this is happening??)
+				xadc_count <= xadc_count + 1;
+				if(xadc_count == 1023)
+					xadc_state	<= 2;
 			end
 
 			//Repeat

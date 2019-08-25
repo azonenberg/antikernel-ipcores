@@ -159,7 +159,7 @@ module DeviceInfo_7series(
 	} icap_state = ICAP_STATE_BOOT_HOLD;
 
 	//see https://forums.xilinx.com/t5/Configuration/ICAPE2-documentation/td-p/453996
-	logic[15:0] count = 1;
+	logic[17:0] count = 1;
 	always_ff @(posedge clk) begin
 
 		case(icap_state)
