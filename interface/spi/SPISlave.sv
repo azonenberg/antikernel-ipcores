@@ -124,18 +124,4 @@ module SPISlave(
 			tx_temp		<= tx_data;
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug LA
-
-	ila_1 ila(
-		.clk(clk),
-		.probe0(spi_sck),
-		.probe1(spi_sck_sync),
-		.probe2(sck_rising),
-		.probe3(spi_miso),
-		.probe4(tx_data_valid),
-		.probe5(spi_mosi_sync),
-		.probe6(rx_data_valid)
-	);
-
 endmodule

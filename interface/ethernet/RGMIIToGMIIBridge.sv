@@ -54,7 +54,7 @@ module RGMIIToGMIIBridge #(
 	output GmiiBus		gmii_rx_bus = {1'b0, 1'b0, 1'b0, 8'b0},
 
 	input wire			gmii_txc,		//must be 125 MHz regardless of speed
-	input wire			clk_250mhz,		//must be phase aligned with and 4x speed of gmii_txc
+	input wire			clk_250mhz,		//must be phase aligned with and 2x speed of gmii_txc
 	input wire GmiiBus	gmii_tx_bus,
 
 	//In-band status (if supported by the PHY)

@@ -42,12 +42,12 @@ module IODelayCalibration(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Reset logic
 
-	reg			delay_reset = 1;
+	logic			delay_reset = 1;
 
 	//Minimum reset pulse for Kintex-7 is 52 ns or about 11 clocks at 200 MHz.
 	//Do 32 clocks just to be safe
-	reg[4:0]	reset_count	= 1;
-	always @(posedge refclk) begin
+	logic[4:0]		reset_count	= 1;
+	always_ff @(posedge refclk) begin
 		if(reset_count == 0)
 			delay_reset		<= 0;
 		else
