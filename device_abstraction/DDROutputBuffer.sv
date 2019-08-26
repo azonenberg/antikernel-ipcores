@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -31,70 +31,48 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief Ganged collection of DDR I/O buffers for a parallel DDR input bus
+	@brief Ganged collection of DDR I/O buffers for a parallel DDR output bus
 
 	Supports 7 series only for now.
  */
-module DDRInputBuffer #(
+module DDROutputBuffer #(
 	parameter WIDTH = 16
 ) (
-	input wire				clk_p,
-	input wire				clk_n,
+	//Clocks
+	input wire clk_p,
+	input wire clk_n,
 
-	input wire[WIDTH-1:0]	din,
+	//Output data
+	output wire[WIDTH-1:0] dout,
 
-	output wire[WIDTH-1:0]	dout0,
-	output wire[WIDTH-1:0]	dout1
-);
+	//Input data (clk_p domain)
+	input wire[WIDTH-1:0] din0,
+	input wire[WIDTH-1:0] din1
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// The IO buffers
 
-	genvar i;
-	generate
-		for(i=0; i<WIDTH; i = i+1) begin: buffers
+	for(genvar i=0; i<WIDTH; i++) begin: buffers
 
-			`ifdef XILINX_SPARTAN6
-				/*
-				ODDR2 #
-				(
-					.DDR_ALIGNMENT("C0"),
-					.SRTYPE("ASYNC"),
-					.INIT(0)
-				) ddr_ibuf
-				(
-					.C0(clk_p),
-					.C1(clk_n),
-					.D0(din0[i]),
-					.D1(din1[i]),
-					.CE(1'b1),
-					.R(1'b0),
-					.S(1'b0),
-					.Q(dout[i])
-				);
-				*/
-			`endif
+		`ifdef XILINX_7SERIES
+			ODDR #
+			(
+				.DDR_CLK_EDGE("SAME_EDGE"),
+				.SRTYPE("ASYNC"),
+				.INIT(0)
+			) ddr_obuf
+			(
+				.C(clk_p),
+				.D1(din0[i]),
+				.D2(din1[i]),
+				.CE(1'b1),
+				.R(1'b0),
+				.S(1'b0),
+				.Q(dout[i])
+			);
+		`endif
 
-			`ifdef XILINX_7SERIES
-				IDDR #
-				(
-					.DDR_CLK_EDGE("SAME_EDGE_PIPELINED"),
-					.SRTYPE("ASYNC"),
-					.INIT_Q1(0),
-					.INIT_Q2(0)
-				) ddr_ibuf
-				(
-					.C(clk_p),
-					.Q1(dout0[i]),
-					.Q2(dout1[i]),
-					.CE(1'b1),
-					.R(1'b0),
-					.S(1'b0),
-					.D(din[i])
-				);
-			`endif
-
-		end
-	endgenerate
+	end
 
 endmodule
