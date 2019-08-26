@@ -59,77 +59,12 @@ module IODelayBlock #(
 	//Look up the speed grade passed in from Splash
 	localparam SPEED_GRADE = `XILINX_SPEEDGRADE;
 
-	//Pull in chip-specific speed grade info
-	`ifdef XILINX_SPARTAN6
-	`include "IODelayBlock_spartan6.vh"
-	`endif
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual delay block
 
 	genvar i;
 	generate
 		for(i=0; i<WIDTH; i = i+1) begin: delays
-
-			//Fixed uncalibrated delays for Spartan-6
-			`ifdef XILINX_SPARTAN6
-
-				localparam input_delay_taps = s6_target_delay(INPUT_DELAY);
-				localparam output_delay_taps = s6_target_delay(OUTPUT_DELAY);
-
-				//Sanity check, max number of taps is 255
-				initial begin
-					if(input_delay_taps > 255) begin
-						$fatal("ERROR: IODelayBlock computed >255 taps (%d) for input delay value %d ps",
-							input_delay_taps, INPUT_DELAY);
-					end
-					if(output_delay_taps > 255) begin
-						$fatal("ERROR: IODelayBlock computed >255 taps (%d) for output delay value %d ps",
-							output_delay_taps, OUTPUT_DELAY);
-					end
-				end
-
-				//The actual delay block
-				//Keep it in IO mode so we can use the same module as input and output with minimal changes
-				IODELAY2 #(
-					.IDELAY_VALUE(input_delay_taps),
-					.IDELAY2_VALUE(0),
-					.IDELAY_MODE("NORMAL"),
-					.ODELAY_VALUE(output_delay_taps),
-					.IDELAY_TYPE("FIXED"),
-					.DELAY_SRC((DIRECTION == "IN") ? "IDATAIN" : "ODATAIN"),
-					.SERDES_MODE("NONE"),
-					.DATA_RATE("DDR")
-				) delayblock
-				(
-					.IDATAIN(i_pad[i]),
-					.T(input_en),
-					.ODATAIN(o_fabric[i]),
-					.CAL(),
-					.IOCLK0(),
-					.IOCLK1(),
-					.CLK(),
-					.INC(1'b0),
-					.CE(1'b0),
-					.RST(),
-					.BUSY(),
-					.DATAOUT(i_fabric_serdes[i]),
-					.DATAOUT2(i_fabric[i]),
-					.TOUT(),				//tristate not implemented
-					.DOUT(o_pad[i])
-				);
-
-				//Print stats
-				initial begin
-					if(i == 0) begin
-						$info("INFO: Target input delay for IODelayBlock is %d ps, actual is %d - %d",
-							INPUT_DELAY, s6_iodelay_val(input_delay_taps) / 3, s6_iodelay_val(input_delay_taps));
-						$info("INFO: Target output delay for IODelayBlock is %d ps, actual is %d - %d",
-							OUTPUT_DELAY, s6_iodelay_val(output_delay_taps) / 3, s6_iodelay_val(output_delay_taps));
-					end
-				end
-
-			`endif
 
 			//PTV-calibrated delays for 7 series
 			//For now, we only support fixed delays and assume the reference clock is 200 MHz
