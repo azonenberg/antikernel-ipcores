@@ -1,4 +1,3 @@
-`timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
@@ -28,151 +27,15 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-/**
-	@file
-	@author Andrew D. Zonenberg
-	@brief SPI transceiver
- */
-module SPITransceiver(
+`ifndef QuadSPIFlashController_opcodes_h
+`define QuadSPIFlashController_opcodes_h
 
-	//Clocking
-	input wire clk,
-	input wire[15:0] clkdiv,
+typedef enum logic[7:0]
+{
+    FLASH_OP_READ       = 8'h00,
+    FLASH_OP_ERASE      = 8'h01,
+    FLASH_OP_PROGRAM    = 8'h02,
+    FLASH_OP_WIPE       = 8'h03
+} qspi_opcode_t;
 
-	//SPI niterface
-	output reg spi_sck = 0,
-	output reg spi_mosi = 0,
-	input wire spi_miso,
-
-	//Control interface
-	input wire shift_en,
-	output reg shift_done = 0,
-	input wire[7:0] tx_data,
-	output reg[7:0] rx_data = 0
-    );
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Parameter declarations
-
-	//Indicates which edge of SCK the remote end samples data on.
-	parameter SAMPLE_EDGE = "RISING";
-
-	//Indicates which edge of SCK the local end samples data on
-	//NORMAL = same as remote
-	//INVERTED = opposite
-	parameter LOCAL_EDGE = "NORMAL";
-
-	//Set true to gate transitions on rx_data during a shift operation
-	//and only update when shift_done goes high. Adds one cycle of latency
-	parameter CHANGE_ON_DONE	= 0;
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Main state machine
-
-	reg			active		= 0;
-	reg[3:0]	count		= 0;
-	reg[14:0]	clkcount	= 0;
-
-	reg[6:0]	tx_shreg		= 0;
-
-	reg[7:0]	rx_shreg		= 0;
-	reg			shift_done_adv	= 0;
-
-	//Optionally: Only update output at end of a shift operation
-	generate
-		if(CHANGE_ON_DONE) begin
-			always @(posedge clk) begin
-				shift_done		<= 0;
-				if(shift_done_adv) begin
-					rx_data		<= rx_shreg;
-					shift_done	<= 1;
-				end
-			end
-		end
-
-		else begin
-			always @(*) begin
-				rx_data		<= rx_shreg;
-				shift_done	<= shift_done_adv;
-			end
-		end
-	endgenerate
-
-	initial begin
-		if( (SAMPLE_EDGE != "RISING") && (SAMPLE_EDGE != "FALLING") ) begin
-			$display("ERROR: Invalid sample edge in SPITransceiver");
-			$finish;
-		end
-	end
-
-	reg almost_done	= 0;
-	always @(posedge clk) begin
-		shift_done_adv	<= 0;
-
-		//Wait for a start request
-		if(shift_en) begin
-			active		<= 1;
-			clkcount	<= 0;
-
-			if(SAMPLE_EDGE == "FALLING") begin
-				count	<= 1;
-				spi_sck <= 1;
-			end
-			else begin
-				count	<= 0;
-				spi_sck <= 0;
-			end
-
-			spi_mosi <= tx_data[7];
-			tx_shreg <= tx_data[6:0];
-		end
-
-		//Toggle processing
-		else if(active) begin
-			clkcount <= clkcount + 15'h1;
-			if(clkcount == clkdiv[15:1]) begin
-
-				//Reset the counter and toggle the clock
-				clkcount <= 0;
-				spi_sck <= !spi_sck;
-
-				//Make the done flag wait half a bit period if necessary
-				if(almost_done) begin
-					spi_sck			<= 0;
-					shift_done_adv	<= 1;
-					active			<= 0;
-					almost_done		<= 0;
-				end
-
-				//ACTIVE EDGE
-				else if( (spi_sck && (SAMPLE_EDGE == "RISING")) || (!spi_sck && (SAMPLE_EDGE == "FALLING")) ) begin
-					spi_mosi <= tx_shreg[6];
-
-					tx_shreg <= {tx_shreg[5:0], 1'b0};
-
-					if(LOCAL_EDGE == "INVERTED")
-						rx_shreg <= {rx_shreg[6:0], spi_miso};
-
-				end
-
-				//INACTIVE EDGE
-				else begin
-					count <= count + 4'h1;
-
-					if(LOCAL_EDGE == "NORMAL")
-						rx_shreg <= {rx_shreg[6:0], spi_miso};
-
-					//Stop on the last inactive edge
-					if( (count == 'd8) ) begin
-						spi_sck		<= 0;
-						almost_done	<= 1;
-					end
-
-				end
-
-			end
-		end
-
-	end
-
-endmodule
+`endif

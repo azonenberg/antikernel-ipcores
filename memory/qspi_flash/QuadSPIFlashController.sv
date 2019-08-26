@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -29,6 +29,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "QuadSPIFlashController_opcodes.svh"
+
 /**
 	@file
 	@author Andrew D. Zonenberg
@@ -52,39 +54,34 @@
 module QuadSPIFlashController(
 
 	//The main system clock
-	input wire				clk,
+	input wire					clk,
 
 	//The SPI bus (connected to top-level ports)
 	//TODO: have separate tristate enables for each pin?
-	output wire				spi_sck,
-	inout wire[3:0] 		spi_dq,
-	output reg				spi_cs_n 		= 1,
+	output wire					spi_sck,
+	inout wire[3:0] 			spi_dq,
+	output logic				spi_cs_n 		= 1,
 
 	//Divider for the SPI bus
-	input wire[15:0]		clkdiv,
+	input wire[15:0]			clkdiv,
 
 	//Control signals
-	input wire				cmd_en,
-	input wire[3:0]			cmd_id,
-	input wire[15:0]		cmd_len,
-	input wire[31:0]		cmd_addr,
-	output reg[7:0]			read_data		= 0,
-	output reg				read_valid		= 0,
-	input wire[7:0]			write_data,
-	input wire				write_valid,
-	output reg				write_ready,
-	output wire				busy,
+	input wire					cmd_en,
+	input wire qspi_opcode_t	cmd_id,
+	input wire[15:0]			cmd_len,
+	input wire[31:0]			cmd_addr,
+	output logic[7:0]			read_data		= 0,
+	output logic				read_valid		= 0,
+	input wire[7:0]				write_data,
+	input wire					write_valid,
+	output logic				write_ready,
+	output wire					busy,
 
 	//Useful info
-	output wire[15:0]		capacity_mbits,
+	output wire[15:0]			capacity_mbits,
 
 	//Debug status
-	output wire				sfdp_bad,
-
-	//DEBUG
-	input wire				uart_rxd,
-	output wire				uart_txd,
-	input wire				start
+	output wire					sfdp_bad
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -130,6 +127,8 @@ module QuadSPIFlashController(
 		.rx_data(spi_rx_data)
 	);
 
+	//TODO: full quad support
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // The SFDP parser
 
@@ -151,6 +150,8 @@ module QuadSPIFlashController(
     wire[15:0]	erase_type2_kbits;
 
 	//The parser
+	wire		trig_out = 1;	//debug logic analyzer trigger, tie to 1 if not using ILA to observe boot
+
     SFDPParser parser(
 		.clk(clk),
 
@@ -177,70 +178,72 @@ module QuadSPIFlashController(
 		.erase_type2_insn(erase_type2_insn),
 		.erase_type2_kbits(erase_type2_kbits),
 
-		.uart_rxd(uart_rxd),
-		.uart_txd(uart_txd)
+		.la_ready(trig_out)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Table of standard flash opcodes (not chip dependent)
 
-	localparam		OP_PAGE_PROGRAM		= 8'h02;		//Write up to one 256-byte page of data
-														//TODO: allow >256 byte writes, chip dependent?
-														//Some have 512 byte etc page size
-	localparam		OP_READ_SR1			= 8'h05;		//Read status register 1
-	localparam		OP_WRITE_ENABLE		= 8'h06;		//Enable write operations
-	localparam		OP_FAST_READ		= 8'h0b;		//Fast read with dummy byte before data
-	localparam		OP_WRITE_SR3		= 8'h11;		//Write status register 3
-	localparam		OP_BULK_ERASE		= 8'h60;		//Full-chip erase
-    localparam		OP_SECTOR_ERASE		= 8'hd8;		//Sector erase (size variable)
+    typedef enum logic[7:0]
+    {
+		OP_PAGE_PROGRAM		= 8'h02,	//Write up to one 256-byte page of data
+										//TODO: allow >256 byte writes, chip dependent?
+										//Some have 512 byte etc page size
+		OP_READ_SR1			= 8'h05,	//Read status register 1
+		OP_WRITE_ENABLE		= 8'h06,	//Enable write operations
+		OP_FAST_READ		= 8'h0b,	//Fast read with dummy byte before data
+		OP_WRITE_SR3		= 8'h11,	//Write status register 3
+		OP_BULK_ERASE		= 8'h60,	//Full-chip erase
+		OP_SECTOR_ERASE		= 8'hd8		//Sector erase (size variable)
+
+    } flash_opcode_t;
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // The actual flash controller state machine
 
-    `include "QuadSPIFlashController_opcodes_localparam.vh"
+    typedef enum logic[4:0]
+    {
+		STATE_BOOT_INIT		= 5'h0,
+		STATE_BOOT_SRWE		= 5'h1,
+		STATE_BOOT_SRWRITE	= 5'h2,
+		STATE_BOOT_SRDATA	= 5'h3,
 
-    localparam		STATE_BOOT_INIT		= 5'h0;
-	localparam		STATE_BOOT_SRWE		= 5'h1;
-	localparam		STATE_BOOT_SRWRITE	= 5'h2;
-	localparam		STATE_BOOT_SRDATA	= 5'h3;
+		STATE_IDLE			= 5'h4,			//must be lowest number after BOOT_*
 
-	localparam		STATE_IDLE			= 5'h4;			//must be lowest number after BOOT_*
+		STATE_ERASE_WAIT	= 5'h5,
+		STATE_POLL_0		= 5'h6,
+		STATE_POLL_1		= 5'h7,
+		STATE_POLL_2		= 5'h8,
 
-	localparam		STATE_ERASE_WAIT	= 5'h5;
-	localparam		STATE_POLL_0		= 5'h6;
-	localparam		STATE_POLL_1		= 5'h7;
-	localparam		STATE_POLL_2		= 5'h8;
+		STATE_WRITE			= 5'h9,
+		STATE_WRITE_ENABLE	= 5'ha,
 
-	localparam		STATE_WRITE			= 5'h9;
-	localparam		STATE_WRITE_ENABLE	= 5'ha;
+		STATE_READ_WAIT		= 5'h1b,
+		STATE_READ			= 5'h1c,
 
-	localparam		STATE_READ_WAIT		= 5'h1b;
-    localparam		STATE_READ			= 5'h1c;
+		STATE_ADDRESS		= 5'h1d,
+		STATE_DONE			= 5'h1e,
+		STATE_WAIT			= 5'h1f
+    } flash_state_t;
 
-	localparam		STATE_ADDRESS		= 5'h1d;
-    localparam		STATE_DONE			= 5'h1e;
-    localparam		STATE_WAIT			= 5'h1f;
-
-    reg[4:0]		state			= STATE_BOOT_INIT;
-    reg[4:0]		state_ret		= STATE_IDLE;
-    reg[15:0]		count			= 0;
+	flash_state_t	state			= STATE_BOOT_INIT;
+	flash_state_t	state_ret		= STATE_IDLE;
+	logic[15:0]		count			= 0;
 
 	//Runtime configuration
-	reg				use_4byte_addr	= 0;
+	logic			use_4byte_addr	= 0;
 
-    wire			booting			= (state < STATE_IDLE) || ( (state == STATE_WAIT) && (state_ret < STATE_IDLE) );
-    assign			busy			= (state != STATE_IDLE);
-    wire			waiting			= (state == STATE_WAIT);
+	wire			booting			= (state < STATE_IDLE) || ( (state == STATE_WAIT) && (state_ret < STATE_IDLE) );
+	assign			busy			= (state != STATE_IDLE);
+	wire			waiting			= (state == STATE_WAIT);
 
-    reg				write_buf_valid	= 0;
+	logic			write_buf_valid	= 0;
 
-    //Check if the SPI transceiver is currently busy
-    reg				shift_active_ff	= 0;
-    wire			shift_active	= (shift_active_ff && !shift_done) || shift_en;
+	//Check if the SPI transceiver is currently busy
+	logic			shift_active_ff	= 0;
+	wire			shift_active	= (shift_active_ff && !shift_done) || shift_en;
 
-    wire			la_ready;
-
-    always @(posedge clk) begin
+    always_ff @(posedge clk) begin
 
 		shift_en	<= 0;
 		read_valid	<= 0;
@@ -267,7 +270,7 @@ module QuadSPIFlashController(
 					spi_tx_data				<= sfdp_tx_data;
 				end
 
-				if(sfdp_scan_done /*&& la_ready*/) begin
+				if(sfdp_scan_done && trig_out) begin
 
 					//Default to being done
 					state				<= STATE_IDLE;
@@ -655,8 +658,5 @@ module QuadSPIFlashController(
 		endcase
 
     end
-
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // The logic analyzer
 
 endmodule

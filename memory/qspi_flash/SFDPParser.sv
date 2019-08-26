@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -46,37 +46,35 @@ module SFDPParser(
 
 	//Scan interface
 	input wire		scan_start,
-	output reg		scan_done	= 0,
-	output reg		sfdp_bad	= 0,
+	output logic	scan_done	= 0,
+	output logic	sfdp_bad	= 0,
 
 	//SPI interface
-	output reg		shift_en	= 0,
-	input wire		shift_done,
-	output reg[7:0]	spi_tx_data	= 0,
-	input wire[7:0]	spi_rx_data,
-	output reg		spi_cs_n	= 1,
+	output logic		shift_en	= 0,
+	input wire			shift_done,
+	output logic[7:0]	spi_tx_data	= 0,
+	input wire[7:0]		spi_rx_data,
+	output logic		spi_cs_n	= 1,
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 	//Memory metadata
-	output reg[15:0]	capacity_mbits		= 0,
+	output logic[15:0]	capacity_mbits		= 0,
 
 	//Address size info
-    output reg			has_3byte_addr		= 0,
-    output reg			has_4byte_addr		= 0,
+    output logic		has_3byte_addr		= 0,
+    output logic		has_4byte_addr		= 0,
 
-    output reg			enter_4b_b7			= 0,	//Issue 0xb7
-    output reg			enter_4b_we_b7		= 0,	//Issue WE (0x06) then 0xb7
-    output reg			enter_4b_nvcr		= 0,	//Enter 4-byte mode by writing to NVCR with B5/B1
-    output reg			enter_4b_dedicated	= 0,	//no switch, use separate instructions
+    output logic		enter_4b_b7			= 0,	//Issue 0xb7
+    output logic		enter_4b_we_b7		= 0,	//Issue WE (0x06) then 0xb7
+    output logic		enter_4b_nvcr		= 0,	//Enter 4-byte mode by writing to NVCR with B5/B1
+    output logic		enter_4b_dedicated	= 0,	//no switch, use separate instructions
 
     //Erase configuration
-    output reg[7:0]		erase_type2_insn	= 0,
-    output reg[15:0]	erase_type2_kbits	= 0,
+    output logic[7:0]	erase_type2_insn	= 0,
+    output logic[15:0]	erase_type2_kbits	= 0,
 
-	//DEBUG LA
-	input wire			uart_rxd,
-    output wire			uart_txd
+    input wire			la_ready
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -91,32 +89,34 @@ module SFDPParser(
 	localparam INST_READ_SFDP		= 8'h5a;
 
 	//Indicates we're busy and not able to accept commands
-    reg			read_busy				= 1;
+    logic		read_busy				= 1;
 
 	//Request a read from the given address
-    reg			read_request			= 0;
-    reg[23:0]	read_addr				= 0;
+    logic		read_request			= 0;
+    logic[23:0]	read_addr				= 0;
 
 	//Request termination of the read
 	//(it's done when read_busy goes low)
-    reg			read_finish_request		= 0;
-    reg			read_finish_pending		= 0;
+    logic		read_finish_request		= 0;
+    logic		read_finish_pending		= 0;
 
 	//Read state machine
-    localparam	READ_STATE_INIT_0		= 0;
-    localparam	READ_STATE_INIT_1		= 1;
-    localparam	READ_STATE_IDLE			= 2;
-    localparam	READ_STATE_COMMAND		= 3;
-    localparam	READ_STATE_ADDR			= 4;
-    localparam	READ_STATE_DUMMY		= 5;
-    localparam	READ_STATE_DATA			= 6;
+	enum logic[2:0]
+	{
+		READ_STATE_INIT_0		= 0,
+		READ_STATE_INIT_1		= 1,
+		READ_STATE_IDLE			= 2,
+		READ_STATE_COMMAND		= 3,
+		READ_STATE_ADDR			= 4,
+		READ_STATE_DUMMY		= 5,
+		READ_STATE_DATA			= 6
+    } read_state				= READ_STATE_INIT_0;
 
-	reg[8:0]	count					= 0;
-	reg			read_done				= 0;
-	reg[7:0]	read_data				= 0;
-    reg[2:0]	read_state				= READ_STATE_INIT_0;
+	logic[8:0]	count					= 0;
+	logic		read_done				= 0;
+	logic[7:0]	read_data				= 0;
 
-    always @(posedge clk) begin
+    always_ff @(posedge clk) begin
 		shift_en		<= 0;
 		read_done		<= 0;
 
@@ -238,35 +238,33 @@ module SFDPParser(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Master state machine: read header then each block we care about
 
-	localparam STATE_BOOT_WAIT			= 0;
-	localparam STATE_HEADER_PARSE		= 1;
-	localparam STATE_HEADER_FINISH_0	= 2;
-	localparam STATE_HEADER_FINISH_1	= 3;
-	localparam STATE_READ_BASIC			= 4;
-	localparam STATE_PARSE_BASIC		= 5;
-	localparam STATE_READ_SECTOR_MAP	= 6;
-	localparam STATE_PARSE_SECTOR_MAP	= 7;
+	enum logic[7:0]
+	{
+		STATE_BOOT_WAIT			= 0,
+		STATE_HEADER_PARSE		= 1,
+		STATE_HEADER_FINISH_0	= 2,
+		STATE_HEADER_FINISH_1	= 3,
+		STATE_READ_BASIC		= 4,
+		STATE_PARSE_BASIC		= 5,
+		STATE_READ_SECTOR_MAP	= 6,
+		STATE_PARSE_SECTOR_MAP	= 7,
+		STATE_HANG				= 255
+	} state		= STATE_BOOT_WAIT;
 
-	localparam STATE_HANG				= 255;
-
-	reg[7:0]	state		= STATE_BOOT_WAIT;
-
-	reg			phdrs_done	= 0;
-
-	wire		la_ready;
+	logic		phdrs_done	= 0;
 
 	//Most recent revision number and offset for the JEDEC Basic SPI Flash Parameters table
-	reg[15:0]	basic_params_rev		= 0;
-	reg[23:0]	basic_params_offset		= 0;
-	reg[7:0]	basic_params_len		= 0;
+	logic[15:0]	basic_params_rev		= 0;
+	logic[23:0]	basic_params_offset		= 0;
+	logic[7:0]	basic_params_len		= 0;
 
 	//Sector map (TODO: handle devices without one)
-	reg			has_sector_map			= 0;
-	reg[15:0]	sector_map_rev			= 0;
-	reg[23:0]	sector_map_offset		= 0;
-	reg[7:0]	sector_map_len			= 0;
+	logic		has_sector_map			= 0;
+	logic[15:0]	sector_map_rev			= 0;
+	logic[23:0]	sector_map_offset		= 0;
+	logic[7:0]	sector_map_len			= 0;
 
-	reg[8:0]	sfdp_addr				= 0;
+	logic[8:0]	sfdp_addr				= 0;
 	wire[5:0]	phdr_num				= sfdp_addr[8:3] - 6'd1;
 	wire[2:0]	phdr_boff				= sfdp_addr[2:0];
 
@@ -276,12 +274,12 @@ module SFDPParser(
 	wire		parsing_sector_map		= (state == STATE_PARSE_SECTOR_MAP);
 
 	//Reasons why we failed to parse the descriptor table
-	reg[7:0]	sfdp_fail_reason	= 0;
+	logic[7:0]	sfdp_fail_reason	= 0;
 
 	localparam SFDP_REASON_BAD_HEADER			= 8'h1;
 	localparam SFDP_REASON_BAD_MAJOR_VERSION	= 8'h2;
 
-    always @(posedge clk) begin
+    always_ff @(posedge clk) begin
 		read_request		<= 0;
 		read_finish_request	<= 0;
 
@@ -416,27 +414,28 @@ module SFDPParser(
     // Parse the parameter headers
 
 	//SFDP header data. Probably not useful outside this state machine
-	reg[7:0]	sfdp_minor_rev			= 0;
-	reg[7:0]	sfdp_num_phdrs			= 0;
+	logic[7:0]	sfdp_minor_rev			= 0;
+	logic[7:0]	sfdp_num_phdrs			= 0;
 
 	//List of parameter IDs
-	localparam	PARAM_ID_JEDEC_BASIC			= 16'hff00;	//JEDEC basic SPI flash parameters
-	localparam	PARAM_ID_JEDEC_SECTOR_MAP		= 16'hff81;	//JEDEC sector map
-	localparam	PARAM_ID_JEDEC_FOUR_BYTE		= 16'hff84;	//TODO
+	localparam	PARAM_ID_JEDEC_BASIC		= 16'hff00;	//JEDEC basic SPI flash parameters
+	localparam	PARAM_ID_JEDEC_SECTOR_MAP	= 16'hff81;	//JEDEC sector map
+	localparam	PARAM_ID_JEDEC_FOUR_BYTE	= 16'hff84;	//TODO
 
 	//The SFDP parameter table currently being parsed
-	reg			sfdp_param_valid		= 0;
-	reg[15:0]	sfdp_current_param		= 0;
-	reg[15:0]	sfdp_param_rev			= 0;
-	reg[7:0]	sfdp_param_len			= 0;
-	reg[23:0]	sfdp_param_offset		= 0;
+	logic		sfdp_param_valid		= 0;
+	logic[15:0]	sfdp_current_param		= 0;
+	logic[15:0]	sfdp_param_rev			= 0;
+	logic[7:0]	sfdp_param_len			= 0;
+	logic[23:0]	sfdp_param_offset		= 0;
 
-	localparam SFDP_STATE_READ_HEADER			= 0;
-	localparam SFDP_STATE_READ_PHDR				= 1;
+	enum logic[1:0]
+	{
+		SFDP_STATE_READ_HEADER			= 0,
+		SFDP_STATE_READ_PHDR			= 1
+	} sfdp_state			= SFDP_STATE_READ_HEADER;
 
-	reg[2:0]	sfdp_state			= SFDP_STATE_READ_HEADER;
-
-    always @(posedge clk) begin
+    always_ff @(posedge clk) begin
 
 		sfdp_param_valid	<= 0;
 
@@ -600,56 +599,56 @@ module SFDPParser(
     // What we've all been waiting for: the actual output of the parsing!
 
 	//Clocking
-    reg			has_ddr_mode		= 0;
+    logic		has_ddr_mode		= 0;
 
 	//Fast read (1-1-4)
-    reg			has_114_read		= 0;
-    reg[7:0]	insn_114_read		= 0;
-    reg[2:0]	modeclk_114_read	= 0;
-    reg[4:0]	dummyclk_114_read	= 0;
+    logic		has_114_read		= 0;
+    logic[7:0]	insn_114_read		= 0;
+    logic[2:0]	modeclk_114_read	= 0;
+    logic[4:0]	dummyclk_114_read	= 0;
 
 	//Fast read (1-4-4)
-    reg			has_144_read		= 0;
-    reg[7:0]	insn_144_read		= 0;
-    reg[2:0]	modeclk_144_read	= 0;
-    reg[4:0]	dummyclk_144_read	= 0;
+    logic		has_144_read		= 0;
+    logic[7:0]	insn_144_read		= 0;
+    logic[2:0]	modeclk_144_read	= 0;
+    logic[4:0]	dummyclk_144_read	= 0;
 
 	//Fast read (4-4-4)
-    reg			has_444_read		= 0;
-    reg[7:0]	insn_444_read		= 0;
-    reg[2:0]	modeclk_444_read	= 0;
-    reg[4:0]	dummyclk_444_read	= 0;
+    logic		has_444_read		= 0;
+    logic[7:0]	insn_444_read		= 0;
+    logic[2:0]	modeclk_444_read	= 0;
+    logic[4:0]	dummyclk_444_read	= 0;
 
     //Erasing
-    reg[7:0]	erase_type1_insn	= 0;
-    reg[15:0]	erase_type1_kbits	= 0;
-    reg[15:0]	erase_type1_ms		= 0;	//typical delay
+    logic[7:0]	erase_type1_insn	= 0;
+    logic[15:0]	erase_type1_kbits	= 0;
+    logic[15:0]	erase_type1_ms		= 0;	//typical delay
 
-    reg[15:0]	erase_type2_ms		= 0;
+    logic[15:0]	erase_type2_ms		= 0;
 
-    reg[7:0]	erase_type3_insn	= 0;
-    reg[15:0]	erase_type3_kbits	= 0;
-    reg[15:0]	erase_type3_ms		= 0;
+    logic[7:0]	erase_type3_insn	= 0;
+    logic[15:0]	erase_type3_kbits	= 0;
+    logic[15:0]	erase_type3_ms		= 0;
 
-    reg[7:0]	erase_type4_insn	= 0;
-    reg[15:0]	erase_type4_kbits	= 0;
-    reg[15:0]	erase_type4_ms		= 0;
+    logic[7:0]	erase_type4_insn	= 0;
+    logic[15:0]	erase_type4_kbits	= 0;
+    logic[15:0]	erase_type4_ms		= 0;
 
-    reg[31:0]	erase_chip_ms			= 0;
+    logic[31:0]	erase_chip_ms			= 0;
 
     //Programming
-    reg[6:0]	program_first_byte_us	= 0;
-    reg[6:0]	program_per_byte_us		= 0;
-    reg[15:0]	program_page_us			= 0;
-    reg[15:0]	page_size_bytes			= 0;
+    logic[6:0]	program_first_byte_us	= 0;
+    logic[6:0]	program_per_byte_us		= 0;
+    logic[15:0]	program_page_us			= 0;
+    logic[15:0]	page_size_bytes			= 0;
 
     //Time multipliers
-    reg[4:0]	erase_typ_to_max	= 0;
-    reg[4:0]	program_typ_to_max	= 0;
+    logic[4:0]	erase_typ_to_max	= 0;
+    logic[4:0]	program_typ_to_max	= 0;
 
     //Status register polling
-    reg			busy_poll_via_flagstatreg	= 0;	//0x70
-    reg			busy_poll_via_statreg		= 0;	//0x05
+    logic		busy_poll_via_flagstatreg	= 0;	//0x70
+    logic		busy_poll_via_statreg		= 0;	//0x05
 
 	/*
 		Quad enable bit
@@ -678,50 +677,50 @@ module SFDPParser(
 
 			6/7	Reserved
 	 */
-    reg[2:0]	quad_enable_type			= 0;
+    logic[2:0]	quad_enable_type			= 0;
 
 	//Methods of entering 4-4-4 mode
-    reg			quad_qe_38	= 0;			//Set QE, then 0x38
-    reg			quad_38		= 0;			//Issue 0x38
-    reg			quad_35		= 0;			//Issue 0x35
-    reg			quad_6561	= 0;			//Issue 0x65 then 61 read-modify-write
-    reg			quad_6571	= 0;			//Issue 0x65/address then 71/address read-modify-write
+    logic		quad_qe_38	= 0;			//Set QE, then 0x38
+    logic		quad_38		= 0;			//Issue 0x38
+    logic		quad_35		= 0;			//Issue 0x35
+    logic		quad_6561	= 0;			//Issue 0x65 then 61 read-modify-write
+    logic		quad_6571	= 0;			//Issue 0x65/address then 71/address read-modify-write
 
     //Methods of leaving 4-4-4 mode
-    reg			qexit_ff	= 0;			//Issue 0xff
-    reg			qexit_f5	= 0;			//Issue 0xf5
-    reg			qexit_reset	= 0;			//Issue 0x66/99 to reset
-    reg			qexit_6571	= 0;			//Issue 0x65/address then 71/address read-modify-write
+    logic		qexit_ff	= 0;			//Issue 0xff
+    logic		qexit_f5	= 0;			//Issue 0xf5
+    logic		qexit_reset	= 0;			//Issue 0x66/99 to reset
+    logic		qexit_6571	= 0;			//Issue 0x65/address then 71/address read-modify-write
 
     //Methods of entering 4-byte mode
     //extended address register not supported
     //bank register not supported
-    reg			enter_4b_always = 0;		//always 4-byte mode
+    logic		enter_4b_always = 0;		//always 4-byte mode
 
     //Methods of resetting the device
-    reg			reset_f_8clk	= 0;		//drive 0xf on all lines for 8 clocks
-    reg			reset_f_10clk	= 0;		//drive 0xf on all lines for 10 clocks
-    reg			reset_f_16clk	= 0;		//drive 0xf on all lines for 16 clocks
-    reg			reset_f0		= 0;		//issue 0xf0
-    reg			reset_66_99		= 0;		//issue 0x66, 0x99
+    logic		reset_f_8clk	= 0;		//drive 0xf on all lines for 8 clocks
+    logic		reset_f_10clk	= 0;		//drive 0xf on all lines for 10 clocks
+    logic		reset_f_16clk	= 0;		//drive 0xf on all lines for 16 clocks
+    logic		reset_f0		= 0;		//issue 0xf0
+    logic		reset_66_99		= 0;		//issue 0x66, 0x99
 
     //Methods of accessing status register 1
-    reg			sr1_nv_06		= 0;		//nonvolatile status register, WE with 0x06
-    reg			sr1_v_06		= 0;		//volatile status register, WE with 0x06
-    reg			sr1_v_50		= 0;		//volatile status register, WE with 0x50
-    reg			sr1_vnv			= 0;		//nonvolatile status register with volatile shadow
+    logic		sr1_nv_06		= 0;		//nonvolatile status register, WE with 0x06
+    logic		sr1_v_06		= 0;		//volatile status register, WE with 0x06
+    logic		sr1_v_50		= 0;		//volatile status register, WE with 0x50
+    logic		sr1_vnv			= 0;		//nonvolatile status register with volatile shadow
 											//WE with 0x06 NV, 50 V
-	reg			sr1_mixed_06	= 0;		//mixed volatile and nonvolatile bits, WE with 0x06
+	logic		sr1_mixed_06	= 0;		//mixed volatile and nonvolatile bits, WE with 0x06
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Helpers for 32-bit-wide table indexing
 
-	reg[6:0]	table_dword_addr	= 0;
-    reg[31:0]	table_dword			= 0;
-    reg			basic_dword_valid	= 0;
-    reg			sector_dword_valid	= 0;
+	logic[6:0]	table_dword_addr	= 0;
+    logic[31:0]	table_dword			= 0;
+    logic		basic_dword_valid	= 0;
+    logic		sector_dword_valid	= 0;
 
-    always @(posedge clk) begin
+    always_ff @(posedge clk) begin
 		basic_dword_valid			<= 0;
 		sector_dword_valid			<= 0;
 
@@ -747,22 +746,22 @@ module SFDPParser(
     wire[7:0]	table_dword_b0		= table_dword[7:0];
 
 	//Subtract 10 with saturation to zero (for erase block info)
-    reg[7:0]	table_dword_b3_m10	= 0;
-    reg[7:0]	table_dword_b0_m10	= 0;
-    always @(*) begin
+    logic[7:0]	table_dword_b3_m10	= 0;
+    logic[7:0]	table_dword_b0_m10	= 0;
+    always_comb begin
 		if(table_dword_b3 < 10)
-			table_dword_b3_m10		<= 0;
+			table_dword_b3_m10		= 0;
 		else
-			table_dword_b3_m10		<= table_dword_b3 - 7'd10;
+			table_dword_b3_m10		= table_dword_b3 - 7'd10;
 
 		if(table_dword_b0 < 10)
-			table_dword_b0_m10		<= 0;
+			table_dword_b0_m10		= 0;
 		else
-			table_dword_b0_m10		<= table_dword_b0 - 7'd10;
+			table_dword_b0_m10		= table_dword_b0 - 7'd10;
 
     end
 
-	always @(posedge clk) begin
+	always_ff @(posedge clk) begin
 
 		//Parse the data in 32-bit chunks
 		if(basic_dword_valid) begin
@@ -1014,7 +1013,7 @@ module SFDPParser(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
     // Parse the sector map
 
-    always @(posedge clk) begin
+    always_ff @(posedge clk) begin
 
 		//Parse the data in 32-bit chunks
 		if(sector_dword_valid) begin
@@ -1029,101 +1028,5 @@ module SFDPParser(
 
 		end
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-    // The LA
-	/*
-	//intclk is 66.5 MHz for current prototype at last measurement
-	RedTinUartWrapper #(
-		.WIDTH(384),
-		.DEPTH(2048),
-		//.UART_CLKDIV(16'd868),	//115200 @ 100 MHz
-		.UART_CLKDIV(16'd577),		//115200 @ 66.5 MHz
-		.USE_EXT_TRIG(1),
-		.SYMBOL_ROM(
-			{
-				16384'h0,
-				"DEBUGROM", 				8'h0, 8'h01, 8'h00,
-				32'd15037,			//period of internal clock, in ps
-				32'd2048,			//Capture depth (TODO auto-patch this?)
-				32'd384,			//Capture width (TODO auto-patch this?)
-
-				{ "parsing_master_header",	8'h0, 8'h1,  8'h0 },
-				{ "state",					8'h0, 8'h8,  8'h0 },
-				{ "sfdp_state",				8'h0, 8'h3,  8'h0 },
-				{ "spi_cs_n",				8'h0, 8'h1,  8'h0 },
-				{ "shift_en",				8'h0, 8'h1,  8'h0 },
-				{ "spi_tx_data",			8'h0, 8'h8,  8'h0 },
-				{ "read_data",				8'h0, 8'h8,  8'h0 },
-				{ "read_done",				8'h0, 8'h1,  8'h0 },
-				{ "read_busy",				8'h0, 8'h1,  8'h0 },
-				{ "read_finish_request",	8'h0, 8'h1,  8'h0 },
-
-				{ "scan_done",				8'h0, 8'h1,  8'h0 },
-				{ "sfdp_bad",				8'h0, 8'h1,  8'h0 },
-				{ "sfdp_fail_reason",		8'h0, 8'h8,  8'h0 },
-
-				{ "sfdp_addr",				8'h0, 8'h9,  8'h0 },
-				{ "sfdp_minor_rev",			8'h0, 8'h8,  8'h0 },
-
-				{ "basic_params_rev",		8'h0, 8'h10,  8'h0 },
-				{ "basic_params_offset",	8'h0, 8'h18,  8'h0 },
-				{ "sfdp_num_phdrs",			8'h0, 8'h8,  8'h0 },
-
-				{ "phdr_boff",				8'h0, 8'h3,  8'h0 },
-				{ "sfdp_param_valid",		8'h0, 8'h1,  8'h0 },
-				{ "sfdp_current_param",		8'h0, 8'h10,  8'h0 },
-				{ "sfdp_param_rev",			8'h0, 8'h10,  8'h0 },
-				{ "sfdp_param_len",			8'h0, 8'h8,  8'h0 },
-				{ "sfdp_param_offset",		8'h0, 8'h18,  8'h0 },
-
-				{ "capacity_mbits",			8'h0, 8'h10,  8'h0 }
-			}
-		)
-	) analyzer (
-		.clk(clk),
-		.capture_clk(clk),
-		.ext_trig(read_request),
-		.din({
-				parsing_master_header,	//1
-				state,					//8
-				sfdp_state,				//3
-				spi_cs_n,				//1
-				shift_en,				//1
-				spi_tx_data,			//8
-				read_data,				//8
-				read_done,				//1
-				read_busy,				//1
-				read_finish_request,	//1
-
-				scan_done,				//1
-				sfdp_bad,				//1
-				sfdp_fail_reason,		//8
-
-				sfdp_addr,				//9
-
-				sfdp_minor_rev,			//8
-
-				basic_params_rev,		//16
-				basic_params_offset,	//24
-				sfdp_num_phdrs,			//8
-
-				phdr_boff,				//3
-				sfdp_param_valid,		//1
-				sfdp_current_param,		//16
-				sfdp_param_rev,			//16
-				sfdp_param_len,			//8
-				sfdp_param_offset,		//24
-
-				capacity_mbits,			//16
-
-				192'h0					//padding
-			}),
-		.uart_rx(uart_rxd),
-		.uart_tx(uart_txd),
-		.la_ready(la_ready)
-	);
-	*/
-	assign la_ready = scan_start;
 
 endmodule
