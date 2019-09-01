@@ -46,6 +46,21 @@ module DeviceInfo_7series(
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Wait a while after boot before doing anything
+
+	logic[23:0] boot_count	= 1;
+	logic		boot_done	= 0;
+
+	always_ff @(posedge clk) begin
+		if(!boot_done) begin
+			if(boot_count == 0)
+				boot_done	<= 1;
+			else
+				boot_count <= boot_count + 1'h1;
+		end
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Die serial number
 
 	wire	dna_out;
@@ -60,11 +75,10 @@ module DeviceInfo_7series(
 
 	enum logic[1:0]
 	{
-		DNA_READ_STATE_BOOT_0	= 2'h0,
-		DNA_READ_STATE_BOOT_1	= 2'h1,
-		DNA_READ_STATE_READ		= 2'h2,
-		DNA_READ_STATE_DONE		= 2'h3
-	} dna_read_state = DNA_READ_STATE_BOOT_0;
+		DNA_READ_STATE_BOOT		= 2'h0,
+		DNA_READ_STATE_READ		= 2'h1,
+		DNA_READ_STATE_DONE		= 2'h2
+	} dna_read_state = DNA_READ_STATE_BOOT;
 
 	logic[6:0] dna_read_count	= 0;
 
@@ -75,35 +89,25 @@ module DeviceInfo_7series(
 
 		case(dna_read_state)
 
-			//Wait 128 clocks during boot to be REALLY sure everything is fully reset
-			DNA_READ_STATE_BOOT_0: begin
+			//Wait for boot-time init
+			DNA_READ_STATE_BOOT: begin
 
-				dna_read_count		<= dna_read_count + 7'h1;
-
-				if(dna_read_count == 127) begin
-					dna_read		<= 1;
-					dna_read_count	<= 0;
-					dna_read_state	<= DNA_READ_STATE_BOOT_1;
+				if(boot_done) begin
+					dna_read 			<= 1;
+					dna_read_state 		<= DNA_READ_STATE_READ;
 				end
 			end
-
-			//Read is done, start shifting data
-			DNA_READ_STATE_BOOT_1: begin
-				dna_shift 			<= 1;
-				dna_read_state 		<= DNA_READ_STATE_READ;
-			end	//end DNA_READ_STATE_BOOT_0
 
 			//Shift the data
 			DNA_READ_STATE_READ: begin
 				dna_shift <= 1;
 
 				dna_read_count		<= dna_read_count + 7'h1;
-				die_serial			<= {die_serial[62:0], dna_out};
+				die_serial			<= {dna_out, die_serial[63:9], 8'h0};	//low bits always 0 b/c truncated
 
 				//Done?
-				if(dna_read_count == 55) begin
+				if(dna_read_count == 57) begin
 					dna_read_state	<= DNA_READ_STATE_DONE;
-					die_serial[56]	<= 1'b1;
 				end
 			end	//end DNA_READ_STATE_READ
 
@@ -122,8 +126,6 @@ module DeviceInfo_7series(
 	logic		icap_cs_n	= 1;
 	logic		icap_wr_n	= 1;
 	wire[31:0]	icap_dout;
-
-	wire		la_trig_out;
 
 	wire[31:0]	icap_din_bswap;
 	wire[31:0]	icap_dout_bswap;
@@ -159,15 +161,14 @@ module DeviceInfo_7series(
 	} icap_state = ICAP_STATE_BOOT_HOLD;
 
 	//see https://forums.xilinx.com/t5/Configuration/ICAPE2-documentation/td-p/453996
-	logic[15:0] count = 1;
+	logic[15:0] count = 0;
 	always_ff @(posedge clk) begin
 
 		case(icap_state)
 
 			//Wait a looong time for the ICAP to initialize properly
 			ICAP_STATE_BOOT_HOLD: begin
-				count	<= count + 1'h1;
-				if(count == 0) begin
+				if(boot_done) begin
 					icap_cs_n	<= 0;
 					icap_wr_n	<= 0;
 					icap_state	<= ICAP_STATE_SYNC;
@@ -178,7 +179,6 @@ module DeviceInfo_7series(
 			ICAP_STATE_SYNC: begin
 				icap_din	<= 32'haa995566;
 				icap_state	<= ICAP_STATE_NOP;
-				count		<= 0;
 			end	//end ICAP_STATE_SYNC
 
 			//There is a two-cycle pipeline hazard period after the sync word in which we must write nops
