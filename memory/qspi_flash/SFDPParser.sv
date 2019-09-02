@@ -39,7 +39,9 @@
 
 	When scan_done goes high, the parsed fields are stable and ready to use.
  */
-module SFDPParser(
+module SFDPParser #(
+	parameter SFDP_ADDRESS_32B = 0	//0 = 24 bit, 1 = 32 bit
+)(
 
 	//Main system clock
 	input wire		clk,
@@ -93,7 +95,7 @@ module SFDPParser(
 
 	//Request a read from the given address
     logic		read_request			= 0;
-    logic[23:0]	read_addr				= 0;
+    logic[31:0]	read_addr				= 0;
 
 	//Request termination of the read
 	//(it's done when read_busy goes low)
@@ -167,7 +169,9 @@ module SFDPParser(
 			end	//end READ_STATE_IDLE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// COMMAND / ADDR / DUMMY - send the "read SFDP" instruction followed by the address and a dummy word
+			// COMMAND / ADDR / DUMMY - send the "read SFDP" instruction followed by the address and a dummy word.
+
+			//TODO: autodetect 24 vs 32 bit SFDP address
 
 			READ_STATE_COMMAND: begin
 
@@ -185,15 +189,30 @@ module SFDPParser(
 
 					shift_en		<= 1;
 
-					case(count)
-						0:	spi_tx_data		<= read_addr[23:16];
-						1:	spi_tx_data		<= read_addr[15:8];
-						2:	spi_tx_data		<= read_addr[7:0];
-						3:	spi_tx_data		<= 0;	//dummy word
-					endcase
+					if(SFDP_ADDRESS_32B) begin
+						case(count)
+							0:	spi_tx_data		<= read_addr[31:24];
+							1:	spi_tx_data		<= read_addr[23:16];
+							2:	spi_tx_data		<= read_addr[15:8];
+							3:	spi_tx_data		<= read_addr[7:0];
+							4:	spi_tx_data		<= 0;	//dummy word
+						endcase
 
-					if(count == 3)
-						read_state	<= READ_STATE_DUMMY;
+						if(count == 4)
+							read_state	<= READ_STATE_DUMMY;
+					end
+
+					else begin
+						case(count)
+							0:	spi_tx_data		<= read_addr[23:16];
+							1:	spi_tx_data		<= read_addr[15:8];
+							2:	spi_tx_data		<= read_addr[7:0];
+							3:	spi_tx_data		<= 0;	//dummy word
+						endcase
+
+						if(count == 3)
+							read_state	<= READ_STATE_DUMMY;
+					end
 
 				end
 			end	//end READ_STATE_ADDR
@@ -295,7 +314,7 @@ module SFDPParser(
 				if(la_ready && !read_busy) begin
 					read_request		<= 1;
 					read_addr			<= 0;
-					sfdp_addr			<= 0;		//max, will overflow to zero
+					sfdp_addr			<= 0;
 					state				<= STATE_HEADER_PARSE;
 				end
 			end	//end STATE_BOOT_WAIT
@@ -303,6 +322,7 @@ module SFDPParser(
 			STATE_HEADER_PARSE: begin
 
 				if(read_done) begin
+
 					sfdp_addr				<= sfdp_addr + 1'h1;
 
 					//If we got a bad PHDR, die
@@ -499,7 +519,7 @@ module SFDPParser(
 
 							//Signature: "SFDP"
 							0: begin
-								if(read_data != "S") begin
+								if(read_data != "S" && read_data != 0) begin
 									sfdp_bad			<= 1;
 									sfdp_fail_reason	<= SFDP_REASON_BAD_HEADER;
 								end

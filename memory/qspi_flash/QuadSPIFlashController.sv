@@ -51,7 +51,9 @@
 		The host must set write_data and assert write_valid for 1 clock to proceed.
 		Do not change write_data until write_valid goes high again.
  */
-module QuadSPIFlashController(
+module QuadSPIFlashController #(
+	parameter SFDP_ADDRESS_32B = 0	//0 = 24 bit, 1 = 32 bit
+)(
 
 	//The main system clock
 	input wire					clk,
@@ -85,6 +87,27 @@ module QuadSPIFlashController(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Wait a while after boot before doing anything
+
+	logic[20:0] boot_count	= 1;
+	logic		boot_done	= 0;
+
+	logic		rst_n		= 0;
+
+	always_ff @(posedge clk) begin
+		if(!boot_done) begin
+			if(boot_count == 0)
+				boot_done	<= 1;
+			else
+				boot_count <= boot_count + 1'h1;
+
+			//Reset the flash during boot
+			if(boot_count == 256)
+				rst_n		<= 1;
+		end
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Configuration
 
 	//This should be default, probably wont need to get changed unless the memory is weird
@@ -101,7 +124,7 @@ module QuadSPIFlashController(
 	assign		spi_dq[1] = 1'bz;	//tri-state MISO
 
 	assign		spi_dq[2] = 1'b1;	//drive high (inactive) for now
-	assign		spi_dq[3] = 1'b1;	//drive high (inactive) for now
+	assign		spi_dq[3] = rst_n;	//reset flahs during boot
 
 	reg			shift_en		= 0;
 	wire		shift_done;
@@ -150,12 +173,14 @@ module QuadSPIFlashController(
     wire[15:0]	erase_type2_kbits;
 
 	//The parser
-	wire		trig_out = 1;	//debug logic analyzer trigger, tie to 1 if not using ILA to observe boot
+	wire		trig_out = 1;		//debug logic analyzer trigger, tie to 1 if not using ILA to observe boot
 
-    SFDPParser parser(
+    SFDPParser #(
+		.SFDP_ADDRESS_32B(SFDP_ADDRESS_32B)
+    ) parser(
 		.clk(clk),
 
-		.scan_start(1'b1),
+		.scan_start(boot_done),
 		.scan_done(sfdp_scan_done),
 		.sfdp_bad(sfdp_bad),
 
