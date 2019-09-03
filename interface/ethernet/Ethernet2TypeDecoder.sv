@@ -81,12 +81,11 @@ module Ethernet2TypeDecoder(
 
 	`include "Ethertypes.svh"
 
-	reg					rx_active			= 0;
-	reg[13:0]			rx_count			= 0;
-	reg					rx_frame_has_vlan	= 0;
+	logic				rx_active			= 0;
+	logic[13:0]			rx_count			= 0;
 
-	reg[15:0]			rx_temp_buf			= 0;
-	reg[1:0]			rx_temp_valid		= 0;
+	logic[15:0]			rx_temp_buf			= 0;
+	logic[1:0]			rx_temp_valid		= 0;
 
 	always_ff @(posedge rx_clk) begin
 
@@ -142,7 +141,7 @@ module Ethernet2TypeDecoder(
 
 					//If ethertype is 802.1q, parse the VLAN tag
 					if(mac_rx_bus.data[31:16] == ETHERTYPE_DOT1Q) begin
-						rx_frame_has_vlan		<= 1;
+						rx_l2_bus.has_vlan_tag	<= 1;
 
 						rx_l2_bus.qos_pri		<= mac_rx_bus.data[15:13];
 						rx_l2_bus.drop_eligible	<= mac_rx_bus.data[12];
@@ -151,7 +150,7 @@ module Ethernet2TypeDecoder(
 
 					//Nope, insert a dummy vlan tag with default values and store the ethertype
 					else begin
-						rx_frame_has_vlan		<= 0;
+						rx_l2_bus.has_vlan_tag	<= 0;
 
 						rx_l2_bus.qos_pri		<= 0;
 						rx_l2_bus.drop_eligible	<= 1;
@@ -174,7 +173,7 @@ module Ethernet2TypeDecoder(
 				end
 
 				//If we have a 802.1q tag, the NEXT cycle has the ethertype
-				else if( (rx_count == 4) && (rx_frame_has_vlan) ) begin
+				else if( (rx_count == 4) && (rx_l2_bus.has_vlan_tag) ) begin
 					rx_l2_bus.ethertype			<= ethertype_t'(mac_rx_bus.data[31:16]);
 					rx_l2_bus.ethertype_is_ipv4	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV4);
 					rx_l2_bus.ethertype_is_ipv6	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV6);

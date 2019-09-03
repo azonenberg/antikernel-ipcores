@@ -121,6 +121,7 @@ typedef struct packed
 	logic		ethertype_is_ipv6;
 	logic		ethertype_is_arp;
 
+	logic		has_vlan_tag;
 	logic[11:0]	vlan_id;			//802.1q header fields
 	logic[2:0]	qos_pri;
 	logic		drop_eligible;
