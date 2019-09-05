@@ -82,6 +82,16 @@ module TriSpeedEthernetMAC #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX CRC calculation
 
+	enum logic[3:0]
+	{
+		RX_STATE_IDLE		= 4'h0,
+		RX_STATE_DROP		= 4'h1,
+		RX_STATE_PREAMBLE	= 4'h2,
+		RX_STATE_FRAME_DATA	= 4'h3,
+		RX_STATE_CRC		= 4'h4
+	}
+	rx_state = RX_STATE_IDLE;
+
 	//Do it 8 bits wide, every clock, to save area
 	wire		rx_crc_reset	= (rx_state == RX_STATE_PREAMBLE);
 	wire		rx_crc_update	= gmii_rx_bus.en && (rx_state == RX_STATE_FRAME_DATA) && gmii_rx_bus.dvalid;
@@ -120,16 +130,6 @@ module TriSpeedEthernetMAC #(
 
 	logic		rx_frame_data_valid_adv	= 0;
 	logic[31:0]	rx_frame_data_adv		= 0;
-
-	enum logic[3:0]
-	{
-		RX_STATE_IDLE		= 4'h0,
-		RX_STATE_DROP		= 4'h1,
-		RX_STATE_PREAMBLE	= 4'h2,
-		RX_STATE_FRAME_DATA	= 4'h3,
-		RX_STATE_CRC		= 4'h4
-	}
-	rx_state = RX_STATE_IDLE;
 
 	wire[31:0]	rx_crc_expected	= rx_pending_data;
 
