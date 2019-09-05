@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -116,11 +116,24 @@ module Ethernet2TypeDecoder(
 		//Process frame data
 		else if(rx_active) begin
 
-			if(mac_rx_bus.commit)
-				rx_active	<= 0;
+			//Send the last data words at the end of the packet
+			//(no new data can arrive simultaneous with commit)
+			if(mac_rx_bus.commit) begin
+				rx_active				<= 0;
+
+				rx_temp_valid			<= 0;
+				rx_l2_bus.bytes_valid	<= rx_temp_valid;
+
+				rx_l2_bus.data_valid	<= (rx_temp_valid != 0);
+
+				if(rx_temp_valid == 1)
+					rx_l2_bus.data		<= { rx_temp_buf[15:8], 24'h0 };
+				else if(rx_temp_valid == 2)
+					rx_l2_bus.data		<= { rx_temp_buf[15:0], 16'h0 };
+			end
 
 			//New data word?
-			if(mac_rx_bus.data_valid) begin
+			else if(mac_rx_bus.data_valid) begin
 
 				rx_count	<= rx_count + 1'h1;
 
@@ -218,20 +231,8 @@ module Ethernet2TypeDecoder(
 
 			end
 
-			//No more data, packet must be ending (this might be the CRC gap)
-			//Send the last data byte(s), if any
+			//Idle period between message data blocks, do nothing
 			else begin
-
-				rx_temp_valid			<= 0;
-				rx_l2_bus.bytes_valid	<= rx_temp_valid;
-
-				rx_l2_bus.data_valid	<= (rx_temp_valid != 0);
-
-				if(rx_temp_valid == 1)
-					rx_l2_bus.data		<= { rx_temp_buf[15:8], 24'h0 };
-				else if(rx_temp_valid == 2)
-					rx_l2_bus.data		<= { rx_temp_buf[15:0], 16'h0 };
-
 			end
 
 		end
