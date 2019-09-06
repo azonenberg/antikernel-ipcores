@@ -129,11 +129,11 @@ module ReconfigurablePLL #(
 	output wire		locked,
 
 	//Reconfiguration: core
-	output reg		busy = 1,
+	output logic	busy = 1,
 	input wire		reconfig_clk,
 	input wire		reconfig_start,
 	input wire		reconfig_finish,
-	output reg		reconfig_cmd_done = 0,
+	output logic	reconfig_cmd_done = 0,
 
 	//Reconfiguration: VCO
 	input wire		reconfig_vco_en,
@@ -179,40 +179,24 @@ module ReconfigurablePLL #(
 		maxoperiod	= pll_output_max_period(speed);
 
 		//Sanity check inputs against the min/max legal frequencies
-		if( (IN0_PERIOD * 1000 < miniperiod) || (IN0_PERIOD * 1000 > maxiperiod) ) begin
-			$display("ERROR: ReconfigurablePLL: Input 0 period out of range");
-			$finish;
-		end
-		if( (IN1_PERIOD * 1000 < miniperiod) || (IN1_PERIOD * 1000 > maxiperiod) ) begin
-			$display("ERROR: ReconfigurablePLL: Input 1 period out of range");
-			$finish;
-		end
+		if( (IN0_PERIOD * 1000 < miniperiod) || (IN0_PERIOD * 1000 > maxiperiod) )
+			$fatal(1, "ERROR: ReconfigurablePLL: Input 0 period out of range");
+		if( (IN1_PERIOD * 1000 < miniperiod) || (IN1_PERIOD * 1000 > maxiperiod) )
+			$fatal(1, "ERROR: ReconfigurablePLL: Input 1 period out of range");
 
 		//Sanity check outputs against min/max legal frequencies
-		if( (OUT0_MIN_PERIOD * 1000 < minoperiod) || (OUT0_MIN_PERIOD * 1000 > maxoperiod) ) begin
-			$display("ERROR: ReconfigurablePLL: Output 0 period out of range");
-			$finish;
-		end
-		if( (OUT1_MIN_PERIOD * 1000 < minoperiod) || (OUT1_MIN_PERIOD * 1000 > maxoperiod) ) begin
-			$display("ERROR: ReconfigurablePLL: Output 1 period out of range");
-			$finish;
-		end
-		if( (OUT2_MIN_PERIOD * 1000 < minoperiod) || (OUT2_MIN_PERIOD * 1000 > maxoperiod) ) begin
-			$display("ERROR: ReconfigurablePLL: Output 2 period out of range");
-			$finish;
-		end
-		if( (OUT3_MIN_PERIOD * 1000 < minoperiod) || (OUT3_MIN_PERIOD * 1000 > maxoperiod) ) begin
-			$display("ERROR: ReconfigurablePLL: Output 3 period out of range");
-			$finish;
-		end
-		if( (OUT4_MIN_PERIOD * 1000 < minoperiod) || (OUT4_MIN_PERIOD * 1000 > maxoperiod) ) begin
-			$display("ERROR: ReconfigurablePLL: Output 4 period out of range");
-			$finish;
-		end
-		if( (OUT5_MIN_PERIOD * 1000 < minoperiod) || (OUT5_MIN_PERIOD * 1000 > maxoperiod) ) begin
-			$display("ERROR: ReconfigurablePLL: Output 5 period out of range");
-			$finish;
-		end
+		if( (OUT0_MIN_PERIOD * 1000 < minoperiod) || (OUT0_MIN_PERIOD * 1000 > maxoperiod) )
+			$fatal(1, "ERROR: ReconfigurablePLL: Output 0 period out of range");
+		if( (OUT1_MIN_PERIOD * 1000 < minoperiod) || (OUT1_MIN_PERIOD * 1000 > maxoperiod) )
+			$fatal(1, "ERROR: ReconfigurablePLL: Output 1 period out of range");
+		if( (OUT2_MIN_PERIOD * 1000 < minoperiod) || (OUT2_MIN_PERIOD * 1000 > maxoperiod) )
+			$fatal(1, "ERROR: ReconfigurablePLL: Output 2 period out of range");
+		if( (OUT3_MIN_PERIOD * 1000 < minoperiod) || (OUT3_MIN_PERIOD * 1000 > maxoperiod) )
+			$fatal(1, "ERROR: ReconfigurablePLL: Output 3 period out of range");
+		if( (OUT4_MIN_PERIOD * 1000 < minoperiod) || (OUT4_MIN_PERIOD * 1000 > maxoperiod) )
+			$fatal(1, "ERROR: ReconfigurablePLL: Output 4 period out of range");
+		if( (OUT5_MIN_PERIOD * 1000 < minoperiod) || (OUT5_MIN_PERIOD * 1000 > maxoperiod) )
+			$fatal(1, "ERROR: ReconfigurablePLL: Output 5 period out of range");
 
 	end
 
@@ -221,81 +205,73 @@ module ReconfigurablePLL #(
 
 	wire[5:0]			clkout_raw;
 
-	genvar i;
-	generate
-		for(i=0; i<6; i=i+1) begin:clkbufs
+	for(genvar i=0; i<6; i++) begin:clkbufs
 
-			//Do a global clock buffer if needed
-			if(OUTPUT_BUF_GLOBAL[i]) begin
-				ClockBuffer #(
-					.CE(OUTPUT_GATE[i]? "YES" : "NO"),
-					.TYPE("GLOBAL")
-				) output_buf (
-					.clkin(clkout_raw[i]),
-					.ce(locked),
-					.clkout(clkout[i])
-				);
-			end
+		//Do a global clock buffer if needed
+		if(OUTPUT_BUF_GLOBAL[i]) begin
+			ClockBuffer #(
+				.CE(OUTPUT_GATE[i]? "YES" : "NO"),
+				.TYPE("GLOBAL")
+			) output_buf (
+				.clkin(clkout_raw[i]),
+				.ce(locked),
+				.clkout(clkout[i])
+			);
+		end
 
-			//Do a local clock buffer if needed
-			else if(OUTPUT_BUF_LOCAL[i]) begin
-				ClockBuffer #(
-					.CE(OUTPUT_GATE[i]? "YES" : "NO"),
-					.TYPE("LOCAL")
-				) output_buf (
-					.clkin(clkout_raw[i]),
-					.ce(locked),
-					.clkout(clkout[i])
-				);
-			end
+		//Do a local clock buffer if needed
+		else if(OUTPUT_BUF_LOCAL[i]) begin
+			ClockBuffer #(
+				.CE(OUTPUT_GATE[i]? "YES" : "NO"),
+				.TYPE("LOCAL")
+			) output_buf (
+				.clkin(clkout_raw[i]),
+				.ce(locked),
+				.clkout(clkout[i])
+			);
+		end
 
-			//Do an I/O clock buffer if needed
-			else if(OUTPUT_BUF_IO[i]) begin
-				ClockBuffer #(
-					.CE(OUTPUT_GATE[i]? "YES" : "NO"),
-					.TYPE("IO")
-				) output_buf (
-					.clkin(clkout_raw[i]),
-					.ce(locked),
-					.clkout(clkout[i])
-				);
-			end
+		//Do an I/O clock buffer if needed
+		else if(OUTPUT_BUF_IO[i]) begin
+			ClockBuffer #(
+				.CE(OUTPUT_GATE[i]? "YES" : "NO"),
+				.TYPE("IO")
+			) output_buf (
+				.clkin(clkout_raw[i]),
+				.ce(locked),
+				.clkout(clkout[i])
+			);
+		end
 
-			//No buffer, just assign it
-			else begin
+		//No buffer, just assign it
+		else begin
 
-				assign clkout[i] = clkout_raw[i];
+			assign clkout[i] = clkout_raw[i];
 
-				//Must not be gating if we don't have a buffer
-				if(OUTPUT_GATE[i]) begin
-					initial begin
-						$display("ERROR: ReconfigurablePLL OUTPUT_GATE is only legal if OUTPUT_BUF_GLOBAL or OUTPUT_BUF_LOCAL is set");
-						$finish;
-					end
-				end
-
+			//Must not be gating if we don't have a buffer
+			if(OUTPUT_GATE[i]) begin
+				initial $fatal(1,
+					"ERROR: ReconfigurablePLL OUTPUT_GATE is only legal if OUTPUT_BUF_GLOBAL or OUTPUT_BUF_LOCAL is set");
 			end
 
 		end
-	endgenerate
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual PLL core
 
-	reg			drp_en			= 0;
-	reg			drp_we			= 0;
-	reg[6:0]	drp_daddr		= 0;
-	reg[15:0]	drp_din			= 0;
+	logic		drp_en			= 0;
+	logic		drp_we			= 0;
+	logic[6:0]	drp_daddr		= 0;
+	logic[15:0]	drp_din			= 0;
 	wire[15:0]	drp_dout;
 	wire		drp_ready;
 
-	reg			reset_int		= 1;
+	logic		reset_int		= 1;
 
 	`ifndef XILINX_7SERIES
-		initial begin
-			$display("ReconfigurablePLL only implemented for 7 series at the moment");
-			$finish;
-		end
+		initial $fatal(1, "ReconfigurablePLL only implemented for 7 series at the moment");
 	`endif
 
 	//Internal feedback net
@@ -307,202 +283,193 @@ module ReconfigurablePLL #(
 
 	`include "ReconfigurablePLL_helpers.vh"
 
-	generate
+	//Always use input #0 for now
+	localparam pllconfig = find_pll_config(
+		IN0_PERIOD * 1000, `XILINX_SPEEDGRADE,
+		OUT0_MIN_PERIOD * 1000, OUT1_MIN_PERIOD * 1000, OUT2_MIN_PERIOD * 1000,
+		OUT3_MIN_PERIOD * 1000,	OUT4_MIN_PERIOD * 1000,	OUT5_MIN_PERIOD * 1000);
+	localparam pll_mult	= pllconfig[15:8];
+	localparam pll_div	= pllconfig[7:0];
+	localparam outdiv0	= pll_vco_outdivcheck(IN0_PERIOD * 1000, pll_mult, pll_div, OUT0_MIN_PERIOD * 1000);
+	localparam outdiv1	= pll_vco_outdivcheck(IN0_PERIOD * 1000, pll_mult, pll_div, OUT1_MIN_PERIOD * 1000);
+	localparam outdiv2	= pll_vco_outdivcheck(IN0_PERIOD * 1000, pll_mult, pll_div, OUT2_MIN_PERIOD * 1000);
+	localparam outdiv3	= pll_vco_outdivcheck(IN0_PERIOD * 1000, pll_mult, pll_div, OUT3_MIN_PERIOD * 1000);
+	localparam outdiv4	= pll_vco_outdivcheck(IN0_PERIOD * 1000, pll_mult, pll_div, OUT4_MIN_PERIOD * 1000);
+	localparam outdiv5	= pll_vco_outdivcheck(IN0_PERIOD * 1000, pll_mult, pll_div, OUT5_MIN_PERIOD * 1000);
 
-		//Always use input #0 for now
-		localparam pllconfig = find_pll_config(
-			IN0_PERIOD * 1000, `XILINX_SPEEDGRADE,
-			OUT0_MIN_PERIOD * 1000, OUT1_MIN_PERIOD * 1000, OUT2_MIN_PERIOD * 1000,
-			OUT3_MIN_PERIOD * 1000,	OUT4_MIN_PERIOD * 1000,	OUT5_MIN_PERIOD * 1000);
-		localparam pll_mult	= pllconfig[15:8];
-		localparam pll_div	= pllconfig[7:0];
-		localparam outdiv0	= pll_vco_outdivcheck(IN0_PERIOD * 1000, pll_mult, pll_div, OUT0_MIN_PERIOD * 1000);
-		localparam outdiv1	= pll_vco_outdivcheck(IN0_PERIOD * 1000, pll_mult, pll_div, OUT1_MIN_PERIOD * 1000);
-		localparam outdiv2	= pll_vco_outdivcheck(IN0_PERIOD * 1000, pll_mult, pll_div, OUT2_MIN_PERIOD * 1000);
-		localparam outdiv3	= pll_vco_outdivcheck(IN0_PERIOD * 1000, pll_mult, pll_div, OUT3_MIN_PERIOD * 1000);
-		localparam outdiv4	= pll_vco_outdivcheck(IN0_PERIOD * 1000, pll_mult, pll_div, OUT4_MIN_PERIOD * 1000);
-		localparam outdiv5	= pll_vco_outdivcheck(IN0_PERIOD * 1000, pll_mult, pll_div, OUT5_MIN_PERIOD * 1000);
+	//If we found a good configuration, use it
+	if(pllconfig) begin
 
-		//If we found a good configuration, use it
-		if(pllconfig) begin
+		//Debug print
+		initial begin
+			if(PRINT_CONFIG) begin
+				$display("ReconfigurablePLL: Found legal default config: indiv=%d, mult=%d", pll_div, pll_mult);
 
-			//Debug print
-			initial begin
-				if(PRINT_CONFIG) begin
-					$display("ReconfigurablePLL: Found legal default config: indiv=%d, mult=%d", pll_div, pll_mult);
-
-					$display("    outdiv[0] = %d", outdiv0);
-					$display("    outdiv[1] = %d", outdiv1);
-					$display("    outdiv[2] = %d", outdiv2);
-					$display("    outdiv[3] = %d", outdiv3);
-					$display("    outdiv[4] = %d", outdiv4);
-					$display("    outdiv[5] = %d", outdiv5);
-				end
+				$display("    outdiv[0] = %d", outdiv0);
+				$display("    outdiv[1] = %d", outdiv1);
+				$display("    outdiv[2] = %d", outdiv2);
+				$display("    outdiv[3] = %d", outdiv3);
+				$display("    outdiv[4] = %d", outdiv4);
+				$display("    outdiv[5] = %d", outdiv5);
 			end
-
-			//Instantiate the actual PLL
-			MMCME2_ADV #(
-
-				//Generic settings
-				.BANDWIDTH("OPTIMIZED"),
-
-				//TODO: Set dividers
-				.CLKOUT0_DIVIDE_F(outdiv0),
-				.CLKOUT1_DIVIDE(outdiv1),
-				.CLKOUT2_DIVIDE(outdiv2),
-				.CLKOUT3_DIVIDE(outdiv3),
-				.CLKOUT4_DIVIDE(outdiv4),
-				.CLKOUT5_DIVIDE(outdiv5),
-
-				//Set default phases to 0
-				.CLKOUT0_PHASE(OUT0_DEFAULT_PHASE),
-				.CLKOUT1_PHASE(OUT1_DEFAULT_PHASE),
-				.CLKOUT2_PHASE(OUT2_DEFAULT_PHASE),
-				.CLKOUT3_PHASE(OUT3_DEFAULT_PHASE),
-				.CLKOUT4_PHASE(OUT4_DEFAULT_PHASE),
-				.CLKOUT5_PHASE(OUT5_DEFAULT_PHASE),
-
-				//Set default duty cycle to 0.5
-				.CLKOUT0_DUTY_CYCLE(0.5),
-				.CLKOUT1_DUTY_CYCLE(0.5),
-				.CLKOUT2_DUTY_CYCLE(0.5),
-				.CLKOUT3_DUTY_CYCLE(0.5),
-				.CLKOUT4_DUTY_CYCLE(0.5),
-				.CLKOUT5_DUTY_CYCLE(0.5),
-
-				//Not used
-				.CLKOUT6_DIVIDE(1),
-				.CLKOUT6_PHASE(0.0),
-				.CLKOUT6_DUTY_CYCLE(0.5),
-
-				//Default VCO configuration
-				.CLKFBOUT_MULT_F(pll_mult),
-				.DIVCLK_DIVIDE(pll_div),
-
-				//No feedback clock phase shift
-				.CLKFBOUT_PHASE(0),
-
-				//Simulation jitter
-				.REF_JITTER1(0.01),
-				.REF_JITTER2(0.01),
-
-				//Input clock periods
-				.CLKIN1_PERIOD(IN0_PERIOD),
-				.CLKIN2_PERIOD(IN1_PERIOD),
-
-				//Fine phase not supported
-				.CLKFBOUT_USE_FINE_PS("FALSE"),
-				.CLKOUT0_USE_FINE_PS("FALSE"),
-				.CLKOUT1_USE_FINE_PS("FALSE"),
-				.CLKOUT2_USE_FINE_PS("FALSE"),
-				.CLKOUT3_USE_FINE_PS("FALSE"),
-				.CLKOUT4_USE_FINE_PS("FALSE"),
-				.CLKOUT5_USE_FINE_PS("FALSE"),
-				.CLKOUT6_USE_FINE_PS("FALSE"),
-
-				//Don't wait for PLL lock during boot
-				.STARTUP_WAIT("FALSE"),
-
-				//Don't cascade the output
-				.CLKOUT4_CASCADE("FALSE"),
-
-				//Datasheet says to use this value
-				.COMPENSATION("ZHOLD"),
-
-				//No spread spectrum
-				.SS_EN("FALSE"),
-				.SS_MODE("CENTER_HIGH"),
-				.SS_MOD_PERIOD(10000)
-
-			) mmcm (
-
-				//Input clock
-				.CLKIN1(clkin[0]),
-				.CLKIN2(clkin[1]),
-				.CLKINSEL(!clksel),		//HIGH selects CLKIN1 so we need to invert
-
-				//Control
-				.RST(reset_int),
-				.PWRDWN(1'b0),			//TODO: allow using this
-
-				//Status
-				.LOCKED(locked),
-				.CLKINSTOPPED(),
-				.CLKFBSTOPPED(),
-
-				//Feedback
-				.CLKFBIN(clk_feedback),
-				.CLKFBOUT(clk_feedback),
-				.CLKFBOUTB(),
-
-				//Outputs
-				.CLKOUT0(clkout_raw[0]),
-				.CLKOUT1(clkout_raw[1]),
-				.CLKOUT2(clkout_raw[2]),
-				.CLKOUT3(clkout_raw[3]),
-				.CLKOUT4(clkout_raw[4]),
-				.CLKOUT5(clkout_raw[5]),
-
-				//Extra outputs (not supported in all chips so we ignore them for now)
-				.CLKOUT6(),
-				.CLKOUT0B(),
-				.CLKOUT1B(),
-				.CLKOUT2B(),
-				.CLKOUT3B(),
-
-				//DRP
-				.DCLK(reconfig_clk),
-				.DEN(drp_en),
-				.DWE(drp_we),
-				.DADDR(drp_daddr),
-				.DI(drp_din),
-				.DO(drp_dout),
-				.DRDY(drp_ready),
-
-				//Fine phase shift (not implemented)
-				.PSCLK(1'b0),
-				.PSEN(1'b0),
-				.PSINCDEC(1'b0),
-				.PSDONE()
-			);
-
 		end
 
-		//If no valid PLL configurations were found, give up
-		//(run simulation to debug)
-		else begin
-			`ifdef SIMULATION
-				initial begin
-					$display("ReconfigurablePLL: No good PLL settings found");
-					$display("%d", find_pll_config(
-						IN0_PERIOD * 1000, `XILINX_SPEEDGRADE,
-						OUT0_MIN_PERIOD * 1000, OUT1_MIN_PERIOD * 1000, OUT2_MIN_PERIOD * 1000,
-						OUT3_MIN_PERIOD * 1000,	OUT4_MIN_PERIOD * 1000,	OUT5_MIN_PERIOD * 1000));
-					$finish;
-				end
-			`else
-				//choke me;
-			`endif
-		end
+		//Instantiate the actual PLL
+		MMCME2_ADV #(
 
-	endgenerate
+			//Generic settings
+			.BANDWIDTH("OPTIMIZED"),
+
+			//TODO: Set dividers
+			.CLKOUT0_DIVIDE_F(outdiv0),
+			.CLKOUT1_DIVIDE(outdiv1),
+			.CLKOUT2_DIVIDE(outdiv2),
+			.CLKOUT3_DIVIDE(outdiv3),
+			.CLKOUT4_DIVIDE(outdiv4),
+			.CLKOUT5_DIVIDE(outdiv5),
+
+			//Set default phases to 0
+			.CLKOUT0_PHASE(OUT0_DEFAULT_PHASE),
+			.CLKOUT1_PHASE(OUT1_DEFAULT_PHASE),
+			.CLKOUT2_PHASE(OUT2_DEFAULT_PHASE),
+			.CLKOUT3_PHASE(OUT3_DEFAULT_PHASE),
+			.CLKOUT4_PHASE(OUT4_DEFAULT_PHASE),
+			.CLKOUT5_PHASE(OUT5_DEFAULT_PHASE),
+
+			//Set default duty cycle to 0.5
+			.CLKOUT0_DUTY_CYCLE(0.5),
+			.CLKOUT1_DUTY_CYCLE(0.5),
+			.CLKOUT2_DUTY_CYCLE(0.5),
+			.CLKOUT3_DUTY_CYCLE(0.5),
+			.CLKOUT4_DUTY_CYCLE(0.5),
+			.CLKOUT5_DUTY_CYCLE(0.5),
+
+			//Not used
+			.CLKOUT6_DIVIDE(1),
+			.CLKOUT6_PHASE(0.0),
+			.CLKOUT6_DUTY_CYCLE(0.5),
+
+			//Default VCO configuration
+			.CLKFBOUT_MULT_F(pll_mult),
+			.DIVCLK_DIVIDE(pll_div),
+
+			//No feedback clock phase shift
+			.CLKFBOUT_PHASE(0),
+
+			//Simulation jitter
+			.REF_JITTER1(0.01),
+			.REF_JITTER2(0.01),
+
+			//Input clock periods
+			.CLKIN1_PERIOD(IN0_PERIOD),
+			.CLKIN2_PERIOD(IN1_PERIOD),
+
+			//Fine phase not supported
+			.CLKFBOUT_USE_FINE_PS("FALSE"),
+			.CLKOUT0_USE_FINE_PS("FALSE"),
+			.CLKOUT1_USE_FINE_PS("FALSE"),
+			.CLKOUT2_USE_FINE_PS("FALSE"),
+			.CLKOUT3_USE_FINE_PS("FALSE"),
+			.CLKOUT4_USE_FINE_PS("FALSE"),
+			.CLKOUT5_USE_FINE_PS("FALSE"),
+			.CLKOUT6_USE_FINE_PS("FALSE"),
+
+			//Don't wait for PLL lock during boot
+			.STARTUP_WAIT("FALSE"),
+
+			//Don't cascade the output
+			.CLKOUT4_CASCADE("FALSE"),
+
+			//Datasheet says to use this value
+			.COMPENSATION("ZHOLD"),
+
+			//No spread spectrum
+			.SS_EN("FALSE"),
+			.SS_MODE("CENTER_HIGH"),
+			.SS_MOD_PERIOD(10000)
+
+		) mmcm (
+
+			//Input clock
+			.CLKIN1(clkin[0]),
+			.CLKIN2(clkin[1]),
+			.CLKINSEL(!clksel),		//HIGH selects CLKIN1 so we need to invert
+
+			//Control
+			.RST(reset_int),
+			.PWRDWN(1'b0),			//TODO: allow using this
+
+			//Status
+			.LOCKED(locked),
+			.CLKINSTOPPED(),
+			.CLKFBSTOPPED(),
+
+			//Feedback
+			.CLKFBIN(clk_feedback),
+			.CLKFBOUT(clk_feedback),
+			.CLKFBOUTB(),
+
+			//Outputs
+			.CLKOUT0(clkout_raw[0]),
+			.CLKOUT1(clkout_raw[1]),
+			.CLKOUT2(clkout_raw[2]),
+			.CLKOUT3(clkout_raw[3]),
+			.CLKOUT4(clkout_raw[4]),
+			.CLKOUT5(clkout_raw[5]),
+
+			//Extra outputs (not supported in all chips so we ignore them for now)
+			.CLKOUT6(),
+			.CLKOUT0B(),
+			.CLKOUT1B(),
+			.CLKOUT2B(),
+			.CLKOUT3B(),
+
+			//DRP
+			.DCLK(reconfig_clk),
+			.DEN(drp_en),
+			.DWE(drp_we),
+			.DADDR(drp_daddr),
+			.DI(drp_din),
+			.DO(drp_dout),
+			.DRDY(drp_ready),
+
+			//Fine phase shift (not implemented)
+			.PSCLK(1'b0),
+			.PSEN(1'b0),
+			.PSINCDEC(1'b0),
+			.PSDONE()
+		);
+
+	end
+
+	//If no valid PLL configurations were found, give up
+	else begin
+		initial begin
+			$warning("ReconfigurablePLL: No good PLL settings found");
+			$fatal(1, "%d", find_pll_config(
+				IN0_PERIOD * 1000, `XILINX_SPEEDGRADE,
+				OUT0_MIN_PERIOD * 1000, OUT1_MIN_PERIOD * 1000, OUT2_MIN_PERIOD * 1000,
+				OUT3_MIN_PERIOD * 1000,	OUT4_MIN_PERIOD * 1000,	OUT5_MIN_PERIOD * 1000));
+		end
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Helper for read-modify-write operations
 
-	localparam	DRP_STATE_IDLE		= 2'h0;
-	localparam	DRP_STATE_READ		= 2'h1;
-	localparam	DRP_STATE_WRITE		= 2'h2;
+	enum logic[1:0]
+	{
+		DRP_STATE_IDLE = 2'h0,
+		DRP_STATE_READ = 2'h1,
+		DRP_STATE_WRITE = 2'h2
+	} drp_state	= DRP_STATE_IDLE;
 
-	reg[1:0]	drp_state	= DRP_STATE_IDLE;
+	logic		reg_wr				= 0;
+	logic		reg_wr_done			= 0;
+	logic[6:0]	reg_addr			= 0;
+	logic[15:0]	reg_wdata			= 0;
+	logic[15:0]	reg_wmask			= 0;
 
-	reg			reg_wr				= 0;
-	reg			reg_wr_done			= 0;
-	reg[6:0]	reg_addr			= 0;
-	reg[15:0]	reg_wdata			= 0;
-	reg[15:0]	reg_wmask			= 0;
-
-	always @(posedge reconfig_clk) begin
+	always_ff @(posedge reconfig_clk) begin
 
 		//Clear DRP state
 		drp_daddr			<= 0;
@@ -550,11 +517,10 @@ module ReconfigurablePLL #(
 	// Table of ROM entries for PLL lock configuration
 
 	//Values from XAPP888
-	//TODO: portable paths
-	reg[9:0]	pll_lockcnt_rom[63:0];
-	reg[4:0]	pll_lockrefdly_rom[63:0];
-	reg[7:0]	pll_filter_lowbw[63:0];
-	reg[7:0]	pll_filter_highbw[63:0];
+	logic[9:0]	pll_lockcnt_rom[63:0];
+	logic[4:0]	pll_lockrefdly_rom[63:0];
+	logic[7:0]	pll_filter_lowbw[63:0];
+	logic[7:0]	pll_filter_highbw[63:0];
 	initial begin
 		$readmemb("ReconfigurablePLL_rom_7series_lockcnt.bin", pll_lockcnt_rom);
 		$readmemb("ReconfigurablePLL_rom_7series_lockrefdly.bin", pll_lockrefdly_rom);
@@ -563,46 +529,46 @@ module ReconfigurablePLL #(
 	end
 
 	//ROM addresses
-	reg[5:0]	vco_romaddr		= 0;
-	reg[6:0]	vco_mult_dec	= 0;
-	always @(*) begin
-		vco_mult_dec	<= reconfig_vco_mult - 6'b1;
-		vco_romaddr		<= vco_mult_dec[5:0];
+	logic[5:0]	vco_romaddr;
+	logic[6:0]	vco_mult_dec;
+	always_comb begin
+		vco_mult_dec	= reconfig_vco_mult - 6'b1;
+		vco_romaddr		= vco_mult_dec[5:0];
 	end
 
 	//Filter selection
-	reg[7:0]	pll_filter_out_highbw	= 0;
-	reg[7:0]	pll_filter_out_lowbw	= 0;
-	reg[9:0]	pll_filter_out			= 0;
-	always @(*) begin
-		pll_filter_out_highbw	<= pll_filter_highbw[vco_romaddr];
-		pll_filter_out_lowbw	<= pll_filter_lowbw[vco_romaddr];
+	logic[7:0]	pll_filter_out_highbw;
+	logic[7:0]	pll_filter_out_lowbw;
+	logic[9:0]	pll_filter_out;
+	always_comb begin
+		pll_filter_out_highbw	= pll_filter_highbw[vco_romaddr];
+		pll_filter_out_lowbw	= pll_filter_lowbw[vco_romaddr];
 
 		if(reconfig_vco_bandwidth)
-			pll_filter_out			<= pll_filter_out_highbw;
+			pll_filter_out		= pll_filter_out_highbw;
 		else
-			pll_filter_out			<= pll_filter_out_lowbw;
+			pll_filter_out		= pll_filter_out_lowbw;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Reconfiguration states
 
-	localparam	STATE_BOOT_HOLD_0	= 4'h0;			//Waiting for initial configuration to be selected
-	localparam	STATE_BOOT_HOLD_1	= 4'h1;			//Still waiting, initial DRP write sent
-	localparam	STATE_IDLE			= 4'h2;			//Not reconfiguring
-	localparam	STATE_READY			= 4'h3;			//In reconfiguration mode, nothing happening
-	localparam	STATE_VCO_0			= 4'h4;			//Do VCO configuration
-	localparam	STATE_VCO_1			= 4'h5;
-	localparam	STATE_VCO_2			= 4'h6;
-	localparam	STATE_VCO_3			= 4'h7;
-	localparam	STATE_VCO_4			= 4'h8;
-	localparam	STATE_VCO_5			= 4'h9;
-	localparam	STATE_VCO_6			= 4'ha;
-	localparam	STATE_RDONE			= 4'hb;
-	localparam	STATE_OUTDIV_0		= 4'hc;
-
-	//Start out waiting for intial reconfiguration
-	reg[3:0]	state		= STATE_BOOT_HOLD_0;
+	enum logic[4:0]
+	{
+		STATE_BOOT_HOLD_0	= 4'h0,			//Waiting for initial configuration to be selected
+		STATE_BOOT_HOLD_1	= 4'h1,			//Still waiting, initial DRP write sent
+		STATE_IDLE			= 4'h2,			//Not reconfiguring
+		STATE_READY			= 4'h3,			//In reconfiguration mode, nothing happening
+		STATE_VCO_0			= 4'h4,			//Do VCO configuration
+		STATE_VCO_1			= 4'h5,
+		STATE_VCO_2			= 4'h6,
+		STATE_VCO_3			= 4'h7,
+		STATE_VCO_4			= 4'h8,
+		STATE_VCO_5			= 4'h9,
+		STATE_VCO_6			= 4'ha,
+		STATE_RDONE			= 4'hb,
+		STATE_OUTDIV_0		= 4'hc
+	} state		= STATE_BOOT_HOLD_0;
 
 	//Register IDs
 	localparam	REG_CLKOUT5_CLKREG1		= 7'h06;
@@ -629,7 +595,7 @@ module ReconfigurablePLL #(
 	localparam	REG_VCO_FILTREG1		= 7'h4e;
 	localparam	REG_VCO_FILTREG2		= 7'h4f;
 
-	always @(posedge reconfig_clk) begin
+	always_ff @(posedge reconfig_clk) begin
 
 		//Clear output status flags
 		reconfig_cmd_done	<= 0;
