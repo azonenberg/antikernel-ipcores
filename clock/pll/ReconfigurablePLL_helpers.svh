@@ -2,7 +2,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -91,29 +91,32 @@ function integer pll_output_expected_divisor;
 endfunction
 
 //Determines if the given output frequency can be produced by a PLL with the specified VCO configuration.
-function integer pll_vco_outdivcheck;
+function integer pll_vco_outdivcheck(
+	input integer	inperiod,
+	input integer	mult,
+	input integer	div,
+	input integer	target_period
+	);
 
-	input integer	inperiod;
-	input integer	mult;
-	input integer	div;
-
-	input integer	target_period;
-
-	//If the computed divisor is too big, give up
-	if(pll_output_expected_divisor(pll_vco_period(inperiod, mult, div), target_period) > pll_outdiv_max(1))
 	begin
-		pll_vco_outdivcheck = 0;
-	end
 
-	//If it doesn't divide evenly, give up
-	else if((pll_output_expected_divisor(pll_vco_period(inperiod, mult, div), target_period) *
-			pll_vco_period(inperiod, mult, div)) != target_period) begin
-		pll_vco_outdivcheck = 0;
-	end
+		//If the computed divisor is too big, give up
+		if(pll_output_expected_divisor(pll_vco_period(inperiod, mult, div), target_period) > pll_outdiv_max(1))
+			return 0;
 
-	//all good
-	else begin
-		pll_vco_outdivcheck = pll_output_expected_divisor(pll_vco_period(inperiod, mult, div), target_period);
+		//If it doesn't divide evenly, give up
+		else if(
+			((((pll_output_expected_divisor(pll_vco_period(inperiod, mult, div), target_period)) *
+				pll_vco_period(inperiod, mult, div)) - target_period) > 0.01) ||
+			((((pll_output_expected_divisor(pll_vco_period(inperiod, mult, div), target_period)) *
+				pll_vco_period(inperiod, mult, div)) - target_period) < -0.01)
+			)
+			return 0;
+
+		//all good
+		else
+			return pll_output_expected_divisor(pll_vco_period(inperiod, mult, div), target_period);
+
 	end
 
 endfunction

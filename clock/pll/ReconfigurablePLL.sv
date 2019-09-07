@@ -151,7 +151,7 @@ module ReconfigurablePLL #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Sanity checks for timing analysis
 
-	`include "ReconfigurablePLL_limits.vh"
+	`include "ReconfigurablePLL_limits.svh"
 
 	//verify a suported device is selected
 	`ifndef XILINX_SPARTAN6
@@ -281,7 +281,7 @@ module ReconfigurablePLL #(
 	genvar indiv;
 	genvar ok;
 
-	`include "ReconfigurablePLL_helpers.vh"
+	`include "ReconfigurablePLL_helpers.svh"
 
 	//Always use input #0 for now
 	localparam pllconfig = find_pll_config(
@@ -553,7 +553,7 @@ module ReconfigurablePLL #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Reconfiguration states
 
-	enum logic[4:0]
+	enum logic[3:0]
 	{
 		STATE_BOOT_HOLD_0	= 4'h0,			//Waiting for initial configuration to be selected
 		STATE_BOOT_HOLD_1	= 4'h1,			//Still waiting, initial DRP write sent
