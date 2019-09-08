@@ -45,7 +45,6 @@ module IODelayBlock #(
 ) (
 	input wire[WIDTH-1 : 0]		i_pad,				//input from pad to rx datapath
 	output wire[WIDTH-1 : 0]	i_fabric,			//output from rx datapath to fabric
-	output wire[WIDTH-1 : 0]	i_fabric_serdes,	//output from rx datapath to input SERDES
 
 	output wire[WIDTH-1 : 0]	o_pad,				//output from tx datapath to pad
 	input wire[WIDTH-1 : 0]		o_fabric,			//input from fabric or serdes to tx datapath
@@ -54,97 +53,93 @@ module IODelayBlock #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Delay tap calculation
-
-	//Look up the speed grade passed in from Splash
-	localparam SPEED_GRADE = `XILINX_SPEEDGRADE;
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual delay block
 
-	genvar i;
-	generate
-		for(i=0; i<WIDTH; i = i+1) begin: delays
+	for(genvar i=0; i<WIDTH; i++) begin
 
-			//PTV-calibrated delays for 7 series
-			//For now, we only support fixed delays and assume the reference clock is 200 MHz
-			//(300/400 MHz refclk only supported in -2 and -3 speed grades for 7 series)
-			//Delays for artix7 and kintex7 are the same
-			`ifdef XILINX_7SERIES
+		//PTV-calibrated delays for 7 series
+		//For now, we only support fixed delays and assume the reference clock is 200 MHz
+		//(300/400 MHz refclk only supported in -2 and -3 speed grades for 7 series)
+		//Delays for artix7 and kintex7 are the same
+		`ifdef XILINX_7SERIES
 
-				localparam tap_size				= 78;	//78.125 ps per tap at 200 MHz
-				localparam input_delay_taps 	= INPUT_DELAY / tap_size;
-				localparam output_delay_taps	= INPUT_DELAY / tap_size;
+			localparam tap_size				= 78;	//78.125 ps per tap at 200 MHz
+			localparam input_delay_taps 	= INPUT_DELAY / tap_size;
+			localparam output_delay_taps	= INPUT_DELAY / tap_size;
 
-				//Sanity check, max number of taps is 31
+			//Sanity check, max number of taps is 31
+			initial begin
+				if(input_delay_taps > 31) begin
+					$fatal(1, "ERROR: IODelayBlock computed >31 taps (%d) for input delay value %d ps",
+						input_delay_taps, INPUT_DELAY);
+				end
+				if(output_delay_taps > 31) begin
+					$fatal(1, "ERROR: IODelayBlock computed >31 taps (%d) for input delay value %d ps",
+						output_delay_taps, OUTPUT_DELAY);
+				end
+			end
+
+			//Create the input delay
+			if(DIRECTION == "IN") begin
+
+				//Create the IDELAY block
+				IDELAYE2 #(
+					.IDELAY_TYPE("FIXED"),
+					.DELAY_SRC("IDATAIN"),
+					.IDELAY_VALUE(input_delay_taps),
+					.HIGH_PERFORMANCE_MODE("FALSE"),		//TODO: decide when to enable
+					.SIGNAL_PATTERN(IS_CLOCK ? "CLOCK" : "DATA"),
+					.REFCLK_FREQUENCY(200),					//TODO: Make configurable
+					.CINVCTRL_SEL("FALSE"),
+					.PIPE_SEL("FALSE")
+				) idelayblock (
+					.C(),
+					.REGRST(1'b0),
+					.LD(1'b0),
+					.CE(1'b0),
+					.INC(1'b0),
+					.CINVCTRL(1'b0),
+					.CNTVALUEIN(5'b0),
+					.IDATAIN(i_pad[i]),
+					.DATAIN(1'b0),
+					.LDPIPEEN(1'b0),
+					.DATAOUT(i_fabric[i]),
+					.CNTVALUEOUT()
+				);
+
+				assign o_pad[i]				= 0;
+			end
+
+			else if(DIRECTION == "OUT") begin
+				//ODELAY not implemented for 7 series yet
+				/*
 				initial begin
-					if(input_delay_taps > 31) begin
-						$fatal("ERROR: IODelayBlock computed >31 taps (%d) for input delay value %d ps",
-							input_delay_taps, INPUT_DELAY);
-					end
-					if(output_delay_taps > 31) begin
-						$fatal("ERROR: IODelayBlock computed >31 taps (%d) for input delay value %d ps",
-							output_delay_taps, OUTPUT_DELAY);
-					end
+					$display("7-series ODELAY not implemented yet in IODelayBlock\n");
+					$finish;
 				end
+				*/
+				assign o_pad[i]				= o_fabric[i];
+			end
 
-				//Create the input delay
-				if(DIRECTION == "IN") begin
-
-					//Create the IDELAY block
-					IDELAYE2 #(
-						.IDELAY_TYPE("FIXED"),
-						.DELAY_SRC("IDATAIN"),
-						.IDELAY_VALUE(input_delay_taps),
-						.HIGH_PERFORMANCE_MODE("FALSE"),		//TODO: decide when to enable
-						.SIGNAL_PATTERN(IS_CLOCK ? "CLOCK" : "DATA"),
-						.REFCLK_FREQUENCY(200),					//TODO: Make configurable
-						.CINVCTRL_SEL("FALSE"),
-						.PIPE_SEL("FALSE")
-					) idelayblock (
-						.C(),
-						.REGRST(1'b0),
-						.LD(1'b0),
-						.CE(1'b0),
-						.INC(1'b0),
-						.CINVCTRL(1'b0),
-						.CNTVALUEIN(5'b0),
-						.IDATAIN(i_pad[i]),
-						.DATAIN(1'b0),
-						.LDPIPEEN(1'b0),
-						.DATAOUT(i_fabric[i]),
-						.CNTVALUEOUT()
-					);
-
-					assign o_pad[i]				= 0;
-					assign i_fabric_serdes[i]	= i_fabric[i];
-				end
-
-				else if(DIRECTION == "OUT") begin
-					//ODELAY not implemented for 7 series yet
-					/*
-					initial begin
-						$display("7-series ODELAY not implemented yet in IODelayBlock\n");
-						$finish;
-					end
-					*/
-					assign o_pad[i]				= o_fabric[i];
-				end
-
-				//Print stats
+			else begin
 				initial begin
-					if(i == 0) begin
-						$info("INFO: Target input delay for IODelayBlock is %d ps, actual is %d",
-							INPUT_DELAY, input_delay_taps * tap_size);
-						$info("INFO: Target output delay for IODelayBlock is %d ps, actual is %d",
-							OUTPUT_DELAY, input_delay_taps * tap_size);
-					end
+					$fatal(1, "IODelayBlock DIRECTION must be IN or OUT");
 				end
+			end
 
-			`endif
+			//Print stats
+			initial begin
+				if(i == 0) begin
+					$info("INFO: Target input delay for IODelayBlock is %d ps, actual is %d",
+						INPUT_DELAY, input_delay_taps * tap_size);
+					$info("INFO: Target output delay for IODelayBlock is %d ps, actual is %d",
+						OUTPUT_DELAY, input_delay_taps * tap_size);
+				end
+			end
 
-		end
-	endgenerate
+		`endif
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Delay calibration during initialization

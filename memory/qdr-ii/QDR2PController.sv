@@ -55,7 +55,7 @@ module QDR2PController #(
 	input wire						rd_en,
 	input wire[ADDR_BITS-1:0]		rd_addr,
 	output logic					rd_valid	= 0,
-	output logic[CTRL_WIDTH-1:0]	rd_data		= 0,
+	output wire[CTRL_WIDTH-1:0]		rd_data,
 	input wire						wr_en,
 	input wire[ADDR_BITS-1:0]		wr_addr,
 	input wire[CTRL_WIDTH-1:0]		wr_data,
@@ -105,7 +105,7 @@ module QDR2PController #(
 	);
 
 	//Receive and buffer the echoed clock
-	wire	qclk_bufg;
+	/*wire	qclk_bufg;
 	IBUFGDS #(
 		.DIFF_TERM("TRUE"),
 		.IOSTANDARD("DIFF_HSTL_1_15")
@@ -113,19 +113,22 @@ module QDR2PController #(
 		.I(qdr_qclk_p),
 		.IB(qdr_qclk_n),
 		.O(qclk_bufg)
-	);
+	);*/
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Reset
 
-	logic[7:0]	rst_count = 1;
+	logic[7:0]	rst_count 	= 1;
 	logic		serdes_rst	= 1;
+	logic		fifo_rst	= 1;
 
 	always_ff @(posedge clk_ctl) begin
-		if(serdes_rst)
+		if(rst_count)
 			rst_count	<= rst_count + 1;
-		if(rst_count == 0)
+		if(rst_count == 240)
 			serdes_rst	<= 0;
+		if(rst_count == 0)
+			fifo_rst	<= 0;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -291,5 +294,187 @@ module QDR2PController #(
 			.T1(1'b0)
 		);
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Input capture
+
+	//Deserialize the input
+	wire[RAM_WIDTH-1:0]	qdr_q_delay;
+	wire[3:0]	qdr_q_deserialized[RAM_WIDTH-1:0];
+	for(genvar i=0; i<RAM_WIDTH; i++) begin
+
+		IDELAYE2 #(
+			.IDELAY_TYPE("FIXED"),
+			.DELAY_SRC("IDATAIN"),
+			.IDELAY_VALUE(16),				//1250 ps @ 200 MHz refclk
+			.HIGH_PERFORMANCE_MODE("TRUE"),
+			.SIGNAL_PATTERN("DATA"),
+			.REFCLK_FREQUENCY(200),
+			.CINVCTRL_SEL("FALSE"),
+			.PIPE_SEL("FALSE")
+		) idelayblock (
+			.C(),
+			.REGRST(1'b0),
+			.LD(1'b0),
+			.CE(1'b0),
+			.INC(1'b0),
+			.CINVCTRL(1'b0),
+			.CNTVALUEIN(5'b0),
+			.IDATAIN(qdr_q[i]),
+			.DATAIN(1'b0),
+			.LDPIPEEN(1'b0),
+			.DATAOUT(qdr_q_delay[i]),
+			.CNTVALUEOUT()
+		);
+
+		ISERDESE2 #(
+			.DATA_RATE("DDR"),
+			.DATA_WIDTH(4),
+			.DYN_CLKDIV_INV_EN("FALSE"),
+			.DYN_CLK_INV_EN("FALSE"),
+			.INTERFACE_TYPE("MEMORY_QDR"),
+			.NUM_CE(1),
+			.OFB_USED("FALSE"),
+			.SERDES_MODE("MASTER"),
+			.IOBDELAY("BOTH")
+		) q_iserdes (
+			.Q1(qdr_q_deserialized[i][0]),
+			.Q2(qdr_q_deserialized[i][1]),
+			.Q3(qdr_q_deserialized[i][2]),
+			.Q4(qdr_q_deserialized[i][3]),
+			.O(),
+			.SHIFTOUT1(),
+			.SHIFTOUT2(),
+			.D(),
+			.DDLY(qdr_q_delay[i]),
+			.CLK(qdr_qclk_p),
+			.CLKB(qdr_qclk_n),
+			.CE1(1'b1),
+			.CE2(1'b1),
+			.RST(serdes_rst),
+			.CLKDIV(clk_ctl),
+			.CLKDIVP(1'b0),
+			.OCLK(),
+			.OCLKB(),
+			.BITSLIP(1'b0),
+			.SHIFTIN1(1'b0),
+			.SHIFTIN2(1'b0),
+			.OFB(1'b0),
+			.DYNCLKDIVSEL(1'b0),
+			.DYNCLKSEL(1'b0)
+		);
+	end
+
+	wire	qdr_qvld_delay;
+	IDELAYE2 #(
+		.IDELAY_TYPE("FIXED"),
+		.DELAY_SRC("IDATAIN"),
+		.IDELAY_VALUE(24),				//1875 ps @ 200 MHz refclk
+		.HIGH_PERFORMANCE_MODE("TRUE"),
+		.SIGNAL_PATTERN("DATA"),
+		.REFCLK_FREQUENCY(200),
+		.CINVCTRL_SEL("FALSE"),
+		.PIPE_SEL("FALSE")
+	) idelay_valid (
+		.C(),
+		.REGRST(1'b0),
+		.LD(1'b0),
+		.CE(1'b0),
+		.INC(1'b0),
+		.CINVCTRL(1'b0),
+		.CNTVALUEIN(5'b0),
+		.IDATAIN(qdr_qvld),
+		.DATAIN(1'b0),
+		.LDPIPEEN(1'b0),
+		.DATAOUT(qdr_qvld_delay),
+		.CNTVALUEOUT()
+	);
+
+	wire[3:0] qdr_qvld_delay_deser;
+	ISERDESE2 #(
+		.DATA_RATE("DDR"),
+		.DATA_WIDTH(4),
+		.DYN_CLKDIV_INV_EN("FALSE"),
+		.DYN_CLK_INV_EN("FALSE"),
+		.INTERFACE_TYPE("MEMORY_QDR"),
+		.NUM_CE(1),
+		.OFB_USED("FALSE"),
+		.SERDES_MODE("MASTER"),
+		.IOBDELAY("BOTH")
+	) qvld_iserdes (
+		.Q1(qdr_qvld_delay_deser[0]),
+		.Q2(qdr_qvld_delay_deser[1]),
+		.Q3(qdr_qvld_delay_deser[2]),
+		.Q4(qdr_qvld_delay_deser[3]),
+		.O(),
+		.SHIFTOUT1(),
+		.SHIFTOUT2(),
+		.D(),
+		.DDLY(qdr_qvld_delay),
+		.CLK(qdr_qclk_p),
+		.CLKB(qdr_qclk_n),
+		.CE1(1'b1),
+		.CE2(1'b1),
+		.RST(serdes_rst),
+		.CLKDIV(clk_ctl),
+		.CLKDIVP(1'b0),
+		.OCLK(),
+		.OCLKB(),
+		.BITSLIP(1'b0),
+		.SHIFTIN1(1'b0),
+		.SHIFTIN2(1'b0),
+		.OFB(1'b0),
+		.DYNCLKDIVSEL(1'b0),
+		.DYNCLKSEL(1'b0)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Clock domain crossing for inbound data
+
+	localparam NUM_BYTE_GROUPS = RAM_WIDTH / 9;
+	wire[3:0]	qdr_q_deserialized_fifo[RAM_WIDTH-1:0];
+	logic		fifo_rd_en	= 0;
+	wire[NUM_BYTE_GROUPS-1:0]	fifo_empty;
+	wire[NUM_BYTE_GROUPS-1:0]	fifo_almost_empty;
+	for(genvar i=0; i<NUM_BYTE_GROUPS; i++) begin
+		IN_FIFO #(
+		) ififo (
+			.ALMOSTEMPTY(fifo_almost_empty[i]),
+			.ALMOSTFULL(),
+			.EMPTY(fifo_empty[i]),
+			.FULL(),
+
+			.D0(qdr_q_deserialized[i*9 + 0]),
+			.D1(qdr_q_deserialized[i*9 + 1]),
+			.D2(qdr_q_deserialized[i*9 + 2]),
+			.D3(qdr_q_deserialized[i*9 + 3]),
+			.D4(qdr_q_deserialized[i*9 + 4]),
+			.D5(qdr_q_deserialized[i*9 + 5]),
+			.D6(qdr_q_deserialized[i*9 + 6]),
+			.D7(qdr_q_deserialized[i*9 + 7]),
+			.D8(qdr_q_deserialized[i*9 + 8]),
+			.D9(4'h0),
+
+			.Q0(qdr_q_deserialized_fifo[i*9 + 0]),
+			.Q1(qdr_q_deserialized_fifo[i*9 + 1]),
+			.Q2(qdr_q_deserialized_fifo[i*9 + 2]),
+			.Q3(qdr_q_deserialized_fifo[i*9 + 3]),
+			.Q4(qdr_q_deserialized_fifo[i*9 + 4]),
+			.Q5(qdr_q_deserialized_fifo[i*9 + 5]),
+			.Q6(qdr_q_deserialized_fifo[i*9 + 6]),
+			.Q7(qdr_q_deserialized_fifo[i*9 + 7]),
+			.Q8(qdr_q_deserialized_fifo[i*9 + 8]),
+			.Q9(),
+
+			.RDCLK(clk_ctl),
+			.RDEN(fifo_rd_en),
+			.RESET(fifo_rst),
+			.WRCLK(qdr_qclk_p),
+			.WREN(qdr_qvld_delay_deser[0])
+		);
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Pop inbound data out of the FIFO and send to the host
 
 endmodule
