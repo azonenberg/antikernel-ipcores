@@ -55,7 +55,7 @@ module QDR2PController #(
 	input wire						rd_en,
 	input wire[ADDR_BITS-1:0]		rd_addr,
 	output logic					rd_valid	= 0,
-	output wire[CTRL_WIDTH-1:0]		rd_data,
+	output logic[CTRL_WIDTH-1:0]	rd_data		= 0,
 	input wire						wr_en,
 	input wire[ADDR_BITS-1:0]		wr_addr,
 	input wire[CTRL_WIDTH-1:0]		wr_data,
@@ -105,15 +105,27 @@ module QDR2PController #(
 	);
 
 	//Receive and buffer the echoed clock
-	/*wire	qclk_bufg;
-	IBUFGDS #(
+	wire	qclk_p;
+	wire	qclk_n;
+	IBUFDS_DIFF_OUT #(
 		.DIFF_TERM("TRUE"),
 		.IOSTANDARD("DIFF_HSTL_1_15")
 	) qclk_ibuf(
 		.I(qdr_qclk_p),
 		.IB(qdr_qclk_n),
-		.O(qclk_bufg)
-	);*/
+		.O(qclk_p),
+		.OB(qclk_n)
+	);
+
+	wire	qclk_div2;
+	BUFR #(
+		.BUFR_DIVIDE("2")
+	) qclk_bufr (
+		.CE(1),
+		.CLR(fifo_rst),
+		.I(qclk_p),
+		.O(qclk_div2)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Reset
@@ -347,12 +359,12 @@ module QDR2PController #(
 			.SHIFTOUT2(),
 			.D(),
 			.DDLY(qdr_q_delay[i]),
-			.CLK(qdr_qclk_p),
-			.CLKB(qdr_qclk_n),
+			.CLK(qclk_p),
+			.CLKB(qclk_n),
 			.CE1(1'b1),
 			.CE2(1'b1),
 			.RST(serdes_rst),
-			.CLKDIV(clk_ctl),
+			.CLKDIV(qclk_div2),
 			.CLKDIVP(1'b0),
 			.OCLK(),
 			.OCLKB(),
@@ -411,12 +423,12 @@ module QDR2PController #(
 		.SHIFTOUT2(),
 		.D(),
 		.DDLY(qdr_qvld_delay),
-		.CLK(qdr_qclk_p),
-		.CLKB(qdr_qclk_n),
+		.CLK(qclk_p),
+		.CLKB(qclk_n),
 		.CE1(1'b1),
 		.CE2(1'b1),
 		.RST(serdes_rst),
-		.CLKDIV(clk_ctl),
+		.CLKDIV(qclk_div2),
 		.CLKDIVP(1'b0),
 		.OCLK(),
 		.OCLKB(),
@@ -438,6 +450,8 @@ module QDR2PController #(
 	wire[NUM_BYTE_GROUPS-1:0]	fifo_almost_empty;
 	for(genvar i=0; i<NUM_BYTE_GROUPS; i++) begin
 		IN_FIFO #(
+			.SYNCHRONOUS_MODE("FALSE"),
+			.ARRAY_MODE("ARRAY_MODE_4_X_4")
 		) ififo (
 			.ALMOSTEMPTY(fifo_almost_empty[i]),
 			.ALMOSTFULL(),
@@ -469,12 +483,45 @@ module QDR2PController #(
 			.RDCLK(clk_ctl),
 			.RDEN(fifo_rd_en),
 			.RESET(fifo_rst),
-			.WRCLK(qdr_qclk_p),
+			.WRCLK(qclk_div2),
 			.WREN(qdr_qvld_delay_deser[0])
 		);
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Pop inbound data out of the FIFO and send to the host
+
+	wire	any_fifo_empty 			= &fifo_empty;
+	wire	any_fifo_almost_empty 	= &fifo_almost_empty;
+
+	always_ff @(posedge clk_ctl) begin
+		fifo_rd_en	<= 0;
+		rd_valid	<= 0;
+
+		//If all FIFOs have something in them, pop.
+		if(!any_fifo_empty) begin
+
+			//If we just popped, but are almost out, don't pop again
+			if(fifo_rd_en && any_fifo_almost_empty) begin
+			end
+
+			//All good, pop it and copy to the output
+			else begin
+				fifo_rd_en	<= 1;
+
+				rd_valid	<= 1;
+
+				//Shuffle the read data around to match the original data ordering
+				for(integer i=0; i<4; i++) begin
+					for(integer j=0; j<RAM_WIDTH; j++) begin
+						rd_data[i*RAM_WIDTH + j]	<= qdr_q_deserialized_fifo[j][i];
+					end
+				end
+
+			end
+
+		end
+
+	end
 
 endmodule
