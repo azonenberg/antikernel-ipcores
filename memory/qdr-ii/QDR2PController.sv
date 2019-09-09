@@ -87,8 +87,8 @@ module QDR2PController #(
 	) ram_clk_oddr
 	(
 		.C(clk_ram_90),
-		.D1(1'b0),
-		.D2(1'b1),
+		.D1(1'b1),
+		.D2(1'b0),
 		.CE(1'b1),
 		.R(1'b0),
 		.S(1'b0),
@@ -96,7 +96,6 @@ module QDR2PController #(
 	);
 
 	OBUFDS #(
-		.IOSTANDARD("HSTL_1_15"),
 		.SLEW("FAST")
 	) ram_clk_obuf (
 		.O(qdr_dclk_p),
@@ -108,8 +107,7 @@ module QDR2PController #(
 	wire	qclk_p;
 	wire	qclk_n;
 	IBUFDS_DIFF_OUT #(
-		.DIFF_TERM("TRUE"),
-		.IOSTANDARD("DIFF_HSTL_1_15")
+		.DIFF_TERM("TRUE")
 	) qclk_ibuf(
 		.I(qdr_qclk_p),
 		.IB(qdr_qclk_n),
@@ -146,11 +144,11 @@ module QDR2PController #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register output data
 
-	logic[CTRL_WIDTH-1:0]	wr_data_ff	= 0;
+	logic[RAM_WIDTH*2-1:0]	wr_data_ff	= 0;
 	logic					wr_en_ff	= 0;
 
 	always_ff @(posedge clk_ctl) begin
-		wr_data_ff	<= wr_data;
+		wr_data_ff	<= wr_data[RAM_WIDTH*2-1:0];	//low half only
 		wr_en_ff	<= wr_en;
 	end
 
@@ -308,6 +306,16 @@ module QDR2PController #(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Synchronize resets into the echo clock domain
+
+	wire	serdes_rst_sync;
+	ResetSynchronizer sync_rst(
+		.rst_in_n(serdes_rst),
+		.clk(qclk_div2),
+		.rst_out_n(serdes_rst_sync)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Input capture
 
 	//Deserialize the input
@@ -363,7 +371,7 @@ module QDR2PController #(
 			.CLKB(qclk_n),
 			.CE1(1'b1),
 			.CE2(1'b1),
-			.RST(serdes_rst),
+			.RST(serdes_rst_sync),
 			.CLKDIV(qclk_div2),
 			.CLKDIVP(1'b0),
 			.OCLK(),
@@ -427,7 +435,7 @@ module QDR2PController #(
 		.CLKB(qclk_n),
 		.CE1(1'b1),
 		.CE2(1'b1),
-		.RST(serdes_rst),
+		.RST(serdes_rst_sync),
 		.CLKDIV(qclk_div2),
 		.CLKDIVP(1'b0),
 		.OCLK(),
