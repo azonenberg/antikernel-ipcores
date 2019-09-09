@@ -304,4 +304,15 @@ module X25519_MainLoopIteration(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// select(xzm,xzm1,xznb,xzn1b,b);
 
+	X25519_Select l12_select(
+		.clk(clk),
+		.en(xznb_high_valid),
+		.b(b),
+		.r({xznb_high[255:0], xznb_low[255:0]}),
+		.s({xzn1b_high[255:0], xzn1b_low[255:0]}),
+		.p(xzm_out),
+		.q(xzm1_out),
+		.out_valid(out_valid)
+	);
+
 endmodule
