@@ -101,6 +101,20 @@ module X25519_MainLoopIteration(
 		.b(b),
 		.out_valid(share_select_valid));
 
+	logic			share_mult_en	= 0;
+	logic[263:0]	share_mult_a	= 0;
+	logic[263:0]	share_mult_b	= 0;
+	wire[263:0]		share_mult_out;
+	wire			share_mult_valid;
+
+	X25519_Mult share_mult(
+		.clk(clk),
+		.en(share_mult_en),
+		.a(share_mult_a),
+		.b(share_mult_b),
+		.out_valid(share_mult_valid),
+		.out(share_mult_out));
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main loop
 
@@ -109,7 +123,9 @@ module X25519_MainLoopIteration(
 		STATE_IDLE			= 0,
 		STATE_SELECT_INIT	= 1,
 		STATE_A0			= 2,
-		STATE_A1			= 3
+		STATE_A1			= 3,
+		STATE_B0_LOW		= 4,
+		STATE_B0_HIGH		= 5
 	} state = STATE_IDLE;
 
 	//Temporary variables
@@ -117,19 +133,26 @@ module X25519_MainLoopIteration(
 	logic[511:0]	xzm1b	= 0;
 	logic[263:0]	a0_low	= 0;
 	logic[263:0]	a0_high	= 0;
+	logic[263:0]	a1_low	= 0;
+	logic[263:0]	a1_high	= 0;
+	logic[263:0]	b0_low	= 0;
+	logic[263:0]	b0_high	= 0;
 
 	//Valid flags for temporary variables
 	//TODO: remove when nothing uses them anymore
 	logic			a0_valid	= 0;
-	logic			bsel_valid	= 0;
+	logic			a1_valid	= 0;
+	logic			b0_valid	= 0;
 
 	always_ff @(posedge clk) begin
 		share_add_en	<= 0;
 		share_sub_en	<= 0;
 		share_select_en	<= 0;
+		share_mult_en	<= 0;
 
-		bsel_valid		<= 0;
 		a0_valid		<= 0;
+		a1_valid		<= 0;
+		b0_valid		<= 0;
 
 		case(state)
 
@@ -152,7 +175,6 @@ module X25519_MainLoopIteration(
 					//Save results
 					xzmb			<= share_select_p;
 					xzm1b			<= share_select_q;
-					bsel_valid		<= 1;
 
 					//add(a0,xzmb,xzmb + 32);
 					share_add_en	<= 1;
@@ -176,72 +198,77 @@ module X25519_MainLoopIteration(
 					//Save results
 					a0_low			<= share_add_out;
 					a0_high			<= share_sub_out;
-					a0_valid		<= 1;
 
 					//add(a1,xzm1b,xzm1b + 32);
-					//sub(a1 + 32,xzm1b,xzm1b + 32);
+					share_add_en	<= 1;
+					share_add_a		<= { 8'h0, xzm1b[255:0] };
+					share_add_b		<= { 8'h0, xzm1b[511:256] };
 
-					//FIXME
-					state				<= STATE_A1;
+					//sub(a1 + 32,xzm1b,xzm1b + 32);
+					share_sub_en	<= 1;
+					share_sub_a		<= { 8'h0, xzm1b[255:0] };
+					share_sub_b		<= { 8'h0, xzm1b[511:256] };
+
+					//square(b0,a0);
+					share_mult_en	<= 1;
+					share_mult_a	<= share_add_out;
+					share_mult_b	<= share_add_out;
+
+					state			<= STATE_A1;
 				end
 
 			end	//end STATE_A0
 
 			STATE_A1: begin
-				//FIXME
-				state				<= STATE_IDLE;
+
+				if(share_add_valid) begin
+
+					//Save results
+					a1_low			<= share_add_out;
+					a1_high			<= share_sub_out;
+
+					//Multiply is already in progress, but takes longer than add to finish
+					state			<= STATE_B0_LOW;
+				end
+
 			end	//end STATE_A1
+
+			STATE_B0_LOW: begin
+
+				if(share_mult_valid) begin
+
+					//Save results
+					b0_low			<= share_mult_out;
+
+					//square(b0 + 32,a0 + 32);
+					share_mult_en	<= 1;
+					share_mult_a	<= a0_high;
+					share_mult_b	<= a0_high;
+
+					state			<= STATE_B0_HIGH;
+
+				end
+
+			end	//end STATE_B0_LOW
+
+			STATE_B0_HIGH: begin
+				if(share_mult_valid) begin
+
+					//Save results
+					b0_high			<= share_mult_out;
+
+					b0_valid		<= 1;
+					a0_valid		<= 1;
+					a1_valid		<= 1;
+
+					//FIXME
+					state			<= STATE_IDLE;
+
+				end
+			end	//end STATE_B0_HIGH
 
 		endcase
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-	wire		a1_valid;
-	wire[263:0]	a1_low;
-	wire[263:0]	a1_high;
-
-	X25519_Add l3_a1_add(
-		.clk(clk),
-		.en(bsel_valid),
-		.a({8'h0, xzm1b[255:0]}),
-		.b({8'h0, xzm1b[511:256]}),
-		.out_valid(a1_valid),
-		.out(a1_low)
-	);
-
-	X25519_Sub l3_a1_sub(
-		.clk(clk),
-		.en(bsel_valid),
-		.a({8'h0, xzm1b[255:0]}),
-		.b({8'h0, xzm1b[511:256]}),
-		.out_valid(),
-		.out(a1_high)
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// square(b0,a0);
-	// square(b0 + 32,a0 + 32);
-
-	wire		b0_valid;
-	wire[263:0]	b0_low;
-	wire[263:0]	b0_high;
-
-	X25519_Mult l4_b0_sqlow(
-		.clk(clk),
-		.en(a0_valid),
-		.a(a0_low),
-		.b(a0_low),
-		.out_valid(b0_valid),
-		.out(b0_low));
-
-	X25519_Mult l4_b0_sqhi(
-		.clk(clk),
-		.en(a0_valid),
-		.a(a0_high),
-		.b(a0_high),
-		.out_valid(),
-		.out(b0_high));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// mult(b1,a1,a0 + 32);
@@ -403,7 +430,7 @@ module X25519_MainLoopIteration(
 
 	X25519_Select l12_select(
 		.clk(clk),
-		.en(xznb_high_valid),
+		.en(xzn1b_high_valid),
 		.b(b),
 		.r({xznb_high[255:0], xznb_low[255:0]}),
 		.s({xzn1b_high[255:0], xzn1b_low[255:0]}),
