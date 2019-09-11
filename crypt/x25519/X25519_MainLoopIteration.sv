@@ -120,15 +120,18 @@ module X25519_MainLoopIteration(
 
 	enum logic[3:0]
 	{
-		STATE_IDLE			= 0,
-		STATE_SELECT_INIT	= 1,
-		STATE_A0			= 2,
-		STATE_A1			= 3,
-		STATE_B0_LOW		= 4,
-		STATE_B0_HIGH		= 5,
-		STATE_B1_LOW		= 6,
-		STATE_B1_HIGH		= 7,
-		STATE_C1			= 8
+		STATE_IDLE			= 'h0,
+		STATE_SELECT_INIT	= 'h1,
+		STATE_A0			= 'h2,
+		STATE_A1			= 'h3,
+		STATE_B0_LOW		= 'h4,
+		STATE_B0_HIGH		= 'h5,
+		STATE_B1_LOW		= 'h6,
+		STATE_B1_HIGH		= 'h7,
+		STATE_C1			= 'h8,
+		STATE_R				= 'h9,
+		STATE_T				= 'ha,
+		STATE_U				= 'hb
 	} state = STATE_IDLE;
 
 	//Temporary variables
@@ -144,11 +147,15 @@ module X25519_MainLoopIteration(
 	logic[263:0]	b1_high	= 0;
 	logic[263:0]	c1_low	= 0;
 	logic[263:0]	c1_high	= 0;
+	logic[263:0]	r		= 0;
+	logic[263:0]	s		= 0;
+	logic[263:0]	t		= 0;
+	logic[263:0]	u		= 0;
 
 	//Valid flags for temporary variables
 	//TODO: remove when nothing uses them anymore
-	logic			b1_valid	= 0;
-	logic			c1_valid	= 0;
+	logic			t_valid		= 0;
+	logic			u_valid		= 0;
 
 	always_ff @(posedge clk) begin
 		share_add_en	<= 0;
@@ -156,8 +163,8 @@ module X25519_MainLoopIteration(
 		share_select_en	<= 0;
 		share_mult_en	<= 0;
 
-		b1_valid		<= 0;
-		c1_valid		<= 0;
+		t_valid			<= 0;
+		u_valid			<= 0;
 
 		case(state)
 
@@ -294,8 +301,6 @@ module X25519_MainLoopIteration(
 					//Save results
 					b1_high			<= share_mult_out;
 
-					b1_valid		<= 1;
-
 					//add(c1,b1,b1 + 32);
 					share_add_en	<= 1;
 					share_add_a		<= b1_low;
@@ -317,70 +322,71 @@ module X25519_MainLoopIteration(
 					c1_low			<= share_add_out;
 					c1_high			<= share_sub_out;
 
-					c1_valid		<= 1;
+					//square(r,c1 + 32);
+					share_mult_en	<= 1;
+					share_mult_a	<= share_sub_out;
+					share_mult_b	<= share_sub_out;
 
-					state			<= STATE_IDLE;
+					//sub(s,b0,b0 + 32);
+					share_sub_en	<= 1;
+					share_sub_a		<= b0_low;
+					share_sub_b		<= b0_high;
+
+					state			<= STATE_R;
 
 				end
 			end	//end STATE_C1
 
+			STATE_R: begin
+
+				if(share_sub_valid)
+					s				<= share_sub_out;
+
+				if(share_mult_valid) begin
+
+					//Save results
+					r				<= share_mult_out;
+
+					//mult121665(t,s);
+					share_mult_en	<= 1;
+					share_mult_a	<= s;
+					share_mult_b	<= 264'd121665;
+
+					state			<= STATE_T;
+				end
+
+			end	//end STATE_R
+
+			STATE_T: begin
+				if(share_mult_valid) begin
+
+					//Save results
+					t_valid			<= 1;
+					t				<= share_mult_out;
+
+					//add(u,t,b0);
+					share_add_en	<= 1;
+					share_add_a		<= share_mult_out;
+					share_add_b		<= b0_low;
+
+					state			<= STATE_U;
+				end
+			end	//end STATE_T
+
+			STATE_U: begin
+				if(share_add_valid) begin
+
+					//Save results
+					u_valid			<= 1;
+					u				<= share_add_out;
+
+					state			<= STATE_IDLE;
+
+				end
+			end	//end STATE_U
+
 		endcase
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// square(r,c1 + 32);
-	// sub(s,b0,b0 + 32);
-
-	wire		r_valid;
-	wire[263:0]	r;
-
-	wire		s_valid;
-	wire[263:0]	s;
-
-	X25519_Mult l7_r(
-		.clk(clk),
-		.en(c1_valid),
-		.a(c1_high),
-		.b(c1_high),
-		.out_valid(r_valid),
-		.out(r));
-
-	X25519_Sub l7_s(
-		.clk(clk),
-		.en(c1_valid),
-		.a(b0_low),
-		.b(b0_high),
-		.out_valid(s_valid),
-		.out(s)
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// mult121665(t,s);
-
-	wire		t_valid;
-	wire[263:0]	t;
-
-	X25519_Mult121665 l8_t(
-		.clk(clk),
-		.en(r_valid),
-		.a(s),
-		.out_valid(t_valid),
-		.out(t));
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// add(u,t,b0);
-
-	wire		u_valid;
-	wire[263:0]	u;
-
-	X25519_Add l9_u(
-		.clk(clk),
-		.en(t_valid),
-		.a(t),
-		.b(b0_low),
-		.out_valid(u_valid),
-		.out(u)
-	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// mult(xznb,b0,b0 + 32);
