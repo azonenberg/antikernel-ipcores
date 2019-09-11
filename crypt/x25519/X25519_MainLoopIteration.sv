@@ -123,7 +123,6 @@ module X25519_MainLoopIteration(
 		STATE_IDLE			= 4'h0,
 		STATE_SELECT_INIT	= 4'h1,
 		STATE_A0			= 4'h2,
-		STATE_A1			= 4'h3,
 		STATE_B0_LOW		= 4'h4,
 		STATE_B0_HIGH		= 4'h5,
 		STATE_B1_LOW		= 4'h6,
@@ -223,26 +222,18 @@ module X25519_MainLoopIteration(
 					share_mult_a	<= share_add_out;
 					share_mult_b	<= share_add_out;
 
-					state			<= STATE_A1;
+					state			<= STATE_B0_LOW;
 				end
 
 			end	//end STATE_A0
 
-			STATE_A1: begin
+			STATE_B0_LOW: begin
 
+				//Save add results before multiply finishes
 				if(share_add_valid) begin
-
-					//Save results
 					a1_low			<= share_add_out;
 					a1_high			<= share_sub_out;
-
-					//Multiply is already in progress, but takes longer than add to finish
-					state			<= STATE_B0_LOW;
 				end
-
-			end	//end STATE_A1
-
-			STATE_B0_LOW: begin
 
 				if(share_mult_valid) begin
 
