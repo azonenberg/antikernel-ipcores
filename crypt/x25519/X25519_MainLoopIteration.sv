@@ -127,7 +127,8 @@ module X25519_MainLoopIteration(
 		STATE_B0_LOW		= 4,
 		STATE_B0_HIGH		= 5,
 		STATE_B1_LOW		= 6,
-		STATE_B1_HIGH		= 7
+		STATE_B1_HIGH		= 7,
+		STATE_C1			= 8
 	} state = STATE_IDLE;
 
 	//Temporary variables
@@ -141,12 +142,13 @@ module X25519_MainLoopIteration(
 	logic[263:0]	b0_high	= 0;
 	logic[263:0]	b1_low	= 0;
 	logic[263:0]	b1_high	= 0;
+	logic[263:0]	c1_low	= 0;
+	logic[263:0]	c1_high	= 0;
 
 	//Valid flags for temporary variables
 	//TODO: remove when nothing uses them anymore
-	logic			a0_valid	= 0;
-	logic			b0_valid	= 0;
 	logic			b1_valid	= 0;
+	logic			c1_valid	= 0;
 
 	always_ff @(posedge clk) begin
 		share_add_en	<= 0;
@@ -154,9 +156,8 @@ module X25519_MainLoopIteration(
 		share_select_en	<= 0;
 		share_mult_en	<= 0;
 
-		a0_valid		<= 0;
-		b0_valid		<= 0;
 		b1_valid		<= 0;
+		c1_valid		<= 0;
 
 		case(state)
 
@@ -289,44 +290,42 @@ module X25519_MainLoopIteration(
 
 			STATE_B1_HIGH: begin
 				if(share_mult_valid) begin
+
+					//Save results
 					b1_high			<= share_mult_out;
 
-					b0_valid		<= 1;
-					a0_valid		<= 1;
 					b1_valid		<= 1;
 
-					state			<= STATE_IDLE;
+					//add(c1,b1,b1 + 32);
+					share_add_en	<= 1;
+					share_add_a		<= b1_low;
+					share_add_b		<= share_mult_out;
+
+					//sub(c1 + 32,b1,b1 + 32);
+					share_sub_en	<= 1;
+					share_sub_a		<= b1_low;
+					share_sub_b		<= share_mult_out;
+
+					state			<= STATE_C1;
 				end
 			end	//end STATE_B1_HIGH
 
+			STATE_C1: begin
+				if(share_add_valid) begin
+
+					//Save results
+					c1_low			<= share_add_out;
+					c1_high			<= share_sub_out;
+
+					c1_valid		<= 1;
+
+					state			<= STATE_IDLE;
+
+				end
+			end	//end STATE_C1
+
 		endcase
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// add(c1,b1,b1 + 32);
-	// sub(c1 + 32,b1,b1 + 32);
-
-	wire		c1_valid;
-	wire[263:0]	c1_low;
-	wire[263:0]	c1_high;
-
-	X25519_Add l6_c1_add(
-		.clk(clk),
-		.en(b1_valid),
-		.a(b1_low),
-		.b(b1_high),
-		.out_valid(c1_valid),
-		.out(c1_low)
-	);
-
-	X25519_Sub l6_c1_sub(
-		.clk(clk),
-		.en(b1_valid),
-		.a(b1_low),
-		.b(b1_high),
-		.out_valid(),
-		.out(c1_high)
-	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// square(r,c1 + 32);
