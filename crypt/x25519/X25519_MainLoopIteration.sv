@@ -52,23 +52,91 @@ module X25519_MainLoopIteration(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// select(xzmb,xzm1b,xzm,xzm1,b);
+	// RESOURCE SHARING
 
-	//note that the 512-bit vectors can never have carry-outs since mult() squeezes the results
+	logic			share_add_en	= 0;
+	logic[263:0]	share_add_a		= 0;
+	logic[263:0]	share_add_b		= 0;
+	wire			share_add_valid;
+	wire[263:0]		share_add_out;
 
-	wire[511:0]	xzmb;
-	wire[511:0]	xzm1b;
-	wire		bsel_valid;
-
-	X25519_Select l1_bsel(
+	X25519_Add share_add(
 		.clk(clk),
-		.en(en),
-		.p(xzmb),
-		.q(xzm1b),
-		.r(xzm_in),
-		.s(xzm1_in),
+		.en(share_add_en),
+		.a(share_add_a),
+		.b(share_add_b),
+		.out_valid(share_add_valid),
+		.out(share_add_out)
+	);
+
+	logic			share_select_en	= 0;
+	logic[511:0]	share_select_r	= 0;
+	logic[511:0]	share_select_s	= 0;
+	wire[511:0]		share_select_p;
+	wire[511:0]		share_select_q;
+	wire			share_select_valid;
+
+	X25519_Select share_select(
+		.clk(clk),
+		.en(share_select_en),
+		.p(share_select_p),
+		.q(share_select_q),
+		.r(share_select_r),
+		.s(share_select_s),
 		.b(b),
-		.out_valid(bsel_valid));
+		.out_valid(share_select_valid));
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Main loop
+
+	enum logic[3:0]
+	{
+		STATE_IDLE			= 0,
+		STATE_SELECT_INIT	= 1,
+		STATE_A0			= 2
+	} state = STATE_IDLE;
+
+	//Temporary variables
+	logic[511:0]	xzmb	= 0;
+	logic[511:0]	xzm1b	= 0;
+
+	logic	bsel_valid	= 0;
+
+	always_ff @(posedge clk) begin
+		share_add_en	<= 0;
+		share_select_en	<= 0;
+
+		bsel_valid		<= 0;
+
+		case(state)
+
+			//wait for an operation to start
+			STATE_IDLE: begin
+				if(en) begin
+					share_select_en	<= 1;
+					share_select_r	<= xzm_in;
+					share_select_s	<= xzm1_in;
+					state			<= STATE_SELECT_INIT;
+				end
+			end	//end STATE_IDLE
+
+			//select(xzmb,xzm1b,xzm,xzm1,b);
+			STATE_SELECT_INIT: begin
+				if(share_select_valid) begin
+					xzmb			<= share_select_p;
+					xzm1b			<= share_select_q;
+					bsel_valid		<= 1;
+					state			<= STATE_A0;
+				end
+			end	//end STATE_SELECT_INIT
+
+			STATE_A0: begin
+				//FIXME
+				state				<= STATE_IDLE;
+			end	//end STATE_A0
+
+		endcase
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// add(a0,xzmb,xzmb + 32);

@@ -40,7 +40,9 @@ module X25519_MainLoop(
 	input wire			clk,
 	input wire			en,
 	input wire[255:0]	work_in,
-	input wire[255:0]	e
+	input wire[255:0]	e,
+	output logic		out_valid	= 0,
+	output logic[511:0]	work_out	= 0
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -84,6 +86,7 @@ module X25519_MainLoop(
 	always_ff @(posedge clk) begin
 
 		iter_en		<= 0;
+		out_valid	<= 0;
 
 		case(state)
 
@@ -123,6 +126,9 @@ module X25519_MainLoop(
 			end	//end STATE_WAIT
 
 			STATE_DONE: begin
+				out_valid	<= 1;
+				work_out	<= iter_xzm_out;
+				state		<= STATE_IDLE;
 			end	//end STATE_DONE
 
 		endcase
