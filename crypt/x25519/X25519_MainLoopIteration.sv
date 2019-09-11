@@ -69,6 +69,21 @@ module X25519_MainLoopIteration(
 		.out(share_add_out)
 	);
 
+	logic			share_sub_en	= 0;
+	logic[263:0]	share_sub_a		= 0;
+	logic[263:0]	share_sub_b		= 0;
+	wire			share_sub_valid;
+	wire[263:0]		share_sub_out;
+
+	X25519_Sub share_sub(
+		.clk(clk),
+		.en(share_sub_en),
+		.a(share_sub_a),
+		.b(share_sub_b),
+		.out_valid(share_sub_valid),
+		.out(share_sub_out)
+	);
+
 	logic			share_select_en	= 0;
 	logic[511:0]	share_select_r	= 0;
 	logic[511:0]	share_select_s	= 0;
@@ -93,80 +108,94 @@ module X25519_MainLoopIteration(
 	{
 		STATE_IDLE			= 0,
 		STATE_SELECT_INIT	= 1,
-		STATE_A0			= 2
+		STATE_A0			= 2,
+		STATE_A1			= 3
 	} state = STATE_IDLE;
 
 	//Temporary variables
 	logic[511:0]	xzmb	= 0;
 	logic[511:0]	xzm1b	= 0;
+	logic[263:0]	a0_low	= 0;
+	logic[263:0]	a0_high	= 0;
 
-	logic	bsel_valid	= 0;
+	//Valid flags for temporary variables
+	//TODO: remove when nothing uses them anymore
+	logic			a0_valid	= 0;
+	logic			bsel_valid	= 0;
 
 	always_ff @(posedge clk) begin
 		share_add_en	<= 0;
+		share_sub_en	<= 0;
 		share_select_en	<= 0;
 
 		bsel_valid		<= 0;
+		a0_valid		<= 0;
 
 		case(state)
 
 			//wait for an operation to start
 			STATE_IDLE: begin
 				if(en) begin
+
+					//select(xzmb,xzm1b,xzm,xzm1,b);
 					share_select_en	<= 1;
 					share_select_r	<= xzm_in;
 					share_select_s	<= xzm1_in;
+
 					state			<= STATE_SELECT_INIT;
 				end
 			end	//end STATE_IDLE
 
-			//select(xzmb,xzm1b,xzm,xzm1,b);
 			STATE_SELECT_INIT: begin
 				if(share_select_valid) begin
+
+					//Save results
 					xzmb			<= share_select_p;
 					xzm1b			<= share_select_q;
 					bsel_valid		<= 1;
+
+					//add(a0,xzmb,xzmb + 32);
+					share_add_en	<= 1;
+					share_add_a		<= { 8'h0, share_select_p[255:0] };
+					share_add_b		<= { 8'h0, share_select_p[511:256] };
+
+					//sub(a0 + 32,xzmb,xzmb + 32);
+					share_sub_en	<= 1;
+					share_sub_a		<= { 8'h0, share_select_p[255:0] };
+					share_sub_b		<= { 8'h0, share_select_p[511:256] };
+
 					state			<= STATE_A0;
 				end
 			end	//end STATE_SELECT_INIT
 
+
 			STATE_A0: begin
+
+				if(share_add_valid) begin
+
+					//Save results
+					a0_low			<= share_add_out;
+					a0_high			<= share_sub_out;
+					a0_valid		<= 1;
+
+					//add(a1,xzm1b,xzm1b + 32);
+					//sub(a1 + 32,xzm1b,xzm1b + 32);
+
+					//FIXME
+					state				<= STATE_A1;
+				end
+
+			end	//end STATE_A0
+
+			STATE_A1: begin
 				//FIXME
 				state				<= STATE_IDLE;
-			end	//end STATE_A0
+			end	//end STATE_A1
 
 		endcase
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// add(a0,xzmb,xzmb + 32);
-	// sub(a0 + 32,xzmb,xzmb + 32);
-
-	wire		a0_valid;
-	wire[263:0]	a0_low;
-	wire[263:0]	a0_high;
-
-	X25519_Add l2_a0_add(
-		.clk(clk),
-		.en(bsel_valid),
-		.a({8'h0, xzmb[255:0]}),
-		.b({8'h0, xzmb[511:256]}),
-		.out_valid(a0_valid),
-		.out(a0_low)
-	);
-
-	X25519_Sub l2_a0_sub(
-		.clk(clk),
-		.en(bsel_valid),
-		.a({8'h0, xzmb[255:0]}),
-		.b({8'h0, xzmb[511:256]}),
-		.out_valid(),
-		.out(a0_high)
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// add(a1,xzm1b,xzm1b + 32);
-	// sub(a1 + 32,xzm1b,xzm1b + 32);
 
 	wire		a1_valid;
 	wire[263:0]	a1_low;
