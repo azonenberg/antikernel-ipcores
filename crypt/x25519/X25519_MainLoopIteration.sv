@@ -46,9 +46,9 @@ module X25519_MainLoopIteration(
 
 	input wire[263:0]	work_low,
 
-	output wire			out_valid,
-	output wire[511:0]	xzm_out,
-	output wire[511:0]	xzm1_out
+	output logic		out_valid	= 0,
+	output logic[511:0]	xzm_out		= 0,
+	output logic[511:0]	xzm1_out	= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -120,18 +120,22 @@ module X25519_MainLoopIteration(
 
 	enum logic[3:0]
 	{
-		STATE_IDLE			= 'h0,
-		STATE_SELECT_INIT	= 'h1,
-		STATE_A0			= 'h2,
-		STATE_A1			= 'h3,
-		STATE_B0_LOW		= 'h4,
-		STATE_B0_HIGH		= 'h5,
-		STATE_B1_LOW		= 'h6,
-		STATE_B1_HIGH		= 'h7,
-		STATE_C1			= 'h8,
-		STATE_R				= 'h9,
-		STATE_T				= 'ha,
-		STATE_U				= 'hb
+		STATE_IDLE			= 4'h0,
+		STATE_SELECT_INIT	= 4'h1,
+		STATE_A0			= 4'h2,
+		STATE_A1			= 4'h3,
+		STATE_B0_LOW		= 4'h4,
+		STATE_B0_HIGH		= 4'h5,
+		STATE_B1_LOW		= 4'h6,
+		STATE_B1_HIGH		= 4'h7,
+		STATE_C1			= 4'h8,
+		STATE_R				= 4'h9,
+		STATE_T				= 4'ha,
+		STATE_XB_LOW		= 4'hb,
+		STATE_XB_HIGH		= 4'hc,
+		STATE_XN_LOW		= 4'hd,
+		STATE_XN_HIGH		= 4'he,
+		STATE_FINISH		= 4'hf
 	} state = STATE_IDLE;
 
 	//Temporary variables
@@ -151,11 +155,10 @@ module X25519_MainLoopIteration(
 	logic[263:0]	s		= 0;
 	logic[263:0]	t		= 0;
 	logic[263:0]	u		= 0;
-
-	//Valid flags for temporary variables
-	//TODO: remove when nothing uses them anymore
-	logic			t_valid		= 0;
-	logic			u_valid		= 0;
+	logic[263:0]	xznb_low	= 0;
+	logic[263:0]	xznb_high	= 0;
+	logic[263:0]	xzn1b_low	= 0;
+	logic[263:0]	xzn1b_high	= 0;
 
 	always_ff @(posedge clk) begin
 		share_add_en	<= 0;
@@ -163,8 +166,7 @@ module X25519_MainLoopIteration(
 		share_select_en	<= 0;
 		share_mult_en	<= 0;
 
-		t_valid			<= 0;
-		u_valid			<= 0;
+		out_valid		<= 0;
 
 		case(state)
 
@@ -361,7 +363,6 @@ module X25519_MainLoopIteration(
 				if(share_mult_valid) begin
 
 					//Save results
-					t_valid			<= 1;
 					t				<= share_mult_out;
 
 					//add(u,t,b0);
@@ -369,87 +370,85 @@ module X25519_MainLoopIteration(
 					share_add_a		<= share_mult_out;
 					share_add_b		<= b0_low;
 
-					state			<= STATE_U;
+					//mult(xznb,b0,b0 + 32);
+					share_mult_en	<= 1;
+					share_mult_a	<= b0_low;
+					share_mult_b	<= b0_high;
+
+					state			<= STATE_XB_LOW;
 				end
 			end	//end STATE_T
 
-			STATE_U: begin
-				if(share_add_valid) begin
+			STATE_XB_LOW: begin
 
-					//Save results
-					u_valid			<= 1;
+				if(share_add_valid)
 					u				<= share_add_out;
 
-					state			<= STATE_IDLE;
+				if(share_mult_valid) begin
+
+					//Save results
+					xznb_low		<= share_mult_out;
+
+					//mult(xznb + 32,s,u);
+					share_mult_en	<= 1;
+					share_mult_a	<= s;
+					share_mult_b	<= share_add_out;
+					state			<= STATE_XB_HIGH;
 
 				end
-			end	//end STATE_U
+
+			end	//end STATE_XB_LOW
+
+			STATE_XB_HIGH: begin
+				if(share_mult_valid) begin
+					xznb_high		<= share_mult_out;
+
+					//square(xzn1b,c1);
+					share_mult_en	<= 1;
+					share_mult_a	<= c1_low;
+					share_mult_b	<= c1_low;
+
+					state			<= STATE_XN_LOW;
+				end
+			end	//end STATE_XB_HIGH
+
+			STATE_XN_LOW: begin
+				if(share_mult_valid) begin
+					xzn1b_low		<= share_mult_out;
+
+					//mult(xzn1b + 32,r,work);
+					share_mult_en	<= 1;
+					share_mult_a	<= r;
+					share_mult_b	<= work_low;
+
+					state			<= STATE_XN_HIGH;
+
+				end
+			end	//end STATE_XN_LOW
+
+			STATE_XN_HIGH: begin
+				if(share_mult_valid) begin
+					xzn1b_high			<= share_mult_out;
+
+					//select(xzm,xzm1,xznb,xzn1b,b);
+					share_select_en	<= 1;
+					share_select_r	<= {xznb_high[255:0], xznb_low[255:0]};
+					share_select_s	<= {share_mult_out[255:0], xzn1b_low[255:0]};
+
+					state			<= STATE_FINISH;
+				end
+			end	//end STATE_XN_HIGH
+
+			STATE_FINISH: begin
+				if(share_select_valid) begin
+					xzm_out			<= share_select_p;
+					xzm1_out		<= share_select_q;
+					out_valid		<= 1;
+					state			<= STATE_IDLE;
+				end
+			end
 
 		endcase
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// mult(xznb,b0,b0 + 32);
-	// mult(xznb + 32,s,u);
-
-	wire		xznb_low_valid;
-	wire[263:0]	xznb_low;
-	wire		xznb_high_valid;
-	wire[263:0]	xznb_high;
-
-	X25519_Mult l10_xznb_low(
-		.clk(clk),
-		.en(u_valid),
-		.a(b0_low),
-		.b(b0_high),
-		.out_valid(xznb_low_valid),
-		.out(xznb_low));
-
-	X25519_Mult l10_xznb_high(
-		.clk(clk),
-		.en(u_valid),
-		.a(s),
-		.b(u),
-		.out_valid(xznb_high_valid),
-		.out(xznb_high));
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// square(xzn1b,c1);
-	// mult(xzn1b + 32,r,work);
-
-	wire		xzn1b_low_valid;
-	wire[263:0]	xzn1b_low;
-	wire		xzn1b_high_valid;
-	wire[263:0]	xzn1b_high;
-
-	X25519_Mult l11_xzn1b_low(
-		.clk(clk),
-		.en(u_valid),
-		.a(c1_low),
-		.b(c1_low),
-		.out_valid(xzn1b_low_valid),
-		.out(xzn1b_low));
-
-	X25519_Mult l11_xzn1b_lhigh(
-		.clk(clk),
-		.en(u_valid),
-		.a(r),
-		.b(work_low),
-		.out_valid(xzn1b_high_valid),
-		.out(xzn1b_high));
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// select(xzm,xzm1,xznb,xzn1b,b);
-
-	X25519_Select l12_select(
-		.clk(clk),
-		.en(xzn1b_high_valid),
-		.b(b),
-		.r({xznb_high[255:0], xznb_low[255:0]}),
-		.s({xzn1b_high[255:0], xzn1b_low[255:0]}),
-		.p(xzm_out),
-		.q(xzm1_out),
-		.out_valid(out_valid)
-	);
 
 endmodule
