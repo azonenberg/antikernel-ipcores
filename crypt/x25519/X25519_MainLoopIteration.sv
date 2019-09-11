@@ -125,7 +125,9 @@ module X25519_MainLoopIteration(
 		STATE_A0			= 2,
 		STATE_A1			= 3,
 		STATE_B0_LOW		= 4,
-		STATE_B0_HIGH		= 5
+		STATE_B0_HIGH		= 5,
+		STATE_B1_LOW		= 6,
+		STATE_B1_HIGH		= 7
 	} state = STATE_IDLE;
 
 	//Temporary variables
@@ -137,12 +139,14 @@ module X25519_MainLoopIteration(
 	logic[263:0]	a1_high	= 0;
 	logic[263:0]	b0_low	= 0;
 	logic[263:0]	b0_high	= 0;
+	logic[263:0]	b1_low	= 0;
+	logic[263:0]	b1_high	= 0;
 
 	//Valid flags for temporary variables
 	//TODO: remove when nothing uses them anymore
 	logic			a0_valid	= 0;
-	logic			a1_valid	= 0;
 	logic			b0_valid	= 0;
+	logic			b1_valid	= 0;
 
 	always_ff @(posedge clk) begin
 		share_add_en	<= 0;
@@ -151,8 +155,8 @@ module X25519_MainLoopIteration(
 		share_mult_en	<= 0;
 
 		a0_valid		<= 0;
-		a1_valid		<= 0;
 		b0_valid		<= 0;
+		b1_valid		<= 0;
 
 		case(state)
 
@@ -257,42 +261,46 @@ module X25519_MainLoopIteration(
 					//Save results
 					b0_high			<= share_mult_out;
 
-					b0_valid		<= 1;
-					a0_valid		<= 1;
-					a1_valid		<= 1;
+					//mult(b1,a1,a0 + 32);
+					share_mult_en	<= 1;
+					share_mult_a	<= a1_low;
+					share_mult_b	<= a0_high;
 
-					//FIXME
-					state			<= STATE_IDLE;
+					state			<= STATE_B1_LOW;
 
 				end
 			end	//end STATE_B0_HIGH
 
+			STATE_B1_LOW: begin
+				if(share_mult_valid) begin
+
+					//Save results
+					b1_low			<= share_mult_out;
+
+					//mult(b1 + 32,a1 + 32,a0);
+					share_mult_en	<= 1;
+					share_mult_a	<= a1_high;
+					share_mult_b	<= a0_low;
+
+					state			<= STATE_B1_HIGH;
+
+				end
+			end	//end STATE_B1_LOW
+
+			STATE_B1_HIGH: begin
+				if(share_mult_valid) begin
+					b1_high			<= share_mult_out;
+
+					b0_valid		<= 1;
+					a0_valid		<= 1;
+					b1_valid		<= 1;
+
+					state			<= STATE_IDLE;
+				end
+			end	//end STATE_B1_HIGH
+
 		endcase
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// mult(b1,a1,a0 + 32);
-	// mult(b1 + 32,a1 + 32,a0);
-
-	wire		b1_valid;
-	wire[263:0]	b1_low;
-	wire[263:0]	b1_high;
-
-	X25519_Mult l5_b1_low(
-		.clk(clk),
-		.en(a0_valid),
-		.a(a1_low),
-		.b(a0_high),
-		.out_valid(b1_valid),
-		.out(b1_low));
-
-	X25519_Mult l5_b1_high(
-		.clk(clk),
-		.en(a0_valid),
-		.a(a1_high),
-		.b(a0_low),
-		.out_valid(),
-		.out(b1_high));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// add(c1,b1,b1 + 32);
@@ -340,7 +348,7 @@ module X25519_MainLoopIteration(
 
 	X25519_Sub l7_s(
 		.clk(clk),
-		.en(b0_valid),
+		.en(c1_valid),
 		.a(b0_low),
 		.b(b0_high),
 		.out_valid(s_valid),
@@ -355,7 +363,7 @@ module X25519_MainLoopIteration(
 
 	X25519_Mult121665 l8_t(
 		.clk(clk),
-		.en(s_valid),
+		.en(r_valid),
 		.a(s),
 		.out_valid(t_valid),
 		.out(t));
@@ -386,7 +394,7 @@ module X25519_MainLoopIteration(
 
 	X25519_Mult l10_xznb_low(
 		.clk(clk),
-		.en(b0_valid),
+		.en(u_valid),
 		.a(b0_low),
 		.b(b0_high),
 		.out_valid(xznb_low_valid),
@@ -411,7 +419,7 @@ module X25519_MainLoopIteration(
 
 	X25519_Mult l11_xzn1b_low(
 		.clk(clk),
-		.en(c1_valid),
+		.en(u_valid),
 		.a(c1_low),
 		.b(c1_low),
 		.out_valid(xzn1b_low_valid),
@@ -419,7 +427,7 @@ module X25519_MainLoopIteration(
 
 	X25519_Mult l11_xzn1b_lhigh(
 		.clk(clk),
-		.en(r_valid),
+		.en(u_valid),
 		.a(r),
 		.b(work_low),
 		.out_valid(xzn1b_high_valid),
