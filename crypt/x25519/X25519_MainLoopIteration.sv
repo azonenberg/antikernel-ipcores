@@ -148,17 +148,12 @@ module X25519_MainLoopIteration(
 	logic[263:0]	b0_low	= 0;
 	logic[263:0]	b0_high	= 0;
 	logic[263:0]	b1_low	= 0;
-	logic[263:0]	b1_high	= 0;
 	logic[263:0]	c1_low	= 0;
-	logic[263:0]	c1_high	= 0;
 	logic[263:0]	r		= 0;
 	logic[263:0]	s		= 0;
-	logic[263:0]	t		= 0;
-	logic[263:0]	u		= 0;
 	logic[263:0]	xznb_low	= 0;
 	logic[263:0]	xznb_high	= 0;
 	logic[263:0]	xzn1b_low	= 0;
-	logic[263:0]	xzn1b_high	= 0;
 
 	always_ff @(posedge clk) begin
 		share_add_en	<= 0;
@@ -300,9 +295,6 @@ module X25519_MainLoopIteration(
 			STATE_B1_HIGH: begin
 				if(share_mult_valid) begin
 
-					//Save results
-					b1_high			<= share_mult_out;
-
 					//add(c1,b1,b1 + 32);
 					share_add_en	<= 1;
 					share_add_a		<= b1_low;
@@ -322,7 +314,6 @@ module X25519_MainLoopIteration(
 
 					//Save results
 					c1_low			<= share_add_out;
-					c1_high			<= share_sub_out;
 
 					//square(r,c1 + 32);
 					share_mult_en	<= 1;
@@ -362,9 +353,6 @@ module X25519_MainLoopIteration(
 			STATE_T: begin
 				if(share_mult_valid) begin
 
-					//Save results
-					t				<= share_mult_out;
-
 					//add(u,t,b0);
 					share_add_en	<= 1;
 					share_add_a		<= share_mult_out;
@@ -381,8 +369,8 @@ module X25519_MainLoopIteration(
 
 			STATE_XB_LOW: begin
 
-				if(share_add_valid)
-					u				<= share_add_out;
+				//share_add_valid will be asserted before share_mult_valid
+				//so we can just use share_add_out as u
 
 				if(share_mult_valid) begin
 
@@ -428,7 +416,6 @@ module X25519_MainLoopIteration(
 
 			STATE_XN_HIGH: begin
 				if(share_mult_valid) begin
-					xzn1b_high			<= share_mult_out;
 
 					//select(xzm,xzm1,xznb,xzn1b,b);
 					share_select_en	<= 1;
