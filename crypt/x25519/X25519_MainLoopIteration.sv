@@ -55,31 +55,29 @@ module X25519_MainLoopIteration(
 	// RESOURCE SHARING
 
 	logic			share_add_en	= 0;
-	logic[263:0]	share_add_a		= 0;
-	logic[263:0]	share_add_b		= 0;
+	logic[263:0]	share_addsub_a	= 0;
+	logic[263:0]	share_addsub_b	= 0;
 	wire			share_add_valid;
 	wire[263:0]		share_add_out;
 
 	X25519_Add share_add(
 		.clk(clk),
 		.en(share_add_en),
-		.a(share_add_a),
-		.b(share_add_b),
+		.a(share_addsub_a),
+		.b(share_addsub_b),
 		.out_valid(share_add_valid),
 		.out(share_add_out)
 	);
 
 	logic			share_sub_en	= 0;
-	logic[263:0]	share_sub_a		= 0;
-	logic[263:0]	share_sub_b		= 0;
 	wire			share_sub_valid;
 	wire[263:0]		share_sub_out;
 
 	X25519_Sub share_sub(
 		.clk(clk),
 		.en(share_sub_en),
-		.a(share_sub_a),
-		.b(share_sub_b),
+		.a(share_addsub_a),
+		.b(share_addsub_b),
 		.out_valid(share_sub_valid),
 		.out(share_sub_out)
 	);
@@ -186,13 +184,11 @@ module X25519_MainLoopIteration(
 
 					//add(a0,xzmb,xzmb + 32);
 					share_add_en	<= 1;
-					share_add_a		<= { 8'h0, share_select_p[255:0] };
-					share_add_b		<= { 8'h0, share_select_p[511:256] };
+					share_addsub_a	<= { 8'h0, share_select_p[255:0] };
+					share_addsub_b	<= { 8'h0, share_select_p[511:256] };
 
 					//sub(a0 + 32,xzmb,xzmb + 32);
 					share_sub_en	<= 1;
-					share_sub_a		<= { 8'h0, share_select_p[255:0] };
-					share_sub_b		<= { 8'h0, share_select_p[511:256] };
 
 					state			<= STATE_A0;
 				end
@@ -209,13 +205,11 @@ module X25519_MainLoopIteration(
 
 					//add(a1,xzm1b,xzm1b + 32);
 					share_add_en	<= 1;
-					share_add_a		<= { 8'h0, xzm1b[255:0] };
-					share_add_b		<= { 8'h0, xzm1b[511:256] };
+					share_addsub_a	<= { 8'h0, xzm1b[255:0] };
+					share_addsub_b	<= { 8'h0, xzm1b[511:256] };
 
 					//sub(a1 + 32,xzm1b,xzm1b + 32);
 					share_sub_en	<= 1;
-					share_sub_a		<= { 8'h0, xzm1b[255:0] };
-					share_sub_b		<= { 8'h0, xzm1b[511:256] };
 
 					//square(b0,a0);
 					share_mult_en	<= 1;
@@ -288,13 +282,11 @@ module X25519_MainLoopIteration(
 
 					//add(c1,b1,b1 + 32);
 					share_add_en	<= 1;
-					share_add_a		<= b1_low;
-					share_add_b		<= share_mult_out;
+					share_addsub_a	<= b1_low;
+					share_addsub_b	<= share_mult_out;
 
 					//sub(c1 + 32,b1,b1 + 32);
 					share_sub_en	<= 1;
-					share_sub_a		<= b1_low;
-					share_sub_b		<= share_mult_out;
 
 					state			<= STATE_C1;
 				end
@@ -313,8 +305,8 @@ module X25519_MainLoopIteration(
 
 					//sub(s,b0,b0 + 32);
 					share_sub_en	<= 1;
-					share_sub_a		<= b0_low;
-					share_sub_b		<= b0_high;
+					share_addsub_a	<= b0_low;
+					share_addsub_b	<= b0_high;
 
 					state			<= STATE_R;
 
@@ -346,8 +338,8 @@ module X25519_MainLoopIteration(
 
 					//add(u,t,b0);
 					share_add_en	<= 1;
-					share_add_a		<= share_mult_out;
-					share_add_b		<= b0_low;
+					share_addsub_a	<= share_mult_out;
+					share_addsub_b	<= b0_low;
 
 					//mult(xznb,b0,b0 + 32);
 					share_mult_en	<= 1;
