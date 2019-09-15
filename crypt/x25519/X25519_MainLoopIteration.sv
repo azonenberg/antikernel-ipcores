@@ -139,29 +139,29 @@ module X25519_MainLoopIteration(
 	//Memory for temporary variables
 	typedef enum logic[3:0]
 	{
+		//General purpose registers, writable and usable everywhere
 		REG_TEMP_0		= 4'h00,
 		REG_TEMP_1		= 4'h01,
 		REG_TEMP_2		= 4'h02,
 		REG_TEMP_3		= 4'h03,
-		REG_B0_LO		= 4'h04,
-		REG_B0_HI		= 4'h05,
-		REG_U			= 4'h06,
+		REG_TEMP_4		= 4'h04,
+		REG_TEMP_5		= 4'h05,
 
-		//None of these are writable
-		REG_XZMB_LO		= 4'h07,	//4x select outputs
-		REG_XZMB_HI		= 4'h08,
-		REG_XZM1B_LO	= 4'h09,
-		REG_XZM1B_HI	= 4'h0a,
+		//Special registers (not always usable in every operation)
+		REG_SELP_LO		= 4'h07,	//4x select outputs
+		REG_SELP_HI		= 4'h08,
+		REG_SELQ_LO		= 4'h09,
+		REG_SELQ_HI		= 4'h0a,
 		REG_121665		= 4'h0b,	//always 121665
-		REG_ZERO		= 4'h0c,	//always 0
+		REG_ZERO		= 4'h0c,	//throw away unused values
 		REG_WORK_LOW	= 4'h0d		//must be last
 	} regid_t;
-	logic[263:0]	temp_regs[REG_WORK_LOW-1:0];
+	logic[263:0]	temp_regs[REG_TEMP_5-1:0];
 
 	//Initialize registers, including constants
 	initial begin
 
-		for(integer i=0; i<REG_WORK_LOW; i++)
+		for(integer i=0; i<REG_TEMP_5; i++)
 			temp_regs[i]		<= 0;
 
 	end
@@ -202,18 +202,19 @@ module X25519_MainLoopIteration(
 
 		//add(a0,xzmb,xzmb + 32);
 		//sub(a0 + 32,xzmb,xzmb + 32);
-		ucode[STATE_SELECT_DONE] = { 3'b010, REG_XZMB_LO, REG_XZMB_HI, REG_ZERO, REG_ZERO,	//TEMP_0 is now A0_LO
+		ucode[STATE_SELECT_DONE] = { 3'b010, REG_SELP_LO, REG_SELP_HI, REG_ZERO, REG_ZERO,	//TEMP_0 is now A0_LO
 			REG_TEMP_0, REG_TEMP_1, REG_ZERO, 3'b100, STATE_A0 };							//TEMP_1 is now A0_HI
 
 		//add(a1,xzm1b,xzm1b + 32);
 		//sub(a1 + 32,xzm1b,xzm1b + 32);
 		//square(b0,a0);
-		ucode[STATE_A0] = {3'b011, REG_XZM1B_LO, REG_XZM1B_HI, REG_TEMP_0, REG_TEMP_0,		//TEMP_2 is now A1_LO
-			REG_TEMP_2, REG_TEMP_3, REG_B0_LO, 3'b010, STATE_B0_LOW };						//TEMP_3 is now A1_HI
+		ucode[STATE_A0] = {3'b011, REG_SELQ_LO, REG_SELQ_HI, REG_TEMP_0, REG_TEMP_0,		//TEMP_2 is now A1_LO
+			REG_TEMP_2, REG_TEMP_3, REG_TEMP_4, 3'b010, STATE_B0_LOW };						//TEMP_3 is now A1_HI
+																							//TEMP_4 is now B0_LO
 
 		//square(b0 + 32,a0 + 32);
 		ucode[STATE_B0_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,
-			REG_ZERO, REG_ZERO, REG_B0_HI, 3'b010, STATE_B0_HIGH };
+			REG_ZERO, REG_ZERO, REG_TEMP_5, 3'b010, STATE_B0_HIGH };
 
 		//mult(b1,a1,a0 + 32);
 		ucode[STATE_B0_HIGH] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_1,	//last use of TEMP_1 as A0_HI
@@ -230,7 +231,7 @@ module X25519_MainLoopIteration(
 
 		//sub(s,b0,b0 + 32);
 		//square(r,c1 + 32);
-		ucode[STATE_C1] = {3'b011, REG_B0_LO, REG_B0_HI, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is now S
+		ucode[STATE_C1] = {3'b011, REG_TEMP_4, REG_TEMP_5, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is now S
 			REG_ZERO, REG_TEMP_1, REG_TEMP_2, 3'b010, STATE_R };					//TEMP_2 is now R
 
 		//mult121665(t,s);
@@ -239,11 +240,11 @@ module X25519_MainLoopIteration(
 
 		//add(u,t,b0);
 		//mult(xznb,b0,b0 + 32);
-		ucode[STATE_T] = {3'b011, REG_TEMP_3, REG_B0_LO, REG_B0_LO, REG_B0_HI,
-			REG_U, REG_ZERO, REG_TEMP_3, 3'b010, STATE_XB_LOW };					//TEMP_3 is now XZNB_LO
+		ucode[STATE_T] = {3'b011, REG_TEMP_3, REG_TEMP_4, REG_TEMP_4, REG_TEMP_5,	//TEMP_3 is now XZNB_LO
+			REG_TEMP_4, REG_ZERO, REG_TEMP_3, 3'b010, STATE_XB_LOW };				//TEMP_4 is now U
 
 		//mult(xznb + 32,s,u);
-		ucode[STATE_XB_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_U,		//TEMP_1 is now XZNB_HI
+		ucode[STATE_XB_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_4,	//TEMP_1 is now XZNB_HI
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_XB_HIGH };
 
 		//square(xzn1b,c1);
@@ -282,43 +283,49 @@ module X25519_MainLoopIteration(
 		advancing_ff	<= advancing;
 
 		//Save output
-		if(share_add_valid && (line.add_out <= REG_U))
+		if(share_add_valid && (line.add_out <= REG_TEMP_5))
 			temp_regs[line.add_out[2:0]]	<= share_add_out;
-		if(share_sub_valid && (line.sub_out <= REG_U))
+		if(share_sub_valid && (line.sub_out <= REG_TEMP_5))
 			temp_regs[line.sub_out[2:0]]	<= share_sub_out;
-		if(share_mult_valid && (line.mult_out <= REG_U))
+		if(share_mult_valid && (line.mult_out <= REG_TEMP_5))
 			temp_regs[line.mult_out[2:0]]	<= share_mult_out;
-		if(share_select_valid) begin
-			if(state == STATE_IDLE) begin
-				temp_regs[REG_XZMB_LO]		<= {8'h0, share_select_p[255:0]};
-				temp_regs[REG_XZMB_HI]		<= {8'h0, share_select_p[511:256]};
-				temp_regs[REG_XZM1B_LO]		<= {8'h0, share_select_q[255:0]};
-				temp_regs[REG_XZM1B_HI]		<= {8'h0, share_select_q[511:256]};
-			end
-			else if(state == STATE_XN_HIGH) begin
-				xzm_out			<= share_select_p;
-				xzm1_out		<= share_select_q;
-				out_valid		<= 1;
-			end
+		if(share_select_valid && state == STATE_XN_HIGH) begin
+			xzm_out			<= share_select_p;
+			xzm1_out		<= share_select_q;
+			out_valid		<= 1;
 		end
 
 		//Move on to the next state
 		if(advancing)
 			state		<= line.next;
 		if(advancing_ff) begin
+
+			//Enable blocks as needed
 			share_select_en		<= line.select_en;
+			share_addsub_en		<= line.addsub_en;
+			share_mult_en		<= line.mult_en;
+
+			//Selection always uses hard coded inputs
 			share_select_r		<= {temp_regs[REG_TEMP_1][255:0], temp_regs[REG_TEMP_3][255:0]};
 			share_select_s		<= {temp_regs[REG_TEMP_2][255:0], temp_regs[REG_TEMP_0][255:0]};
-			share_addsub_en		<= line.addsub_en;
-			share_addsub_a		<= temp_regs[line.addsub_a[3:0]];
-			share_addsub_b		<= temp_regs[line.addsub_b[3:0]];
-			share_mult_en		<= line.mult_en;
+
+			//Special case a few "magic" inputs for constants etc
+			case(line.addsub_a)
+				REG_SELP_LO:	share_addsub_a	<= {8'h0, share_select_p[255:0]};
+				REG_SELQ_LO:	share_addsub_a	<= {8'h0, share_select_q[255:0]};
+				default:		share_addsub_a	<= temp_regs[line.addsub_a[2:0]];
+			endcase
+			case(line.addsub_b)
+				REG_SELP_HI:	share_addsub_b	<= {8'h0, share_select_p[511:256]};
+				REG_SELQ_HI:	share_addsub_b	<= {8'h0, share_select_q[511:256]};
+				default:		share_addsub_b	<= temp_regs[line.addsub_b[2:0]];
+			endcase
 			share_mult_a		<= temp_regs[line.mult_a[3:0]];
 
 			case(line.mult_b)
 				REG_121665:		share_mult_b	<= 264'd121665;
 				REG_WORK_LOW:	share_mult_b	<= work_low;
-				default:		share_mult_b	<= temp_regs[line.mult_b];
+				default:		share_mult_b	<= temp_regs[line.mult_b[2:0]];
 			endcase
 		end
 
