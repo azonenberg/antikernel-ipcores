@@ -200,10 +200,6 @@ module X25519_MainLoopIteration(
 		regid_t		add_out;
 		regid_t		sub_out;
 		regid_t		mult_out;
-		regid_t		select_out_p_low;
-		regid_t		select_out_p_high;
-		regid_t		select_out_q_low;
-		regid_t		select_out_q_high;
 
 		/////
 
@@ -222,79 +218,65 @@ module X25519_MainLoopIteration(
 
 		//Idle
 		ucode[STATE_IDLE] = { 4'b0000, REG_UNUSED, REG_UNUSED, REG_ZERO, REG_ZERO,
-			REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_XZMB_LO, REG_XZMB_HI, REG_XZM1B_LO, REG_XZM1B_HI,
-			3'b001, STATE_SELECT_DONE };
+			REG_UNUSED, REG_UNUSED, REG_UNUSED, 3'b001, STATE_SELECT_DONE };
 
 		//add(a0,xzmb,xzmb + 32);
 		//sub(a0 + 32,xzmb,xzmb + 32);
 		ucode[STATE_SELECT_DONE] = { 4'b0110, REG_XZMB_LO, REG_XZMB_HI, REG_ZERO, REG_ZERO,
-			REG_A0_LO, REG_A0_HI, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b100, STATE_A0 };
+			REG_A0_LO, REG_A0_HI, REG_UNUSED, 3'b100, STATE_A0 };
 
 		//add(a1,xzm1b,xzm1b + 32);
 		//sub(a1 + 32,xzm1b,xzm1b + 32);
 		//square(b0,a0);
 		ucode[STATE_A0] = {4'b0111, REG_XZM1B_LO, REG_XZM1B_HI, REG_A0_LO, REG_A0_LO,
-			REG_A1_LO, REG_A1_HI, REG_B0_LO, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b010, STATE_B0_LOW };
+			REG_A1_LO, REG_A1_HI, REG_B0_LO, 3'b010, STATE_B0_LOW };
 
 		//square(b0 + 32,a0 + 32);
 		ucode[STATE_B0_LOW] = {4'b0001, REG_ZERO, REG_ZERO, REG_A0_HI, REG_A0_HI,
-			REG_UNUSED, REG_UNUSED, REG_B0_HI, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b010, STATE_B0_HIGH };
+			REG_UNUSED, REG_UNUSED, REG_B0_HI, 3'b010, STATE_B0_HIGH };
 
 		//mult(b1,a1,a0 + 32);
 		ucode[STATE_B0_HIGH] = {4'b0001, REG_ZERO, REG_ZERO, REG_A1_LO, REG_A0_HI,
-			REG_UNUSED, REG_UNUSED, REG_B1_LO, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b010, STATE_B1_LOW };
+			REG_UNUSED, REG_UNUSED, REG_B1_LO, 3'b010, STATE_B1_LOW };
 
 		//mult(b1 + 32,a1 + 32,a0);
 		ucode[STATE_B1_LOW] = {4'b0001, REG_ZERO, REG_ZERO, REG_A1_HI, REG_A0_LO,
-			REG_UNUSED, REG_UNUSED, REG_B1_HI, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b010, STATE_B1_HIGH };
+			REG_UNUSED, REG_UNUSED, REG_B1_HI, 3'b010, STATE_B1_HIGH };
 
 		//add(c1,b1,b1 + 32);
 		//sub(c1 + 32,b1,b1 + 32);
 		ucode[STATE_B1_HIGH] = {4'b0110, REG_B1_LO, REG_B1_HI, REG_ZERO, REG_ZERO,
-			REG_C1_LO, REG_C1_HI, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b100, STATE_C1 };
+			REG_C1_LO, REG_C1_HI, REG_UNUSED, 3'b100, STATE_C1 };
 
 		//sub(s,b0,b0 + 32);
 		//square(r,c1 + 32);
 		ucode[STATE_C1] = {4'b0011, REG_B0_LO, REG_B0_HI, REG_C1_HI, REG_C1_HI,
-			REG_UNUSED, REG_S, REG_R, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b010, STATE_R };
+			REG_UNUSED, REG_S, REG_R,3'b010, STATE_R };
 
 		//mult121665(t,s);
 		ucode[STATE_R] = {4'b0001, REG_ZERO, REG_ZERO, REG_S, REG_121665,
-			REG_UNUSED, REG_UNUSED, REG_T, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b010, STATE_T };
+			REG_UNUSED, REG_UNUSED, REG_T, 3'b010, STATE_T };
 
 		//add(u,t,b0);
 		//mult(xznb,b0,b0 + 32);
 		ucode[STATE_T] = {4'b0101, REG_T, REG_B0_LO, REG_B0_LO, REG_B0_HI,
-			REG_U, REG_UNUSED, REG_XZNB_LO, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b010, STATE_XB_LOW };
+			REG_U, REG_UNUSED, REG_XZNB_LO, 3'b010, STATE_XB_LOW };
 
 		//mult(xznb + 32,s,u);
 		ucode[STATE_XB_LOW] = {4'b0001, REG_ZERO, REG_ZERO, REG_S, REG_U,
-			REG_UNUSED, REG_UNUSED, REG_XZNB_HI, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b010, STATE_XB_HIGH };
+			REG_UNUSED, REG_UNUSED, REG_XZNB_HI, 3'b010, STATE_XB_HIGH };
 
 		//square(xzn1b,c1);
 		ucode[STATE_XB_HIGH] = {4'b0001, REG_ZERO, REG_ZERO, REG_C1_LO, REG_C1_LO,
-			REG_UNUSED, REG_UNUSED, REG_XZN1B_LO, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b010, STATE_XN_LOW };
+			REG_UNUSED, REG_UNUSED, REG_XZN1B_LO, 3'b010, STATE_XN_LOW };
 
 		//mult(xzn1b + 32,r,work);
 		ucode[STATE_XN_LOW] = {4'b0001, REG_ZERO, REG_ZERO, REG_R, REG_WORK_LOW,
-			REG_UNUSED, REG_UNUSED, REG_XZN1B_HI, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b010, STATE_XN_HIGH };
+			REG_UNUSED, REG_UNUSED, REG_XZN1B_HI, 3'b010, STATE_XN_HIGH };
 
 		//select(xzm,xzm1,xznb,xzn1b,b);
 		ucode[STATE_XN_HIGH] = {4'b1000, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
-			REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED, REG_UNUSED,
-			3'b001, STATE_IDLE };
+			REG_UNUSED, REG_UNUSED, REG_UNUSED, 3'b001, STATE_IDLE };
 
 	end
 
@@ -328,10 +310,17 @@ module X25519_MainLoopIteration(
 		if(share_mult_valid)
 			temp_regs[line.mult_out]	<= share_mult_out;
 		if(share_select_valid) begin
-			temp_regs[line.select_out_p_low]	<= {8'h0, share_select_p[255:0]};
-			temp_regs[line.select_out_p_high]	<= {8'h0, share_select_p[511:256]};
-			temp_regs[line.select_out_q_low]	<= {8'h0, share_select_q[255:0]};
-			temp_regs[line.select_out_q_high]	<= {8'h0, share_select_q[511:256]};
+			if(state == STATE_IDLE) begin
+				temp_regs[REG_XZMB_LO]		<= {8'h0, share_select_p[255:0]};
+				temp_regs[REG_XZMB_HI]		<= {8'h0, share_select_p[511:256]};
+				temp_regs[REG_XZM1B_LO]		<= {8'h0, share_select_q[255:0]};
+				temp_regs[REG_XZM1B_HI]		<= {8'h0, share_select_q[511:256]};
+			end
+			else if(state == STATE_XN_HIGH) begin
+				xzm_out			<= share_select_p;
+				xzm1_out		<= share_select_q;
+				out_valid		<= 1;
+			end
 		end
 
 		//Move on to the next state
@@ -357,13 +346,6 @@ module X25519_MainLoopIteration(
 			share_select_r			<= xzm_in;
 			share_select_s			<= xzm1_in;
 			temp_regs[REG_WORK_LOW]	<= work_low;
-		end
-
-		//select(xzm,xzm1,xznb,xzn1b,b);
-		if(state == STATE_XN_HIGH && share_select_valid) begin
-			xzm_out			<= share_select_p;
-			xzm1_out		<= share_select_q;
-			out_valid		<= 1;
 		end
 
 	end
