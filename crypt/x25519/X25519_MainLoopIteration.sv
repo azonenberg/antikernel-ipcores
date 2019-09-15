@@ -54,7 +54,7 @@ module X25519_MainLoopIteration(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RESOURCE SHARING
 
-	logic			share_add_en	= 0;
+	logic			share_addsub_en	= 0;
 	logic[263:0]	share_addsub_a	= 0;
 	logic[263:0]	share_addsub_b	= 0;
 	wire			share_add_valid;
@@ -62,20 +62,19 @@ module X25519_MainLoopIteration(
 
 	X25519_Add share_add(
 		.clk(clk),
-		.en(share_add_en),
+		.en(share_addsub_en),
 		.a(share_addsub_a),
 		.b(share_addsub_b),
 		.out_valid(share_add_valid),
 		.out(share_add_out)
 	);
 
-	logic			share_sub_en	= 0;
 	wire			share_sub_valid;
 	wire[263:0]		share_sub_out;
 
 	X25519_Sub share_sub(
 		.clk(clk),
-		.en(share_sub_en),
+		.en(share_addsub_en),
 		.a(share_addsub_a),
 		.b(share_addsub_b),
 		.out_valid(share_sub_valid),
@@ -164,6 +163,8 @@ module X25519_MainLoopIteration(
 		REG_XZNB_HI		= 5'h13,
 		REG_XZN1B_LO	= 5'h14,
 		REG_XZN1B_HI	= 5'h15,
+
+		//None of these are writable
 		REG_121665		= 5'h16,	//always 121665
 		REG_ZERO		= 5'h17,	//always 0
 		REG_UNUSED		= 5'h18,	//sink for unused writes
@@ -179,16 +180,13 @@ module X25519_MainLoopIteration(
 		for(integer i=0; i<REG_COUNT; i++)
 			temp_regs[i]		<= 0;
 
-		temp_regs[REG_121665]	<= 264'd121665;
-
 	end
 
 	//Microcode definitions
 	typedef struct packed
 	{
 		logic		select_en;
-		logic		add_en;
-		logic		sub_en;
+		logic		addsub_en;
 		logic		mult_en;
 		regid_t		addsub_a;
 		regid_t		addsub_b;
@@ -217,65 +215,65 @@ module X25519_MainLoopIteration(
 			ucode[i] = {$bits(microcode_t){1'b0}};
 
 		//Idle
-		ucode[STATE_IDLE] = { 4'b0000, REG_UNUSED, REG_UNUSED, REG_ZERO, REG_ZERO,
+		ucode[STATE_IDLE] = { 3'b000, REG_UNUSED, REG_UNUSED, REG_ZERO, REG_ZERO,
 			REG_UNUSED, REG_UNUSED, REG_UNUSED, 3'b001, STATE_SELECT_DONE };
 
 		//add(a0,xzmb,xzmb + 32);
 		//sub(a0 + 32,xzmb,xzmb + 32);
-		ucode[STATE_SELECT_DONE] = { 4'b0110, REG_XZMB_LO, REG_XZMB_HI, REG_ZERO, REG_ZERO,
+		ucode[STATE_SELECT_DONE] = { 3'b010, REG_XZMB_LO, REG_XZMB_HI, REG_ZERO, REG_ZERO,
 			REG_A0_LO, REG_A0_HI, REG_UNUSED, 3'b100, STATE_A0 };
 
 		//add(a1,xzm1b,xzm1b + 32);
 		//sub(a1 + 32,xzm1b,xzm1b + 32);
 		//square(b0,a0);
-		ucode[STATE_A0] = {4'b0111, REG_XZM1B_LO, REG_XZM1B_HI, REG_A0_LO, REG_A0_LO,
+		ucode[STATE_A0] = {3'b011, REG_XZM1B_LO, REG_XZM1B_HI, REG_A0_LO, REG_A0_LO,
 			REG_A1_LO, REG_A1_HI, REG_B0_LO, 3'b010, STATE_B0_LOW };
 
 		//square(b0 + 32,a0 + 32);
-		ucode[STATE_B0_LOW] = {4'b0001, REG_ZERO, REG_ZERO, REG_A0_HI, REG_A0_HI,
+		ucode[STATE_B0_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_A0_HI, REG_A0_HI,
 			REG_UNUSED, REG_UNUSED, REG_B0_HI, 3'b010, STATE_B0_HIGH };
 
 		//mult(b1,a1,a0 + 32);
-		ucode[STATE_B0_HIGH] = {4'b0001, REG_ZERO, REG_ZERO, REG_A1_LO, REG_A0_HI,
+		ucode[STATE_B0_HIGH] = {3'b001, REG_ZERO, REG_ZERO, REG_A1_LO, REG_A0_HI,
 			REG_UNUSED, REG_UNUSED, REG_B1_LO, 3'b010, STATE_B1_LOW };
 
 		//mult(b1 + 32,a1 + 32,a0);
-		ucode[STATE_B1_LOW] = {4'b0001, REG_ZERO, REG_ZERO, REG_A1_HI, REG_A0_LO,
+		ucode[STATE_B1_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_A1_HI, REG_A0_LO,
 			REG_UNUSED, REG_UNUSED, REG_B1_HI, 3'b010, STATE_B1_HIGH };
 
 		//add(c1,b1,b1 + 32);
 		//sub(c1 + 32,b1,b1 + 32);
-		ucode[STATE_B1_HIGH] = {4'b0110, REG_B1_LO, REG_B1_HI, REG_ZERO, REG_ZERO,
+		ucode[STATE_B1_HIGH] = {3'b010, REG_B1_LO, REG_B1_HI, REG_ZERO, REG_ZERO,
 			REG_C1_LO, REG_C1_HI, REG_UNUSED, 3'b100, STATE_C1 };
 
 		//sub(s,b0,b0 + 32);
 		//square(r,c1 + 32);
-		ucode[STATE_C1] = {4'b0011, REG_B0_LO, REG_B0_HI, REG_C1_HI, REG_C1_HI,
+		ucode[STATE_C1] = {3'b011, REG_B0_LO, REG_B0_HI, REG_C1_HI, REG_C1_HI,
 			REG_UNUSED, REG_S, REG_R,3'b010, STATE_R };
 
 		//mult121665(t,s);
-		ucode[STATE_R] = {4'b0001, REG_ZERO, REG_ZERO, REG_S, REG_121665,
+		ucode[STATE_R] = {3'b001, REG_ZERO, REG_ZERO, REG_S, REG_121665,
 			REG_UNUSED, REG_UNUSED, REG_T, 3'b010, STATE_T };
 
 		//add(u,t,b0);
 		//mult(xznb,b0,b0 + 32);
-		ucode[STATE_T] = {4'b0101, REG_T, REG_B0_LO, REG_B0_LO, REG_B0_HI,
+		ucode[STATE_T] = {3'b011, REG_T, REG_B0_LO, REG_B0_LO, REG_B0_HI,
 			REG_U, REG_UNUSED, REG_XZNB_LO, 3'b010, STATE_XB_LOW };
 
 		//mult(xznb + 32,s,u);
-		ucode[STATE_XB_LOW] = {4'b0001, REG_ZERO, REG_ZERO, REG_S, REG_U,
+		ucode[STATE_XB_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_S, REG_U,
 			REG_UNUSED, REG_UNUSED, REG_XZNB_HI, 3'b010, STATE_XB_HIGH };
 
 		//square(xzn1b,c1);
-		ucode[STATE_XB_HIGH] = {4'b0001, REG_ZERO, REG_ZERO, REG_C1_LO, REG_C1_LO,
+		ucode[STATE_XB_HIGH] = {3'b001, REG_ZERO, REG_ZERO, REG_C1_LO, REG_C1_LO,
 			REG_UNUSED, REG_UNUSED, REG_XZN1B_LO, 3'b010, STATE_XN_LOW };
 
 		//mult(xzn1b + 32,r,work);
-		ucode[STATE_XN_LOW] = {4'b0001, REG_ZERO, REG_ZERO, REG_R, REG_WORK_LOW,
+		ucode[STATE_XN_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_R, REG_WORK_LOW,
 			REG_UNUSED, REG_UNUSED, REG_XZN1B_HI, 3'b010, STATE_XN_HIGH };
 
 		//select(xzm,xzm1,xznb,xzn1b,b);
-		ucode[STATE_XN_HIGH] = {4'b1000, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+		ucode[STATE_XN_HIGH] = {3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
 			REG_UNUSED, REG_UNUSED, REG_UNUSED, 3'b001, STATE_IDLE };
 
 	end
@@ -293,8 +291,7 @@ module X25519_MainLoopIteration(
 	end
 
 	always_ff @(posedge clk) begin
-		share_add_en	<= 0;
-		share_sub_en	<= 0;
+		share_addsub_en	<= 0;
 		share_select_en	<= 0;
 		share_mult_en	<= 0;
 
@@ -304,9 +301,9 @@ module X25519_MainLoopIteration(
 
 		//Save output
 		if(share_add_valid)
-			temp_regs[line.add_out]		<= share_add_out;
+			temp_regs[line.add_out]	<= share_add_out;
 		if(share_sub_valid)
-			temp_regs[line.sub_out]		<= share_sub_out;
+			temp_regs[line.sub_out]	<= share_sub_out;
 		if(share_mult_valid)
 			temp_regs[line.mult_out]	<= share_mult_out;
 		if(share_select_valid) begin
@@ -330,13 +327,16 @@ module X25519_MainLoopIteration(
 			share_select_en		<= line.select_en;
 			share_select_r		<= {temp_regs[REG_XZNB_HI][255:0], temp_regs[REG_XZNB_LO][255:0]};
 			share_select_s		<= {temp_regs[REG_XZN1B_HI][255:0], temp_regs[REG_XZN1B_LO][255:0]};
-			share_add_en		<= line.add_en;
-			share_sub_en		<= line.sub_en;
+			share_addsub_en		<= line.addsub_en;
 			share_addsub_a		<= temp_regs[line.addsub_a];
 			share_addsub_b		<= temp_regs[line.addsub_b];
 			share_mult_en		<= line.mult_en;
 			share_mult_a		<= temp_regs[line.mult_a];
-			share_mult_b		<= temp_regs[line.mult_b];
+
+			if(line.mult_b == REG_121665)
+				share_mult_b	<= 264'd121665;
+			else
+				share_mult_b	<= temp_regs[line.mult_b];
 		end
 
 		//Special case initialization
