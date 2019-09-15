@@ -131,8 +131,6 @@ module X25519_MainLoopIteration(
 		STATE_XB_HIGH		= 4'hb,
 		STATE_XN_LOW		= 4'hc,
 		STATE_XN_HIGH		= 4'hd,
-		STATE_FINISH		= 4'he,
-
 		STATE_MAX
 	} state_t;
 
@@ -141,33 +139,26 @@ module X25519_MainLoopIteration(
 	//Memory for temporary variables
 	typedef enum logic[4:0]
 	{
-		REG_XZMB_LO		= 5'h00,
-		REG_XZMB_HI		= 5'h01,
-		REG_XZM1B_LO	= 5'h02,
-		REG_XZM1B_HI	= 5'h03,
-		REG_A0_LO		= 5'h04,
-		REG_A0_HI		= 5'h05,
+		REG_TEMP_0		= 5'h00,
+		REG_TEMP_1		= 5'h01,
+		REG_XZMB_LO		= 5'h02,
+		REG_XZMB_HI		= 5'h03,
+		REG_XZM1B_LO	= 5'h04,
+		REG_XZM1B_HI	= 5'h05,
 		REG_A1_LO		= 5'h06,
 		REG_A1_HI		= 5'h07,
 		REG_B0_LO		= 5'h08,
 		REG_B0_HI		= 5'h09,
-		REG_B1_LO		= 5'h0a,
-		REG_B1_HI		= 5'h0b,
-		REG_C1_LO		= 5'h0c,
-		REG_C1_HI		= 5'h0d,
-		REG_R			= 5'h0e,
-		REG_S			= 5'h0f,
-		REG_T			= 5'h10,
-		REG_U			= 5'h11,
-		REG_XZNB_LO		= 5'h12,
-		REG_XZNB_HI		= 5'h13,
-		REG_XZN1B_LO	= 5'h14,
-		REG_XZN1B_HI	= 5'h15,
+		REG_R			= 5'h0a,
+		REG_T			= 5'h0b,
+		REG_U			= 5'h0c,
+		REG_XZNB_LO		= 5'h0d,
+		REG_XZN1B_HI	= 5'h0e,
 
 		//None of these are writable
-		REG_121665		= 5'h16,	//always 121665
-		REG_ZERO		= 5'h17,	//always 0
-		REG_WORK_LOW	= 5'h18,
+		REG_121665		= 5'h0f,	//always 121665
+		REG_ZERO		= 5'h10,	//always 0
+		REG_WORK_LOW	= 5'h11,
 
 		REG_COUNT
 	} regid_t;
@@ -217,39 +208,39 @@ module X25519_MainLoopIteration(
 
 		//add(a0,xzmb,xzmb + 32);
 		//sub(a0 + 32,xzmb,xzmb + 32);
-		ucode[STATE_SELECT_DONE] = { 3'b010, REG_XZMB_LO, REG_XZMB_HI, REG_ZERO, REG_ZERO,
-			REG_A0_LO, REG_A0_HI, REG_ZERO, 3'b100, STATE_A0 };
+		ucode[STATE_SELECT_DONE] = { 3'b010, REG_XZMB_LO, REG_XZMB_HI, REG_ZERO, REG_ZERO,	//TEMP_0 is now A0_LO
+			REG_TEMP_0, REG_TEMP_1, REG_ZERO, 3'b100, STATE_A0 };							//TEMP_1 is now A0_HI
 
 		//add(a1,xzm1b,xzm1b + 32);
 		//sub(a1 + 32,xzm1b,xzm1b + 32);
 		//square(b0,a0);
-		ucode[STATE_A0] = {3'b011, REG_XZM1B_LO, REG_XZM1B_HI, REG_A0_LO, REG_A0_LO,
+		ucode[STATE_A0] = {3'b011, REG_XZM1B_LO, REG_XZM1B_HI, REG_TEMP_0, REG_TEMP_0,
 			REG_A1_LO, REG_A1_HI, REG_B0_LO, 3'b010, STATE_B0_LOW };
 
 		//square(b0 + 32,a0 + 32);
-		ucode[STATE_B0_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_A0_HI, REG_A0_HI,
+		ucode[STATE_B0_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,
 			REG_ZERO, REG_ZERO, REG_B0_HI, 3'b010, STATE_B0_HIGH };
 
 		//mult(b1,a1,a0 + 32);
-		ucode[STATE_B0_HIGH] = {3'b001, REG_ZERO, REG_ZERO, REG_A1_LO, REG_A0_HI,
-			REG_ZERO, REG_ZERO, REG_B1_LO, 3'b010, STATE_B1_LOW };
+		ucode[STATE_B0_HIGH] = {3'b001, REG_ZERO, REG_ZERO, REG_A1_LO, REG_TEMP_1,	//last use of TEMP_1 as A0_HI
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_B1_LOW };					//TEMP_1 is now B1_LO
 
 		//mult(b1 + 32,a1 + 32,a0);
-		ucode[STATE_B1_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_A1_HI, REG_A0_LO,
-			REG_ZERO, REG_ZERO, REG_B1_HI, 3'b010, STATE_B1_HIGH };
+		ucode[STATE_B1_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_A1_HI, REG_TEMP_0,
+			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_B1_HIGH };				//TEMP_0 is now B1_HI
 
 		//add(c1,b1,b1 + 32);
 		//sub(c1 + 32,b1,b1 + 32);
-		ucode[STATE_B1_HIGH] = {3'b010, REG_B1_LO, REG_B1_HI, REG_ZERO, REG_ZERO,
-			REG_C1_LO, REG_C1_HI, REG_ZERO, 3'b100, STATE_C1 };
+		ucode[STATE_B1_HIGH] = {3'b010, REG_TEMP_1, REG_TEMP_0, REG_ZERO, REG_ZERO, //TEMP_0 is now C1_LO
+			REG_TEMP_0, REG_TEMP_1, REG_ZERO, 3'b100, STATE_C1 };					//TEMP_1 is now C1_HI
 
 		//sub(s,b0,b0 + 32);
 		//square(r,c1 + 32);
-		ucode[STATE_C1] = {3'b011, REG_B0_LO, REG_B0_HI, REG_C1_HI, REG_C1_HI,
-			REG_ZERO, REG_S, REG_R,3'b010, STATE_R };
+		ucode[STATE_C1] = {3'b011, REG_B0_LO, REG_B0_HI, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is now S
+			REG_ZERO, REG_TEMP_1, REG_R,3'b010, STATE_R };
 
 		//mult121665(t,s);
-		ucode[STATE_R] = {3'b001, REG_ZERO, REG_ZERO, REG_S, REG_121665,
+		ucode[STATE_R] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_121665,
 			REG_ZERO, REG_ZERO, REG_T, 3'b010, STATE_T };
 
 		//add(u,t,b0);
@@ -258,12 +249,12 @@ module X25519_MainLoopIteration(
 			REG_U, REG_ZERO, REG_XZNB_LO, 3'b010, STATE_XB_LOW };
 
 		//mult(xznb + 32,s,u);
-		ucode[STATE_XB_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_S, REG_U,
-			REG_ZERO, REG_ZERO, REG_XZNB_HI, 3'b010, STATE_XB_HIGH };
+		ucode[STATE_XB_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_U,		//TEMP_1 is now XZNB_HI
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_XB_HIGH };
 
 		//square(xzn1b,c1);
-		ucode[STATE_XB_HIGH] = {3'b001, REG_ZERO, REG_ZERO, REG_C1_LO, REG_C1_LO,
-			REG_ZERO, REG_ZERO, REG_XZN1B_LO, 3'b010, STATE_XN_LOW };
+		ucode[STATE_XB_HIGH] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_0, REG_TEMP_0, //TEMP_0 is now XZN1B_LO
+			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_XN_LOW };
 
 		//mult(xzn1b + 32,r,work);
 		ucode[STATE_XN_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_R, REG_WORK_LOW,
@@ -298,11 +289,11 @@ module X25519_MainLoopIteration(
 
 		//Save output
 		if(share_add_valid && (line.add_out <= REG_XZN1B_HI))
-			temp_regs[line.add_out]	<= share_add_out;
+			temp_regs[line.add_out[3:0]]	<= share_add_out;
 		if(share_sub_valid && (line.sub_out <= REG_XZN1B_HI))
-			temp_regs[line.sub_out]	<= share_sub_out;
+			temp_regs[line.sub_out[3:0]]	<= share_sub_out;
 		if(share_mult_valid && (line.mult_out <= REG_XZN1B_HI))
-			temp_regs[line.mult_out]	<= share_mult_out;
+			temp_regs[line.mult_out[3:0]]	<= share_mult_out;
 		if(share_select_valid) begin
 			if(state == STATE_IDLE) begin
 				temp_regs[REG_XZMB_LO]		<= {8'h0, share_select_p[255:0]};
@@ -322,18 +313,18 @@ module X25519_MainLoopIteration(
 			state		<= line.next;
 		if(advancing_ff) begin
 			share_select_en		<= line.select_en;
-			share_select_r		<= {temp_regs[REG_XZNB_HI][255:0], temp_regs[REG_XZNB_LO][255:0]};
-			share_select_s		<= {temp_regs[REG_XZN1B_HI][255:0], temp_regs[REG_XZN1B_LO][255:0]};
+			share_select_r		<= {temp_regs[REG_TEMP_1][255:0], temp_regs[REG_XZNB_LO][255:0]};
+			share_select_s		<= {temp_regs[REG_XZN1B_HI][255:0], temp_regs[REG_TEMP_0][255:0]};
 			share_addsub_en		<= line.addsub_en;
-			share_addsub_a		<= temp_regs[line.addsub_a];
-			share_addsub_b		<= temp_regs[line.addsub_b];
+			share_addsub_a		<= temp_regs[line.addsub_a[3:0]];
+			share_addsub_b		<= temp_regs[line.addsub_b[3:0]];
 			share_mult_en		<= line.mult_en;
-			share_mult_a		<= temp_regs[line.mult_a];
+			share_mult_a		<= temp_regs[line.mult_a[3:0]];
 
 			case(line.mult_b)
 				REG_121665:		share_mult_b	<= 264'd121665;
 				REG_WORK_LOW:	share_mult_b	<= work_low;
-				default:		share_mult_b	<= temp_regs[line.mult_b];
+				default:		share_mult_b	<= temp_regs[line.mult_b[3:0]];
 			endcase
 		end
 
