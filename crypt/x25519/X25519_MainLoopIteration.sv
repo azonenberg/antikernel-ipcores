@@ -309,14 +309,16 @@ module X25519_MainLoopIteration(
 			share_select_r		<= {temp_regs[REG_TEMP_1][255:0], temp_regs[REG_TEMP_3][255:0]};
 			share_select_s		<= {temp_regs[REG_TEMP_2][255:0], temp_regs[REG_TEMP_0][255:0]};
 
-			//Special case a few "magic" inputs for constants etc
+			//Special case a few "magic" inputs for constants etc.
+			//Commented out paths are not used by current microcode.
+			//Removing these mux paths saves a few LUTs. They can be added back if needed in the future.
 			case(line.addsub_a)
-				REG_TEMP_0:		share_addsub_a	<= temp_regs[REG_TEMP_0];
+				//REG_TEMP_0:		share_addsub_a	<= temp_regs[REG_TEMP_0];
 				REG_TEMP_1:		share_addsub_a	<= temp_regs[REG_TEMP_1];
-				REG_TEMP_2:		share_addsub_a	<= temp_regs[REG_TEMP_2];
+				//REG_TEMP_2:		share_addsub_a	<= temp_regs[REG_TEMP_2];
 				REG_TEMP_3:		share_addsub_a	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_4:		share_addsub_a	<= temp_regs[REG_TEMP_4];
-				REG_TEMP_5:		share_addsub_a	<= temp_regs[REG_TEMP_5];
+				//REG_TEMP_5:		share_addsub_a	<= temp_regs[REG_TEMP_5];
 
 				REG_SELP_LO:	share_addsub_a	<= {8'h0, share_select_p[255:0]};
 				REG_SELQ_LO:	share_addsub_a	<= {8'h0, share_select_q[255:0]};
@@ -324,9 +326,9 @@ module X25519_MainLoopIteration(
 
 			case(line.addsub_b)
 				REG_TEMP_0:		share_addsub_b	<= temp_regs[REG_TEMP_0];
-				REG_TEMP_1:		share_addsub_b	<= temp_regs[REG_TEMP_1];
-				REG_TEMP_2:		share_addsub_b	<= temp_regs[REG_TEMP_2];
-				REG_TEMP_3:		share_addsub_b	<= temp_regs[REG_TEMP_3];
+				//REG_TEMP_1:		share_addsub_b	<= temp_regs[REG_TEMP_1];
+				//REG_TEMP_2:		share_addsub_b	<= temp_regs[REG_TEMP_2];
+				//REG_TEMP_3:		share_addsub_b	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_4:		share_addsub_b	<= temp_regs[REG_TEMP_4];
 				REG_TEMP_5:		share_addsub_b	<= temp_regs[REG_TEMP_5];
 
@@ -340,14 +342,14 @@ module X25519_MainLoopIteration(
 				REG_TEMP_2:		share_mult_a	<= temp_regs[REG_TEMP_2];
 				REG_TEMP_3:		share_mult_a	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_4:		share_mult_a	<= temp_regs[REG_TEMP_4];
-				REG_TEMP_5:		share_mult_a	<= temp_regs[REG_TEMP_5];
+				//REG_TEMP_5:		share_mult_a	<= temp_regs[REG_TEMP_5];
 			endcase
 
 			case(line.mult_b)
 				REG_TEMP_0:		share_mult_b	<= temp_regs[REG_TEMP_0];
 				REG_TEMP_1:		share_mult_b	<= temp_regs[REG_TEMP_1];
-				REG_TEMP_2:		share_mult_b	<= temp_regs[REG_TEMP_2];
-				REG_TEMP_3:		share_mult_b	<= temp_regs[REG_TEMP_3];
+				//REG_TEMP_2:		share_mult_b	<= temp_regs[REG_TEMP_2];
+				//REG_TEMP_3:		share_mult_b	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_4:		share_mult_b	<= temp_regs[REG_TEMP_4];
 				REG_TEMP_5:		share_mult_b	<= temp_regs[REG_TEMP_5];
 				REG_121665:		share_mult_b	<= 264'd121665;
