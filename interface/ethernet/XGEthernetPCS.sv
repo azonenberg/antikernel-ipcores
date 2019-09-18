@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -43,19 +43,19 @@ module XGEthernetPCS(
 	input wire			rx_header_valid,
 	input wire[1:0]		rx_header,
 	input wire[31:0]	rx_data,
-	output reg			rx_bitslip	= 0,
+	output logic		rx_bitslip	= 0,
 
 	//Outbound data to the GT's 64/66b async gearbox
-	output reg			tx_header_valid,
-	output reg[1:0]		tx_header	= 0,
-	output reg[31:0]	tx_data		= 0,
+	output logic		tx_header_valid,
+	output logic[1:0]	tx_header	= 0,
+	output logic[31:0]	tx_data		= 0,
 
 	//RX XGMII interface (single rate @ 312.5 MHz, rather than double rate @ 162.5 MHz)
 	//Bit numbering is changed from the 802.3 spec: we have [31] be lane 0
 	//so a 32-bit value will be transmitted in network byte order
 	output wire			xgmii_rx_clk,		//echoed rx_clk
-	output reg[3:0]		xgmii_rxc	= 0,
-	output reg[31:0]	xgmii_rxd	= 0,
+	output logic[3:0]	xgmii_rxc	= 0,
+	output logic[31:0]	xgmii_rxd	= 0,
 
 	//TX XGMII interface
 	//Note that we source the TX clock rather than having it come from the MAC
@@ -64,15 +64,14 @@ module XGEthernetPCS(
 	input wire[31:0]	xgmii_txd,
 
 	//Link state etc signals
-	output reg			block_sync_good,	//indicates valid 64/66b synchronization
-	output reg			link_up,
-	output reg			remote_fault
+	output logic		block_sync_good,	//indicates valid 64/66b synchronization
+	output wire			link_up,
+	output logic		remote_fault
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Clock loopback
 
-	//TODO: omit these ports since they serve no real purpose other than convenient naming?
 	assign xgmii_rx_clk	= rx_clk;
 	assign xgmii_tx_clk	= tx_clk;
 
@@ -80,38 +79,42 @@ module XGEthernetPCS(
 	// Link state calculation
 
 	//TODO: detect invalid code groups etc and drop the link after too many
-	always @(*) begin
-		link_up		<= block_sync_good && !remote_fault;
-	end
+	assign link_up	= block_sync_good && !remote_fault;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Ethernet protocol constants
 
 	//Pull in XGMII table (shared with MAC core)
-	`include "XGMII_CtlChars.vh"
+	`include "XGMII_CtlChars.svh"
 
 	//64/66b sync fields
-	localparam SYNC_DATA	= 2'h1;
-	localparam SYNC_CONTROL	= 2'h2;
+	typedef enum logic[1:0]
+	{
+		SYNC_DATA		= 2'h1,
+		SYNC_CONTROL	= 2'h2
+	} sync_t;
 
 	//64/66b control field types
-	localparam CTL_C8		= 8'h1e;	//Eight 7-bit control fields
-	localparam CTL_C4_O1_D3	= 8'h2d;	//Four 7-bit control fields, one 4-bit ordered set, three data octets
-	localparam CTL_C4_D3	= 8'h33;	//Four 7-bit control field, four padding bits, three data octets
-	localparam CTL_D3_O1_D3	= 8'h66;	//Three data octets, one 4-bit ordered set, four padding bits, three data octets
-	localparam CTL_D3_O2_D3	= 8'h55;	//Three data octets, two 4-bit ordered set, three data octets
-	localparam CTL_D7_START	= 8'h78;	//Seven data octets, start of frame
-	localparam CTL_D3_O1_C4	= 8'h4b;	//Three data octets, one 4-bit ordered set, four 7-bit control fields
+	typedef enum logic[7:0]
+	{
+		CTL_C8			= 8'h1e,	//Eight 7-bit control fields
+		CTL_C4_O1_D3	= 8'h2d,	//Four 7-bit control fields, one 4-bit ordered set, three data octets
+		CTL_C4_D3		= 8'h33,	//Four 7-bit control field, four padding bits, three data octets
+		CTL_D3_O1_D3	= 8'h66,	//Three data octets, one 4-bit ordered set, four padding bits, three data octets
+		CTL_D3_O2_D3	= 8'h55,	//Three data octets, two 4-bit ordered set, three data octets
+		CTL_D7_START	= 8'h78,	//Seven data octets, start of frame
+		CTL_D3_O1_C4	= 8'h4b,	//Three data octets, one 4-bit ordered set, four 7-bit control fields
 
-	//More control field types. These are only legal at the end of a frame
-	localparam CTL_C7		= 8'h87;	//Seven padding bits, seven 7-bit control fields
-	localparam CTL_D1_C6	= 8'h99;	//One data octet, six padding bits, six 7-bit control fields
-	localparam CTL_D2_C5	= 8'haa;	//Two data octets, five padding bits, five 7-bit control fields
-	localparam CTL_D3_C4	= 8'hb4;	//Three data octets, four padding bits, four 7-bit control fields
-	localparam CTL_D4_C3	= 8'hcc;	//Four data octets, three padding bits, three 7-bit control fields
-	localparam CTL_D5_C2	= 8'hd2;	//Five data octets, two padding bits, two 7-bit control fields
-	localparam CTL_D6_C1	= 8'he1;	//Six data octets, one padding bit, one 7-bit control field
-	localparam CTL_D7_END	= 8'hff;	//Seven data octets at end of frame
+		//More control field types. These are only legal at the end of a frame
+		CTL_C7			= 8'h87,	//Seven padding bits, seven 7-bit control fields
+		CTL_D1_C6		= 8'h99,	//One data octet, six padding bits, six 7-bit control fields
+		CTL_D2_C5		= 8'haa,	//Two data octets, five padding bits, five 7-bit control fields
+		CTL_D3_C4		= 8'hb4,	//Three data octets, four padding bits, four 7-bit control fields
+		CTL_D4_C3		= 8'hcc,	//Four data octets, three padding bits, three 7-bit control fields
+		CTL_D5_C2		= 8'hd2,	//Five data octets, two padding bits, two 7-bit control fields
+		CTL_D6_C1		= 8'he1,	//Six data octets, one padding bit, one 7-bit control field
+		CTL_D7_END		= 8'hff		//Seven data octets at end of frame
+	} control_t;
 
 	localparam CTL_IDLE		= 7'h00;
 	localparam CTL_ERROR	= 7'h1e;
@@ -126,11 +129,11 @@ module XGEthernetPCS(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX 64/66b block alignment
 
-	reg[3:0]	block_align_errors	= 0;
-	reg[10:0]	bitslip_window		= 0;
-	reg[7:0]	bitslip_cooldown	= 0;
+	logic[3:0]	block_align_errors	= 0;
+	logic[10:0]	bitslip_window		= 0;
+	logic[7:0]	bitslip_cooldown	= 0;
 
-	always @(posedge rx_clk) begin
+	always_ff @(posedge rx_clk) begin
 
 		rx_bitslip					<= 0;
 
@@ -173,13 +176,12 @@ module XGEthernetPCS(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX 64/66b descrambling and bit reordering
 
-	reg[31:0]	rx_data_descrambled	= 0;
-	reg[57:0]	rx_scramble = 0;
+	logic[31:0]	rx_data_descrambled	= 0;
+	logic[57:0]	rx_scramble = 0;
 
-	integer i;
-	always @(posedge rx_clk) begin
+	always_ff @(posedge rx_clk) begin
 
-		for(i=0; i<32; i=i+1) begin
+		for(integer i=0; i<32; i++) begin
 			rx_data_descrambled[i]		= rx_data[31-i] ^ rx_scramble[38] ^ rx_scramble[57];
 			rx_scramble					= { rx_scramble[56:0], rx_data[31-i] };
 		end
@@ -191,11 +193,11 @@ module XGEthernetPCS(
 
 	//todo: can we make this combinatorial?
 
-	reg			rx_block_valid		= 0;
-	reg			rx_block_is_control	= 0;
-	reg[63:0]	rx_block_data		= 0;
+	logic		rx_block_valid		= 0;
+	logic		rx_block_is_control	= 0;
+	logic[63:0]	rx_block_data		= 0;
 
-	always @(posedge rx_clk) begin
+	always_ff @(posedge rx_clk) begin
 
 		if(!rx_header_valid) begin
 			rx_block_is_control		<= (rx_header == 2'h2);
@@ -222,14 +224,14 @@ module XGEthernetPCS(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX 64-bit block decoding and XGMII data generation
 
-	reg			last_frame_was_fault	= 0;
-	reg[6:0]	remote_fault_count		= 0;
-	reg[6:0]	link_ok_count			= 0;
+	logic		last_frame_was_fault	= 0;
+	logic[6:0]	remote_fault_count		= 0;
+	logic[6:0]	link_ok_count			= 0;
 
-	reg[3:0]	xgmii_rxc_next			= 0;
-	reg[31:0]	xgmii_rxd_next			= 0;
+	logic[3:0]	xgmii_rxc_next			= 0;
+	logic[31:0]	xgmii_rxd_next			= 0;
 
-	always @(posedge rx_clk) begin
+	always_ff @(posedge rx_clk) begin
 
 		//Process new blocks
 		if(rx_block_valid) begin
@@ -580,13 +582,12 @@ module XGEthernetPCS(
 	// TX 64-bit block generation
 
 	//Build a 64-bit XGMII data block
-	reg				xgmii_x64_valid	= 0;
-	reg[7:0]		xgmii_txc_x64	= 0;
-	reg[63:0]		xgmii_txd_x64	= 0;
+	logic			xgmii_x64_valid	= 0;
+	logic[7:0]		xgmii_txc_x64	= 0;
+	logic[63:0]		xgmii_txd_x64	= 0;
 
-	always @(posedge tx_clk) begin
+	always_ff @(posedge tx_clk) begin
 
-		//TODO: check if this phasing is right
 		if(tx_header_valid) begin
 			xgmii_x64_valid			<= 0;
 			xgmii_txc_x64[7:4]		<= xgmii_txc;
@@ -600,9 +601,9 @@ module XGEthernetPCS(
 
 	end
 
-	reg[1:0]		tx_header_next		= SYNC_CONTROL;
-	reg[1:0]		tx_header_next_ff	= SYNC_CONTROL;
-	reg[63:0]		tx_64b_data			=
+	logic[1:0]		tx_header_next		= SYNC_CONTROL;
+	logic[1:0]		tx_header_next_ff	= SYNC_CONTROL;
+	logic[63:0]		tx_64b_data			=
 	{
 		CTL_C8,
 		CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE
@@ -634,7 +635,7 @@ module XGEthernetPCS(
 
 	wire			tx_has_data = (xgmii_txc_x64 == 8'h0);
 
-	always @(posedge tx_clk) begin
+	always_ff @(posedge tx_clk) begin
 
 		tx_header_next_ff		<= tx_header_next;
 
@@ -699,8 +700,8 @@ module XGEthernetPCS(
 	//Pull out the right 32-bit word and twiddle bit odering
 	//We have two cycle latency through the line coding block right now, so send the leftmost block
 	//when tx_header_valid is about to go high
-	reg[31:0]		tx_32b_data		= 0;
-	always @(posedge tx_clk) begin
+	logic[31:0]		tx_32b_data		= 0;
+	always_ff @(posedge tx_clk) begin
 
 		if(!tx_header_valid) begin
 			tx_32b_data[7:0]		<= tx_64b_data[63:56];
@@ -721,53 +722,21 @@ module XGEthernetPCS(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX scrambling and bit reordering
 
-	reg[57:0] 	tx_scramble = 0;
+	logic[57:0] 	tx_scramble = 0;
+	logic			tx_scramble_temp;
 
-	reg			tx_scramble_temp;
-
-	always @(posedge tx_clk) begin
+	always_ff @(posedge tx_clk) begin
 
 		tx_header					<= tx_header_next_ff;
 		tx_header_valid				<= !tx_header_valid;
 
-		for(i=0; i<32; i=i+1) begin
-			tx_scramble_temp			= tx_32b_data[i] ^ tx_scramble[38] ^ tx_scramble[57];
+		for(integer i=0; i<32; i=i+1) begin
+			tx_scramble_temp		= tx_32b_data[i] ^ tx_scramble[38] ^ tx_scramble[57];
 
-			tx_data[31-i]				= tx_scramble_temp;
-			tx_scramble					= { tx_scramble[56:0], tx_scramble_temp };
+			tx_data[31-i]			= tx_scramble_temp;
+			tx_scramble				= { tx_scramble[56:0], tx_scramble_temp };
 		end
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// LA runs in SERDES RX clock domain
-
-	/*
-	wire	trig_out;
-	reg		trig_out_ack	= 0;
-
-	always @(posedge rx_clk) begin
-		trig_out_ack	<= trig_out;
-	end
-
-	ila_0 ila(
-		.clk(rx_clk),
-
-		.probe0(xgmii_rxc),
-		.probe1(xgmii_rxd),
-		.probe2(rx_header_valid),
-		.probe3(rx_header),
-		.probe4(rx_data_descrambled),
-		.probe5(rx_block_valid),
-		.probe6(rx_block_is_control),
-		.probe7(rx_block_data),
-		.probe8(xgmii_rxc_next),
-		.probe9(xgmii_rxd_next),
-		.probe10(remote_fault),
-
-		.trig_out(trig_out),
-		.trig_out_ack(trig_out_ack)
-	);
-	*/
 
 endmodule
