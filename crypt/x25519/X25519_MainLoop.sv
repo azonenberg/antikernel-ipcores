@@ -153,6 +153,11 @@ module X25519_MainLoop(
 		STATE_R111			= 6'h1b,
 		STATE_R122			= 6'h1c,
 		STATE_R2010_LOOP	= 6'h1d,
+		STATE_R2010			= 6'h1e,
+		STATE_R200			= 6'h1f,
+		STATE_R211			= 6'h20,
+		STATE_R4020_LOOP	= 6'h21,
+		STATE_R4020			= 6'h22,
 
 		STATE_MAX
 	} state_t;
@@ -213,7 +218,7 @@ module X25519_MainLoop(
 		state_t		next;
 
 		logic		loop;				//if true, this state is a loop
-										//ALl loops start at i=2 and count by 2
+										//All loops start at i=2 and count by 1
 		logic[6:0]	loop_max;
 	} microcode_t;
 
@@ -351,13 +356,38 @@ module X25519_MainLoop(
 
 		//2^12 - 2^2: square(t1,t0);
 		ucode[STATE_R122] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
-			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2010_LOOP, 1'b1, 7'd10 };
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2010_LOOP, 1'b0, 7'd0 };
+
+		//2^12 - 2^2: for (i = 2;i < 10;i += 2) { square(t0,t1); square(t1,t0); }
+		//We change this around a bit and square into t1 each iteration, and count by 1
+		//since our loop algorithm doesn't allow multi-line loop bodies
+		ucode[STATE_R2010_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2010, 1'b1, 7'd10 };
+
+		//2^20 - 2^0: mult(z2_20_0,t1,z2_10_0);
+		ucode[STATE_R2010] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_3,		//TEMP_4 is now z2_20_0
+			REG_ZERO, REG_ZERO, REG_TEMP_4, 3'b010, STATE_R200, 1'b0, 7'd0 };
+
+		//2^21 - 2^1: square(t0,z2_20_0);
+		ucode[STATE_R200] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_4, REG_TEMP_4,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R211, 1'b0, 7'd0 };
+
+		//2^22 - 2^2: square(t1,t0);
+		ucode[STATE_R211] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R4020_LOOP, 1'b0, 7'd0 };
+
+		//2^40 - 2^20: for (i = 2;i < 20;i += 2) { square(t0,t1); square(t1,t0); }
+		//Same as before, we do single multiplies instead of t1-t0-t1 pingponging
+		ucode[STATE_R4020_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R4020, 1'b1, 7'd20 };
 
 	end
 
 	microcode_t line;
 	logic		advancing;
 	logic		advancing_ff	= 0;
+
+	logic[6:0]	loop_count		= 0;
 
 	always_comb begin
 		line 		= ucode[state];
@@ -391,8 +421,30 @@ module X25519_MainLoop(
 		if(advancing) begin
 			if(out_valid)
 				state		<= STATE_RECIP;
-			else
-				state		<= line.next;
+			else begin
+
+				//Is this a loop? Go to the next iteration
+				if(line.loop) begin
+
+					//End of loop?
+					if(loop_count+1 >= line.loop_max) begin
+						state		<= line.next;
+						loop_count	<= 2;
+					end
+
+					//Stay in current state, move to next iteration
+					else
+						loop_count	<= loop_count + 1;
+
+				end
+
+				//Nope, go to next state
+				else begin
+					state		<= line.next;
+					loop_count	<= 2;
+				end
+
+			end
 		end
 		if(advancing_ff) begin
 
