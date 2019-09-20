@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -29,6 +29,9 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "GmiiBus.svh"
+`include "EthernetBus.svh"
+
 /**
 	@file
 	@author Andrew D. Zonenberg
@@ -37,40 +40,30 @@
 	Pretty simple, just convert control codes to status flags and insert/verify checksums
 
 	Conventions
-		rx_frame_start is asserted before, not simultaneous with, first assertion of rx_frame_data_valid
-		rx_frame_bytes_valid is always 4 until last word in the packet, at which point it may take any value
-		rx_frame_commit is asserted after, not simultaneous with, last assertion of rx_frame_data_valid
+		rx_bus.start is asserted before, not simultaneous with, first assertion of rx_bus.data_valid
+		rx_bus.bytes_valid is always 4 until last word in the packet, at which point it may take any value
+		rx_bus.commit is asserted after, not simultaneous with, last assertion of rx_bus.data_valid
  */
 module XGEthernetMAC(
 
 	//XMGII bus
-	input wire			xgmii_rx_clk,
-	input wire[3:0]		xgmii_rxc,
-	input wire[31:0]	xgmii_rxd,
+	input wire					xgmii_rx_clk,
+	input wire XgmiiBus			xgmii_rx_bus,
 
-	input wire			xgmii_tx_clk,
-	output reg[3:0]		xgmii_txc				= 0,
-	output reg[31:0]	xgmii_txd				= 0,
+	input wire					xgmii_tx_clk,
+	output XgmiiBus				xgmii_tx_bus	= 0,
 
 	//Link state flags (reset stuff as needed when link is down)
-	input wire			link_up,
+	input wire					link_up,
 
 	//Data bus to upper layer stack (aligned to XGMII RX clock)
-	//Streaming bus, don't act on this data until rx_frame_commit goes high
-	output reg			rx_frame_start			= 0,
-	output reg			rx_frame_data_valid		= 0,
-	output reg[2:0]		rx_frame_bytes_valid	= 0,
-	output reg[31:0]	rx_frame_data			= 0,
-	output reg			rx_frame_commit			= 0,
-	output reg			rx_frame_drop			= 0,
+	//Streaming bus, don't act on this data until rx_bus.commit goes high
+	output EthernetRxBus		rx_bus			= 0,
 
 	//Data bus from upper layer stack (aligned to XGMII TX clock)
 	//Well-formed layer 2 frames minus padding (if needed) and CRC.
 	//No commit/drop flags, everything that comes in here gets sent.
-	input wire			tx_frame_start,
-	input wire			tx_frame_data_valid,
-	input wire[2:0]		tx_frame_bytes_valid,
-	input wire[31:0]	tx_frame_data
+	input wire EthernetTxBus	tx_bus
 
 	//TODO: performance counters
 	);
@@ -79,49 +72,50 @@ module XGEthernetMAC(
 	// Ethernet protocol constants
 
 	//Pull in XGMII table (shared with PCS core)
-	`include "XGMII_CtlChars.vh"
+	`include "XGMII_CtlChars.svh"
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// XGMII RX control character decoding
 
 	wire[3:0] lane_has_end =
 	{
-		xgmii_rxc[3] && (xgmii_rxd[31:24] == XGMII_CTL_END),
-		xgmii_rxc[2] && (xgmii_rxd[23:16] == XGMII_CTL_END),
-		xgmii_rxc[1] && (xgmii_rxd[15:8]  == XGMII_CTL_END),
-		xgmii_rxc[0] && (xgmii_rxd[7:0]   == XGMII_CTL_END)
+		xgmii_rx_bus.ctl[3] && (xgmii_rx_bus.data[31:24] == XGMII_CTL_END),
+		xgmii_rx_bus.ctl[2] && (xgmii_rx_bus.data[23:16] == XGMII_CTL_END),
+		xgmii_rx_bus.ctl[1] && (xgmii_rx_bus.data[15:8]  == XGMII_CTL_END),
+		xgmii_rx_bus.ctl[0] && (xgmii_rx_bus.data[7:0]   == XGMII_CTL_END)
 	};
 
 	wire[3:0] lane_has_error =
 	{
-		xgmii_rxc[3] && (xgmii_rxd[31:24] == XGMII_CTL_ERROR),
-		xgmii_rxc[2] && (xgmii_rxd[23:16] == XGMII_CTL_ERROR),
-		xgmii_rxc[1] && (xgmii_rxd[15:8]  == XGMII_CTL_ERROR),
-		xgmii_rxc[0] && (xgmii_rxd[7:0]   == XGMII_CTL_ERROR)
+		xgmii_rx_bus.ctl[3] && (xgmii_rx_bus.data[31:24] == XGMII_CTL_ERROR),
+		xgmii_rx_bus.ctl[2] && (xgmii_rx_bus.data[23:16] == XGMII_CTL_ERROR),
+		xgmii_rx_bus.ctl[1] && (xgmii_rx_bus.data[15:8]  == XGMII_CTL_ERROR),
+		xgmii_rx_bus.ctl[0] && (xgmii_rx_bus.data[7:0]   == XGMII_CTL_ERROR)
 	};
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// XGMII RX logic
 
-	localparam STATE_IDLE		= 0;
-	localparam STATE_PREAMBLE	= 1;
-	localparam STATE_BODY		= 2;
+	enum logic[1:0]
+	{
+		STATE_IDLE		= 0,
+		STATE_PREAMBLE	= 1,
+		STATE_BODY		= 2
+	} rx_state			= STATE_IDLE;
 
-	reg[1:0]	rx_state		= 0;
-
-	reg			last_was_preamble	= 0;
+	logic		last_was_preamble	= 0;
 
 	wire[31:0]	rx_crc_dout;
-	reg[31:0]	crc_expected;
-	reg[31:0]	crc_expected_ff;
-	reg[31:0]	crc_expected_ff2;
+	logic[31:0]	crc_expected;
+	logic[31:0]	crc_expected_ff;
+	logic[31:0]	crc_expected_ff2;
 
 	//Combinatorially figure out how many bytes of data in the current block are valid
-	always @(*) begin
-		rx_frame_bytes_valid			<= 0;
-		crc_expected					<= 0;
+	always_comb begin
+		rx_bus.bytes_valid			= 0;
+		crc_expected				= 0;
 
-		rx_frame_data_valid				<= 0;
+		rx_bus.data_valid			= 0;
 
 		if(rx_state == STATE_BODY) begin
 
@@ -129,52 +123,50 @@ module XGEthernetMAC(
 			//(except for the FCS)
 			if(lane_has_end[3]) begin
 				//entire rxd_ff is FCS, don't crc it at all
-				crc_expected			<= rx_frame_data;
+				crc_expected		= rx_bus.data;
 			end
 			else if(lane_has_end[2]) begin
-				rx_frame_bytes_valid	<= 1;
-				rx_frame_data_valid		<= 1;
-				crc_expected			<= { rx_frame_data[23:0], xgmii_rxd[31:24] };
+				rx_bus.bytes_valid	= 1;
+				rx_bus.data_valid	= 1;
+				crc_expected		= { rx_bus.data[23:0], xgmii_rx_bus.data[31:24] };
 			end
 			else if(lane_has_end[1]) begin
-				rx_frame_bytes_valid	<= 2;
-				rx_frame_data_valid		<= 1;
-				rx_frame_data_valid		<= 1;
-				crc_expected			<= { rx_frame_data[15:0], xgmii_rxd[31:16] };
+				rx_bus.bytes_valid	= 2;
+				rx_bus.data_valid	= 1;
+				crc_expected		= { rx_bus.data[15:0], xgmii_rx_bus.data[31:16] };
 			end
 			else if(lane_has_end[0]) begin
-				rx_frame_bytes_valid	<= 3;
-				rx_frame_data_valid		<= 1;
-				rx_frame_data_valid		<= 1;
-				crc_expected			<= { rx_frame_data[7:0], xgmii_rxd[31:8] };
+				rx_bus.bytes_valid	= 3;
+				rx_bus.data_valid	= 1;
+				crc_expected		= { rx_bus.data[7:0], xgmii_rx_bus.data[31:8] };
 			end
 
 			//Packet is NOT ending this block. Feed the last 4 bytes to the CRC engine.
 			//(We can't feed the current 4 bytes in yet, as they might be part of the crc!)
 			//Also, make sure not to hash the preamble or SFD!
 			else if(!last_was_preamble) begin
-				rx_frame_bytes_valid	<= 4;
-				rx_frame_data_valid		<= 1;
+				rx_bus.bytes_valid		= 4;
+				rx_bus.data_valid		= 1;
 			end
 		end
 
 	end
 
-	reg						fcs_pending_0	= 0;
-	reg						fcs_pending_1	= 0;
+	logic					fcs_pending_0	= 0;
+	logic					fcs_pending_1	= 0;
 
 	always @(posedge xgmii_rx_clk) begin
 
-		rx_frame_start		<= 0;
+		rx_bus.start		<= 0;
 
 		last_was_preamble	<= 0;
 
-		rx_frame_data		<= xgmii_rxd;
+		rx_bus.data			<= xgmii_rx_bus.data;
 		crc_expected_ff		<= crc_expected;
 		crc_expected_ff2	<= crc_expected_ff;
 
-		rx_frame_commit		<= 0;
-		rx_frame_drop		<= 0;
+		rx_bus.commit		<= 0;
+		rx_bus.drop			<= 0;
 
 		fcs_pending_0		<= 0;
 		fcs_pending_1		<= fcs_pending_0;
@@ -183,9 +175,9 @@ module XGEthernetMAC(
 		//This buys us some time, but we have to be careful when packets are at minimum spacing.
 		if(fcs_pending_1) begin
 			if(crc_expected_ff2 == rx_crc_dout)
-				rx_frame_commit	<= 1;
+				rx_bus.commit	<= 1;
 			else
-				rx_frame_drop	<= 1;
+				rx_bus.drop		<= 1;
 		end
 
 		case(rx_state)
@@ -197,7 +189,7 @@ module XGEthernetMAC(
 
 				//Ignore idles and errors
 				//Look for start of frame (can only occur in leftmost XGMII lane)
-				if(xgmii_rxc[3] && (xgmii_rxd[31:24] == XGMII_CTL_START) )
+				if(xgmii_rx_bus.ctl[3] && (xgmii_rx_bus.data[31:24] == XGMII_CTL_START) )
 					rx_state		<= STATE_PREAMBLE;
 
 			end	//end STATE_IDLE
@@ -207,13 +199,13 @@ module XGEthernetMAC(
 
 			STATE_PREAMBLE: begin
 
-				//Delay rx_frame_start by one cycle
+				//Delay rx_bus.start by one cycle
 				//to give checksum calculation a chance to complete
-				rx_frame_start		<= 1;
+				rx_bus.start		<= 1;
 
 				//We should have exactly one XGMII clock in this stage
 				//and it should be data 55 55 55 D5. Anything else is an error, drop the frame.
-				if( (xgmii_rxc != 0) || (xgmii_rxd != 32'h555555d5) )
+				if( (xgmii_rx_bus.ctl != 0) || (xgmii_rx_bus.data != 32'h555555d5) )
 					rx_state		<= STATE_IDLE;
 
 				//If we get here we're good, go on to the body
@@ -244,7 +236,7 @@ module XGEthernetMAC(
 		//This overrides and any all other processing
 		if(lane_has_error && (rx_state != STATE_IDLE) ) begin
 			rx_state		<= STATE_IDLE;
-			rx_frame_drop	<= 1;
+			rx_bus.drop		<= 1;
 
 			fcs_pending_0	<= 0;
 			fcs_pending_1	<= 0;
@@ -256,21 +248,21 @@ module XGEthernetMAC(
 	// Receive CRC32
 
 	//Pipeline CRC input by one cycle to improve timing
-	reg[2:0]		rx_frame_bytes_valid_ff	= 0;
-	reg[31:0]		rx_frame_data_ff		= 0;
+	logic[2:0]		rx_frame_bytes_valid_ff	= 0;
+	logic[31:0]		rx_bus_data_ff		= 0;
 
-	always @(posedge xgmii_rx_clk) begin
-		rx_frame_bytes_valid_ff	<= rx_frame_bytes_valid;
-		rx_frame_data_ff		<= rx_frame_data;
+	always_ff @(posedge xgmii_rx_clk) begin
+		rx_frame_bytes_valid_ff	<= rx_bus.bytes_valid;
+		rx_bus_data_ff			<= rx_bus.data;
 	end
 
 	CRC32_Ethernet_x32_variable rx_crc(
 
 		.clk(xgmii_rx_clk),
-		.reset(rx_frame_start),
+		.reset(rx_bus.start),
 
 		.din_len(rx_frame_bytes_valid_ff),
-		.din(rx_frame_data_ff),
+		.din(rx_bus_data_ff),
 		.crc_out(rx_crc_dout)
 	);
 
@@ -278,43 +270,44 @@ module XGEthernetMAC(
 	// XGMII TX logic
 
 	wire[31:0]	tx_crc_dout;
-	reg[2:0]	tx_crc_bytes_valid			= 0;
-	reg[31:0]	tx_crc_din					= 0;
+	logic[2:0]	tx_crc_bytes_valid			= 0;
+	logic[31:0]	tx_crc_din					= 0;
 
-	reg[13:0]	running_frame_len			= 0;
-	reg[2:0]	tx_frame_bytes_valid_ff		= 0;
-	reg[2:0]	tx_frame_bytes_valid_ff2	= 0;
-	reg[2:0]	tx_frame_bytes_valid_ff3	= 0;
+	logic[13:0]	running_frame_len			= 0;
+	logic[2:0]	tx_frame_bytes_valid_ff		= 0;
+	logic[2:0]	tx_frame_bytes_valid_ff2	= 0;
+	logic[2:0]	tx_frame_bytes_valid_ff3	= 0;
 
-	localparam	TX_STATE_IDLE		= 4'h0;
-	localparam	TX_STATE_PREAMBLE	= 4'h1;
-	localparam	TX_STATE_BODY		= 4'h2;
-	localparam	TX_STATE_FCS_0		= 4'h3;
-	localparam	TX_STATE_FCS_1		= 4'h4;
-	localparam	TX_STATE_FCS_2		= 4'h5;
-	localparam	TX_STATE_FCS_3		= 4'h6;
+	enum logic[2:0]
+	{
+		TX_STATE_IDLE		= 3'h0,
+		TX_STATE_PREAMBLE	= 3'h1,
+		TX_STATE_BODY		= 3'h2,
+		TX_STATE_FCS_0		= 3'h3,
+		TX_STATE_FCS_1		= 3'h4,
+		TX_STATE_FCS_2		= 3'h5,
+		TX_STATE_FCS_3		= 3'h6
+	} tx_state				= TX_STATE_IDLE;
 
-	reg[3:0]	tx_state			= TX_STATE_IDLE;
+	logic[3:0]	xgmii_txc_next		= 0;
+	logic[31:0]	xgmii_txd_next		= 0;
 
-	reg[3:0]	xgmii_txc_next		= 0;
-	reg[31:0]	xgmii_txd_next		= 0;
-
-	always @(posedge xgmii_tx_clk) begin
+	always_ff @(posedge xgmii_tx_clk) begin
 
 		//Default to sending idles
 		xgmii_txc_next						<= 4'b1111;
 		xgmii_txd_next						<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 
 		//Default to forwarding the transmit data down the pipeline
-		xgmii_txc							<= xgmii_txc_next;
-		xgmii_txd							<= xgmii_txd_next;
+		xgmii_tx_bus.ctl					<= xgmii_txc_next;
+		xgmii_tx_bus.data					<= xgmii_txd_next;
 
 		//Send incoming data words to the CRC engine
-		tx_crc_din							<= tx_frame_data;
+		tx_crc_din							<= tx_bus.data;
 		tx_crc_bytes_valid					<= 0;
 
 		//Save previous state
-		tx_frame_bytes_valid_ff				<= tx_frame_bytes_valid;
+		tx_frame_bytes_valid_ff				<= tx_bus.bytes_valid;
 		tx_frame_bytes_valid_ff2			<= tx_frame_bytes_valid_ff;
 		tx_frame_bytes_valid_ff3			<= tx_frame_bytes_valid_ff2;
 
@@ -323,7 +316,7 @@ module XGEthernetMAC(
 			TX_STATE_IDLE: begin
 
 				//Starting a new frame? Send preamble
-				if(tx_frame_start) begin
+				if(tx_bus.start) begin
 					running_frame_len		<= 0;
 					xgmii_txc_next			<= 4'b1000;
 					xgmii_txd_next			<= { XGMII_CTL_START, 24'h55_55_55 };
@@ -356,10 +349,10 @@ module XGEthernetMAC(
 				xgmii_txd_next				<= tx_crc_din;
 
 				//New data coming!
-				if(tx_frame_data_valid) begin
+				if(tx_bus.data_valid) begin
 
 					//If we have a full block of data, crunch it
-					if(tx_frame_bytes_valid == 4) begin
+					if(tx_bus.bytes_valid == 4) begin
 						running_frame_len	<= running_frame_len + 3'd4;
 						tx_crc_bytes_valid	<= 4;
 					end
@@ -375,8 +368,8 @@ module XGEthernetMAC(
 					//Packet ended at an unaligned boundary, but we're above the minimum packet size.
 					//Just crunch this data by itself, then finish
 					else begin
-						running_frame_len	<= running_frame_len + tx_frame_bytes_valid;
-						tx_crc_bytes_valid	<= tx_frame_bytes_valid;
+						running_frame_len	<= running_frame_len + tx_bus.bytes_valid;
+						tx_crc_bytes_valid	<= tx_bus.bytes_valid;
 						tx_state			<= TX_STATE_FCS_0;
 					end
 
@@ -413,23 +406,23 @@ module XGEthernetMAC(
 				//Bodge in the CRC as needed.
 				tx_crc_bytes_valid		<= 0;
 
-				xgmii_txc				<= 4'b0000;
+				xgmii_tx_bus.ctl		<= 4'b0000;
 
 				case(tx_frame_bytes_valid_ff2)
 
 					//Frame just ended on a 4-byte boundary. Send the CRC immediately
 					//(without a pipe delay)
-					0: 	xgmii_txd		<= tx_crc_dout;
+					0: 	xgmii_tx_bus.data	<= tx_crc_dout;
 
 					//Frame ended with partial content.
 					//Send the remainder of the data, but bodge in part of the CRC
-					1: 	xgmii_txd		<= { xgmii_txd_next[31:24], tx_crc_dout[31:8]  };
-					2: 	xgmii_txd		<= { xgmii_txd_next[31:16], tx_crc_dout[31:16] };
-					3: 	xgmii_txd		<= { xgmii_txd_next[31:8],  tx_crc_dout[31:24] };
+					1: 	xgmii_tx_bus.data	<= { xgmii_txd_next[31:24], tx_crc_dout[31:8]  };
+					2: 	xgmii_tx_bus.data	<= { xgmii_txd_next[31:16], tx_crc_dout[31:16] };
+					3: 	xgmii_tx_bus.data	<= { xgmii_txd_next[31:8],  tx_crc_dout[31:24] };
 
 					//Frame ended with full content or padding.
 					//Send the content, then the CRC next cycle.
-					4:	xgmii_txd		<= xgmii_txd_next;
+					4:	xgmii_tx_bus.data	<= xgmii_txd_next;
 
 				endcase
 
@@ -448,31 +441,31 @@ module XGEthernetMAC(
 
 					//CRC was sent, send stop marker plus idles
 					0: begin
-						xgmii_txc		<= 4'b1111;
-						xgmii_txd		<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+						xgmii_tx_bus.ctl	<= 4'b1111;
+						xgmii_tx_bus.data	<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 					end
 
 					//Partial CRC was sent, but we have room for the stop marker.
 					//Send the rest plus the stop marker.
 					1: begin
-						xgmii_txc		<= 4'b0111;
-						xgmii_txd		<= { tx_crc_dout[7:0], XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+						xgmii_tx_bus.ctl	<= 4'b0111;
+						xgmii_tx_bus.data	<= { tx_crc_dout[7:0], XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 					end
 					2: begin
-						xgmii_txc		<= 4'b0011;
-						xgmii_txd		<= { tx_crc_dout[15:0], XGMII_CTL_END, XGMII_CTL_IDLE };
+						xgmii_tx_bus.ctl	<= 4'b0011;
+						xgmii_tx_bus.data	<= { tx_crc_dout[15:0], XGMII_CTL_END, XGMII_CTL_IDLE };
 					end
 					3: begin
-						xgmii_txc		<= 4'b0001;
-						xgmii_txd		<= { tx_crc_dout[23:0], XGMII_CTL_END};
+						xgmii_tx_bus.ctl	<= 4'b0001;
+						xgmii_tx_bus.data	<= { tx_crc_dout[23:0], XGMII_CTL_END};
 					end
 
 					//CRC was not sent at all. Send it.
 					//Need to send end marker next cycle still.
 					4: begin
-						xgmii_txc		<= 4'b0000;
-						xgmii_txd		<= tx_crc_dout;
-						tx_state		<= TX_STATE_FCS_3;
+						xgmii_tx_bus.ctl	<= 4'b0000;
+						xgmii_tx_bus.data	<= tx_crc_dout;
+						tx_state			<= TX_STATE_FCS_3;
 					end
 
 				endcase
@@ -482,12 +475,12 @@ module XGEthernetMAC(
 			//Send stop marker plus idles (if aligned to 4-byte boundary)
 			TX_STATE_FCS_3: begin
 
-				xgmii_txc				<= 4'b1111;
-				xgmii_txd				<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+				xgmii_tx_bus.ctl			<= 4'b1111;
+				xgmii_tx_bus.data			<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 
-				running_frame_len		<= 0;
+				running_frame_len			<= 0;
 
-				tx_state				<= TX_STATE_IDLE;
+				tx_state					<= TX_STATE_IDLE;
 
 			end	//end TX_STATE_FCS_3
 
@@ -501,7 +494,7 @@ module XGEthernetMAC(
 	CRC32_Ethernet_x32_variable tx_crc(
 
 		.clk(xgmii_tx_clk),
-		.reset(tx_frame_start),
+		.reset(tx_bus.start),
 
 		.din_len(tx_crc_bytes_valid),
 		.din(tx_crc_din),

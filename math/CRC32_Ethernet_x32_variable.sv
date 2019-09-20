@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -42,7 +42,6 @@
 		3					Process din[31:8]
 		4					Process din[31:0]
 		5..7				Illegal, ignored
-
  */
 module CRC32_Ethernet_x32_variable(
 	input wire			clk,
@@ -57,10 +56,7 @@ module CRC32_Ethernet_x32_variable(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Ethernet CRC32
 
-	integer 	nbyte;
-	integer 	nbit;
-
-	reg[31:0]	crc;
+	logic[31:0]	crc;
 
 	//Bit twiddling for the output
 	//Complement and flip bit ordering
@@ -73,16 +69,16 @@ module CRC32_Ethernet_x32_variable(
 	};
 
 
-	reg[7:0]	current_byte;
-	reg			lsb;
+	logic[7:0]	current_byte;
+	logic		lsb;
 
-	always @(posedge clk) begin
+	always_ff @(posedge clk) begin
 
 		if(reset)
 			crc	= 32'hffffffff;				//equivalent to complementing the first 32 bits of the frame
 											//as per 802.3 3.2.9 (a)
 
-		for(nbyte=0; nbyte<4; nbyte = nbyte + 1) begin
+		for(integer nbyte=0; nbyte<4; nbyte++) begin
 
 			if(nbyte < din_len) begin
 
@@ -90,19 +86,19 @@ module CRC32_Ethernet_x32_variable(
 				//rather than the "sensible" MSB-LSB order
 				current_byte = din[(3-nbyte)*8 +: 8];
 
-				for(nbit=0; nbit<8; nbit = nbit + 1) begin
+				for(integer nbit=0; nbit<8; nbit++) begin
 
 					//Default to shifting left and mixing in the new bit
-					lsb = current_byte[nbit] ^ crc[31];
-					crc	= { crc[30:0], lsb };
+					lsb 	= current_byte[nbit] ^ crc[31];
+					crc		= { crc[30:0], lsb };
 
 					//XOR in the polynomial
-					crc[1]	 = lsb ^ crc[1];
-					crc[2]	 = lsb ^ crc[2];
-					crc[4]	 = lsb ^ crc[4];
-					crc[5]	 = lsb ^ crc[5];
-					crc[7]	 = lsb ^ crc[7];
-					crc[8]	 = lsb ^ crc[8];
+					crc[1]	= lsb ^ crc[1];
+					crc[2]	= lsb ^ crc[2];
+					crc[4]	= lsb ^ crc[4];
+					crc[5]	= lsb ^ crc[5];
+					crc[7]	= lsb ^ crc[7];
+					crc[8]	= lsb ^ crc[8];
 					crc[10] = lsb ^ crc[10];
 					crc[11] = lsb ^ crc[11];
 					crc[12] = lsb ^ crc[12];
