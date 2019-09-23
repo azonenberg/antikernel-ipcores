@@ -158,6 +158,23 @@ module X25519_MainLoop(
 		STATE_R211			= 6'h20,
 		STATE_R4020_LOOP	= 6'h21,
 		STATE_R4020			= 6'h22,
+		STATE_R400			= 6'h23,
+		STATE_R411			= 6'h24,
+		STATE_R5010_LOOP	= 6'h25,
+		STATE_R5010			= 6'h26,
+		STATE_R500			= 6'h27,
+		STATE_R511			= 6'h28,
+		STATE_R522			= 6'h29,
+		STATE_R10050_LOOP	= 6'h2a,
+		STATE_R10050		= 6'h2b,
+		STATE_R1000			= 6'h2c,
+		STATE_R1011			= 6'h2d,
+		STATE_R200100_LOOP	= 6'h2e,
+		STATE_R200100		= 6'h2f,
+		STATE_R2000			= 6'h30,
+		STATE_R2011			= 6'h31,
+		STATE_R25050_LOOP	= 6'h32,
+		STATE_R25050		= 6'h33,
 
 		STATE_MAX
 	} state_t;
@@ -380,6 +397,71 @@ module X25519_MainLoop(
 		//Same as before, we do single multiplies instead of t1-t0-t1 pingponging
 		ucode[STATE_R4020_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R4020, 1'b1, 7'd20 };
+
+		//2^40 - 2^0: mult(t0,t1,z2_20_0);
+		ucode[STATE_R4020] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_4,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R400, 1'b0, 7'd0 };
+
+		//2^41 - 2^1: square(t1,t0);
+		ucode[STATE_R400] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R411, 1'b0, 7'd0 };
+
+		//2^42 - 2^2: square(t0,t1);
+		ucode[STATE_R411] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R5010_LOOP, 1'b0, 7'd0 };
+
+		//2^50 - 2^10: for (i = 2;i < 10;i += 2) { square(t1,t0); square(t0,t1); }
+		ucode[STATE_R5010_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,	//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R5010, 1'b1, 7'd10 };
+
+		//2^50 - 2^0: mult(z2_50_0,t0,z2_10_0);
+		ucode[STATE_R5010] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_3,		//TEMP_3 is now z2_50_0
+			REG_ZERO, REG_ZERO, REG_TEMP_3, 3'b010, STATE_R500, 1'b0, 7'd0 };
+
+		//2^51 - 2^1: square(t0,z2_50_0);
+		ucode[STATE_R500] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_3, REG_TEMP_3,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R522, 1'b0, 7'd0 };
+
+		//2^52 - 2^2: square(t1,t0);
+		ucode[STATE_R522] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R10050_LOOP, 1'b0, 7'd0 };
+
+		//2^100 - 2^50: for (i = 2;i < 50;i += 2) { square(t0,t1); square(t1,t0); }
+		ucode[STATE_R10050_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R10050, 1'b1, 7'd50 };
+
+		//2^100 - 2^0: mult(z2_100_0,t1,z2_50_0);
+		ucode[STATE_R10050] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_3,		//TEMP_0 is now z2_100_0
+			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_R1000, 1'b0, 7'd0 };
+
+		//2^101 - 2^1: square(t1,z2_100_0);
+		ucode[STATE_R1000] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_0, REG_TEMP_0,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R1011, 1'b0, 7'd0 };
+
+		//2^102 - 2^2: square(t0,t1);
+		ucode[STATE_R1011] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R200100_LOOP, 1'b0, 7'd0 };
+
+		//2^200 - 2^100: for (i = 2;i < 100;i += 2) { square(t1,t0); square(t0,t1); }
+		ucode[STATE_R200100_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R200100, 1'b1, 7'd100 };
+
+		//2^200 - 2^0: mult(t1,t0,z2_100_0);
+		ucode[STATE_R200100] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_0,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2000, 1'b0, 7'd0 };
+
+		//2^201 - 2^1: square(t0,t1);
+		ucode[STATE_R2000] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R2011, 1'b0, 7'd0 };
+
+		//2^202 - 2^2: square(t1,t0);
+		ucode[STATE_R2011] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R25050_LOOP, 1'b0, 7'd0 };
+
+		//2^250 - 2^50: for (i = 2;i < 50;i += 2) { square(t0,t1); square(t1,t0); }
+		ucode[STATE_R25050_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R25050, 1'b1, 7'd50 };
+
 
 	end
 
