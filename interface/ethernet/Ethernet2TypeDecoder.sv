@@ -90,17 +90,12 @@ module Ethernet2TypeDecoder(
 	always_ff @(posedge rx_clk) begin
 
 		rx_l2_bus.data_valid	<= 0;
-		rx_temp_valid			<= 0;
 		rx_l2_bus.headers_valid	<= 0;
 
 		//Forward flags
 		rx_l2_bus.start		<= mac_rx_bus.start;
 		rx_l2_bus.commit	<= mac_rx_bus.commit;
 		rx_l2_bus.drop		<= mac_rx_bus.drop;
-
-		//Save the low half of the incoming data word so we can use it next clock
-		//(fixing phase alignment so frame body is on a 32-bit boundary)
-		rx_temp_buf			<= mac_rx_bus.data[15:0];
 
 		//If we get a drop request, abort and stop whatever we're doing immediately.
 		//The frame is corrupted, no point in wasting any more time on it.
@@ -134,6 +129,11 @@ module Ethernet2TypeDecoder(
 
 			//New data word?
 			else if(mac_rx_bus.data_valid) begin
+
+				//Save the low half of the incoming data word so we can use it next clock
+				//(fixing phase alignment so frame body is on a 32-bit boundary)
+				rx_temp_valid			<= 0;
+				rx_temp_buf				<= mac_rx_bus.data[15:0];
 
 				rx_count	<= rx_count + 1'h1;
 
