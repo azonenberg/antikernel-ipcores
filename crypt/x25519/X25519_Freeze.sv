@@ -42,44 +42,32 @@ module X25519_Freeze(
 	input wire			clk,
 	input wire			en,
 	input wire[263:0]	a,
-	output logic		out_valid	= 0,
-	output logic[263:0]	out = 0
+	output wire			out_valid,
+	output wire[255:0]	out
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// First stage: save input and add minus_p to it
 
+	/*
 	logic[263:0]	minus_p	= 264'h00_8000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0013;
 	wire[263:0]		stage2_a;
 	wire			stage2_en;
+
+	wire[263:0]		out_raw;
 
 	X25519_Add adder(
 		.clk(clk),
 		.en(en),
 		.a(a),
 		.b(minus_p),
-		.out_valid(stage2_en),
-		.out(stage2_a)
+		.out_valid(out_valid),
+		.out(out_raw)
 	);
 
-	logic[263:0]	stage2_a_orig = 0;
+	assign out = out_raw[253:0];*/
 
-	always_ff @(posedge clk) begin
-		if(en)
-			stage2_a_orig	<= a;
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Second stage: big pile of XORs
-
-	always_ff @(posedge clk) begin
-		out_valid	<= stage2_en;
-
-		if(stage2_a[255])
-			out		<= stage2_a ^ stage2_a_orig;
-		else
-			out		<= stage2_a_orig;
-
-	end
+	assign out = {1'b0, a[254:0]};
+	assign out_valid = en;
 
 endmodule

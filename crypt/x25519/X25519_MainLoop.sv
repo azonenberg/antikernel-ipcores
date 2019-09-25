@@ -41,8 +41,8 @@ module X25519_MainLoop(
 	input wire			en,
 	input wire[255:0]	work_in,
 	input wire[255:0]	e,
-	output logic		out_valid	= 0,
-	output logic[511:0]	work_out	= 0
+	output wire			out_valid,
+	output wire[255:0]	work_out
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -53,6 +53,9 @@ module X25519_MainLoop(
 	logic			b			= 0;
 
 	logic			iter_out_valid	= 0;
+
+	logic[511:0]	ml_work_out		= 0;
+	logic			ml_out_valid	= 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RESOURCE SHARING
@@ -115,6 +118,15 @@ module X25519_MainLoop(
 		.out_valid(share_mult_valid),
 		.out(share_mult_out));
 
+	logic			share_freeze_en	= 0;
+	logic[263:0]	share_freeze_a;
+	X25519_Freeze share_freeze(
+		.clk(clk),
+		.en(share_freeze_en),
+		.a(share_freeze_a),
+		.out_valid(out_valid),
+		.out(work_out));
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main loop
 
@@ -175,6 +187,16 @@ module X25519_MainLoop(
 		STATE_R2011			= 6'h31,
 		STATE_R25050_LOOP	= 6'h32,
 		STATE_R25050		= 6'h33,
+		STATE_R2500			= 6'h34,
+		STATE_R2511			= 6'h35,
+		STATE_R2522			= 6'h36,
+		STATE_R2533			= 6'h37,
+		STATE_R2544			= 6'h38,
+		STATE_R2555			= 6'h39,
+
+		//crypto_scalarmult()
+		STATE_FINAL_MULT	= 6'h3a,
+		STATE_DONE			= 6'h3b,
 
 		STATE_MAX
 	} state_t;
@@ -431,11 +453,11 @@ module X25519_MainLoop(
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R10050, 1'b1, 7'd50 };
 
 		//2^100 - 2^0: mult(z2_100_0,t1,z2_50_0);
-		ucode[STATE_R10050] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_3,		//TEMP_0 is now z2_100_0
-			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_R1000, 1'b0, 7'd0 };
+		ucode[STATE_R10050] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_3,		//TEMP_4 is now z2_100_0
+			REG_ZERO, REG_ZERO, REG_TEMP_4, 3'b010, STATE_R1000, 1'b0, 7'd0 };
 
 		//2^101 - 2^1: square(t1,z2_100_0);
-		ucode[STATE_R1000] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_0, REG_TEMP_0,		//TEMP_1 is still t1
+		ucode[STATE_R1000] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_4, REG_TEMP_4,		//TEMP_1 is still t1
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R1011, 1'b0, 7'd0 };
 
 		//2^102 - 2^2: square(t0,t1);
@@ -447,7 +469,7 @@ module X25519_MainLoop(
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R200100, 1'b1, 7'd100 };
 
 		//2^200 - 2^0: mult(t1,t0,z2_100_0);
-		ucode[STATE_R200100] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_0,		//TEMP_1 is still t1
+		ucode[STATE_R200100] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_4,		//TEMP_1 is still t1
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2000, 1'b0, 7'd0 };
 
 		//2^201 - 2^1: square(t0,t1);
@@ -462,6 +484,40 @@ module X25519_MainLoop(
 		ucode[STATE_R25050_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R25050, 1'b1, 7'd50 };
 
+		//2^250 - 2^0: mult(t0,t1,z2_50_0);
+		ucode[STATE_R25050] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_3,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R2500, 1'b0, 7'd0 };
+
+		//2^251 - 2^1: square(t1,t0);
+		ucode[STATE_R2500] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2511, 1'b0, 7'd0 };
+
+		//2^252 - 2^2: square(t0,t1);
+		ucode[STATE_R2511] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R2522, 1'b0, 7'd0 };
+
+		//2^253 - 2^3: square(t1,t0);
+		ucode[STATE_R2522] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2533, 1'b0, 7'd0 };
+
+		//2^254 - 2^4: square(t0,t1);
+		ucode[STATE_R2533] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R2544, 1'b0, 7'd0 };
+
+		//2^255 - 2^5: square(t1,t0);
+		ucode[STATE_R2544] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2555, 1'b0, 7'd0 };
+
+		//2^255 - 21: mult(out,t1,z11);
+		ucode[STATE_R2555] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_0,		//TEMP_0 is now out
+			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_FINAL_MULT, 1'b0, 7'd0 };
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// crypto_scalarmult
+
+		//mult(work + 64,work,work + 32);
+		ucode[STATE_FINAL_MULT] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_0, REG_SELP_LO,	//TEMP_0 is now work+64
+			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_DONE, 1'b0, 7'd0 };
 
 	end
 
@@ -477,13 +533,16 @@ module X25519_MainLoop(
 		advancing	= (share_add_valid && line.next_on_add) ||
 						(share_mult_valid && line.next_on_mult) ||
 						(share_select_valid && line.next_on_select) ||
-						out_valid;	//jump to STATE_RECIP
+						ml_out_valid;	//jump to STATE_RECIP
+
+		share_freeze_a	= temp_regs[REG_TEMP_0];
 	end
 
 	always_ff @(posedge clk) begin
 		share_addsub_en	<= 0;
 		share_select_en	<= 0;
 		share_mult_en	<= 0;
+		share_freeze_en	<= 0;
 
 		iter_out_valid	<= 0;
 
@@ -501,7 +560,7 @@ module X25519_MainLoop(
 
 		//Move on to the next state
 		if(advancing) begin
-			if(out_valid)
+			if(ml_out_valid)
 				state		<= STATE_RECIP;
 			else begin
 
@@ -539,6 +598,9 @@ module X25519_MainLoop(
 			share_select_r		<= {temp_regs[REG_TEMP_1][255:0], temp_regs[REG_TEMP_3][255:0]};
 			share_select_s		<= {temp_regs[REG_TEMP_2][255:0], temp_regs[REG_TEMP_0][255:0]};
 
+			//Special case freeze() since it's only used for the output
+			share_freeze_en		<= (state == STATE_DONE);
+
 			//Special case a few "magic" inputs for constants etc.
 			//Commented out paths are not used by current microcode.
 			//Removing these mux paths saves a few LUTs. They can be added back if needed in the future.
@@ -573,7 +635,7 @@ module X25519_MainLoop(
 				REG_TEMP_3:		share_mult_a	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_4:		share_mult_a	<= temp_regs[REG_TEMP_4];
 				//REG_TEMP_5:		share_mult_a	<= temp_regs[REG_TEMP_5];
-				REG_WORK_HI:	share_mult_a	<= {8'h0, work_out[511:256]};
+				REG_WORK_HI:	share_mult_a	<= {8'h0, ml_work_out[511:256]};
 			endcase
 
 			case(line.mult_b)
@@ -585,7 +647,8 @@ module X25519_MainLoop(
 				REG_TEMP_5:		share_mult_b	<= temp_regs[REG_TEMP_5];
 				REG_121665:		share_mult_b	<= 264'd121665;
 				REG_WORK_LOW:	share_mult_b	<= {8'h0, work_in};
-				REG_WORK_HI:	share_mult_b	<= {8'h0, work_out[511:256]};
+				REG_WORK_HI:	share_mult_b	<= {8'h0, ml_work_out[511:256]};
+				REG_SELP_LO:	share_mult_b	<= {8'h0, share_select_p[255:0]};
 			endcase
 		end
 
@@ -620,9 +683,9 @@ module X25519_MainLoop(
 
 	always_ff @(posedge clk) begin
 
-		iter_en		<= 0;
-		iter_first	<= 0;
-		out_valid	<= 0;
+		iter_en			<= 0;
+		iter_first		<= 0;
+		ml_out_valid	<= 0;
 
 		case(loopstate)
 
@@ -661,13 +724,10 @@ module X25519_MainLoop(
 			end	//end STATE_MLWAIT
 
 			LSTATE_MLDONE: begin
-				out_valid	<= 1;
-				work_out	<= share_select_p;
-				loopstate	<= LSTATE_IDLE;
+				ml_out_valid	<= 1;
+				ml_work_out		<= share_select_p;
+				loopstate		<= LSTATE_IDLE;
 			end	//end STATE_MLDONE
-
-			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// recip()
 
 		endcase
 
