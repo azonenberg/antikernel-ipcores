@@ -46,9 +46,10 @@ typedef struct packed
 
 typedef enum logic[1:0]
 {
-	LINK_SPEED_1000M = 2,
-	LINK_SPEED_100M = 1,
-	LINK_SPEED_10M = 0
+	LINK_SPEED_10G		= 3,
+	LINK_SPEED_1000M	= 2,
+	LINK_SPEED_100M		= 1,
+	LINK_SPEED_10M		= 0
 } lspeed_t;
 
 typedef struct packed
