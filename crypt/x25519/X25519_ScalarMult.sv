@@ -36,7 +36,7 @@
 
 	Derived from mainloop() and crypto_scalarmult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
  */
-module X25519_MainLoop(
+module X25519_ScalarMult(
 	input wire			clk,
 	input wire			en,
 	input wire[255:0]	work_in,
@@ -56,6 +56,25 @@ module X25519_MainLoop(
 
 	logic[511:0]	ml_work_out		= 0;
 	logic			ml_out_valid	= 0;
+
+	logic[7:0] 		round = 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Apply bit twiddling to "e"
+
+	logic[255:0]	e_fixed;
+	always_comb begin
+		e_fixed			= e;
+
+		//e[0] &= 248;
+		e_fixed[2:0]	= 0;
+
+		//e[31] &= 127;
+		e_fixed[255]	= 0;
+
+		//e[31] |= 64;
+		e_fixed[254]	= 1;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RESOURCE SHARING
@@ -120,12 +139,10 @@ module X25519_MainLoop(
 
 	logic			share_freeze_en	= 0;
 	logic[263:0]	share_freeze_a;
-	X25519_Freeze share_freeze(
-		.clk(clk),
-		.en(share_freeze_en),
-		.a(share_freeze_a),
-		.out_valid(out_valid),
-		.out(work_out));
+	always_comb begin
+		out_valid = share_freeze_en;
+		work_out = {1'b0, share_freeze_a[254:0]};
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main loop
@@ -175,28 +192,27 @@ module X25519_MainLoop(
 		STATE_R5010_LOOP	= 6'h25,
 		STATE_R5010			= 6'h26,
 		STATE_R500			= 6'h27,
-		STATE_R511			= 6'h28,
-		STATE_R522			= 6'h29,
-		STATE_R10050_LOOP	= 6'h2a,
-		STATE_R10050		= 6'h2b,
-		STATE_R1000			= 6'h2c,
-		STATE_R1011			= 6'h2d,
-		STATE_R200100_LOOP	= 6'h2e,
-		STATE_R200100		= 6'h2f,
-		STATE_R2000			= 6'h30,
-		STATE_R2011			= 6'h31,
-		STATE_R25050_LOOP	= 6'h32,
-		STATE_R25050		= 6'h33,
-		STATE_R2500			= 6'h34,
-		STATE_R2511			= 6'h35,
-		STATE_R2522			= 6'h36,
-		STATE_R2533			= 6'h37,
-		STATE_R2544			= 6'h38,
-		STATE_R2555			= 6'h39,
+		STATE_R522			= 6'h28,
+		STATE_R10050_LOOP	= 6'h29,
+		STATE_R10050		= 6'h2a,
+		STATE_R1000			= 6'h2b,
+		STATE_R1011			= 6'h2c,
+		STATE_R200100_LOOP	= 6'h2d,
+		STATE_R200100		= 6'h2e,
+		STATE_R2000			= 6'h2f,
+		STATE_R2011			= 6'h30,
+		STATE_R25050_LOOP	= 6'h31,
+		STATE_R25050		= 6'h32,
+		STATE_R2500			= 6'h33,
+		STATE_R2511			= 6'h34,
+		STATE_R2522			= 6'h35,
+		STATE_R2533			= 6'h36,
+		STATE_R2544			= 6'h37,
+		STATE_R2555			= 6'h38,
 
 		//crypto_scalarmult()
-		STATE_FINAL_MULT	= 6'h3a,
-		STATE_DONE			= 6'h3b,
+		STATE_FINAL_MULT	= 6'h39,
+		STATE_DONE			= 6'h3a,
 
 		STATE_MAX
 	} state_t;
@@ -288,7 +304,7 @@ module X25519_MainLoop(
 																							//TEMP_4 is now B0_LO
 
 		//square(b0 + 32,a0 + 32);
-		ucode[STATE_B0_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,
+		ucode[STATE_B0_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,			//TEMP_5 is now B0_HI
 			REG_ZERO, REG_ZERO, REG_TEMP_5, 3'b010, STATE_B0_HIGH, 1'b0, 7'd0 };
 
 		//mult(b1,a1,a0 + 32);
@@ -558,6 +574,10 @@ module X25519_MainLoop(
 		if(share_select_valid && state == STATE_XN_HIGH)
 			iter_out_valid	<= 1;
 
+		//Reset on completion
+		if(out_valid)
+			state			<= STATE_IDLE;
+
 		//Move on to the next state
 		if(advancing) begin
 			if(ml_out_valid)
@@ -650,6 +670,29 @@ module X25519_MainLoop(
 				REG_WORK_HI:	share_mult_b	<= {8'h0, ml_work_out[511:256]};
 				REG_SELP_LO:	share_mult_b	<= {8'h0, share_select_p[255:0]};
 			endcase
+
+			if(line.addsub_en && (round < 5) ) begin
+				$display("Starting add/sub (state %d)", state);
+				if(!line.mult_en) begin
+					$display("    r0 = %x", temp_regs[REG_TEMP_0]);
+					$display("    r1 = %x", temp_regs[REG_TEMP_1]);
+					$display("    r2 = %x", temp_regs[REG_TEMP_2]);
+					$display("    r3 = %x", temp_regs[REG_TEMP_3]);
+					$display("    r4 = %x", temp_regs[REG_TEMP_4]);
+					$display("    r5 = %x", temp_regs[REG_TEMP_5]);
+				end
+			end
+
+			if(line.mult_en && (round < 5) ) begin
+				$display("Starting multiply (state %d)", state);
+				$display("    r0 = %x", temp_regs[REG_TEMP_0]);
+				$display("    r1 = %x", temp_regs[REG_TEMP_1]);
+				$display("    r2 = %x", temp_regs[REG_TEMP_2]);
+				$display("    r3 = %x", temp_regs[REG_TEMP_3]);
+				$display("    r4 = %x", temp_regs[REG_TEMP_4]);
+				$display("    r5 = %x", temp_regs[REG_TEMP_5]);
+			end
+
 		end
 
 		//Special case initialization
@@ -671,8 +714,6 @@ module X25519_MainLoop(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Sequencing
 
-	logic[7:0] round = 0;
-
 	enum logic[2:0]
 	{
 		LSTATE_IDLE,
@@ -687,6 +728,13 @@ module X25519_MainLoop(
 		iter_first		<= 0;
 		ml_out_valid	<= 0;
 
+		if(share_mult_valid && (round < 5))
+			$display("Multiply complete: %x", share_mult_out);
+		if(share_add_valid && (round < 5))
+			$display("Add complete: %x", share_add_out);
+		if(share_sub_valid && (round < 5))
+			$display("Sub complete: %x", share_sub_out);
+
 		case(loopstate)
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -699,14 +747,14 @@ module X25519_MainLoop(
 					iter_en			<= 1;
 					iter_first		<= 1;
 					round			<= 254;
-					b				<= e[254];
+					b				<= e_fixed[254];
 					loopstate		<= LSTATE_MLWAIT;
 				end
 
 			end	//end STATE_IDLE
 
 			LSTATE_MLSTART: begin
-				b					<= e[round];
+				b					<= e_fixed[round];
 				iter_en				<= 1;
 				loopstate			<= LSTATE_MLWAIT;
 			end	//end LSTATE_MLSTART
