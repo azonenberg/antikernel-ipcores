@@ -32,7 +32,7 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief X25519 subtractor
+	@brief X25519 subtractor. Two cycle pipelined implementation.
 
 	Derived from sub() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
 
@@ -47,10 +47,23 @@ module X25519_Sub(
 	output logic[263:0]	out = 0
 	);
 
+	logic	en_ff	= 0;
+
+	logic[128:0]	sum_low = 0;
+	logic[135:0]	sum_high = 0;
+
 	always_ff @(posedge clk) begin
-		out_valid	<= en;
-		if(en)
-			out		<= a + 264'h00ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffda - b;
+		en_ff		<= en;
+		out_valid	<= en_ff;
+
+		if(en) begin
+			sum_low		<= a[127:0] - b[127:0] + 128'hffffffffffffffffffffffffffffffda;
+			sum_high	<= a[263:128] - b[263:128] + 128'hffffffffffffffffffffffffffffffff;
+		end
+
+		if(en_ff)
+			out			<= { sum_high + sum_low[128], sum_low[127:0] };
+
 	end
 
 endmodule

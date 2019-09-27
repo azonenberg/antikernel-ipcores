@@ -32,7 +32,7 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief X25519 adder
+	@brief X25519 adder. Two cycle pipelined implementation.
 
 	Derived from add() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
  */
@@ -45,10 +45,22 @@ module X25519_Add(
 	output logic[263:0]	out = 0
 	);
 
+	logic[128:0]	sum_low = 0;
+	logic[135:0]	sum_high = 0;
+
+	logic	en_ff	= 0;
+
 	always_ff @(posedge clk) begin
-		out_valid	<= en;
-		if(en)
-			out		<= a + b;
+		en_ff		<= en;
+		out_valid	<= en_ff;
+
+		if(en) begin
+			sum_low		<= a[127:0] + b[127:0];
+			sum_high	<= a[263:128] + b[263:128];
+		end
+
+		if(en_ff)
+			out			<= { sum_high + sum_low[128], sum_low[127:0] };
 	end
 
 endmodule

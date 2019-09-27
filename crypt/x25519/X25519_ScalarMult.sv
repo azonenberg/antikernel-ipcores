@@ -137,12 +137,11 @@ module X25519_ScalarMult(
 		.out_valid(share_mult_valid),
 		.out(share_mult_out));
 
+	//freeze is a no-op with our representation
 	logic			share_freeze_en	= 0;
 	logic[263:0]	share_freeze_a;
-	always_comb begin
-		out_valid = share_freeze_en;
-		work_out = {1'b0, share_freeze_a[254:0]};
-	end
+	assign out_valid = share_freeze_en;
+	assign work_out = {1'b0, share_freeze_a[254:0]};
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main loop
