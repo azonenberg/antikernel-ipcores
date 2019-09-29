@@ -169,7 +169,11 @@ module Ethernet2TypeDecoder(
 						rx_l2_bus.drop_eligible	<= 1;
 						rx_l2_bus.vlan_id		<= 1;
 
-						rx_l2_bus.ethertype			<= ethertype_t'(mac_rx_bus.data[31:16]);
+						//If ethertype is <1500, it's an LLC length
+						if(mac_rx_bus.data[31:16] < 1500)
+							rx_l2_bus.ethertype		<= ETHERTYPE_LLC;
+						else
+							rx_l2_bus.ethertype		<= ethertype_t'(mac_rx_bus.data[31:16]);
 						rx_l2_bus.ethertype_is_ipv4	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV4);
 						rx_l2_bus.ethertype_is_ipv6	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV6);
 						rx_l2_bus.ethertype_is_arp	<= (mac_rx_bus.data[31:16] == ETHERTYPE_ARP);
