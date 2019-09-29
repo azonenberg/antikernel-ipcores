@@ -2,7 +2,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -32,9 +32,11 @@
 
 typedef enum logic[15:0]
 {
+	ETHERTYPE_LLC	= 16'h0000,
 	ETHERTYPE_IPV4 	= 16'h0800,
 	ETHERTYPE_ARP  	= 16'h0806,
 	ETHERTYPE_DOT1Q	= 16'h8100,
+	ETHERTYPE_LLDP	= 16'h88cc,
 	ETHERTYPE_IPV6 	= 16'h86dd
 } ethertype_t;
 
