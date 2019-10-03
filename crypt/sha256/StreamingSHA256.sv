@@ -234,6 +234,7 @@ module StreamingSHA256(
 	logic[31:0]	maj;
 
 	logic		last_block	= 0;
+	logic		need_to_pad	= 0;
 
 	always_ff @(posedge clk) begin
 
@@ -255,6 +256,7 @@ module StreamingSHA256(
 					hash_g		<= 32'h1f83d9ab;
 					hash_h		<= 32'h5be0cd19;
 					last_block	<= 0;
+					need_to_pad	<= 0;
 				end
 
 				//If asked to finalize the current hash, start a new block immediately
@@ -262,15 +264,19 @@ module StreamingSHA256(
 
 					finalizing	<= 1;
 					wr_count	<= 0;
+					state		<= STATE_READ_PIPE;
 
-					if(fifo_rsize != 0) begin
+					//We have stuff to hash first
+					if(fifo_rsize != 0)
 						fifo_rd	<= 1;
-						state	<= STATE_READ_PIPE;
-					end
+
+					//Nothing to hash, previous block is done. Need to add padding.
 					else
-						state	<= STATE_FILL_W;
+						need_to_pad	<= 1;
 
 				end
+
+				//TODO: pop fifo into W buffer as we go, to reduce latency
 
 			end	//end STATE_IDLE
 
@@ -293,6 +299,8 @@ module StreamingSHA256(
 				prev_g	<= hash_g;
 				prev_h	<= hash_h;
 
+				round	<= 0;
+
 			end	//end STATE_READ_PIPE
 
 			STATE_FILL_W: begin
@@ -314,7 +322,7 @@ module StreamingSHA256(
 
 				//No data left, prepare to compress.
 				//Fill the rest of the block with zeroes.
-				if(!fifo_rd_ff || (fifo_rsize <= 1) ) begin
+				else if(fifo_rsize == 0) begin
 					state	<= STATE_PAD;
 					for(integer i=0; i<16; i++) begin
 						if(i > wr_count)
@@ -398,8 +406,11 @@ module StreamingSHA256(
 				if(last_block)
 					state	<= STATE_DONE;
 
-				//Are we finalizing, but not at the last block? The length padding didn't fit.
+				//Are we finalizing, but not at the last block? The padding didn't fit. Finish it.
 				else if(finalizing) begin
+					wr_count	<= 0;
+					last_block	<= 1;
+					state		<= STATE_READ_PIPE;
 				end
 
 				//Nope, wait for more data
