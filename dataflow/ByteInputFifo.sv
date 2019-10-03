@@ -56,7 +56,7 @@ module ByteInputFifo #(
 	output wire					empty,
 	output wire					full,
 
-	output wire[ADDR_BITS:0]	rsize,
+	output logic[ADDR_BITS:0]	rsize,
 	output wire[ADDR_BITS:0]	wsize,
 
 	input wire					reset
@@ -100,35 +100,42 @@ module ByteInputFifo #(
 			endcase
 		end
 
+		//We have 4 bytes, push them into the fifo
+		if(din_merged_valid >= 4) begin
+			fifo_wr		= 1;
+			fifo_din	= din_merged[55:24];
+		end
+
+		//When flushing, push whatever we have
+		else if(flush && (din_merged_valid > 0) ) begin
+			fifo_wr		= 1;
+			fifo_din	= { din_temp, 8'h0 };
+		end
+
+		//Not pushing
+		else begin
+			fifo_wr		= 0;
+			fifo_din	= 0;
+		end
+
 	end
 
 	always_ff @(posedge clk) begin
-		fifo_wr			<= 0;
 
-		//We have 4 bytes, push them into the fifo
-		if(din_merged_valid >= 4) begin
-			fifo_wr		<= 1;
-			fifo_din	<= din_merged[55:24];
-
+		//Save the bytes that didn't get pushed
+		if(fifo_wr) begin
 			temp_valid	<= din_merged_valid - 4;
 			din_temp	<= din_merged[23:0];
 		end
 
-		//Not enough, just save the existing stuff
+		//Not enough to push, just save the existing stuff
 		else begin
 			din_temp	<= din_merged[55:32];
 			temp_valid	<= din_merged_valid;
 		end
 
-		//Handle flushing
-		if(flush) begin
-			fifo_wr		<= 1;
-			fifo_din	<= { din_temp, 8'h0 };
-			din_temp	<= 0;
-			temp_valid	<= 0;
-		end
-
-		if(reset) begin
+		//After a flush or reset we have nothing left in the temporary buffer
+		if(flush || reset) begin
 			din_temp	<= 0;
 			temp_valid	<= 0;
 		end
@@ -137,6 +144,15 @@ module ByteInputFifo #(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual FIFO
+
+	wire[ADDR_BITS:0] rsize_raw;
+	always_comb begin
+		if(temp_valid > 0)
+			rsize = rsize_raw + 1;
+		else
+			rsize = rsize_raw;
+	end
+
 
 	SingleClockFifo #(
 		.WIDTH(32),
@@ -153,7 +169,7 @@ module ByteInputFifo #(
 		.overflow(overflow),
 		.empty(empty),
 		.full(full),
-		.rsize(rsize),
+		.rsize(rsize_raw),
 		.wsize(wsize),
 		.reset(reset)
 	);
