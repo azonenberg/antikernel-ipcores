@@ -185,15 +185,7 @@ module StreamingSHA256(
 		STATE_DONE			= 6
 	} state = STATE_IDLE;
 
-	//The current hash state
-	logic[31:0]		w[63:0];
 	logic[3:0]		wr_count	= 0;
-
-	//Clear out w at reset to make LA traces look nicer
-	initial begin
-		for(integer i=0; i<64; i++)
-			w[i] = 0;
-	end
 
 	logic	finalizing	= 0;
 	logic	fifo_rd_ff	= 0;
@@ -221,10 +213,6 @@ module StreamingSHA256(
 
 	logic[6:0]	round	= 0;
 	wire[6:0]	rp16	= round + 16;
-	wire[6:0]	rp1		= round + 1;
-	wire[6:0]	rp14	= round + 14;
-	wire[31:0]	w15		= w[rp1];
-	wire[31:0]	w2		= w[rp14];
 
 	logic[31:0]	s0;
 	logic[31:0]	s1;
@@ -232,9 +220,22 @@ module StreamingSHA256(
 	logic[31:0]	temp1;
 	logic[31:0]	temp2;
 	logic[31:0]	maj;
+	logic[31:0] wtmp;
 
 	logic		last_block	= 0;
 	logic		need_to_pad	= 0;
+
+	//Shift register for recently used W values.
+	//The whole W array never actually exists.
+	logic[31:0]	w_shreg[15:0];
+	initial begin
+		for(integer i=0; i<16; i++)
+			w_shreg[i]	<= 0;
+	end
+	wire[31:0] w2 = w_shreg[14];
+	wire[31:0] w7 = w_shreg[9];
+	wire[31:0] w15 = w_shreg[1];
+	wire[31:0] w16 = w_shreg[0];
 
 	always_ff @(posedge clk) begin
 
@@ -308,7 +309,7 @@ module StreamingSHA256(
 				//Save data as it arrives
 				if(fifo_rd_ff) begin
 					wr_count	<= wr_count + 1;
-					w[wr_count]	<= fifo_dout;
+					w_shreg[wr_count]	<= fifo_dout;
 
 					//If we have all 16 words for this block, don't read more
 					if(wr_count == 15)
@@ -326,7 +327,7 @@ module StreamingSHA256(
 					state	<= STATE_PAD;
 					for(integer i=0; i<16; i++) begin
 						if(i > wr_count)
-							w[i] <= 32'h0;
+							w_shreg[i] <= 32'h0;
 					end
 				end
 
@@ -345,15 +346,15 @@ module StreamingSHA256(
 				//All of the padding fits.
 				//Add the 0x80 and length
 				else begin
-					case(pad_byte_pos)
-						0: w[pad_word_pos][31:0]	<= 32'h80000000;
-						1: w[pad_word_pos][23:0]	<= 24'h800000;
-						2: w[pad_word_pos][15:0]	<= 16'h8000;
-						3: w[pad_word_pos][7:0]		<= 8'h80;
-					endcase
-					w[14]									<= { 29'h0, message_len[31:29] };
-					w[15]									<= { message_len[28:0], 3'h0 };
 					last_block								<= 1;
+					w_shreg[14]								<= { 29'h0, message_len[31:29] };
+					w_shreg[15]								<= { message_len[28:0], 3'h0 };
+					case(pad_byte_pos)
+						0: w_shreg[pad_word_pos][31:0]		<= 32'h80000000;
+						1: w_shreg[pad_word_pos][23:0]		<= 24'h800000;
+						2: w_shreg[pad_word_pos][15:0]		<= 16'h8000;
+						3: w_shreg[pad_word_pos][7:0]		<= 8'h80;
+					endcase
 				end
 
 				round	<= 0;
@@ -363,18 +364,23 @@ module StreamingSHA256(
 
 			STATE_COMPRESS: begin
 
+				//Advance the W shreg
+				for(integer i=0; i<15; i++)
+					w_shreg[i]	<= w_shreg[i+1];
+
 				//If we're in the first 48 rounds, compute one round of extended w per iteration
 				round		<= round + 1;
 				if(round < 48) begin
-					s0 = ror(w15, 7) ^ ror(w15, 18) ^ w15[31:3];
-					s1 = ror(w2, 17) ^ ror(w2, 19) ^ w2[31:10];
-					w[rp16]	<= w[rp16 - 16] + s0 + w[rp16 - 7] + s1;
+					s0 		= ror(w15, 7) ^ ror(w15, 18) ^ w15[31:3];
+					s1 		= ror(w2, 17) ^ ror(w2, 19) ^ w2[31:10];
+					wtmp	= w16 + s0 + w7 + s1;
+					w_shreg[15]		<= wtmp;
 				end
 
 				//Actual compression function
 				s1			= ror(hash_e, 6) ^ ror(hash_e, 11) ^ ror(hash_e, 25);
 				ch 			= (hash_e & hash_f) ^ (~hash_e & hash_g);
-				temp1		= hash_h + s1 + ch + k[round] + w[round];
+				temp1		= hash_h + s1 + ch + k[round] + w16;
 				s0			= ror(hash_a, 2) ^ ror(hash_a, 13) ^ ror(hash_a, 22);
 				maj			= (hash_a & hash_b) ^ (hash_a & hash_c) ^ (hash_b & hash_c);
 				temp2		= s0 + maj;
