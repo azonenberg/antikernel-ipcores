@@ -69,7 +69,7 @@ module StreamingSHA256(
 	wire[31:0]	fifo_dout;
 	ByteInputFifo #(
 		.DEPTH(128),
-		.USE_BLOCK(0),
+		.USE_BLOCK(1),
 		.OUT_REG(1)
 	) in_fifo (
 		.clk(clk),
@@ -237,6 +237,8 @@ module StreamingSHA256(
 	wire[31:0] w15 = w_shreg[1];
 	wire[31:0] w16 = w_shreg[0];
 
+	logic[31:0]	k_val	= 0;
+
 	always_ff @(posedge clk) begin
 
 		fifo_rd		<= 0;
@@ -302,6 +304,8 @@ module StreamingSHA256(
 
 				round	<= 0;
 
+				k_val	<= k[0];
+
 			end	//end STATE_READ_PIPE
 
 			STATE_FILL_W: begin
@@ -364,6 +368,8 @@ module StreamingSHA256(
 
 			STATE_COMPRESS: begin
 
+				k_val		<= k[round+1];
+
 				//Advance the W shreg
 				for(integer i=0; i<15; i++)
 					w_shreg[i]	<= w_shreg[i+1];
@@ -380,7 +386,7 @@ module StreamingSHA256(
 				//Actual compression function
 				s1			= ror(hash_e, 6) ^ ror(hash_e, 11) ^ ror(hash_e, 25);
 				ch 			= (hash_e & hash_f) ^ (~hash_e & hash_g);
-				temp1		= hash_h + s1 + ch + k[round] + w16;
+				temp1		= hash_h + s1 + ch + k_val + w16;
 				s0			= ror(hash_a, 2) ^ ror(hash_a, 13) ^ ror(hash_a, 22);
 				maj			= (hash_a & hash_b) ^ (hash_a & hash_c) ^ (hash_b & hash_c);
 				temp2		= s0 + maj;

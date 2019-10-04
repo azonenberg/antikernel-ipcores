@@ -50,8 +50,8 @@ module ByteInputFifo #(
 	input wire					rd,
 	output wire[31:0]			dout,
 
-	output logic				overflow = 0,
-	output logic				underflow = 0,
+	output wire					overflow,
+	output wire					underflow,
 
 	output wire					empty,
 	output wire					full,
