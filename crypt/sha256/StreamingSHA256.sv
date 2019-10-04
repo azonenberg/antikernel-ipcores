@@ -308,7 +308,7 @@ module StreamingSHA256(
 
 				//Save data as it arrives
 				if(fifo_rd_ff) begin
-					wr_count	<= wr_count + 1;
+					wr_count			<= wr_count + 1;
 					w_shreg[wr_count]	<= fifo_dout;
 
 					//If we have all 16 words for this block, don't read more
@@ -316,7 +316,7 @@ module StreamingSHA256(
 						state	<= STATE_COMPRESS;
 
 					//If there's data on top of what we just read, read more
-					else if(fifo_rsize > 1)
+					else if( (fifo_rsize > 1) && (wr_count < 14) )
 						fifo_rd	<= 1;
 
 				end
