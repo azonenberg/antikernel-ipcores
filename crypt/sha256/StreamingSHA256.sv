@@ -180,9 +180,10 @@ module StreamingSHA256(
 		STATE_READ_PIPE		= 1,
 		STATE_FILL_W		= 2,
 		STATE_PAD			= 3,
-		STATE_COMPRESS		= 4,
-		STATE_BLOCK_DONE	= 5,
-		STATE_DONE			= 6
+		STATE_PRECOMPUTE	= 4,
+		STATE_COMPRESS		= 5,
+		STATE_BLOCK_DONE	= 6,
+		STATE_DONE			= 7
 	} state = STATE_IDLE;
 
 	logic[3:0]		wr_count	= 0;
@@ -240,6 +241,9 @@ module StreamingSHA256(
 	wire[31:0] w16 = w_shreg[0];
 
 	logic[31:0]	k_val	= 0;
+
+	//Pipelining
+	logic[31:0]	hkw					= 0;
 
 	always_ff @(posedge clk) begin
 
@@ -329,7 +333,7 @@ module StreamingSHA256(
 							state	<= STATE_PAD;
 
 						else
-							state	<= STATE_COMPRESS;
+							state	<= STATE_PRECOMPUTE;
 					end
 
 					//If there's data on top of what we just read, read more
@@ -377,9 +381,14 @@ module StreamingSHA256(
 				end
 
 				round	<= 0;
-				state	<= STATE_COMPRESS;
+				state	<= STATE_PRECOMPUTE;
 
 			end	//end STATE_PAD
+
+			STATE_PRECOMPUTE: begin
+				hkw				<= hash_h + k[0] + w_shreg[0];
+				state			<= STATE_COMPRESS;
+			end	//end STATE_PRECOMPUTE
 
 			STATE_COMPRESS: begin
 
@@ -398,10 +407,15 @@ module StreamingSHA256(
 					w_shreg[15]		<= wtmp;
 				end
 
-				//Actual compression function
-				s1			= ror(hash_e, 6) ^ ror(hash_e, 11) ^ ror(hash_e, 25);
-				ch 			= (hash_e & hash_f) ^ (~hash_e & hash_g);
-				temp1		= hash_h + s1 + ch + k_val + w16;
+				//This half does not depend on hash_a. Can we pipeline?
+				s1				= ror(hash_e, 6) ^ ror(hash_e, 11) ^ ror(hash_e, 25);
+				ch 				= (hash_e & hash_f) ^ (~hash_e & hash_g);
+				temp1			= s1 + ch + hkw;
+
+				//Calculate some stuff a cycle ahead of time to pipeline
+				hkw				<= hash_g + k[round+1] + w_shreg[1];
+
+				//This half depends on hash_a
 				s0			= ror(hash_a, 2) ^ ror(hash_a, 13) ^ ror(hash_a, 22);
 				maj			= (hash_a & hash_b) ^ (hash_a & hash_c) ^ (hash_b & hash_c);
 				temp2		= s0 + maj;
