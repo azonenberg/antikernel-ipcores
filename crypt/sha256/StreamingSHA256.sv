@@ -209,10 +209,12 @@ module StreamingSHA256(
 	logic[31:0]	prev_g	= 0;
 	logic[31:0]	prev_h	= 0;
 
-	wire[3:0]	pad_word_pos 		= message_len[5:2];
-	wire[1:0]	pad_byte_pos 		= message_len[1:0];	//number from message bytes from left to right
+	logic[31:0]	message_len_final		= 0;
+	logic[31:0]	message_len_final_m4	= 0;
+
+	wire[3:0]	pad_word_pos 		= message_len_final[5:2];
+	wire[1:0]	pad_byte_pos 		= message_len_final[1:0];	//number from message bytes from left to right
 	logic[31:0]	bytes_hashed		= 0;
-	wire[31:0]	bytes_hashed_inc	= bytes_hashed + 4;
 
 	logic[6:0]	round	= 0;
 	wire[6:0]	rp16	= round + 16;
@@ -285,6 +287,12 @@ module StreamingSHA256(
 					else
 						need_to_pad	<= 1;
 
+					message_len_final			<= message_len;
+					if(message_len > 4)
+						message_len_final_m4	<= message_len - 4;
+					else
+						message_len_final_m4	<= 0;
+
 				end
 
 				//TODO: pop fifo into W buffer as we go, to reduce latency
@@ -322,14 +330,14 @@ module StreamingSHA256(
 				if(fifo_rd_ff) begin
 					wr_count			<= wr_count + 1;
 					w_shreg[wr_count]	<= fifo_dout;
-					bytes_hashed		<= bytes_hashed_inc;
+					bytes_hashed		<= bytes_hashed + 4;
 
 					//If we have all 16 words for this block, don't read more
 					if(wr_count == 15) begin
 
 						//If this is an incomplete word at the end of the hash,
 						//we need to add padding HERE, not in the next block.
-						if(bytes_hashed_inc > message_len)
+						if(bytes_hashed > message_len_final_m4)
 							state	<= STATE_PAD;
 
 						else
@@ -337,14 +345,14 @@ module StreamingSHA256(
 					end
 
 					//If there's data on top of what we just read, read more
-					else if( (wr_count < 14) && (bytes_hashed_inc < message_len) )
+					else if( (wr_count < 14) && (bytes_hashed < message_len_final_m4) )
 						fifo_rd	<= 1;
 
 				end
 
 				//No data left, prepare to compress.
 				//Fill the rest of the block with zeroes.
-				else if(bytes_hashed >= message_len) begin
+				else begin
 					state	<= STATE_PAD;
 					for(integer i=0; i<16; i++) begin
 						if(i >= wr_count)
@@ -376,8 +384,8 @@ module StreamingSHA256(
 				//Add the length now.
 				else begin
 					last_block								<= 1;
-					w_shreg[14]								<= { 29'h0, message_len[31:29] };
-					w_shreg[15]								<= { message_len[28:0], 3'h0 };
+					w_shreg[14]								<= { 29'h0, message_len_final[31:29] };
+					w_shreg[15]								<= { message_len_final[28:0], 3'h0 };
 				end
 
 				round	<= 0;
@@ -453,7 +461,7 @@ module StreamingSHA256(
 					last_block	<= 1;
 
 					//Grab the last couple of bytes from the last block if needed
-					if(bytes_hashed < message_len)
+					if(bytes_hashed < message_len_final)
 						fifo_rd	<= 1;
 					state		<= STATE_READ_PIPE;
 				end
