@@ -208,8 +208,10 @@ module StreamingSHA256(
 	logic[31:0]	prev_g	= 0;
 	logic[31:0]	prev_h	= 0;
 
-	wire[3:0]	pad_word_pos = message_len[5:2];
-	wire[1:0]	pad_byte_pos = message_len[1:0];	//number from message bytes from left to right
+	wire[3:0]	pad_word_pos 		= message_len[5:2];
+	wire[1:0]	pad_byte_pos 		= message_len[1:0];	//number from message bytes from left to right
+	logic[31:0]	bytes_hashed		= 0;
+	wire[31:0]	bytes_hashed_inc	= bytes_hashed + 4;
 
 	logic[6:0]	round	= 0;
 	wire[6:0]	rp16	= round + 16;
@@ -250,22 +252,24 @@ module StreamingSHA256(
 			STATE_IDLE: begin
 
 				if(start) begin
-					hash_a		<= 32'h6a09e667;
-					hash_b		<= 32'hbb67ae85;
-					hash_c		<= 32'h3c6ef372;
-					hash_d		<= 32'ha54ff53a;
-					hash_e		<= 32'h510e527f;
-					hash_f		<= 32'h9b05688c;
-					hash_g		<= 32'h1f83d9ab;
-					hash_h		<= 32'h5be0cd19;
-					last_block	<= 0;
-					need_to_pad	<= 0;
+					hash_a			<= 32'h6a09e667;
+					hash_b			<= 32'hbb67ae85;
+					hash_c			<= 32'h3c6ef372;
+					hash_d			<= 32'ha54ff53a;
+					hash_e			<= 32'h510e527f;
+					hash_f			<= 32'h9b05688c;
+					hash_g			<= 32'h1f83d9ab;
+					hash_h			<= 32'h5be0cd19;
+					last_block		<= 0;
+					need_to_pad		<= 0;
+					bytes_hashed	<= 0;
 				end
 
 				//If asked to finalize the current hash, start a new block immediately
 				if(finalize) begin
 
 					finalizing	<= 1;
+					last_block	<= 0;
 					wr_count	<= 0;
 					state		<= STATE_READ_PIPE;
 
@@ -314,23 +318,32 @@ module StreamingSHA256(
 				if(fifo_rd_ff) begin
 					wr_count			<= wr_count + 1;
 					w_shreg[wr_count]	<= fifo_dout;
+					bytes_hashed		<= bytes_hashed_inc;
 
 					//If we have all 16 words for this block, don't read more
-					if(wr_count == 15)
-						state	<= STATE_COMPRESS;
+					if(wr_count == 15) begin
+
+						//If this is an incomplete word at the end of the hash,
+						//we need to add padding HERE, not in the next block.
+						if(bytes_hashed_inc > message_len)
+							state	<= STATE_PAD;
+
+						else
+							state	<= STATE_COMPRESS;
+					end
 
 					//If there's data on top of what we just read, read more
-					else if( (fifo_rsize > 1) && (wr_count < 14) )
+					else if( (wr_count < 14) && (bytes_hashed_inc < message_len) )
 						fifo_rd	<= 1;
 
 				end
 
 				//No data left, prepare to compress.
 				//Fill the rest of the block with zeroes.
-				else if(fifo_rsize == 0) begin
+				else if(bytes_hashed >= message_len) begin
 					state	<= STATE_PAD;
 					for(integer i=0; i<16; i++) begin
-						if(i > wr_count)
+						if(i >= wr_count)
 							w_shreg[i] <= 32'h0;
 					end
 				end
@@ -341,24 +354,26 @@ module StreamingSHA256(
 			//0x80, 000...., then length (64 bit big endian BITS) at end of block
 			STATE_PAD: begin
 
-				//TODO Edge case: If the message length mod 64 is >55, we can't fit the whole padding.
-				//Add the 0x80 wherever it needs to go, but save the length padding for the next block
-				if(message_len[5:0] > 55) begin
+				//Always add the 0x80.
+				//Needs to be before we add length, for proper handling of length-only padding
+				case(pad_byte_pos)
+					0: w_shreg[pad_word_pos][31:0]		<= 32'h80000000;
+					1: w_shreg[pad_word_pos][23:0]		<= 24'h800000;
+					2: w_shreg[pad_word_pos][15:0]		<= 16'h8000;
+					3: w_shreg[pad_word_pos][7:0]		<= 8'h80;
+				endcase
+
+				//If the message length mod 64 is >55, we can't fit the whole padding.
+				//Save the length padding for the next block
+				if(message_len[5:0] > 55 && !last_block)
 					last_block								<= 0;
-				end
 
 				//All of the padding fits.
-				//Add the 0x80 and length
+				//Add the length now.
 				else begin
 					last_block								<= 1;
 					w_shreg[14]								<= { 29'h0, message_len[31:29] };
 					w_shreg[15]								<= { message_len[28:0], 3'h0 };
-					case(pad_byte_pos)
-						0: w_shreg[pad_word_pos][31:0]		<= 32'h80000000;
-						1: w_shreg[pad_word_pos][23:0]		<= 24'h800000;
-						2: w_shreg[pad_word_pos][15:0]		<= 16'h8000;
-						3: w_shreg[pad_word_pos][7:0]		<= 8'h80;
-					endcase
 				end
 
 				round	<= 0;
@@ -422,6 +437,10 @@ module StreamingSHA256(
 				else if(finalizing) begin
 					wr_count	<= 0;
 					last_block	<= 1;
+
+					//Grab the last couple of bytes from the last block if needed
+					if(bytes_hashed < message_len)
+						fifo_rd	<= 1;
 					state		<= STATE_READ_PIPE;
 				end
 
