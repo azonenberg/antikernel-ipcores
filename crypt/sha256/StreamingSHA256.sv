@@ -222,6 +222,7 @@ module StreamingSHA256(
 	logic[31:0]	s0;
 	logic[31:0]	s1;
 	logic[31:0]	ch;
+	(* mark_debug = "true" *)
 	logic[31:0]	temp1;
 	logic[31:0]	temp2;
 	logic[31:0]	maj;
@@ -253,6 +254,16 @@ module StreamingSHA256(
 		hash_valid	<= 0;
 		fifo_rd_ff	<= fifo_rd;
 
+		//Prepare to finalize a block
+		if(finalize) begin
+			finalizing	<= 1;
+			message_len_final			<= message_len;
+			if(message_len > 4)
+				message_len_final_m4	<= message_len - 4;
+			else
+				message_len_final_m4	<= 0;
+		end
+
 		case(state)
 
 			STATE_IDLE: begin
@@ -266,17 +277,21 @@ module StreamingSHA256(
 					hash_f			<= 32'h9b05688c;
 					hash_g			<= 32'h1f83d9ab;
 					hash_h			<= 32'h5be0cd19;
+
+					k_val			<= k[0];
+
 					last_block		<= 0;
 					need_to_pad		<= 0;
 					bytes_hashed	<= 0;
+
+					last_block		<= 0;
+					wr_count		<= 0;
+					round			<= 0;
 				end
 
 				//If asked to finalize the current hash, start a new block immediately
 				if(finalize) begin
 
-					finalizing	<= 1;
-					last_block	<= 0;
-					wr_count	<= 0;
 					state		<= STATE_READ_PIPE;
 
 					//We have stuff to hash first
@@ -287,15 +302,25 @@ module StreamingSHA256(
 					else
 						need_to_pad	<= 1;
 
-					message_len_final			<= message_len;
-					if(message_len > 4)
-						message_len_final_m4	<= message_len - 4;
-					else
-						message_len_final_m4	<= 0;
-
 				end
 
-				//TODO: pop fifo into W buffer as we go, to reduce latency
+				/*
+				//If there's stuff in the FIFO, pop it into the W buffer.
+				else if(wr_count < 10) begin //FIXME
+
+					if(fifo_rsize > 1)
+						fifo_rd	<= 1;
+
+					//Save data when it comes in
+					if(fifo_rd_ff) begin
+						wr_count			<= wr_count + 1;
+						w_shreg[wr_count]	<= fifo_dout;
+						bytes_hashed		<= bytes_hashed + 4;
+					end
+
+					//If we've read a full block of data, move on to padding and hashing
+
+				end*/
 
 			end	//end STATE_IDLE
 
@@ -307,20 +332,6 @@ module StreamingSHA256(
 					fifo_rd		<= 1;
 
 				state	<= STATE_FILL_W;
-
-				//Save old hash state
-				prev_a	<= hash_a;
-				prev_b	<= hash_b;
-				prev_c	<= hash_c;
-				prev_d	<= hash_d;
-				prev_e	<= hash_e;
-				prev_f	<= hash_f;
-				prev_g	<= hash_g;
-				prev_h	<= hash_h;
-
-				round	<= 0;
-
-				k_val	<= k[0];
 
 			end	//end STATE_READ_PIPE
 
@@ -394,8 +405,18 @@ module StreamingSHA256(
 			end	//end STATE_PAD
 
 			STATE_PRECOMPUTE: begin
-				hkw				<= hash_h + k[0] + w_shreg[0];
-				state			<= STATE_COMPRESS;
+				hkw		<= hash_h + k[0] + w_shreg[0];
+
+				prev_a	<= hash_a;
+				prev_b	<= hash_b;
+				prev_c	<= hash_c;
+				prev_d	<= hash_d;
+				prev_e	<= hash_e;
+				prev_f	<= hash_f;
+				prev_g	<= hash_g;
+				prev_h	<= hash_h;
+
+				state	<= STATE_COMPRESS;
 			end	//end STATE_PRECOMPUTE
 
 			STATE_COMPRESS: begin
