@@ -264,6 +264,13 @@ module StreamingSHA256(
 				message_len_final_m4	<= 0;
 		end
 
+		//Save data when it comes out of the FIFO
+		if(fifo_rd_ff) begin
+			wr_count			<= wr_count + 1;
+			w_shreg[wr_count]	<= fifo_dout;
+			bytes_hashed		<= bytes_hashed + 4;
+		end
+
 		case(state)
 
 			STATE_IDLE: begin
@@ -292,35 +299,27 @@ module StreamingSHA256(
 				//If asked to finalize the current hash, start a new block immediately
 				if(finalize) begin
 
-					state		<= STATE_READ_PIPE;
-
 					//We have stuff to hash first
-					if(fifo_rsize != 0)
-						fifo_rd	<= 1;
+					if((fifo_rsize != 0) && (wr_count < 14)) begin
+						fifo_rd		<= 1;
+						state		<= STATE_READ_PIPE;
+					end
 
 					//Nothing to hash, previous block is done. Need to add padding.
-					else
+					else begin
 						need_to_pad	<= 1;
+						state		<= STATE_FILL_W;
+					end
 
 				end
 
-				/*
 				//If there's stuff in the FIFO, pop it into the W buffer.
-				else if(wr_count < 10) begin //FIXME
+				else if( (wr_count < 14) && (fifo_rsize > 1) )
+					fifo_rd	<= 1;
 
-					if(fifo_rsize > 1)
-						fifo_rd	<= 1;
-
-					//Save data when it comes in
-					if(fifo_rd_ff) begin
-						wr_count			<= wr_count + 1;
-						w_shreg[wr_count]	<= fifo_dout;
-						bytes_hashed		<= bytes_hashed + 4;
-					end
-
-					//If we've read a full block of data, move on to padding and hashing
-
-				end*/
+				//If we've read a full block of data, move on to padding and hashing
+				else if(wr_count == 14)
+					state	<= STATE_FILL_W;
 
 			end	//end STATE_IDLE
 
@@ -328,7 +327,7 @@ module StreamingSHA256(
 			STATE_READ_PIPE: begin
 
 				//If there's data on top of what we just read, read more
-				if(fifo_rsize > 1)
+				if(fifo_rsize > 1 && (wr_count < 14))
 					fifo_rd		<= 1;
 
 				state	<= STATE_FILL_W;
@@ -337,11 +336,7 @@ module StreamingSHA256(
 
 			STATE_FILL_W: begin
 
-				//Save data as it arrives
 				if(fifo_rd_ff) begin
-					wr_count			<= wr_count + 1;
-					w_shreg[wr_count]	<= fifo_dout;
-					bytes_hashed		<= bytes_hashed + 4;
 
 					//If we have all 16 words for this block, don't read more
 					if(wr_count == 15) begin
