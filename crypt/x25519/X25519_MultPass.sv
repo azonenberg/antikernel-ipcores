@@ -37,8 +37,6 @@
 	@brief X25519 multiplication
 
 	Derived from mult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
-
-	BUG: Does not handle carry-outs in the high area properly!
  */
 module X25519_MultPass(
 	input wire			clk,

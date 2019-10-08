@@ -1,4 +1,4 @@
-`timescale 1ns/1ps
+`timescale 1ns / 1ps
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
@@ -32,54 +32,146 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief X25519 reduction
-
-	Derived from freeze() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
-
-	WTF does this do?
+	@brief Wrapper around SingleClockFifo for allowing arbitrary sized input (1-4 bytes per clock)
  */
-module X25519_Freeze(
-	input wire			clk,
-	input wire			en,
-	input wire[263:0]	a,
-	output logic		out_valid	= 0,
-	output logic[263:0]	out = 0
-	);
+module ByteInputFifo #(
+	parameter DEPTH 		= 512,
+	localparam ADDR_BITS 	= $clog2(DEPTH),
+	parameter USE_BLOCK 	= 1,
+	parameter OUT_REG 		= 1
+)(
+	input wire					clk,
+	input wire					wr,
+	input wire[31:0]			din,
+	input wire[2:0]				bytes_valid,	//1-4
+	input wire					flush,			//push din_temp into the fifo
+												//(must not be same cycle as wr)
+
+	input wire					rd,
+	output wire[31:0]			dout,
+
+	output wire					overflow,
+	output wire					underflow,
+
+	output wire					empty,
+	output wire					full,
+
+	output logic[ADDR_BITS:0]	rsize,
+	output wire[ADDR_BITS:0]	wsize,
+
+	input wire					reset
+);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// First stage: save input and add minus_p to it
+	// Input logic
 
-	logic[263:0]	minus_p	= 264'h00_8000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0000_0013;
-	wire[263:0]		stage2_a;
-	wire			stage2_en;
+	logic[23:0]					din_temp	= 0;
+	logic[1:0]					temp_valid	= 0;
 
-	X25519_Add adder(
-		.clk(clk),
-		.en(en),
-		.a(a),
-		.b(minus_p),
-		.out_valid(stage2_en),
-		.out(stage2_a)
-	);
+	logic[55:0]					din_merged;
+	logic[2:0]					din_merged_valid;
 
-	logic[263:0]	stage2_a_orig = 0;
+	logic						fifo_wr		= 0;
+	logic[31:0]					fifo_din	= 0;
+
+	always_comb begin
+
+		if(wr) begin
+
+			din_merged_valid	= temp_valid + bytes_valid;
+
+			case(temp_valid)
+				0: din_merged	= { din, 24'h0 };
+				1: din_merged	= { din_temp[23:16], din, 16'h0 };
+				2: din_merged	= { din_temp[23:8], din, 8'h0 };
+				3: din_merged	= { din_temp[23:0], din };
+			endcase
+
+		end
+
+		else begin
+			din_merged_valid	= temp_valid;
+
+			case(temp_valid)
+				0: din_merged	= { 56'h0 };
+				1: din_merged	= { din_temp[23:16], 48'h0 };
+				2: din_merged	= { din_temp[23:8], 40'h0 };
+				3: din_merged	= { din_temp[23:0], 32'h0 };
+			endcase
+		end
+
+		//We have 4 bytes, push them into the fifo
+		if(din_merged_valid >= 4) begin
+			fifo_wr		= 1;
+			fifo_din	= din_merged[55:24];
+		end
+
+		//When flushing, push whatever we have
+		else if(flush && (din_merged_valid > 0) ) begin
+			fifo_wr		= 1;
+			fifo_din	= { din_temp, 8'h0 };
+		end
+
+		//Not pushing
+		else begin
+			fifo_wr		= 0;
+			fifo_din	= 0;
+		end
+
+	end
 
 	always_ff @(posedge clk) begin
-		if(en)
-			stage2_a_orig	<= a;
+
+		//Save the bytes that didn't get pushed
+		if(fifo_wr) begin
+			temp_valid	<= din_merged_valid - 4;
+			din_temp	<= din_merged[23:0];
+		end
+
+		//Not enough to push, just save the existing stuff
+		else begin
+			din_temp	<= din_merged[55:32];
+			temp_valid	<= din_merged_valid;
+		end
+
+		//After a flush or reset we have nothing left in the temporary buffer
+		if(flush || reset) begin
+			din_temp	<= 0;
+			temp_valid	<= 0;
+		end
+
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Second stage: big pile of XORs
+	// The actual FIFO
 
-	always_ff @(posedge clk) begin
-		out_valid	<= stage2_en;
-
-		if(stage2_a[255])
-			out		<= stage2_a ^ stage2_a_orig;
+	wire[ADDR_BITS:0] rsize_raw;
+	always_comb begin
+		if(temp_valid > 0)
+			rsize = rsize_raw + 1;
 		else
-			out		<= stage2_a_orig;
-
+			rsize = rsize_raw;
 	end
+
+
+	SingleClockFifo #(
+		.WIDTH(32),
+		.DEPTH(DEPTH),
+		.USE_BLOCK(USE_BLOCK),
+		.OUT_REG(OUT_REG)
+	) fifo (
+		.clk(clk),
+		.wr(fifo_wr),
+		.din(fifo_din),
+		.rd(rd),
+		.dout(dout),
+		.underflow(underflow),
+		.overflow(overflow),
+		.empty(empty),
+		.full(full),
+		.rsize(rsize_raw),
+		.wsize(wsize),
+		.reset(reset)
+	);
 
 endmodule
