@@ -36,7 +36,8 @@
 	At one round per clock (iterative), we can sustain streaming of one byte per clock during the compression function.
 	Initialization and finalization will reduce throughput slightly.
 
-	After asserting "finalize", wait until X before starting a new hash.
+	After asserting "finalize", wait at least 2 clocks before starting a new hash. Do not assert "finalize" for the
+	second hash until hash_valid goes high.
  */
 module StreamingSHA256(
 	input wire			clk,
@@ -188,8 +189,9 @@ module StreamingSHA256(
 
 	logic[3:0]		wr_count	= 0;
 
-	logic	finalizing	= 0;
-	logic	fifo_rd_ff	= 0;
+	logic		finalizing		= 0;
+	logic		start_pending	= 0;
+	logic		fifo_rd_ff		= 0;
 
 	logic[31:0]	hash_a	= 0;
 	logic[31:0]	hash_b	= 0;
@@ -254,6 +256,9 @@ module StreamingSHA256(
 		hash_valid	<= 0;
 		fifo_rd_ff	<= fifo_rd;
 
+		if(start)
+			start_pending	<= 1;
+
 		//Prepare to finalize a block
 		if(finalize) begin
 			finalizing	<= 1;
@@ -275,7 +280,9 @@ module StreamingSHA256(
 
 			STATE_IDLE: begin
 
-				if(start) begin
+				if(start || start_pending) begin
+					start_pending	<= 0;
+
 					hash_a			<= 32'h6a09e667;
 					hash_b			<= 32'hbb67ae85;
 					hash_c			<= 32'h3c6ef372;
