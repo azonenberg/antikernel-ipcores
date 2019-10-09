@@ -33,7 +33,7 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief GMII to [R]GMII converter
+	@brief GMII to [R]GMII converter. Note that the GMII bus isn't quite standard GMII in 10/100 mode!
  */
 module RGMIIToGMIIBridge #(
 	parameter PHY_INTERNAL_DELAY_RX = 1		//when enabled, the PHY provides internal delays and we don't have to
