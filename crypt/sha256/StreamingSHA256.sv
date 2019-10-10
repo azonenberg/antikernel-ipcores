@@ -90,8 +90,6 @@ module StreamingSHA256(
 		.reset(1'b0)
 	);
 
-	logic				block_start	= 0;
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Helper function for rotations
 
@@ -350,7 +348,7 @@ module StreamingSHA256(
 
 						//If this is an incomplete word at the end of the hash,
 						//we need to add padding HERE, not in the next block.
-						if(bytes_hashed > message_len_final_m4)
+						if(finalizing && (bytes_hashed > message_len_final_m4) )
 							state	<= STATE_PAD;
 
 						else
