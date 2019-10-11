@@ -61,9 +61,9 @@ module StreamingHMACSHA256(
 
 	always_ff @(posedge clk) begin
 		if(key_update) begin
-			for(integer i=0; i<64; i++) begin
-				o_key_pad[i*8 +: 8]	<= key[(63-i)*8 +: 8] ^ 8'h5c;
-				i_key_pad[i*8 +: 8]	<= key[(63-i)*8 +: 8] ^ 8'h36;
+			for(integer i=0; i<16; i++) begin
+				o_key_pad[i*32 +: 32]	<= key[(15-i)*32 +: 32] ^ 32'h5c5c5c5c;
+				i_key_pad[i*32 +: 32]	<= key[(15-i)*32 +: 32] ^ 32'h36363636;
 			end
 		end
 	end
