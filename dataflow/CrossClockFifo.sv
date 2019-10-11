@@ -102,6 +102,7 @@ module CrossClockFifo #(
 	assign					rd_memptr 	= rd_ptr[ADDR_BITS-1:0];
 
 	wire[ADDR_BITS:0]		rd_wr_ptr;	//write pointer as seen in the read domain
+	wire					rd_wr_ptr_updated;
 
 	logic					wr_ptr_update	= 0;
 	wire					wr_ptr_ack;
@@ -115,7 +116,7 @@ module CrossClockFifo #(
 		.reg_a(wr_ptr_ff),
 
 		.clk_b(rd_clk),
-		.updated_b(),
+		.updated_b(rd_wr_ptr_updated),
 		.reg_b(rd_wr_ptr)
 	);
 
@@ -156,13 +157,13 @@ module CrossClockFifo #(
 			wr_ptr		<= wr_ptr + 1'h1;
 
 		//Push registers between clock domains
-		if(!wr_sync_busy) begin
+		if(wr_ptr_ack)
+			wr_sync_busy	<= 0;
+		if(!wr_sync_busy || wr_ptr_ack) begin
 			wr_ptr_update	<= 1;
 			wr_ptr_ff		<= wr_ptr;
 			wr_sync_busy	<= 1;
 		end
-		if(wr_ptr_ack)
-			wr_sync_busy	<= 0;
 
 	end
 
@@ -185,13 +186,13 @@ module CrossClockFifo #(
 			rd_ptr		<= rd_ptr + 1'h1;
 
 		//Push registers between clock domains
-		if(!rd_sync_busy) begin
+		if(rd_ptr_ack)
+			rd_sync_busy	<= 0;
+		if(!rd_sync_busy || rd_ptr_ack) begin
 			rd_ptr_update	<= 1;
 			rd_ptr_ff		<= rd_ptr;
 			rd_sync_busy	<= 1;
 		end
-		if(rd_ptr_ack)
-			rd_sync_busy	<= 0;
 
 	end
 
