@@ -87,10 +87,17 @@ module Ethernet2TypeDecoder(
 	logic[15:0]			rx_temp_buf			= 0;
 	logic[1:0]			rx_temp_valid		= 0;
 
+	logic[15:0]			frame_len_8023		= 0;	//802.3 frame length
+	logic[15:0]			rx_bytecount		= 0;
+	wire[15:0]			rx_bytes_left		= frame_len_8023 - rx_bytecount;
+
+	logic				frame_has_len		= 0;
+
 	always_ff @(posedge rx_clk) begin
 
 		rx_l2_bus.data_valid	<= 0;
 		rx_l2_bus.headers_valid	<= 0;
+		rx_l2_bus.bytes_valid	<= 0;
 
 		//Forward flags
 		rx_l2_bus.start		<= mac_rx_bus.start;
@@ -135,7 +142,7 @@ module Ethernet2TypeDecoder(
 				rx_temp_valid			<= 0;
 				rx_temp_buf				<= mac_rx_bus.data[15:0];
 
-				rx_count	<= rx_count + 1'h1;
+				rx_count				<= rx_count + 1'h1;
 
 				//Read dst/src mac addresses (always same location in frame)
 				//Don't care about mac_rx_bus.bytes_valid since the packet can never be this short
@@ -170,8 +177,11 @@ module Ethernet2TypeDecoder(
 						rx_l2_bus.vlan_id		<= 1;
 
 						//If ethertype is <1500, it's an LLC length
-						if(mac_rx_bus.data[31:16] < 1500)
+						if(mac_rx_bus.data[31:16] < 1500) begin
 							rx_l2_bus.ethertype		<= ETHERTYPE_LLC;
+							frame_has_len			<= 1;
+							frame_len_8023			<= mac_rx_bus.data[31:16];
+						end
 						else
 							rx_l2_bus.ethertype		<= ethertype_t'(mac_rx_bus.data[31:16]);
 						rx_l2_bus.ethertype_is_ipv4	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV4);
@@ -198,10 +208,17 @@ module Ethernet2TypeDecoder(
 					rx_l2_bus.headers_valid		<= 1;
 				end
 
+				//If we're not an Ethernet II frame, strip padding based on the provided length
+				else if(frame_has_len && (rx_bytecount >= frame_len_8023) ) begin
+
+				end
+
 				//Nope, just normal frame payload.
 				//Go ahead and forward it
 				else begin
 					rx_l2_bus.data_valid		<= 1;
+
+					rx_bytecount				<= rx_bytecount + mac_rx_bus.bytes_valid;
 
 					case(mac_rx_bus.bytes_valid)
 
@@ -209,24 +226,36 @@ module Ethernet2TypeDecoder(
 							rx_l2_bus.bytes_valid	<= 3;
 							rx_l2_bus.data			<= { rx_temp_buf, mac_rx_bus.data[31:24], 8'h0 };
 							rx_temp_valid			<= 0;
+
+							if(frame_has_len && (rx_bytes_left < 3))
+								rx_l2_bus.bytes_valid	<= rx_bytes_left[1:0];
 						end
 
 						2: begin
 							rx_l2_bus.bytes_valid	<= 4;
 							rx_l2_bus.data			<= { rx_temp_buf, mac_rx_bus.data[31:16] };
 							rx_temp_valid			<= 0;
+
+							if(frame_has_len && (rx_bytes_left < 4))
+								rx_l2_bus.bytes_valid	<= rx_bytes_left[1:0];
 						end
 
 						3: begin
 							rx_l2_bus.bytes_valid	<= 4;
 							rx_l2_bus.data			<= { rx_temp_buf, mac_rx_bus.data[31:16] };
 							rx_temp_valid			<= 1;
+
+							if(frame_has_len && (rx_bytes_left < 4))
+								rx_l2_bus.bytes_valid	<= rx_bytes_left[1:0];
 						end
 
 						4: begin
 							rx_l2_bus.bytes_valid	<= 4;
 							rx_l2_bus.data			<= { rx_temp_buf, mac_rx_bus.data[31:16] };
 							rx_temp_valid			<= 2;
+
+							if(frame_has_len && (rx_bytes_left < 4))
+								rx_l2_bus.bytes_valid	<= rx_bytes_left[1:0];
 						end
 
 					endcase
@@ -245,10 +274,11 @@ module Ethernet2TypeDecoder(
 		else if(mac_rx_bus.start) begin
 			rx_count				<= 0;
 			rx_active				<= 1;
+			rx_bytecount			<= 0;
 			rx_l2_bus.bytes_valid	<= 0;
 			rx_l2_bus.data			<= 0;
-
 			rx_l2_bus.headers_valid	<= 0;
+			frame_has_len			<= 0;
 		end
 
 	end
