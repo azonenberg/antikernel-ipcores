@@ -97,7 +97,6 @@ module Ethernet2TypeDecoder(
 
 		rx_l2_bus.data_valid	<= 0;
 		rx_l2_bus.headers_valid	<= 0;
-		rx_l2_bus.bytes_valid	<= 0;
 
 		//Forward flags
 		rx_l2_bus.start		<= mac_rx_bus.start;
