@@ -209,7 +209,7 @@ module Ethernet2TypeDecoder(
 
 				//If we're not an Ethernet II frame, strip padding based on the provided length
 				else if(frame_has_len && (rx_bytecount >= frame_len_8023) )
-					rx_bytecount				<= 0;
+					rx_l2_bus.bytes_valid				<= 0;
 
 				//Nope, just normal frame payload.
 				//Go ahead and forward it
