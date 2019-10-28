@@ -480,7 +480,7 @@ module TriSpeedEthernetMAC #(
 					else begin
 						if(tx_frame_len > 66)
 							tx_state	<= TX_STATE_CRC_0;
-						else
+						else if(tx_fifo_rsize == 0)				//wait for last byte before paddingy
 							tx_state	<= TX_STATE_PADDING;
 					end
 
