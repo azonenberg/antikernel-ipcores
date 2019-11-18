@@ -68,7 +68,8 @@ module I2CTransceiver(
 	reg sda_out = 0;
 	reg sda_tx = 0;
 
-	assign i2c_sda = sda_tx ? sda_out : 1'bz;
+	//Open-drain output driver
+	assign i2c_sda = (sda_tx && !sda_out) ? 1'b0 : 1'bz;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transceiver logic
