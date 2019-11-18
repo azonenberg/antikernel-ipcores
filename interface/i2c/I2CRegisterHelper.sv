@@ -65,6 +65,7 @@ module I2CRegisterHelper #(
 	input wire						wdata_valid,
 	input wire[7:0]					wdata,
 	output logic					need_wdata	= 0,
+	output logic					burst_done	= 0,
 
 	//Ports to arbiter
 	output logic					request = 0,
@@ -113,6 +114,8 @@ module I2CRegisterHelper #(
 		cin.stop_en		<= 0;
 
 		need_wdata		<= 0;
+
+		burst_done		<= 0;
 
 		case(state)
 
@@ -287,6 +290,7 @@ module I2CRegisterHelper #(
 			STATE_STOP: begin
 				if(!cout.busy) begin
 					ready		<= 1;
+					burst_done	<= 1;
 					state		<= STATE_OPEN_IDLE;
 				end
 			end	//end STATE_STOP
