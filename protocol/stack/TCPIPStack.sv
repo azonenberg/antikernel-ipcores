@@ -51,8 +51,9 @@ module TCPIPStack #(
 
 	//Configuration
 	input wire IPv4Config		ip_config,
-	input wire[47:0]			mac_address,
+	input wire[47:0]			mac_address,				//clk_ipstack domain
 	input wire					promisc_mode,
+	input wire					config_update,				//assert when ip_config/mac_addr/promisc_mode are changed
 
 	//Link to the MAC
 	input wire					mac_rx_clk,
@@ -71,6 +72,23 @@ module TCPIPStack #(
 
 	//TODO: performance counters
 );
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Synchronize MAC address to the TX clock domain for sending frames
+
+	wire[47:0]	mac_addr_txclk;
+
+	RegisterSynchronizer #(
+		.WIDTH(48)
+	) mac_sync (
+		.clk_a(clk_ipstack),
+		.en_a(config_update),
+		.ack_a(),
+		.reg_a(mac_address),
+		.clk_b(mac_tx_clk),
+		.updated_b(),
+		.reg_b(mac_addr_txclk)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// CDC of incoming packets to the IP stack
@@ -112,7 +130,7 @@ module TCPIPStack #(
 	EthernetTransmitElasticBuffer #(
 		.LINK_SPEED_IS_10G(LINK_SPEED_IS_10G)
 	) tx_buf(
-		.our_mac_address(mac_address),
+		.our_mac_address(mac_addr_txclk),
 
 		.tx_l2_clk(clk_ipstack),
 		.tx_l2_bus(tx_l2_bus),
