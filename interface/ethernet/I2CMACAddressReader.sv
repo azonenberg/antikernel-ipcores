@@ -45,6 +45,7 @@ module I2CMACAddressReader #(
 	output i2c_in_t			driver_cin,
 	input wire i2c_out_t	driver_cout,
 
+	output logic			ready		= 0,
 	output logic			done		= 0,
 	output logic[47:0]		mac			= 0
 	);
@@ -53,7 +54,7 @@ module I2CMACAddressReader #(
 	// Register helper block
 
 	logic		open = 0;
-	wire		ready;
+	wire		reg_ready;
 	logic		select = 0;
 	logic		close = 0;
 	wire		rdata_valid;
@@ -68,7 +69,7 @@ module I2CMACAddressReader #(
 		.slave_addr({4'hb, ADDR_PINS[2:0], 1'h1}),
 
 		.open(open),
-		.ready(ready),
+		.ready(reg_ready),
 		.select(select),
 		.addr(8'h9a),		//constant address for mac addr
 		.we(1'b0),			//always reading, can't write to the mac
@@ -104,6 +105,7 @@ module I2CMACAddressReader #(
 		open	<= 0;
 		select	<= 0;
 		close	<= 0;
+		done	<= 0;
 
 		case(state)
 
@@ -113,7 +115,7 @@ module I2CMACAddressReader #(
 			end	//end STATE_IDLE
 
 			STATE_WAIT_ACK: begin
-				if(ready && !open) begin
+				if(reg_ready && !open) begin
 					select	<= 1;
 					state	<= STATE_READ;
 				end
@@ -126,6 +128,7 @@ module I2CMACAddressReader #(
 				if(burst_done) begin
 					state	<= STATE_DONE;
 					done	<= 1;
+					ready	<= 1;
 				end
 			end	//end STATE_READ
 
