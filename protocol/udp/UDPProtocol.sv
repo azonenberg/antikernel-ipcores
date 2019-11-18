@@ -162,16 +162,13 @@ module UDPProtocol(
 
 					rx_l4_bus.data_valid		<= 1;
 					rx_l4_bus.data				<= rx_l3_bus.data;
+					rx_l4_bus.bytes_valid		<= rx_l3_bus.bytes_valid;
 
-					//Data plus padding? Send only the valid data
+					//Data plus padding at layer 3? Set the valid flag to exclude the padding
 					if(rx_l4_bytes_left < rx_l3_bus.bytes_valid) begin
 						rx_l4_bus.bytes_valid	<= rx_l4_bytes_left;
 						rx_state				<= RX_STATE_PADDING;
 					end
-
-					//More data left? Send all of it
-					else
-						rx_l4_bus.bytes_valid	<= rx_l4_bytes_left;
 
 					//Update byte counter
 					rx_l4_bytes_left			<= rx_l4_bytes_left - rx_l3_bus.data_valid;
