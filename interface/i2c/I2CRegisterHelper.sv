@@ -230,6 +230,10 @@ module I2CRegisterHelper #(
 			STATE_READ_ADDR: begin
 				if(!cout.busy) begin
 					cin.rx_en	<= 1;
+					if(bytes_left == 1)
+						cin.rx_ack	<= 0;
+					else
+						cin.rx_ack	<= 1;
 					state		<= STATE_READ_DATA;
 				end
 			end	//end STATE_READ_ADDR
@@ -246,8 +250,15 @@ module I2CRegisterHelper #(
 						state			<= STATE_STOP;
 					end
 
-					else
+					//NAK the last byte
+					else begin
 						cin.rx_en	<= 1;
+
+						if(bytes_left == 2)
+							cin.rx_ack	<= 0;
+						else
+							cin.rx_ack	<= 1;
+					end
 
 				end
 			end	//end STATE_READ_DATA
