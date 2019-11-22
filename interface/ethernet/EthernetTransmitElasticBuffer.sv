@@ -39,7 +39,12 @@
 	Also, build the layer-2 headers (FCS and padding, if any, are added by the MAC)
  */
 module EthernetTransmitElasticBuffer #(
-	parameter LINK_SPEED_IS_10G = 1		//set false for 1G output
+	parameter LINK_SPEED_IS_10G = 1,		//set false for 1G output
+	parameter PACKET_DEPTH		= 8192,		//Packet-data FIFO is 32 bits wide x this many words
+											//Default 8192 = 32768 bytes
+											//(21 standard frames, 3 jumbo frames, 512 min-sized frames)
+
+	parameter HEADER_DEPTH		= 512		//Depth of header FIFO, in packets
 ) (
 
 	input wire[47:0]			our_mac_address,
@@ -56,12 +61,6 @@ module EthernetTransmitElasticBuffer #(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Configuration
-
-	parameter PACKET_DEPTH	= 8192;		//Packet-data FIFO is 32 bits wide x this many words
-										//Default 8192 = 32768 bytes
-										//(21 standard frames, 3 jumbo frames, 512 min-sized frames)
-
-	parameter HEADER_DEPTH	= 512;		//Depth of header FIFO, in packets
 
 	localparam PACKET_BITS	= $clog2(PACKET_DEPTH);
 	localparam HEADER_BITS	= $clog2(HEADER_DEPTH);
@@ -110,6 +109,7 @@ module EthernetTransmitElasticBuffer #(
 	// Packet header FIFO
 
 	/*
+		TODO: use struct here
 		77:64				Length (bytes)
 		63:48				Ethertype
 		47:0				Dest MAC
