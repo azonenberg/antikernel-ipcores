@@ -65,11 +65,19 @@ module I2CTransceiver(
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// I2C tristate processing
 
-	reg sda_out = 0;
-	reg sda_tx = 0;
+	logic sda_out = 1;
 
 	//Open-drain output driver
-	assign i2c_sda = (sda_tx && !sda_out) ? 1'b0 : 1'bz;
+	wire	sda_in;
+	BidirectionalBuffer #(
+		.WIDTH(1),
+		.OE_INVERT(0)
+	) sda_obuf(
+		.fabric_in(sda_in),
+		.fabric_out(1'b0),	//always drive 0 or tristate
+		.pad(i2c_sda),
+		.oe(sda_out)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transceiver logic
@@ -88,7 +96,8 @@ module I2CTransceiver(
 		STATE_STOP		= 4'h7,
 		STATE_STOP_2	= 4'h8,
 		STATE_RESTART	= 4'h9,
-		STATE_RESTART_2	= 4'ha
+		STATE_RESTART_2	= 4'ha,
+		STATE_RESTART_3	= 4'hb
 	} state = STATE_IDLE;
 
 	assign cout.busy =
@@ -116,7 +125,6 @@ module I2CTransceiver(
 				//Send start bit
 				//Data and clock should be high
 				if(cin.start_en) begin
-					sda_tx 		<= 1;
 					sda_out		<= 0;
 					clk_count	<= 0;
 					state		<= STATE_START;
@@ -129,7 +137,6 @@ module I2CTransceiver(
 					clk_count	<= 0;
 					bitcount	<= 0;
 					state		<= STATE_TX;
-					i2c_scl		<= 0;
 				end
 
 				//Read a byte of data
@@ -138,55 +145,44 @@ module I2CTransceiver(
 					clk_count	<= 0;
 					bitcount	<= 0;
 					state		<= STATE_RX;
-					i2c_scl		<= 0;
 					rx_ackbuf	<= cin.rx_ack;
 
 					rx_buf		<= 8'h00;
 				end
 
 				//Send stop bit
-				//Clock should be low at this point
+				//Clock should be low at this point already, pull data low now
 				else if(cin.stop_en) begin
-
-					//Make data low
-					sda_tx		<= 1;
 					sda_out		<= 0;
-					i2c_scl		<= 0;
-
 					clk_count	<= 0;
 					state		<= STATE_STOP;
 				end
 
 				//Send restart bit
-				//Clock should be low at this point
+				//Clock should be low at this point, pull data high after half a cycle
 				else if(cin.restart_en) begin
-
-					//Make data high
-					sda_tx		<= 1;
-					sda_out		<= 1;
-					i2c_scl		<= 0;
 					clk_count	<= 0;
 					state		<= STATE_RESTART;
-
 				end
 
 			end
 
 			//Sending start bit
 			STATE_START: begin
+
 				//Keep track of time, clock goes low at clkdiv/2
 				clk_count		<= clk_count + 15'd1;
 				if(clkdiv[15:1] == clk_count)
 					i2c_scl		<= 0;
 
+				//leave SDA low until the first data bit begins
 				if(clk_count == clkdiv)
 					state		<= STATE_IDLE;
+
 			end
 
 			//Sending data
 			STATE_TX: begin
-
-				sda_tx <= 1;
 
 				//Send the next data bit
 				if(clk_count == 0) begin
@@ -215,15 +211,15 @@ module I2CTransceiver(
 			//Read the acknowledgement bit
 			STATE_READ_ACK: begin
 
-				//set SDA to read mode
-				sda_tx			<= 0;
+				//Tristate SDA so we can read the reply
+				sda_out			<= 1;
 
 				//Keep track of time, clock goes high at clkdiv/2
 				//Read ACK on rising edge
 				clk_count		<= clk_count + 15'd1;
 				if(clkdiv[15:1] == clk_count) begin
 					i2c_scl		<= 1;
-					cout.tx_ack <= !i2c_sda;
+					cout.tx_ack <= !sda_in;
 				end
 
 				//End of this bit? Go on to the next
@@ -239,8 +235,8 @@ module I2CTransceiver(
 			//Read a byte of data
 			STATE_RX: begin
 
-				//read mode
-				sda_tx 			<= 0;
+				//Tristate SDA so we can read the reply
+				sda_out			<= 1;
 
 				//Keep track of time, clock goes high at clkdiv/2
 				//Read data on rising edge (high order bit is sent first)
@@ -248,7 +244,7 @@ module I2CTransceiver(
 				if(clkdiv[15:1] == clk_count) begin
 					i2c_scl		<= 1;
 
-					rx_buf		<= {rx_buf[6:0], i2c_sda};
+					rx_buf		<= {rx_buf[6:0], sda_in};
 				end
 
 				//End of this bit? Go on to the next
@@ -268,8 +264,7 @@ module I2CTransceiver(
 			//Send the ACK
 			STATE_SEND_ACK: begin
 
-				//set SDA to write mode and send the ack (invert ack to nack)
-				sda_tx			<= 1;
+				//Send the ack (invert ack to nack)
 				sda_out			<= !rx_ackbuf;
 
 				//Keep track of time, clock goes high at clkdiv/2
@@ -280,6 +275,7 @@ module I2CTransceiver(
 				//End of this bit? Finished
 				if(clkdiv[14:0] == clk_count) begin
 					i2c_scl		<= 0;
+
 					clk_count	<= 0;
 
 					cout.rx_rdy	<= 1;
@@ -300,7 +296,7 @@ module I2CTransceiver(
 
 				//End of the stop bit? Let SDA float high
 				if(clkdiv[14:0] == clk_count) begin
-					sda_tx		<= 0;
+					sda_out		<= 1;
 					clk_count	<= 0;
 
 					state		<= STATE_STOP_2;
@@ -308,16 +304,30 @@ module I2CTransceiver(
 
 			end
 
-			//Wait one additional bit period after the stop bit
+			//Wait one additional bit period after the stop bit before going idle
+			//to ensure we have a full clock cycle of downtime
 			STATE_STOP_2: begin
 				clk_count		<= clk_count + 15'd1;
 
 				if(clk_count == clkdiv)
 					state 		<= STATE_IDLE;
-			end
+			end	//end STATE_STOP_2
 
 			//Sending repeated start bit
 			STATE_RESTART: begin
+
+				//Keep track of time, SDA goes high at clkdiv/2
+				clk_count		<= clk_count + 15'd1;
+
+				if(clkdiv[15:1] == clk_count) begin
+					sda_out		<= 1;
+					clk_count	<= 0;
+					state		<= STATE_RESTART_2;
+				end
+
+			end	//end STATE_RESTART
+
+			STATE_RESTART_2: begin
 
 				//Keep track of time, clock goes high at clkdiv/2
 				clk_count		<= clk_count + 15'd1;
@@ -328,12 +338,12 @@ module I2CTransceiver(
 				if(clkdiv[14:0] == clk_count) begin
 					sda_out		<= 0;
 					clk_count	<= 0;
-					state		<= STATE_RESTART_2;
+					state		<= STATE_RESTART_3;
 				end
 
-			end
+			end	//end STATE_RESTART_2
 
-			STATE_RESTART_2: begin
+			STATE_RESTART_3: begin
 
 				//Keep track of time, clock goes low at clkdiv/2
 				clk_count		<= clk_count + 15'd1;
@@ -344,7 +354,7 @@ module I2CTransceiver(
 				if(clkdiv[14:0] == clk_count)
 					state		<= STATE_IDLE;
 
-			end
+			end	//end STATE_RESTART_3
 
 		endcase
 
