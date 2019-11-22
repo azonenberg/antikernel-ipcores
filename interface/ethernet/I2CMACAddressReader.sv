@@ -47,6 +47,7 @@ module I2CMACAddressReader #(
 
 	output logic			ready		= 0,
 	output logic			done		= 0,
+	output logic			fail		= 0,
 	output logic[47:0]		mac			= 0
 	);
 
@@ -93,13 +94,16 @@ module I2CMACAddressReader #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main state machine
 
-	enum logic[1:0]
+	enum logic[2:0]
 	{
-		STATE_IDLE 		= 2'h0,
-		STATE_WAIT_ACK	= 2'h1,
-		STATE_READ		= 2'h2,
-		STATE_DONE		= 2'h3
-	} state = STATE_IDLE;
+		STATE_BOOT_WAIT		= 3'h0,
+		STATE_WAIT_ACK		= 3'h1,
+		STATE_READ			= 3'h2,
+		STATE_DONE			= 3'h3,
+		STATE_DONE_HOLD		= 3'h4
+	} state = STATE_BOOT_WAIT;
+
+	logic[7:0] start_count	= 1;
 
 	always_ff @(posedge clk) begin
 		open	<= 0;
@@ -109,10 +113,13 @@ module I2CMACAddressReader #(
 
 		case(state)
 
-			STATE_IDLE: begin
-				open	<= 1;
-				state	<= STATE_WAIT_ACK;
-			end	//end STATE_IDLE
+			STATE_BOOT_WAIT: begin
+				start_count	<= start_count + 1;
+				if(start_count == 0) begin
+					open	<= 1;
+					state	<= STATE_WAIT_ACK;
+				end
+			end	//end STATE_BOOT_WAIT
 
 			STATE_WAIT_ACK: begin
 				if(reg_ready && !open) begin
@@ -125,18 +132,29 @@ module I2CMACAddressReader #(
 				if(rdata_valid)
 					mac		<= { mac[39:0], rdata };
 
-				if(burst_done) begin
+				if(burst_done)
 					state	<= STATE_DONE;
-					done	<= 1;
-					ready	<= 1;
-				end
+
 			end	//end STATE_READ
 
 			STATE_DONE: begin
-				//hang forever
+				close	<= 1;
+				state	<= STATE_DONE_HOLD;
+				done	<= 1;
+				ready	<= 1;
 			end //end STATE_DONE
 
+			//hang forever
+			STATE_DONE_HOLD: begin
+
+			end	//end STATE_DONE_HOLD
+
 		endcase
+
+		if(err) begin
+			fail	<= 1;
+			state	<= STATE_DONE;
+		end
 
 	end
 
