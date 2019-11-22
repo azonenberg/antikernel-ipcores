@@ -43,7 +43,9 @@ module TCPIPStack #(
 	parameter LINK_SPEED_IS_10G			= 0,				//true for 10G, false for 1G
 	parameter CLK_IPSTACK_HZ			= 125000000,		//used for aging timers
 	parameter ARP_CACHE_LINES_PER_WAY	= 128,
-	parameter ARP_CACHE_WAYS			= 4
+	parameter ARP_CACHE_WAYS			= 4,
+	parameter TX_PACKET_DEPTH			= 8192,
+	parameter TX_HEADER_DEPTH			= 512
 ) (
 
 	//Core clock
@@ -128,8 +130,10 @@ module TCPIPStack #(
 	EthernetTxL2Bus	tx_l2_bus;
 
 	EthernetTransmitElasticBuffer #(
-		.LINK_SPEED_IS_10G(LINK_SPEED_IS_10G)
-	) tx_buf(
+		.LINK_SPEED_IS_10G(LINK_SPEED_IS_10G),
+		.HEADER_DEPTH(TX_HEADER_DEPTH),
+		.PACKET_DEPTH(TX_PACKET_DEPTH)
+	) tx_buf (
 		.our_mac_address(mac_addr_txclk),
 
 		.tx_l2_clk(clk_ipstack),
