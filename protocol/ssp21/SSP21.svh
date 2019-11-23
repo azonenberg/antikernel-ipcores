@@ -36,14 +36,6 @@
 `ifndef SSP21_h
 `define SSP21_h
 
-typedef enum logic[1:0]
-{
-	SHARED_SECRET				= 2'h0,	//Pre-shared 256 bit secret
-	PRESHARED_PUBLIC_KEYS		= 2'h1,	//Pre-shared X25519 asymmetric key pair
-	INDUSTRIAL_CERTIFICATES		= 2'h2,	//PKI based (placeholder, not supported yet)
-	QUANTUM_KEY_DISTRIBUTION	= 2'h3	//Quantum key distribution (placeholder, not supported yet)
-} ssp21_handshakemode_t;
-
 typedef enum logic[7:0]
 {
 	REQUEST_HANDSHAKE_BEGIN	= 8'h0,
@@ -51,6 +43,14 @@ typedef enum logic[7:0]
 	REPLY_HANDSHAKE_ERROR	= 8'h2,
 	SESSION_DATA			= 8'h3
 } ssp21_function_t;
+
+typedef enum logic[1:0]
+{
+	SHARED_SECRET				= 2'h0,	//Pre-shared 256 bit secret
+	PRESHARED_PUBLIC_KEYS		= 2'h1,	//Pre-shared X25519 asymmetric key pair
+	INDUSTRIAL_CERTIFICATES		= 2'h2,	//PKI based (placeholder, not supported yet)
+	QUANTUM_KEY_DISTRIBUTION	= 2'h3	//Quantum key distribution (placeholder, not supported yet)
+} ssp21_handshakemode_t;
 
 typedef enum logic[7:0]
 {
