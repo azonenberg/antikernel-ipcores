@@ -213,8 +213,9 @@ module IPv4TransmitArbiter #(
 
 	always_ff @(posedge clk) begin
 
-		//Clear flags
-		ipv4_bus		<= {$bits(IPv4TxBus){1'b0}};
+		//Clear flags, but leave data after we finish sending a packet
+		ipv4_bus.start	<= 0;
+		ipv4_bus.commit	<= 0;
 
 		tcp_fifo_rd		<= 0;
 		udp_fifo_rd		<= 0;
