@@ -359,15 +359,10 @@ module SSP21UDPServer(
 			//Done receiving the handshake
 			RX_STATE_HANDSHAKE_5: begin
 
-				//Wait for packet to complete
+				//Wait for packet to complete with a valid checksum, then act on the handshake
 				if(udp_rx_bus.commit) begin
-					//TODO
-					//rx_handshake_begin_en	<= 1;
-					//rx_handshake_begin_busy	<= 1;
-
-					//Send a bogus error to test the error reply code path
-					rx_err_id		<= BAD_MESSAGE_FORMAT;
-					rx_state		<= RX_STATE_DROP;
+					rx_handshake_begin_en	<= 1;
+					rx_handshake_begin_busy	<= 1;
 				end
 
 				//Abort if the packet gets dropped
@@ -388,7 +383,8 @@ module SSP21UDPServer(
 	{
 		TX_STATE_IDLE			= 4'h0,
 		TX_STATE_ERROR			= 4'h1,
-		TX_STATE_ERROR_COMMIT	= 4'h2
+		TX_STATE_ERROR_COMMIT	= 4'h2,
+		TX_STATE_HANDSHAKE_1	= 4'h3,
 	} tx_state = TX_STATE_IDLE;
 
 	always_ff @(posedge clk) begin
@@ -422,14 +418,24 @@ module SSP21UDPServer(
 					//Message is only 2 bytes long
 					udp_tx_bus.payload_len	<= 2;
 
-					tx_state			<= TX_STATE_ERROR;
+					tx_state				<= TX_STATE_ERROR;
 
+				end
+
+				//Process a valid handshake by sending a Reply-Handshake-Begin message
+				if(rx_handshake_begin_en) begin
 				end
 
 			end	//end TX_STATE_IDLE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// Send an error message
+			//Send a Reply-Handshake-Begin message
+
+			TX_STATE_HANDSHAKE_1: begin
+			end	//end TX_STATE_HANDSHAKE_1
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Send a Reply-Handshake-Error message
 
 			TX_STATE_ERROR: begin
 				udp_tx_bus.data_valid	<= 1;
