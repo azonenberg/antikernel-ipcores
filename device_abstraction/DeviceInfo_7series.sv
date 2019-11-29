@@ -39,7 +39,8 @@ module DeviceInfo_7series(
 	input wire			clk,
 
 	//Device DNA (57 bits padded with zeros to 64)
-	output logic[63:0]	die_serial = 0,
+	output logic[63:0]	die_serial 			= 0,
+	output logic		die_serial_valid	= 0,
 
 	//JTAG IDCODE
 	output logic[31:0]	idcode = 0
@@ -107,7 +108,8 @@ module DeviceInfo_7series(
 
 				//Done?
 				if(dna_read_count == 57) begin
-					dna_read_state	<= DNA_READ_STATE_DONE;
+					dna_read_state		<= DNA_READ_STATE_DONE;
+					die_serial_valid	<= 1;
 				end
 			end	//end DNA_READ_STATE_READ
 
