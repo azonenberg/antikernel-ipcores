@@ -89,23 +89,48 @@ module RandomNumberGenerator #(
 	logic[255:0]	rng_key			= 0;
 	logic[127:0]	rng_count		= 0;
 
+	logic			hmac_start			= 0;
+	wire			hmac_ready;
+	logic			hmac_update			= 0;
+	logic[31:0]		hmac_data_in		= 0;
+	logic			hmac_finalize		= 0;
+
+	wire			hmac_valid;
+	wire[255:0]		hmac_hash;
+
 	StreamingHMACSHA256 hmac(
 		.clk(clk),
 
 		.key_update(rng_key_update),
 		.key(rng_key),
-		.start(),
-		.ready(),
-		.update(),
-		.data_in(),
-		.bytes_valid(),
-		.finalize(),
+		.start(hmac_start),
+		.ready(hmac_ready),
+		.update(hmac_update),
+		.data_in(hmac_data_in),
+		.bytes_valid(3'd4),
+		.finalize(finalize),
 
-		.hash_valid(),
-		.hash()
+		.hash_valid(hmac_valid),
+		.hash(hmac_hash)
 	);
 
+	logic			rng_gen_block	= 0;
+	logic[1:0]		gen_count	= 0;
+
+	enum logic[3:0] gen_state
+	{
+		GEN_STATE_IDLE		= 4'h0,
+		GEN_STATE_INIT		= 4'h1,
+		GEN_STATE_INPUT		= 4'h2,
+		GEN_STATE_FINALIZE	= 4'h3,
+		GEN_STATE_WAIT		= 4'h4
+	} = GEN_STATE_IDLE;
+
 	always_ff @(posedge clk) begin
+
+		hmac_start		<= 0;
+		hmac_update		<= 0;
+		hmac_finalize	<= 0;
 
 		//Bump the counter when we rekey
 		if(rng_key_update) begin
@@ -114,6 +139,53 @@ module RandomNumberGenerator #(
 		end
 
 		//GenerateBlocks (9.4.3)
+		//Special cased to only generate a single HMAC block at a time.
+		//Must be called repeatedly to generate additional data.
+		case(gen_state)
+
+			//Wait for a request to generate data
+			GEN_STATE_IDLE: begin
+				if(rng_gen_block && gen_ready) begin
+					hmac_start	<= 1;
+					gen_count	<= 0;
+					gen_state	<= GEN_STATE_INIT;
+				end
+			end	//end GEN_STATE_IDLE
+
+			//Wait for initial padding
+			GEN_STATE_INIT: begin
+				if(hmac_ready)
+					gen_state	<= GEN_STATE_INPUT;
+			end
+
+			//Hash the counter value
+			GEN_STATE_INPUT: begin
+				hmac_data_in	<= rng_count[gen_count*32 +: 32];
+				gen_count		<= gen_count + 1;
+				hmac_update		<= 1;
+				if(gen_count == 3)
+					gen_state	<= GEN_STATE_FINALIZE;
+			end	//end GEN_STATE_INPUT
+
+			//Finish hashing
+			GEN_STATE_FINALIZE: begin
+				hmac_finalize	<= 1;
+				gen_state		<= GEN_STATE_WAIT;
+			end //end GEN_STATE_FINALIZE
+
+			//Wait for the hash to complete then bump the counter
+			GEN_STATE_WAIT: begin
+
+				if(hmac_valid) begin
+					gen_state	<= GEN_STATE_IDLE;
+					rng_count	<= rng_count + 1;
+
+					//TODO: save results somewhere etc
+				end
+
+			end	//end GEN_STATE_WAIT
+
+		endcase
 
 	end
 
