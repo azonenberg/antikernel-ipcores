@@ -384,7 +384,7 @@ module SSP21UDPServer(
 		TX_STATE_IDLE			= 4'h0,
 		TX_STATE_ERROR			= 4'h1,
 		TX_STATE_ERROR_COMMIT	= 4'h2,
-		TX_STATE_HANDSHAKE_1	= 4'h3,
+		TX_STATE_HANDSHAKE_1	= 4'h3
 	} tx_state = TX_STATE_IDLE;
 
 	always_ff @(posedge clk) begin
@@ -457,7 +457,7 @@ module SSP21UDPServer(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug LA
-
+	/*
 	ila_0 ila(
 		.clk(clk),
 		.probe0(rx_state),
@@ -472,5 +472,6 @@ module SSP21UDPServer(
 		.probe9(tx_state),
 		.probe10(udp_tx_bus)
 	);
+	*/
 
 endmodule
