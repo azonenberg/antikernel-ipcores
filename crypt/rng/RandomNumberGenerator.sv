@@ -35,6 +35,8 @@
 	@file
 	@author Andrew D. Zonenberg
 	@brief CSPRNG using the Fortuna architecture with HMAC-SHA256 as the generator function
+
+	Reference: https://www.schneier.com/academic/paperfiles/fortuna.pdf
  */
 module RandomNumberGenerator #(
 	parameter				ADDR_PINS	= 3'h0		//eeprom low address bits
