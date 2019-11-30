@@ -110,23 +110,25 @@ module RandomNumberGenerator #(
 		.update(hmac_update),
 		.data_in(hmac_data_in),
 		.bytes_valid(3'd4),
-		.finalize(finalize),
+		.finalize(hmac_finalize),
 
 		.hash_valid(hmac_valid),
 		.hash(hmac_hash)
 	);
 
 	logic			rng_gen_block	= 0;
-	logic[1:0]		gen_count	= 0;
+	logic[1:0]		gen_count		= 0;
 
-	enum logic[3:0] gen_state
+	logic[2:0]		out_words_valid	= 0;
+
+	enum logic[3:0]
 	{
 		GEN_STATE_IDLE		= 4'h0,
 		GEN_STATE_INIT		= 4'h1,
 		GEN_STATE_INPUT		= 4'h2,
 		GEN_STATE_FINALIZE	= 4'h3,
 		GEN_STATE_WAIT		= 4'h4
-	} = GEN_STATE_IDLE;
+	} gen_state = GEN_STATE_IDLE;
 
 	always_ff @(posedge clk) begin
 
@@ -134,10 +136,29 @@ module RandomNumberGenerator #(
 		hmac_update		<= 0;
 		hmac_finalize	<= 0;
 
+		rng_valid		<= 0;
+
 		//Bump the counter when we rekey
 		if(rng_key_update) begin
 			rng_count	<= rng_count + 1;
 			gen_ready	<= 1;
+		end
+
+		//GenerateRandomData (9.4.4)
+		//We differer from Schneier's design here in that output can only be requested in 32-bit chunks, not
+		//arbitrary sizes.
+		if(gen_en) begin
+
+			if(out_words_valid != 0) begin
+				rng_valid		<= 1;
+				out_words_valid	<= out_words_valid - 1'h1;
+				rng_out			<= hmac_hash[out_words_valid*32 - 1 -: 32];
+			end
+
+			//TODO: handle case of no RNG output ready
+			//Generate the output, then rekey if it's been a while
+			else begin
+			end
 		end
 
 		//GenerateBlocks (9.4.3)
@@ -179,10 +200,10 @@ module RandomNumberGenerator #(
 			GEN_STATE_WAIT: begin
 
 				if(hmac_valid) begin
-					gen_state	<= GEN_STATE_IDLE;
-					rng_count	<= rng_count + 1;
+					gen_state		<= GEN_STATE_IDLE;
+					rng_count		<= rng_count + 1;
 
-					//TODO: save results somewhere etc
+					out_words_valid	<= 8;
 				end
 
 			end	//end GEN_STATE_WAIT
@@ -279,7 +300,7 @@ module RandomNumberGenerator #(
 			RESEED_STATE_REKEY: begin
 				if(sha_hash_valid) begin
 					rng_key			<= sha_hash;
-					rng_key_valid	<= 1;
+					rng_key_update	<= 1;
 					reseed_state	<= RESEED_STATE_IDLE;
 				end
 			end	//end RESEED_STATE_REKEY
@@ -453,10 +474,10 @@ module RandomNumberGenerator #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual RNG engine
 
-	enum logic[3:0] rng_state
+	enum logic[3:0]
 	{
 		RNG_STATE_INIT		= 4'h0
-	} = RNG_STATE_INIT;
+	} rng_state = RNG_STATE_INIT;
 
 	always_ff @(posedge clk) begin
 
