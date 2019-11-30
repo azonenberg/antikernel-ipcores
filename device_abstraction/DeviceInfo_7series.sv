@@ -43,7 +43,8 @@ module DeviceInfo_7series(
 	output logic		die_serial_valid	= 0,
 
 	//JTAG IDCODE
-	output logic[31:0]	idcode = 0
+	output logic[31:0]	idcode 				= 0,
+	output logic		idcode_valid		= 0
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -219,8 +220,9 @@ module DeviceInfo_7series(
 			ICAP_STATE_READ: begin
 				count <= count + 1;
 				if(count == 8) begin
-					icap_state	<= ICAP_STATE_DONE;
-					count		<= 0;
+					icap_state		<= ICAP_STATE_DONE;
+					idcode_valid	<= 1;
+					count			<= 0;
 				end
 				if(count == 3)
 					idcode	<= icap_dout_bswap;

@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2016 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -46,14 +46,16 @@ module OnDieSensors_7series #(
 	//Sensor values
 	//All are 8.8 fixed point, for example 16'h0480 = 4.5 units.
 	//This can also be modeled as one LSB = 1/256 of a volt or deg C
-	output logic[15:0]	die_temp	= 0,	//Die temp (degC)
-	output logic[15:0]	volt_core	= 0,	//VCCINT
-	output logic[15:0]	volt_ram	= 0,	//VCCBRAM
-	output logic[15:0]	volt_aux	= 0,	//VCCAUX
+	output logic[15:0]	die_temp		= 0,	//Die temp (degC)
+	output logic[15:0]	volt_core		= 0,	//VCCINT
+	output logic[15:0]	volt_ram		= 0,	//VCCBRAM
+	output logic[15:0]	volt_aux		= 0,	//VCCAUX
+	output logic		sensors_update	= 0,
 
 	//External analog input values
 	//Full scale = 1V
-	output logic[191:0]	ext_in		= 0		//ADn = n*12 +: 12
+	output logic[191:0]	ext_in			= 0,	//ADn = n*12 +: 12
+	output logic		ext_update		= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -159,6 +161,9 @@ module OnDieSensors_7series #(
 		xadc_we			<= 0;
 		mult_en			<= 0;
 
+		sensors_update	<= 0;
+		ext_update		<= 0;
+
 		//Just poll the sensors in a tight loop
 		//TODO: Can save some power by waiting a bit in between poll rounds?
 		//TODO: Sync to new-data alerts?
@@ -247,8 +252,9 @@ module OnDieSensors_7series #(
 
 					//If we read the last one, move on to the external inputs
 					if(xadc_addr == 6) begin
-						xadc_state	<= 8;
-						xadc_addr	<= 16;	//first result register
+						xadc_state		<= 8;
+						xadc_addr		<= 16;	//first result register
+						sensors_update	<= 1;
 					end
 					else
 						xadc_state	<= 5;
@@ -270,8 +276,10 @@ module OnDieSensors_7series #(
 				if(xadc_ready) begin
 
 					//Last one? Stop
-					if(xadc_addr[3:0] == 4'hf)
+					if(xadc_addr[3:0] == 4'hf) begin
 						xadc_state	<= 10;
+						ext_update	<= 1;
+					end
 
 					//No, save this and prepare to read the next one
 					else begin
