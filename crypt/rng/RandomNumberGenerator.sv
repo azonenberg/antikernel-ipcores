@@ -52,9 +52,9 @@ module RandomNumberGenerator #(
 
 	//API interface
 	input wire				gen_en,
-	output logic			gen_ready	= 0,
-	output logic			rng_valid	= 0,
-	output logic[31:0]		rng_out		= 0,
+	output wire				gen_ready,
+	output wire				rng_valid,
+	output wire[31:0]		rng_out,
 
 	//Die serial number (from DeviceInfo_7series)
 	//Tie to zero if not available in target FPGA
@@ -86,349 +86,66 @@ module RandomNumberGenerator #(
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// HMAC-SHA256 core for RNG output
+	// PRNG for the output stage
 
-	//Initialize key/count to zero (9.4.1)
+	//Initialize key to zero (9.4.1)
 	logic			rng_key_update	= 0;
 	logic[255:0]	rng_key			= 0;
-	logic[127:0]	rng_count		= 0;
 
-	logic			hmac_start		= 0;
-	wire			hmac_ready;
-	logic			hmac_update		= 0;
-	logic[31:0]		hmac_data_in	= 0;
-	logic			hmac_finalize	= 0;
+	wire			gen_rekey_en;
+	wire[255:0]		gen_rekey_value;
 
-	wire			hmac_valid;
-	wire[255:0]		hmac_hash;
-
-	StreamingHMACSHA256 hmac(
+	OutputPRNG prng(
 		.clk(clk),
 
-		.key_update(rng_key_update),
-		.key(rng_key),
-		.start(hmac_start),
-		.ready(hmac_ready),
-		.update(hmac_update),
-		.data_in(hmac_data_in),
-		.bytes_valid(3'd4),
-		.finalize(hmac_finalize),
+		.rng_key_update(rng_key_update),
+		.rng_key(rng_key),
+		.gen_rekey_en(gen_rekey_en),
+		.gen_rekey_value(gen_rekey_value),
 
-		.hash_valid(hmac_valid),
-		.hash(hmac_hash)
+		.gen_en(gen_en),
+		.gen_ready(gen_ready),
+		.rng_valid(rng_valid),
+		.rng_out(rng_out)
 	);
 
-	logic			rng_gen_block	= 0;
-	logic[1:0]		gen_count		= 0;
-
-	logic[2:0]		out_words_valid	= 0;
-	logic			read_pending	= 0;
-
-	enum logic[3:0]
-	{
-		GEN_STATE_IDLE		= 4'h0,
-		GEN_STATE_INIT		= 4'h1,
-		GEN_STATE_INPUT		= 4'h2,
-		GEN_STATE_FINALIZE	= 4'h3,
-		GEN_STATE_WAIT		= 4'h4,
-		GEN_STATE_REKEY_1	= 4'h5,
-		GEN_STATE_REKEY_2	= 4'h6,
-		GEN_STATE_REKEY_3	= 4'h7,
-		GEN_STATE_REKEY_4	= 4'h8
-	} gen_state = GEN_STATE_IDLE;
-
-	logic			gen_rekey_en	= 0;
-	logic			rng_gen_pending	= 0;
-
-	always_ff @(posedge clk) begin
-
-		hmac_start		<= 0;
-		hmac_update		<= 0;
-		hmac_finalize	<= 0;
-
-		rng_valid		<= 0;
-		rng_gen_block	<= 0;
-
-		gen_rekey_en	<= 0;
-
-		if(rng_gen_block)
-			rng_gen_pending	<= 1;
-
-		//Bump the counter when we rekey
-		if(rng_key_update) begin
-			rng_count	<= rng_count + 1;
-			gen_ready	<= 1;
-		end
-
-		//GenerateRandomData (9.4.4)
-		//We differer from Schneier's design here in that output can only be requested in 32-bit chunks,
-		//rather than arbitrary sizes.
-		if(gen_en || read_pending) begin
-
-			//If output ready, send it
-			if(out_words_valid != 0) begin
-				rng_valid		<= 1;
-				out_words_valid	<= out_words_valid - 1'h1;
-				rng_out			<= hmac_hash[out_words_valid*32 - 1 -: 32];
-			end
-
-			//If no output ready, generate a new block
-			else if(!read_pending) begin
-				rng_gen_block	<= 1;
-				read_pending	<= 1;
-			end
-		end
-
-		//GenerateBlocks (9.4.3)
-		//Special cased to only generate a single HMAC block at a time.
-		//Must be called repeatedly to generate additional data.
-		case(gen_state)
-
-			//Wait for a request to generate data
-			GEN_STATE_IDLE: begin
-				if((rng_gen_block || rng_gen_pending) && gen_ready) begin
-					rng_gen_pending	<= 0;
-					hmac_start		<= 1;
-					gen_count		<= 0;
-					gen_state		<= GEN_STATE_INIT;
-				end
-			end	//end GEN_STATE_IDLE
-
-			//Wait for initial padding
-			GEN_STATE_INIT: begin
-				if(hmac_ready)
-					gen_state	<= GEN_STATE_INPUT;
-			end
-
-			//Hash the counter value
-			GEN_STATE_INPUT: begin
-				hmac_data_in	<= rng_count[gen_count*32 +: 32];
-				gen_count		<= gen_count + 1;
-				hmac_update		<= 1;
-				if(gen_count == 3)
-					gen_state	<= GEN_STATE_FINALIZE;
-			end	//end GEN_STATE_INPUT
-
-			//Finish hashing
-			GEN_STATE_FINALIZE: begin
-				hmac_finalize	<= 1;
-				gen_state		<= GEN_STATE_WAIT;
-			end //end GEN_STATE_FINALIZE
-
-			//Wait for the hash to complete then bump the counter
-			GEN_STATE_WAIT: begin
-
-				if(hmac_valid) begin
-					gen_state		<= GEN_STATE_IDLE;
-					rng_count		<= rng_count + 1;
-
-					//Rekey after 1024 hash blocks
-					if(rng_count[9:0] == 0) begin
-						gen_state	<= GEN_STATE_REKEY_1;
-						hmac_start	<= 1;
-					end
-
-					//All good
-					else
-						out_words_valid	<= 8;
-				end
-
-			end	//end GEN_STATE_WAIT
-
-			GEN_STATE_REKEY_1: begin
-				if(hmac_ready)
-					gen_state	<= GEN_STATE_REKEY_2;
-			end	//end GEN_STATE_REKEY_1
-
-			GEN_STATE_REKEY_2: begin
-				hmac_data_in	<= rng_count[gen_count*32 +: 32];
-				gen_count		<= gen_count + 1;
-				hmac_update		<= 1;
-				if(gen_count == 3)
-					gen_state	<= GEN_STATE_REKEY_3;
-			end	//end GEN_STATE_REKEY_2
-
-			GEN_STATE_REKEY_3: begin
-				hmac_finalize	<= 1;
-				gen_state		<= GEN_STATE_REKEY_4;
-			end	//end GEN_STATE_REKEY_3
-
-			GEN_STATE_REKEY_4: begin
-				if(hmac_valid) begin
-					gen_state		<= GEN_STATE_IDLE;
-					rng_count		<= rng_count + 1;
-					gen_rekey_en	<= 1;
-				end
-			end	//end GEN_STATE_REKEY_4
-
-		endcase
-
-	end
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Generate some entropy from jitter between STARTUPE2 clock and the external clock
-	// Apply minimal whitening with a von Neumann corrector
+	// Internal entropy source
 
-	logic	toggle_ring	= 0;
-	always_ff @(posedge clk_ring) begin
-		toggle_ring	<= !toggle_ring;
-	end
+	wire		jitter_word_valid;
+	wire[31:0]	jitter_word;
 
-	wire	toggle_sync;
-	ThreeStageSynchronizer sync_toggle_ring(
-		.clk_in(clk_ring),
-		.din(toggle_ring),
-		.clk_out(clk),
-		.dout(toggle_sync)
-	);
-
-	logic[9:0]	count = 0;
-	logic[1:0]	jitter_bits			= 0;
-	logic		jitter_bit			= 0;
-	logic		jitter_bit_valid	= 0;
-
-	logic[31:0]	jitter_word			= 0;
-	logic[4:0]	jitter_word_count	= 0;
-	logic		jitter_word_valid	= 0;
-	always_ff @(posedge clk) begin
-
-		jitter_bit_valid		<= 0;
-		jitter_word_valid		<= 0;
-
-		count					<= count + 1;
-
-		if(count == 0) begin
-			jitter_bits[0]		<= toggle_sync;
-
-			if(jitter_bits == 2'b10) begin
-				jitter_bit_valid	<= 1;
-				jitter_bit			<= 1;
-			end
-			else if(jitter_bits == 2'b01) begin
-				jitter_bit_valid	<= 1;
-				jitter_bit			<= 0;
-			end
-
-		end
-		if(count == 512)
-			jitter_bits[1]		<= toggle_sync;
-
-		if(jitter_bit_valid) begin
-			jitter_word_count	<= jitter_word_count + 1;
-			jitter_word			<= { jitter_word[30:0], jitter_bit };;
-			if(jitter_word_count == 31)
-				jitter_word_valid	<= 1;
-		end
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Register helper block for the EEPROM
-
-	logic		open 				= 0;
-	wire		reg_ready;
-	logic		select 				= 0;
-	logic		close 				= 0;
-	wire		rdata_valid;
-	wire[7:0]	rdata;
-	wire		burst_done;
-	wire		err;
-	logic[7:0]	eeprom_addr			= 0;
-	logic[7:0]	eeprom_burst_len	= 0;
-	logic		eeprom_we			= 0;
-	logic		eeprom_wdata_valid	= 0;
-	logic[7:0]	eeprom_wdata;
-	wire		eeprom_need_wdata;
-
-	I2CRegisterHelper #(
-		.ADDR_BYTES(1)		//2 Kbit = 256 byte eeprom
-	) helper (
+	ClockJitterEntropySource jitter_source(
 		.clk(clk),
-		.slave_addr({4'ha, ADDR_PINS[2:0], 1'h1}),
-
-		.open(open),
-		.ready(reg_ready),
-		.select(select),
-		.addr(eeprom_addr),
-		.we(eeprom_we),
-		.burst_len(eeprom_burst_len),
-		.close(close),
-		.rdata_valid(rdata_valid),
-		.rdata(rdata),
-		.err(err),
-		.wdata_valid(eeprom_wdata_valid),
-		.wdata(eeprom_wdata),
-		.need_wdata(eeprom_need_wdata),
-		.burst_done(burst_done),
-
-		.request(i2c_driver_req),
-		.done(i2c_driver_done),
-		.ack(i2c_driver_ack),
-		.cin(i2c_driver_cin),
-		.cout(i2c_driver_cout)
+		.clk_ring(clk_ring),
+		.jitter_word(jitter_word),
+		.jitter_word_valid(jitter_word_valid)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Seed loading / persisting
+	// Seed persistence logic
 
-	wire	trig_out;
+	wire		trig_out;
 
-	enum logic[3:0]
-	{
-		SEED_STATE_BOOT_0		= 4'h0,
-		SEED_STATE_BOOT_1		= 4'h1,
-		SEED_STATE_BOOT_READ	= 4'h2,
-		SEED_STATE_IDLE			= 4'h3
-	} seed_state = SEED_STATE_BOOT_0;
+	wire		eeprom_seed_valid;
+	wire[255:0]	eeprom_seed;
 
-	logic			eeprom_seed_valid	= 0;
-	logic[255:0]	eeprom_seed;
+	SeedPersistenceManager #(
+		.ADDR_PINS(ADDR_PINS)
+	) persistence_mgr(
+		.clk(clk),
 
-	always_ff @(posedge clk) begin
+		.i2c_driver_req(i2c_driver_req),
+		.i2c_driver_ack(i2c_driver_ack),
+		.i2c_driver_done(i2c_driver_done),
+		.i2c_driver_cin(i2c_driver_cin),
+		.i2c_driver_cout(i2c_driver_cout),
 
-		open		<= 0;
-		close		<= 0;
-		select		<= 0;
+		.load_en(trig_out && eeprom_serial_valid),
 
-		case(seed_state)
-
-			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// Initialization
-
-			SEED_STATE_BOOT_0: begin
-
-				//wait until the initial eeprom read is done, this confirms everything is initialized
-				if(trig_out && eeprom_serial_valid) begin
-					open		<= 1;
-					seed_state	<= SEED_STATE_BOOT_1;
-				end
-
-			end	//end SEED_STATE_BOOT_0
-
-			SEED_STATE_BOOT_1: begin
-				if(reg_ready && !open) begin
-					select				<= 1;
-					eeprom_addr			<= 8'ha0;
-					eeprom_burst_len	<= 8'h10;
-					seed_state			<= SEED_STATE_BOOT_READ;
-				end
-			end	//end SEED_STATE_BOOT_1
-
-			SEED_STATE_BOOT_READ: begin
-				if(rdata_valid)
-					eeprom_seed			<= { eeprom_seed[247:0], rdata };
-
-				if(burst_done) begin
-					seed_state			<= SEED_STATE_IDLE;
-					eeprom_seed_valid	<= 1;
-				end
-			end	//end SEED_STATE_BOOT_READ
-
-			SEED_STATE_IDLE: begin
-			end	//end SEED_STATE_IDLE
-
-		endcase
-
-	end
+		.eeprom_seed_valid(eeprom_seed_valid),
+		.eeprom_seed(eeprom_seed)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// SHA256 core for reseeding (9.4.2)
@@ -517,7 +234,7 @@ module RandomNumberGenerator #(
 
 		//Key switch (9.4.4)
 		if(gen_rekey_en) begin
-			rng_key			<= hmac_hash;
+			rng_key			<= gen_rekey_value;
 			rng_key_update	<= 1;
 		end
 
