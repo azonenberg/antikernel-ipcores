@@ -36,6 +36,8 @@
 	@author Andrew D. Zonenberg
 	@brief CSPRNG using the Fortuna architecture with HMAC-SHA256 as the generator function
 
+	Early prototype implementation, needs third party review!!!
+
 	Reference: https://www.schneier.com/academic/paperfiles/fortuna.pdf
  */
 module RandomNumberGenerator #(
@@ -91,11 +93,11 @@ module RandomNumberGenerator #(
 	logic[255:0]	rng_key			= 0;
 	logic[127:0]	rng_count		= 0;
 
-	logic			hmac_start			= 0;
+	logic			hmac_start		= 0;
 	wire			hmac_ready;
-	logic			hmac_update			= 0;
-	logic[31:0]		hmac_data_in		= 0;
-	logic			hmac_finalize		= 0;
+	logic			hmac_update		= 0;
+	logic[31:0]		hmac_data_in	= 0;
+	logic			hmac_finalize	= 0;
 
 	wire			hmac_valid;
 	wire[255:0]		hmac_hash;
@@ -120,6 +122,7 @@ module RandomNumberGenerator #(
 	logic[1:0]		gen_count		= 0;
 
 	logic[2:0]		out_words_valid	= 0;
+	logic			read_pending	= 0;
 
 	enum logic[3:0]
 	{
@@ -127,8 +130,15 @@ module RandomNumberGenerator #(
 		GEN_STATE_INIT		= 4'h1,
 		GEN_STATE_INPUT		= 4'h2,
 		GEN_STATE_FINALIZE	= 4'h3,
-		GEN_STATE_WAIT		= 4'h4
+		GEN_STATE_WAIT		= 4'h4,
+		GEN_STATE_REKEY_1	= 4'h5,
+		GEN_STATE_REKEY_2	= 4'h6,
+		GEN_STATE_REKEY_3	= 4'h7,
+		GEN_STATE_REKEY_4	= 4'h8
 	} gen_state = GEN_STATE_IDLE;
+
+	logic			gen_rekey_en	= 0;
+	logic			rng_gen_pending	= 0;
 
 	always_ff @(posedge clk) begin
 
@@ -137,6 +147,12 @@ module RandomNumberGenerator #(
 		hmac_finalize	<= 0;
 
 		rng_valid		<= 0;
+		rng_gen_block	<= 0;
+
+		gen_rekey_en	<= 0;
+
+		if(rng_gen_block)
+			rng_gen_pending	<= 1;
 
 		//Bump the counter when we rekey
 		if(rng_key_update) begin
@@ -145,19 +161,21 @@ module RandomNumberGenerator #(
 		end
 
 		//GenerateRandomData (9.4.4)
-		//We differer from Schneier's design here in that output can only be requested in 32-bit chunks, not
-		//arbitrary sizes.
-		if(gen_en) begin
+		//We differer from Schneier's design here in that output can only be requested in 32-bit chunks,
+		//rather than arbitrary sizes.
+		if(gen_en || read_pending) begin
 
+			//If output ready, send it
 			if(out_words_valid != 0) begin
 				rng_valid		<= 1;
 				out_words_valid	<= out_words_valid - 1'h1;
 				rng_out			<= hmac_hash[out_words_valid*32 - 1 -: 32];
 			end
 
-			//TODO: handle case of no RNG output ready
-			//Generate the output, then rekey if it's been a while
-			else begin
+			//If no output ready, generate a new block
+			else if(!read_pending) begin
+				rng_gen_block	<= 1;
+				read_pending	<= 1;
 			end
 		end
 
@@ -168,10 +186,11 @@ module RandomNumberGenerator #(
 
 			//Wait for a request to generate data
 			GEN_STATE_IDLE: begin
-				if(rng_gen_block && gen_ready) begin
-					hmac_start	<= 1;
-					gen_count	<= 0;
-					gen_state	<= GEN_STATE_INIT;
+				if((rng_gen_block || rng_gen_pending) && gen_ready) begin
+					rng_gen_pending	<= 0;
+					hmac_start		<= 1;
+					gen_count		<= 0;
+					gen_state		<= GEN_STATE_INIT;
 				end
 			end	//end GEN_STATE_IDLE
 
@@ -203,107 +222,44 @@ module RandomNumberGenerator #(
 					gen_state		<= GEN_STATE_IDLE;
 					rng_count		<= rng_count + 1;
 
-					out_words_valid	<= 8;
+					//Rekey after 1024 hash blocks
+					if(rng_count[9:0] == 0) begin
+						gen_state	<= GEN_STATE_REKEY_1;
+						hmac_start	<= 1;
+					end
+
+					//All good
+					else
+						out_words_valid	<= 8;
 				end
 
 			end	//end GEN_STATE_WAIT
 
-		endcase
+			GEN_STATE_REKEY_1: begin
+				if(hmac_ready)
+					gen_state	<= GEN_STATE_REKEY_2;
+			end	//end GEN_STATE_REKEY_1
 
-	end
+			GEN_STATE_REKEY_2: begin
+				hmac_data_in	<= rng_count[gen_count*32 +: 32];
+				gen_count		<= gen_count + 1;
+				hmac_update		<= 1;
+				if(gen_count == 3)
+					gen_state	<= GEN_STATE_REKEY_3;
+			end	//end GEN_STATE_REKEY_2
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// SHA256 core for reseeding (9.4.2)
+			GEN_STATE_REKEY_3: begin
+				hmac_finalize	<= 1;
+				gen_state		<= GEN_STATE_REKEY_4;
+			end	//end GEN_STATE_REKEY_3
 
-	logic		sha_start		= 0;
-	logic		sha_update		= 0;
-	logic[31:0]	sha_data_in		= 0;
-	logic[2:0]	sha_bytes_valid	= 0;
-	logic		sha_finalize	= 0;
-	wire		sha_hash_valid;
-	wire[255:0]	sha_hash;
-
-	StreamingSHA256 sha(
-		.clk(clk),
-		.start(sha_start),
-		.update(sha_update),
-		.data_in(sha_data_in),
-		.bytes_valid(sha_bytes_valid),
-		.finalize(sha_finalize),
-		.hash_valid(sha_hash_valid),
-		.hash(sha_hash)
-	);
-
-	//To start a reseed operation, assert reseed_en with reseed_data set to the additional data being mixed in.
-	logic			reseed_en		= 0;
-	logic[255:0]	reseed_input	= 0;
-
-	logic[2:0]		reseed_count	= 0;
-
-	enum logic[3:0]
-	{
-		RESEED_STATE_IDLE		= 4'h0,
-		RESEED_STATE_KEY		= 4'h1,
-		RESEED_STATE_DATA		= 4'h2,
-		RESEED_STATE_FINALIZE	= 4'h3,
-		RESEED_STATE_REKEY		= 4'h4
-	} reseed_state = RESEED_STATE_IDLE;
-
-	always_ff @(posedge clk) begin
-
-		reseed_en		<= 0;
-		sha_start		<= 0;
-		sha_update		<= 0;
-		sha_finalize	<= 0;
-		rng_key_update	<= 0;
-
-		case(reseed_state)
-
-			//Wait for a new reseed request
-			RESEED_STATE_IDLE: begin
-
-				if(reseed_en) begin
-					sha_start		<= 1;
-					reseed_count	<= 0;
-					reseed_state	<= RESEED_STATE_KEY;
+			GEN_STATE_REKEY_4: begin
+				if(hmac_valid) begin
+					gen_state		<= GEN_STATE_IDLE;
+					rng_count		<= rng_count + 1;
+					gen_rekey_en	<= 1;
 				end
-
-			end	//end RESEED_STATE_IDLE
-
-			//Hash in the old key
-			RESEED_STATE_KEY: begin
-				sha_data_in		<= rng_key[reseed_count*32 +: 32];
-				sha_bytes_valid	<= 1;
-				reseed_count	<= reseed_count + 1'h1;
-
-				if(reseed_count == 7)
-					reseed_state	<= RESEED_STATE_DATA;
-			end	//end RESEED_STATE_KEY
-
-			//Hash in the new data
-			RESEED_STATE_DATA: begin
-				sha_data_in		<= reseed_input[reseed_count*32 +: 32];
-				sha_bytes_valid	<= 1;
-				reseed_count	<= reseed_count + 1'h1;
-
-				if(reseed_count == 7)
-					reseed_state	<= RESEED_STATE_FINALIZE;
-			end	//end RESEED_STATE_DATA
-
-			//Finish hashing
-			RESEED_STATE_FINALIZE: begin
-				sha_finalize	<= 1;
-				reseed_state	<= RESEED_STATE_REKEY;
-			end	//end RESEED_STATE_FINALIZE
-
-			//Rekey the HMAC core when hashing completes
-			RESEED_STATE_REKEY: begin
-				if(sha_hash_valid) begin
-					rng_key			<= sha_hash;
-					rng_key_update	<= 1;
-					reseed_state	<= RESEED_STATE_IDLE;
-				end
-			end	//end RESEED_STATE_REKEY
+			end	//end GEN_STATE_REKEY_4
 
 		endcase
 
@@ -424,6 +380,7 @@ module RandomNumberGenerator #(
 		SEED_STATE_IDLE			= 4'h3
 	} seed_state = SEED_STATE_BOOT_0;
 
+	logic			eeprom_seed_valid	= 0;
 	logic[255:0]	eeprom_seed;
 
 	always_ff @(posedge clk) begin
@@ -460,8 +417,10 @@ module RandomNumberGenerator #(
 				if(rdata_valid)
 					eeprom_seed			<= { eeprom_seed[247:0], rdata };
 
-				if(burst_done)
+				if(burst_done) begin
 					seed_state			<= SEED_STATE_IDLE;
+					eeprom_seed_valid	<= 1;
+				end
 			end	//end SEED_STATE_BOOT_READ
 
 			SEED_STATE_IDLE: begin
@@ -472,19 +431,247 @@ module RandomNumberGenerator #(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The actual RNG engine
+	// SHA256 core for reseeding (9.4.2)
+
+	logic		sha_start		= 0;
+	logic		sha_update		= 0;
+	logic[31:0]	sha_data_in		= 0;
+	logic[2:0]	sha_bytes_valid	= 0;
+	logic		sha_finalize	= 0;
+	wire		sha_hash_valid;
+	wire[255:0]	sha_hash;
+
+	StreamingSHA256 sha(
+		.clk(clk),
+		.start(sha_start),
+		.update(sha_update),
+		.data_in(sha_data_in),
+		.bytes_valid(sha_bytes_valid),
+		.finalize(sha_finalize),
+		.hash_valid(sha_hash_valid),
+		.hash(sha_hash)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Entropy pools (9.5.2)
+
+	//Index of the pool currently being written to by new entropy
+	logic[4:0]		pool_wptr			= 0;
+	logic[255:0]	entropy_pools[31:0];
+
+	//Number of reseeds we've done
+	logic[31:0]		num_reseeds			= 0;
+
+	//Old data of the pool we're writing to
+	wire[255:0]		old_poolhash	= entropy_pools[pool_wptr];
+
+	initial begin
+		for(integer i=0; i<32; i++)
+			entropy_pools[i]	<= 0;
+	end
+
+	logic[31:0] 	reseed_timer		= 1;
+	logic			reseed_pending		= 0;
+
+	logic[3:0]		reseed_count		= 0;
+
+	logic			jitter_word_pending	= 0;
+	logic			sensor_word_pending	= 0;
+	logic			entropy_pending		= 0;
+
+	logic			booting				= 1;
 
 	enum logic[3:0]
 	{
-		RNG_STATE_INIT		= 4'h0
-	} rng_state = RNG_STATE_INIT;
+		POOL_STATE_IDLE_0			= 4'h0,
+		POOL_STATE_IDLE_1			= 4'h1,
+		POOL_STATE_DIE_SERIAL		= 4'h2,
+		POOL_STATE_EEPROM_SERIAL	= 4'h3,
+		POOL_STATE_SAVED_SEED		= 4'h4,
+		POOL_STATE_OLDHASH			= 4'h5,
+		POOL_STATE_FINALIZE			= 4'h6,
+		POOL_STATE_WAIT				= 4'h7,
+		POOL_STATE_RESEED_0			= 4'h8
+	} pool_state = POOL_STATE_IDLE_0;
 
 	always_ff @(posedge clk) begin
 
-		case(rng_state)
+		sha_start		<= 0;
+		sha_update		<= 0;
+		sha_finalize	<= 0;
+		rng_key_update	<= 0;
 
-			RNG_STATE_INIT: begin
-			end
+		if(jitter_word_valid)
+			jitter_word_pending	<= 1;
+		if(sensors_update)
+			sensor_word_pending	<= 1;
+		if(entropy_en)
+			entropy_pending		<= 1;
+
+		//Reseed every ~100ms (assuming 100 MHz clk)
+		reseed_timer		<= reseed_timer + 1;
+		if(reseed_timer == 32'd9999999) begin
+			reseed_pending	<= 1;
+			reseed_timer	<= 1;
+		end
+
+		//Key switch (9.4.4)
+		if(gen_rekey_en) begin
+			rng_key			<= hmac_hash;
+			rng_key_update	<= 1;
+		end
+
+		//Keep track of how many reseeds we've done
+		if(rng_key_update)
+			num_reseeds			<= num_reseeds + 1'h1;
+
+		case(pool_state)
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Idle - constantly hash stuff in a loop
+
+			POOL_STATE_IDLE_0: begin
+				sha_start	<= 1;
+				pool_state	<= POOL_STATE_IDLE_1;
+			end	//end POOL_STATE_IDLE_0
+
+			POOL_STATE_IDLE_1: begin
+
+				//If we're done booting, hash in the boot-time data
+				if(booting && die_serial_valid && eeprom_serial_valid && eeprom_seed_valid) begin
+					pool_state		<= POOL_STATE_DIE_SERIAL;
+					reseed_count	<= 0;
+				end
+
+				//External entropy gets highest precedence
+				else if(entropy_en || entropy_pending) begin
+					sha_update		<= 1;
+					sha_data_in		<= entropy_data;
+					sha_bytes_valid	<= 4;
+					entropy_pending	<= 0;
+				end
+
+				//Then sensors (XOR together the 4 readings to get a single 32-bit word)
+				else if(sensors_update || sensor_word_pending) begin
+					sha_update		<= 1;
+					sha_data_in		<= { die_temp ^ volt_aux, volt_core ^ volt_ram };
+					sha_bytes_valid	<= 4;
+					sensor_word_pending	<= 0;
+				end
+
+				//Add jitter if we have nothing left to hash
+				else if(jitter_word_valid || jitter_word_pending) begin
+					sha_update			<= 1;
+					sha_data_in			<= jitter_word;
+					jitter_word_pending	<= 0;
+				end
+
+				//If we're due to reseed, handle that
+				else if(reseed_pending) begin
+					reseed_pending		<= 0;
+					reseed_count		<= 0;
+					pool_state			<= POOL_STATE_RESEED_0;
+				end
+
+			end	//end POOL_STATE_IDLE_1
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Boot sequence - mix in die and EEPROM serial numbers plus the saved state from last boot
+
+			POOL_STATE_DIE_SERIAL: begin
+				reseed_count		<= reseed_count + 1;
+
+				sha_update			<= 1;
+				sha_bytes_valid		<= 4;
+
+				if(reseed_count == 0)
+					sha_data_in		<= die_serial[31:0];
+				else begin
+					sha_data_in		<= die_serial[63:32];
+					reseed_count	<= 0;
+					pool_state		<= POOL_STATE_EEPROM_SERIAL;
+				end
+			end	//end POOL_STATE_DIE_SERIAL
+
+			POOL_STATE_EEPROM_SERIAL: begin
+				reseed_count		<= reseed_count + 1;
+
+				sha_update			<= 1;
+				sha_bytes_valid		<= 4;
+
+				case(reseed_count)
+					0:	sha_data_in	<= eeprom_serial[31:0];
+					1:	sha_data_in	<= eeprom_serial[63:32];
+					2:	sha_data_in	<= eeprom_serial[95:64];
+					3: begin
+						sha_data_in		<= eeprom_serial[31:0];
+						reseed_count	<= 0;
+						pool_state		<= POOL_STATE_SAVED_SEED;
+					end
+				endcase
+			end	//end POOL_STATE_EEPROM_SERIAL
+
+			POOL_STATE_SAVED_SEED: begin
+				reseed_count		<= reseed_count + 1;
+
+				sha_update			<= 1;
+				sha_bytes_valid		<= 4;
+
+				sha_data_in			<= eeprom_seed[reseed_count*32 +: 32];
+
+				if(reseed_count == 15) begin
+					reseed_count	<= 0;
+					pool_state		<= POOL_STATE_OLDHASH;
+				end
+			end	//end POOL_STATE_SAVED_SEED
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Re-seed the generator (hash the working hash plus one or more entropy pools)
+			//TODO
+
+			POOL_STATE_RESEED_0: begin
+			end	//end POOL_STATE_RESEED_0
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Finalize the hash
+
+			//Mix in the old pool hash
+			POOL_STATE_OLDHASH: begin
+				reseed_count		<= reseed_count + 1;
+
+				sha_update			<= 1;
+				sha_bytes_valid		<= 4;
+
+				sha_data_in			<= old_poolhash[reseed_count*32 +: 32];
+
+				if(reseed_count == 15) begin
+					reseed_count	<= 0;
+					pool_state		<= POOL_STATE_FINALIZE;
+				end
+			end	//end POOL_STATE_OLDHASH
+
+			POOL_STATE_FINALIZE: begin
+				sha_finalize		<= 1;
+				pool_state			<= POOL_STATE_WAIT;
+			end	//end POOL_STATE_FINALIZE
+
+			POOL_STATE_WAIT: begin
+				if(sha_hash_valid) begin
+					entropy_pools[pool_wptr]	<= sha_hash;
+					pool_state			<= POOL_STATE_IDLE_0;
+
+					//Start writing to the next pool
+					pool_wptr			<= pool_wptr + 1;
+
+					//If we were waiting for initialization, key the generator at this point
+					if(booting) begin
+						booting			<= 0;
+
+						rng_key			<= sha_hash;
+						rng_key_update	<= 1;
+					end
+				end
+			end	//end POOL_STATE_WAIT
 
 		endcase
 
@@ -495,11 +682,30 @@ module RandomNumberGenerator #(
 
 	ila_1 ila(
 		.clk(clk),
-		.probe0(toggle_sync),
-		.probe1(jitter_bit),
-		.probe2(jitter_bit_valid),
-		.probe3(jitter_word_valid),
-		.probe4(jitter_word),
+		.probe0(jitter_word_valid),
+		.probe1(jitter_word),
+		.probe2(pool_state),
+		.probe3(sha_start),
+		.probe4(sha_finalize),
+		.probe5(sha_data_in),
+		.probe6(sha_bytes_valid),
+		.probe7(reseed_count),
+		.probe8(die_serial[15:0]),
+		.probe9(eeprom_seed[15:0]),
+		.probe10(eeprom_serial[15:0]),
+		.probe11(sha_hash_valid),
+		.probe12(booting),
+		.probe13(reseed_pending),
+		.probe14(gen_en),
+		.probe15(gen_ready),
+		.probe16(rng_valid),
+		.probe17(rng_out),
+
+		.probe18(sha_update),
+		.probe19(entropy_en),
+		.probe20(die_serial_valid),
+		.probe21(eeprom_serial_valid),
+		.probe22(eeprom_seed_valid),
 		.trig_out(trig_out),
 		.trig_out_ack(trig_out)
 	);
