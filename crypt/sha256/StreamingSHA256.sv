@@ -47,6 +47,8 @@ module StreamingSHA256(
 	input wire[31:0]	data_in,
 	input wire[2:0]		bytes_valid,
 	input wire			finalize,
+	output wire			fifo_full,
+	output wire			fifo_half_full,
 
 	output logic		hash_valid	= 0,
 	output logic[255:0]	hash		= 0
@@ -64,12 +66,13 @@ module StreamingSHA256(
 			message_len	<= message_len + bytes_valid;
 	end
 
-	//Need to store two hash blocks (2x 64 bytes) so we can accumulate one while hashing another
-	logic[7:0]	fifo_rsize;
+	//Need to store at least two hash blocks (2x 64 bytes) so we can accumulate one while hashing another
+	//Round up to a full block RAM to avoid wasting space
+	logic[9:0]	fifo_rsize;
 	logic		fifo_rd		= 0;
 	wire[31:0]	fifo_dout;
 	ByteInputFifo #(
-		.DEPTH(128),
+		.DEPTH(512),
 		.USE_BLOCK(1),
 		.OUT_REG(1)
 	) in_fifo (
@@ -84,11 +87,13 @@ module StreamingSHA256(
 		.underflow(),
 		.overflow(),
 		.empty(),
-		.full(),
+		.full(fifo_full),
 		.rsize(fifo_rsize),
 		.wsize(),
 		.reset(1'b0)
 	);
+
+	assign fifo_half_full = (fifo_rsize >= 256);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Helper function for rotations
@@ -176,13 +181,12 @@ module StreamingSHA256(
 	enum logic[2:0]
 	{
 		STATE_IDLE			= 0,
-		STATE_READ_PIPE		= 1,
-		STATE_FILL_W		= 2,
-		STATE_PAD			= 3,
-		STATE_PRECOMPUTE	= 4,
-		STATE_COMPRESS		= 5,
-		STATE_BLOCK_DONE	= 6,
-		STATE_DONE			= 7
+		STATE_FILL_W		= 1,
+		STATE_PAD			= 2,
+		STATE_PRECOMPUTE	= 3,
+		STATE_COMPRESS		= 4,
+		STATE_BLOCK_DONE	= 5,
+		STATE_DONE			= 6
 	} state = STATE_IDLE;
 
 	logic[3:0]		wr_count	= 0;
@@ -222,7 +226,6 @@ module StreamingSHA256(
 	logic[31:0]	s0;
 	logic[31:0]	s1;
 	logic[31:0]	ch;
-	(* mark_debug = "true" *)
 	logic[31:0]	temp1;
 	logic[31:0]	temp2;
 	logic[31:0]	maj;
@@ -248,6 +251,13 @@ module StreamingSHA256(
 	//Pipelining
 	logic[31:0]	hkw					= 0;
 
+	logic[3:0]	wr_count_next;
+	always_comb begin
+		wr_count_next		<= wr_count;
+		if(fifo_rd_ff)
+			wr_count_next	<= wr_count + 1'h1;
+	end
+
 	always_ff @(posedge clk) begin
 
 		fifo_rd		<= 0;
@@ -267,9 +277,11 @@ module StreamingSHA256(
 				message_len_final_m4	<= 0;
 		end
 
+		//Update write pointer if we have data coming
+		wr_count	<= wr_count_next;
+
 		//Save data when it comes out of the FIFO
 		if(fifo_rd_ff) begin
-			wr_count			<= wr_count + 1;
 			w_shreg[wr_count]	<= fifo_dout;
 			bytes_hashed		<= bytes_hashed + 4;
 		end
@@ -301,43 +313,30 @@ module StreamingSHA256(
 					round			<= 0;
 				end
 
+				//If we filled an entire block, kick off the compression function
+				if( (wr_count_next == 15) && fifo_rd ) begin
+					if(finalizing)
+						state	<= STATE_FILL_W;
+					else
+						state	<= STATE_PRECOMPUTE;
+				end
+
+				//If we have more data in the FIFO and W isn't full, pop it.
+				else if( (fifo_rsize != 0) && !fifo_rd)
+					fifo_rd	<= 1;
+				else if(fifo_rsize > 1)
+					fifo_rd	<= 1;
+
 				//If asked to finalize the current hash, start a new block immediately
-				if(finalize) begin
+				else if(finalize || finalizing) begin
 
-					//We have stuff to hash first
-					if((fifo_rsize != 0) && (wr_count < 14)) begin
-						fifo_rd		<= 1;
-						state		<= STATE_READ_PIPE;
-					end
-
-					//Nothing to hash, previous block is done. Need to add padding.
-					else begin
-						need_to_pad	<= 1;
-						state		<= STATE_FILL_W;
-					end
+					//Add padding
+					need_to_pad	<= 1;
+					state		<= STATE_FILL_W;
 
 				end
 
-				//If there's stuff in the FIFO, pop it into the W buffer.
-				else if( (wr_count < 14) && (fifo_rsize > 1) )
-					fifo_rd	<= 1;
-
-				//If we've read a full block of data, move on to padding and hashing
-				else if(wr_count == 14)
-					state	<= STATE_FILL_W;
-
 			end	//end STATE_IDLE
-
-			//Wait for readout
-			STATE_READ_PIPE: begin
-
-				//If there's data on top of what we just read, read more
-				if(fifo_rsize > 1 && (wr_count < 14))
-					fifo_rd		<= 1;
-
-				state	<= STATE_FILL_W;
-
-			end	//end STATE_READ_PIPE
 
 			STATE_FILL_W: begin
 
@@ -416,7 +415,9 @@ module StreamingSHA256(
 				prev_g	<= hash_g;
 				prev_h	<= hash_h;
 
-				state	<= STATE_COMPRESS;
+				if(!fifo_rd && !fifo_rd_ff)
+					state	<= STATE_COMPRESS;
+
 			end	//end STATE_PRECOMPUTE
 
 			STATE_COMPRESS: begin
@@ -458,8 +459,10 @@ module StreamingSHA256(
 				hash_b		<= hash_a;
 				hash_a		<= temp1 + temp2;
 
-				if(round == 63)
+				if(round == 63) begin
+					round	<= 0;
 					state	<= STATE_BLOCK_DONE;
+				end
 			end	//end STATE_EXTEND
 
 			STATE_BLOCK_DONE: begin
@@ -484,7 +487,8 @@ module StreamingSHA256(
 					//Grab the last couple of bytes from the last block if needed
 					if(bytes_hashed < message_len_final)
 						fifo_rd	<= 1;
-					state		<= STATE_READ_PIPE;
+
+					state		<= STATE_IDLE;
 				end
 
 				//Nope, wait for more data
