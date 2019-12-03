@@ -87,7 +87,7 @@ module OutputPRNG(
 	logic			rng_gen_block	= 0;
 	logic[1:0]		gen_count		= 0;
 
-	logic[2:0]		out_words_valid	= 0;
+	logic[3:0]		out_words_valid	= 0;
 	logic			read_pending	= 0;
 
 	enum logic[3:0]
@@ -135,6 +135,7 @@ module OutputPRNG(
 				rng_valid		<= 1;
 				out_words_valid	<= out_words_valid - 1'h1;
 				rng_out			<= hmac_hash[out_words_valid*32 - 1 -: 32];
+				read_pending	<= 0;
 			end
 
 			//If no output ready, generate a new block

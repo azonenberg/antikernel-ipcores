@@ -49,7 +49,9 @@ module EntropyPools(
 	output logic[31:0]	sha_data_in		= 0,
 	output logic[2:0]	sha_bytes_valid	= 0,
 	output logic		sha_finalize	= 0,
+	input wire			sha_fifo_full,
 	input wire			sha_hash_valid,
+	input wire			sha_fifo_half_full,
 	input wire[255:0]	sha_hash,
 
 	//Entropy inputs from sensors
@@ -78,6 +80,11 @@ module EntropyPools(
 
 	//Index of the pool currently being written to by new entropy
 	logic[4:0]		pool_wptr			= 0;
+
+	//Index of the pool being read from during a reseed
+	logic[4:0]		pool_rptr			= 0;
+
+	//The actual pools
 	logic[255:0]	entropy_pools[31:0];
 
 	//Number of reseeds we've done
@@ -85,6 +92,9 @@ module EntropyPools(
 
 	//Old data of the pool we're writing to
 	wire[255:0]		old_poolhash	= entropy_pools[pool_wptr];
+
+	//Read data
+	wire[255:0]		pool_rdata		= entropy_pools[pool_rptr];
 
 	initial begin
 		for(integer i=0; i<32; i++)
@@ -112,7 +122,7 @@ module EntropyPools(
 		POOL_STATE_OLDHASH			= 4'h5,
 		POOL_STATE_FINALIZE			= 4'h6,
 		POOL_STATE_WAIT				= 4'h7,
-		POOL_STATE_RESEED_0			= 4'h8
+		POOL_STATE_RESEED			= 4'h8
 	} pool_state = POOL_STATE_IDLE_0;
 
 	always_ff @(posedge clk) begin
@@ -158,8 +168,12 @@ module EntropyPools(
 
 			POOL_STATE_IDLE_1: begin
 
+				//If the FIFO is too full, hold off for a while
+				if(sha_fifo_half_full) begin
+				end
+
 				//If we're done booting, hash in the boot-time data
-				if(booting && die_serial_valid && eeprom_serial_valid && eeprom_seed_valid) begin
+				else if(booting && die_serial_valid && eeprom_serial_valid && eeprom_seed_valid) begin
 					pool_state		<= POOL_STATE_DIE_SERIAL;
 					reseed_count	<= 0;
 				end
@@ -191,7 +205,8 @@ module EntropyPools(
 				else if(reseed_pending) begin
 					reseed_pending		<= 0;
 					reseed_count		<= 0;
-					pool_state			<= POOL_STATE_RESEED_0;
+					pool_rptr			<= 0;
+					pool_state			<= POOL_STATE_RESEED;
 				end
 
 			end	//end POOL_STATE_IDLE_1
@@ -248,10 +263,28 @@ module EntropyPools(
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Re-seed the generator (hash the working hash plus one or more entropy pools)
-			//TODO
 
-			POOL_STATE_RESEED_0: begin
-			end	//end POOL_STATE_RESEED_0
+			POOL_STATE_RESEED: begin
+
+				reseed_count 		<= reseed_count + 1;
+
+				//Data to hash
+				sha_bytes_valid		<= 4;
+				sha_data_in			<= pool_rdata[reseed_count*32 +: 32];
+
+				//Hash the current pool if it's selected by the current count
+				if(num_reseeds[pool_rptr])
+					sha_update		<= 1;
+
+				//Go to the next pool or finalize upon completion
+				if(reseed_count == 15) begin
+					pool_rptr		<= pool_rptr + 1;
+
+					if(pool_rptr == 31)
+						pool_state	<= POOL_STATE_FINALIZE;
+				end
+
+			end	//end POOL_STATE_RESEED
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Finalize the hash
@@ -279,18 +312,18 @@ module EntropyPools(
 			POOL_STATE_WAIT: begin
 				if(sha_hash_valid) begin
 					entropy_pools[pool_wptr]	<= sha_hash;
-					pool_state			<= POOL_STATE_IDLE_0;
+					pool_state		<= POOL_STATE_IDLE_0;
 
 					//Start writing to the next pool
-					pool_wptr			<= pool_wptr + 1;
+					pool_wptr		<= pool_wptr + 1;
 
-					//If we were waiting for initialization, key the generator at this point
-					if(booting) begin
-						booting			<= 0;
+					//If we were waiting for initialization, we're good
+					booting			<= 0;
 
-						rng_key			<= sha_hash;
-						rng_key_update	<= 1;
-					end
+					//Re-key the generator
+					rng_key			<= sha_hash;
+					rng_key_update	<= 1;
+
 				end
 			end	//end POOL_STATE_WAIT
 

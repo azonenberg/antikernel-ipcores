@@ -124,8 +124,6 @@ module RandomNumberGenerator #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Seed persistence logic
 
-	wire		trig_out;
-
 	wire		eeprom_seed_valid;
 	wire[255:0]	eeprom_seed;
 
@@ -140,7 +138,7 @@ module RandomNumberGenerator #(
 		.i2c_driver_cin(i2c_driver_cin),
 		.i2c_driver_cout(i2c_driver_cout),
 
-		.load_en(trig_out && eeprom_serial_valid),
+		.load_en(eeprom_serial_valid),
 
 		.eeprom_seed_valid(eeprom_seed_valid),
 		.eeprom_seed(eeprom_seed)
@@ -156,6 +154,8 @@ module RandomNumberGenerator #(
 	wire		sha_finalize;
 	wire		sha_hash_valid;
 	wire[255:0]	sha_hash;
+	wire		sha_fifo_full;
+	wire		sha_fifo_half_full;
 
 	StreamingSHA256 sha(
 		.clk(clk),
@@ -163,6 +163,8 @@ module RandomNumberGenerator #(
 		.update(sha_update),
 		.data_in(sha_data_in),
 		.bytes_valid(sha_bytes_valid),
+		.fifo_full(sha_fifo_full),
+		.fifo_half_full(sha_fifo_half_full),
 		.finalize(sha_finalize),
 		.hash_valid(sha_hash_valid),
 		.hash(sha_hash)
@@ -186,6 +188,8 @@ module RandomNumberGenerator #(
 		.sha_finalize(sha_finalize),
 		.sha_hash_valid(sha_hash_valid),
 		.sha_hash(sha_hash),
+		.sha_fifo_full(sha_fifo_full),
+		.sha_fifo_half_full(sha_fifo_half_full),
 
 		.die_serial_valid(die_serial_valid),
 		.die_serial(die_serial),
@@ -205,38 +209,6 @@ module RandomNumberGenerator #(
 
 		.entropy_en(entropy_en),
 		.entropy_data(entropy_data)
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The LA
-
-	ila_1 ila(
-		.clk(clk),
-		.probe0(jitter_word_valid),
-		.probe1(jitter_word),
-		.probe2(pools.pool_state),
-		.probe3(sha_start),
-		.probe4(sha_finalize),
-		.probe5(sha_data_in),
-		.probe6(sha_bytes_valid),
-		.probe7(pools.reseed_count),
-		.probe8(die_serial[15:0]),
-		.probe9(eeprom_seed[15:0]),
-		.probe10(eeprom_serial[15:0]),
-		.probe11(sha_hash_valid),
-		.probe12(pools.booting),
-		.probe13(pools.reseed_pending),
-		.probe14(gen_en),
-		.probe15(gen_ready),
-		.probe16(rng_valid),
-		.probe17(rng_out),
-		.probe18(sha_update),
-		.probe19(entropy_en),
-		.probe20(die_serial_valid),
-		.probe21(eeprom_serial_valid),
-		.probe22(eeprom_seed_valid),
-		.trig_out(trig_out),
-		.trig_out_ack(trig_out)
 	);
 
 endmodule
