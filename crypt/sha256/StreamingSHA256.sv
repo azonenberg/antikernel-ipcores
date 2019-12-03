@@ -479,7 +479,11 @@ module StreamingSHA256(
 				if(last_block)
 					state	<= STATE_DONE;
 
-				//Are we finalizing, but not at the last block? The padding didn't fit. Finish it.
+				//More data left? Need to hash that
+				else if(fifo_rsize != 0)
+					state	<= STATE_IDLE;
+
+				//Are we actively finalizing, but not at the last block? The padding didn't fit. Finish it.
 				else if(finalizing) begin
 					wr_count	<= 0;
 					last_block	<= 1;
