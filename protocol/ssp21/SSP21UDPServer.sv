@@ -177,12 +177,18 @@ module SSP21UDPServer(
 								end
 							end	//end REQUEST_HANDSHAKE_BEGIN
 
+							//Unknown message type (discard with an error)
+							default: begin
+								rx_err_id	<= BAD_MESSAGE_FORMAT;
+								rx_state	<= RX_STATE_DROP;
+							end	//unknown
+
 						endcase
 
 					end
 				end
 
-				//Abort if the packet ends
+				//Abort if the packet ends with no content
 				if(udp_rx_bus.drop) begin
 					rx_err_id	<= BAD_MESSAGE_FORMAT;
 					rx_state	<= RX_STATE_DROP;
@@ -553,6 +559,7 @@ module SSP21UDPServer(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug LA
 
+	/*
 	ila_0 ila(
 		.clk(clk),
 		.probe0(rx_state),
@@ -565,5 +572,6 @@ module SSP21UDPServer(
 		.probe7(tx_count),
 		.probe8(tx_state)
 	);
+	*/
 
 endmodule
