@@ -55,6 +55,50 @@ module SSP21UDPServer(
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// SHA256 block for hashing inbound handshake-request messages
+
+	wire		rx_hash_valid;
+	wire[255:0]	rx_hash;
+
+	StreamingSHA256 rx_sha(
+		.clk(clk),
+		.start(udp_rx_bus.start),
+		.update(udp_rx_bus.data_valid),
+		.data_in(udp_rx_bus.data),
+		.bytes_valid(udp_rx_bus.bytes_valid),
+		.finalize(udp_rx_bus.commit),
+		.fifo_full(),
+		.fifo_half_full(),
+		.hash_valid(rx_hash_valid),
+		.hash(rx_hash)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// SHA256 block for hashing outbound handshake-reply messages
+
+	/**
+		Upon completion of an rx handshake, before sending a reply,
+		push rx_hash into the tx_sha block.
+
+		Then, hash all outbound data as we generate the reply.
+
+		Once that's done we can start the KDF.
+	 */
+
+	StreamingSHA256 tx_sha(
+		.clk(clk),
+		.start(),
+		.update(),
+		.data_in(),
+		.bytes_valid(),
+		.finalize(),
+		.fifo_full(),
+		.fifo_half_full(),
+		.hash_valid(),
+		.hash()
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// HMAC-SHA256 crypto block
 
 	StreamingHMACSHA256 hmac(
@@ -468,6 +512,16 @@ module SSP21UDPServer(
 					Ephemeral data (32-byte nonce)
 					Mode data (none)
 			 */
+
+			/*
+				h1 = hash(entire incoming request)
+				h2 = hash(h1 || entire outbound reply)
+				IKM = shared secret || request nonce || our nonce
+			 */
+
+			TX_STATE_HANDSHAKE_1: begin
+				//xx
+			end	//end TX_STATE_HANDSHAKE_1
 
 			//Generate a nonce
 			TX_STATE_HANDSHAKE_1: begin
