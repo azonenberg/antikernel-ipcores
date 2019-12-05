@@ -40,8 +40,15 @@
 module SSP21UDPServer(
 	input wire							clk,
 
+	//Configuration
 	input wire ssp21_handshakemode_t	crypto_mode,	//Crypto mode
 	input wire[255:0]					crypto_psk,		//Pre-shared key to use in SHARED_SECRET mode
+
+	//Interface to the RNG
+	input wire							rng_gen_ready,
+	output logic						rng_gen_en	= 0,
+	input wire							rng_valid,
+	input wire[31:0]					rng_out,
 
 	input wire UDPv4RxBus				udp_rx_bus,
 	output UDPv4TxBus					udp_tx_bus
@@ -363,6 +370,7 @@ module SSP21UDPServer(
 				if(udp_rx_bus.commit) begin
 					rx_handshake_begin_en	<= 1;
 					rx_handshake_begin_busy	<= 1;
+					rx_state				<= RX_STATE_IDLE;
 				end
 
 				//Abort if the packet gets dropped
@@ -379,12 +387,19 @@ module SSP21UDPServer(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main TX state machine
 
+	logic[255:0]	tx_handshake_nonce	= 0;
+	logic[3:0]		tx_count			= 0;
+
 	enum logic[3:0]
 	{
-		TX_STATE_IDLE			= 4'h0,
-		TX_STATE_ERROR			= 4'h1,
-		TX_STATE_ERROR_COMMIT	= 4'h2,
-		TX_STATE_HANDSHAKE_1	= 4'h3
+		TX_STATE_IDLE				= 4'h0,
+		TX_STATE_ERROR				= 4'h1,
+		TX_STATE_ERROR_COMMIT		= 4'h2,
+		TX_STATE_HANDSHAKE_1		= 4'h3,
+		TX_STATE_HANDSHAKE_2		= 4'h4,
+		TX_STATE_HANDSHAKE_3		= 4'h5,
+		TX_STATE_HANDSHAKE_4		= 4'h6,
+		TX_STATE_HANDSHAKE_COMMIT	= 4'h7
 	} tx_state = TX_STATE_IDLE;
 
 	always_ff @(posedge clk) begin
@@ -398,6 +413,8 @@ module SSP21UDPServer(
 		rx_handshake_begin_done	<= 0;
 		rx_err_done				<= 0;
 
+		rng_gen_en				<= 0;
+
 		case(tx_state)
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -405,15 +422,15 @@ module SSP21UDPServer(
 
 			TX_STATE_IDLE: begin
 
+				//Always prepare to send to the source of the incoming packet
+				udp_tx_bus.dst_ip	<= udp_rx_bus.src_ip;
+				udp_tx_bus.dst_port	<= udp_rx_bus.src_port;
+				udp_tx_bus.src_port	<= OUR_PORT;
+
 				//Send an error message
 				if(rx_err_en) begin
 
 					udp_tx_bus.start	<= 1;
-
-					//Send to the source of the incoming packet
-					udp_tx_bus.dst_ip	<= udp_rx_bus.src_ip;
-					udp_tx_bus.dst_port	<= udp_rx_bus.src_port;
-					udp_tx_bus.src_port	<= OUR_PORT;
 
 					//Message is only 2 bytes long
 					udp_tx_bus.payload_len	<= 2;
@@ -423,7 +440,13 @@ module SSP21UDPServer(
 				end
 
 				//Process a valid handshake by sending a Reply-Handshake-Begin message
-				if(rx_handshake_begin_en) begin
+				else if( (rx_handshake_begin_en || rx_handshake_begin_busy) &&
+					!rx_handshake_begin_done && rng_gen_ready) begin
+
+					rng_gen_en		<= 1;
+					tx_count		<= 0;
+					tx_state		<= TX_STATE_HANDSHAKE_1;
+
 				end
 
 			end	//end TX_STATE_IDLE
@@ -431,8 +454,80 @@ module SSP21UDPServer(
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			//Send a Reply-Handshake-Begin message
 
+			/*
+				Save the session start time
+				Hash the entire request
+				Reply-Handshake-Begin message format:
+					REPLY_HANDSHAKE_BEGIN (1 byte)
+					Ephemeral data (32-byte nonce)
+					Mode data (none)
+			 */
+
+			//Generate a nonce
 			TX_STATE_HANDSHAKE_1: begin
+
+				if(rng_valid) begin
+					tx_handshake_nonce	<= {tx_handshake_nonce[223:0], rng_out };
+					tx_count			<= tx_count + 1'h1;
+
+					if(tx_count == 7)
+						tx_state		<= TX_STATE_HANDSHAKE_2;
+
+					else
+						rng_gen_en		<= 1;
+				end
+
 			end	//end TX_STATE_HANDSHAKE_1
+
+			//Prepare to send the reply
+			TX_STATE_HANDSHAKE_2: begin
+				udp_tx_bus.start		<= 1;
+				udp_tx_bus.payload_len	<= 'd35;	//1 byte opcode
+													//1 byte sequence length, 32 byte nonce
+													//1 byte sequence length
+				tx_count				<= 0;
+				tx_state				<= TX_STATE_HANDSHAKE_3;
+			end	//end TX_STATE_HANDSHAKE_2
+
+			//Send the header, length of nonce, and first 16 bits of nonce
+			TX_STATE_HANDSHAKE_3: begin
+				udp_tx_bus.data_valid	<= 1;
+				udp_tx_bus.bytes_valid	<= 4;
+				udp_tx_bus.data[31:24]	<= REPLY_HANDSHAKE_BEGIN;
+				udp_tx_bus.data[23:16]	<= 8'd32;
+				udp_tx_bus.data[15:0]	<= tx_handshake_nonce[255:240];
+
+				tx_handshake_nonce		<= {tx_handshake_nonce[239:0], 16'h0};
+
+				tx_state				<= TX_STATE_HANDSHAKE_4;
+			end	//end TX_STATE_HANDSHAKE_3
+
+			//Send the rest of the nonce
+			TX_STATE_HANDSHAKE_4: begin
+				tx_count				<= tx_count + 1'h1;
+
+				udp_tx_bus.data_valid	<= 1;
+				udp_tx_bus.bytes_valid	<= 4;
+				udp_tx_bus.data			<= tx_handshake_nonce[255:224];
+
+				tx_handshake_nonce		<= {tx_handshake_nonce[223:0], 32'h0};
+
+				if(tx_count == 7) begin
+
+					//Last 2 bytes of nonce, plus length of mode_data (always zero)
+					//and a padding byte that isn't actually sent
+					udp_tx_bus.bytes_valid	<= 3;
+					udp_tx_bus.data[15:0]	<= 0;
+
+					tx_state				<= TX_STATE_HANDSHAKE_COMMIT;
+				end
+			end	//end TX_STATE_HANDSHAKE_4
+
+			TX_STATE_HANDSHAKE_COMMIT: begin
+				udp_tx_bus.commit		<= 1;
+				rx_handshake_begin_done	<= 1;
+				tx_state				<= TX_STATE_IDLE;
+			end	//end TX_STATE_COMMIT
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Send a Reply-Handshake-Error message
@@ -457,21 +552,18 @@ module SSP21UDPServer(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug LA
-	/*
+
 	ila_0 ila(
 		.clk(clk),
 		.probe0(rx_state),
-		.probe1(udp_rx_bus),
-		.probe2(rx_err_id),
-		.probe3(rx_err_en),
-		.probe4(rx_err_busy),
-		.probe5(rx_err_done),
+		.probe1(udp_tx_bus),
+		.probe2(rng_gen_en),
+		.probe3(rng_gen_ready),
+		.probe4(rng_valid),
+		.probe5(rng_out),
 		.probe6(rx_handshake_begin_en),
-		.probe7(rx_handshake_begin_busy),
-		.probe8(rx_handshake_begin_done),
-		.probe9(tx_state),
-		.probe10(udp_tx_bus)
+		.probe7(tx_count),
+		.probe8(tx_state)
 	);
-	*/
 
 endmodule
