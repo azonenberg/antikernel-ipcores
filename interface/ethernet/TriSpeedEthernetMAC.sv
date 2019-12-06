@@ -476,7 +476,12 @@ module TriSpeedEthernetMAC #(
 					if(tx_fifo_rsize > 1)
 						tx_fifo_pop	<= 1;
 
+					//Don't finish up if there's still one last byte of data being popped
+					else if(tx_fifo_pop) begin
+					end
+
 					//Packet must be at least 66 bytes including preamble
+					//Add padding if we didn't get there yet
 					else begin
 						if(tx_frame_len > 66)
 							tx_state	<= TX_STATE_CRC_0;

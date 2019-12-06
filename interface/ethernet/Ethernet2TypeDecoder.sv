@@ -123,14 +123,27 @@ module Ethernet2TypeDecoder(
 				rx_active				<= 0;
 
 				rx_temp_valid			<= 0;
-				rx_l2_bus.bytes_valid	<= rx_temp_valid;
 
-				rx_l2_bus.data_valid	<= (rx_temp_valid != 0);
+				if(rx_temp_valid != 0) begin
 
-				if(rx_temp_valid == 1)
-					rx_l2_bus.data		<= { rx_temp_buf[15:8], 24'h0 };
-				else if(rx_temp_valid == 2)
-					rx_l2_bus.data		<= { rx_temp_buf[15:0], 16'h0 };
+					rx_l2_bus.bytes_valid	<= rx_temp_valid;
+
+					//Special case: truncate anything longer than the 802.3 frame length
+					if(frame_has_len) begin
+						rx_l2_bus.bytes_valid	<= (frame_len_8023 - rx_bytecount);
+						rx_l2_bus.data_valid	<= (frame_len_8023 != rx_bytecount);
+					end
+
+					else
+						rx_l2_bus.data_valid	<= 1;
+
+					//Nope, normal processing
+					if(rx_temp_valid == 1)
+						rx_l2_bus.data		<= { rx_temp_buf[15:8], 24'h0 };
+					else if(rx_temp_valid == 2)
+						rx_l2_bus.data		<= { rx_temp_buf[15:0], 16'h0 };
+				end
+
 			end
 
 			//New data word?
