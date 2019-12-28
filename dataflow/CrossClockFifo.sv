@@ -52,13 +52,15 @@ module CrossClockFifo #(
 	output wire[ADDR_BITS:0]	wr_size,
 	output wire					wr_full,
 	output logic				wr_overflow		= 0,
+	input wire					wr_reset,
 
 	input wire					rd_clk,
 	input wire					rd_en,
 	output wire[WIDTH-1:0]		rd_data,
 	output wire[ADDR_BITS:0]	rd_size,
 	output wire					rd_empty,
-	output logic				rd_underflow	= 0
+	output logic				rd_underflow	= 0,
+	input wire					rd_reset
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -164,6 +166,11 @@ module CrossClockFifo #(
 			wr_ptr_ff		<= wr_ptr;
 			wr_sync_busy	<= 1;
 		end
+		
+		if(wr_reset) begin
+			wr_ptr_ff	<= 0;
+			wr_ptr		<= 0;
+		end
 
 	end
 
@@ -192,6 +199,11 @@ module CrossClockFifo #(
 			rd_ptr_update	<= 1;
 			rd_ptr_ff		<= rd_ptr;
 			rd_sync_busy	<= 1;
+		end
+		
+		if(rd_reset) begin
+			rd_ptr_ff	<= 0;
+			rd_ptr		<= 0;
 		end
 
 	end
