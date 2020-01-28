@@ -45,6 +45,7 @@ module RegisterSynchronizer #(
 
 	input wire				clk_b,
 	output logic			updated_b 	= 0,
+	input wire				reset_b,
 
 	(* DONT_TOUCH *)
 	output logic[WIDTH-1:0]	reg_b		= INIT
@@ -83,6 +84,10 @@ module RegisterSynchronizer #(
 
 		if(update_b)
 			reg_b	<= reg_a_ff;
+
+		if(reset_b)
+			reg_b	<= INIT;
+
 	end
 
 endmodule

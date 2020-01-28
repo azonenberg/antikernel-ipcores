@@ -104,7 +104,6 @@ module CrossClockFifo #(
 	assign					rd_memptr 	= rd_ptr[ADDR_BITS-1:0];
 
 	wire[ADDR_BITS:0]		rd_wr_ptr;	//write pointer as seen in the read domain
-	wire					rd_wr_ptr_updated;
 
 	logic					wr_ptr_update	= 0;
 	wire					wr_ptr_ack;
@@ -118,8 +117,9 @@ module CrossClockFifo #(
 		.reg_a(wr_ptr_ff),
 
 		.clk_b(rd_clk),
-		.updated_b(rd_wr_ptr_updated),
-		.reg_b(rd_wr_ptr)
+		.updated_b(),
+		.reg_b(rd_wr_ptr),
+		.reset_b(rd_reset)
 	);
 
 	wire[ADDR_BITS:0]		wr_rd_ptr;	//read pointer as seen in the write domain
@@ -137,7 +137,8 @@ module CrossClockFifo #(
 
 		.clk_b(wr_clk),
 		.updated_b(),
-		.reg_b(wr_rd_ptr)
+		.reg_b(wr_rd_ptr),
+		.reset_b(wr_reset)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -166,7 +167,7 @@ module CrossClockFifo #(
 			wr_ptr_ff		<= wr_ptr;
 			wr_sync_busy	<= 1;
 		end
-		
+
 		if(wr_reset) begin
 			wr_ptr_ff	<= 0;
 			wr_ptr		<= 0;
@@ -200,7 +201,7 @@ module CrossClockFifo #(
 			rd_ptr_ff		<= rd_ptr;
 			rd_sync_busy	<= 1;
 		end
-		
+
 		if(rd_reset) begin
 			rd_ptr_ff	<= 0;
 			rd_ptr		<= 0;
