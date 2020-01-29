@@ -169,8 +169,9 @@ module CrossClockFifo #(
 		end
 
 		if(wr_reset) begin
-			wr_ptr_ff	<= 0;
-			wr_ptr		<= 0;
+			wr_ptr_ff		<= 0;
+			wr_ptr			<= 0;
+			wr_sync_busy	<= 0;
 		end
 
 	end
