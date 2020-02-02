@@ -147,7 +147,9 @@ module CrossClockFifo #(
 	assign	wr_full = (wr_rd_ptr + DEPTH) == wr_ptr;
 	assign	wr_size = DEPTH + wr_rd_ptr - wr_ptr;
 
-	logic	wr_sync_busy	= 0;
+	logic		wr_sync_busy	= 0;
+
+	logic[4:0]	wr_ack_count	= 0;
 
 	always_ff @(posedge wr_clk) begin
 
@@ -172,6 +174,16 @@ module CrossClockFifo #(
 			wr_ptr_ff		<= 0;
 			wr_ptr			<= 0;
 			wr_sync_busy	<= 0;
+			wr_ack_count	<= 0;
+		end
+
+		//Prevent deadlock in case of reset skew
+		if(wr_ptr_ack)
+			wr_ack_count	<= 0;
+		else begin
+			wr_ack_count	<= wr_ack_count + 1'h1;
+			if( (wr_ack_count == 5'h1f) && wr_sync_busy )
+				wr_ptr_update	<= 1;
 		end
 
 	end
@@ -183,6 +195,8 @@ module CrossClockFifo #(
 	assign	rd_size	= rd_wr_ptr - rd_ptr;
 
 	logic	rd_sync_busy	= 0;
+
+	logic[4:0]	rd_ack_count	= 0;
 
 	always_ff @(posedge rd_clk) begin
 
@@ -204,9 +218,20 @@ module CrossClockFifo #(
 		end
 
 		if(rd_reset) begin
-			rd_ptr_ff	<= 0;
-			rd_ptr		<= 0;
+			rd_ptr_ff		<= 0;
+			rd_ptr			<= 0;
+			rd_sync_busy	<= 0;
 		end
+
+		//Prevent deadlock in case of reset skew
+		if(rd_ptr_ack)
+			rd_ack_count	<= 0;
+		else begin
+			rd_ack_count	<= rd_ack_count + 1'h1;
+			if( (rd_ack_count == 5'h1f) && rd_sync_busy )
+				rd_ptr_update	<= 1;
+		end
+
 
 	end
 
