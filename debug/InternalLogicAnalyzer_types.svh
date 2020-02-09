@@ -44,4 +44,12 @@ typedef enum logic[2:0]
 	COMPARE_UNEQUAL	= 7		//not equal
 } ila_compare_t;
 
+typedef enum logic[1:0]
+{
+	STATUS_IDLE			= 0,	//idle, waiting for trigger to be armed
+	STATUS_ARMED		= 1,	//armed, waiting for trigger
+	STATUS_CAPTURING	= 2,	//triggered, actively capturing
+	STATUS_DONE			= 3		//data ready for readback
+} ila_status_t;
+
 `endif

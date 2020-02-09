@@ -72,8 +72,8 @@ module InternalLogicAnalyzer_UARTWrapper #(
 	wire		uart_rx_en;
 	wire[7:0]	uart_rx_data;
 
-	wire		uart_tx_en;
-	wire[7:0]	uart_tx_data;
+	logic		uart_tx_en		= 0;
+	logic[7:0]	uart_tx_data	= 0;
 	wire		uart_tx_done;
 
 	UART uart(
@@ -101,6 +101,11 @@ module InternalLogicAnalyzer_UARTWrapper #(
 	ila_compare_t[CHANNELS-1:0]			compare_mode;
 	logic[CHANNELS-1:0][MAX_WIDTH-1:0]	compare_target;
 
+	logic								trig_armed			= 0;
+	logic								trig_force			= 0;
+
+	ila_status_t						status;
+
 	//default to no matching on comparators
 	initial begin
 		for(integer i=0; i<CHANNELS; i++) begin
@@ -125,7 +130,10 @@ module InternalLogicAnalyzer_UARTWrapper #(
 		.use_ext_trig(use_ext_trig),
 		.trig_offset(trig_offset),
 		.trig_in(trig_in),
-		.trig_out(trig_out)
+		.trig_out(trig_out),
+		.trig_armed(trig_armed),
+		.trig_force(trig_force),
+		.status(status)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -135,17 +143,21 @@ module InternalLogicAnalyzer_UARTWrapper #(
 	//All multi-byte fields are big endian ordering.
 	typedef enum logic[7:0]
 	{
-		CMD_NOP					= 0,	//Do nothing
-		CMD_SET_MATCH_ALL		= 1,	//1 arg byte: "match all" flag
-										//Bit 0 high = trigger AND
-										//Bit 0 low = trigger OR
-										//Other bits ignored
-		CMD_SET_TRIG_OFFSET		= 2,	//2 arg bytes: trigger offset in capture window
-		CMD_SET_TRIG_MODE		= 3,	//2 arg bytes
-										//Byte 0: channel index
-										//Byte 1: trigger mode
-		CMD_SET_COMPARE_TARGET	= 4		//Byte 0: channel index
-										//Byte 1...N: trigger compare target
+		CMD_NOP					= 8'h00,	//Do nothing
+		CMD_SET_MATCH_ALL		= 8'h01,	//1 arg byte: "match all" flag
+											//Bit 0 high = trigger AND
+											//Bit 0 low = trigger OR
+											//Other bits ignored
+		CMD_SET_TRIG_OFFSET		= 8'h02,	//2 arg bytes: trigger offset in capture window
+		CMD_SET_TRIG_MODE		= 8'h03,	//2 arg bytes
+											//Byte 0: channel index
+											//Byte 1: trigger mode
+		CMD_SET_COMPARE_TARGET	= 8'h04,	//Byte 0: channel index
+											//Byte 1...N: trigger compare target
+		CMD_ARM					= 8'h05,	//Arm the trigger
+		CMD_STOP				= 8'h06,	//Stop the trigger
+		CMD_FORCE				= 8'h07,	//Force trigger
+		CMD_GET_STATUS			= 8'h08		//Get the current LA status
 	} cmd_t;
 
 	enum logic[3:0]
@@ -155,13 +167,17 @@ module InternalLogicAnalyzer_UARTWrapper #(
 		STATE_TRIG_OFFSET		= 2,
 		STATE_TRIG_MODE			= 3,
 		STATE_COMPARE_TARGET_0	= 4,
-		STATE_COMPARE_TARGET_1	= 5
+		STATE_COMPARE_TARGET_1	= 5,
+		STATE_TX_HOLD			= 6
 	} state;
 
 	logic[7:0]				rx_count	= 0;
 	logic[CHANNEL_BITS-1:0]	cur_channel	= 0;
 
 	always_ff @(posedge clk) begin
+
+		trig_force	<= 0;
+		uart_tx_en	<= 0;
 
 		case(state)
 
@@ -183,6 +199,15 @@ module InternalLogicAnalyzer_UARTWrapper #(
 						CMD_SET_TRIG_OFFSET:	state	<= STATE_TRIG_OFFSET;
 						CMD_SET_TRIG_MODE:		state	<= STATE_TRIG_MODE;
 						CMD_SET_COMPARE_TARGET:	state	<= STATE_COMPARE_TARGET_0;
+						CMD_ARM:				trig_armed	<= 1;
+						CMD_STOP:				trig_armed	<= 0;
+						CMD_FORCE:				trig_force	<= 1;
+
+						CMD_GET_STATUS: begin
+							uart_tx_en			<= 1;
+							uart_tx_data		<= status;
+							state				<= STATE_TX_HOLD;
+						end
 
 						default: begin
 						end	//default
@@ -231,9 +256,9 @@ module InternalLogicAnalyzer_UARTWrapper #(
 
 			STATE_COMPARE_TARGET_0: begin
 				if(uart_rx_en) begin
-					cur_channel					<= uart_rx_data;
-					rx_count					<= COL_BYTES-1;
-					state						<= STATE_COMPARE_TARGET_1;
+					cur_channel						<= uart_rx_data;
+					rx_count						<= COL_BYTES-1;
+					state							<= STATE_COMPARE_TARGET_1;
 				end
 			end	//end STATE_COMPARE_TARGET_0
 
@@ -251,9 +276,17 @@ module InternalLogicAnalyzer_UARTWrapper #(
 					end
 
 					if(rx_count == 0)
-						state					<= STATE_IDLE;
+						state						<= STATE_IDLE;
 				end
 			end	//end STATE_COMPARE_TARGET_1
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Readback
+
+			STATE_TX_HOLD: begin
+				if(uart_tx_done)
+					state							<= STATE_IDLE;
+			end	//end STATE_TX_HOLD
 
 		endcase
 

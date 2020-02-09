@@ -46,20 +46,24 @@ module InternalLogicAnalyzer #(
 	parameter integer 						DEPTH					= 1024,			//Number of samples to capture
 	localparam integer						ADDR_BITS				= $clog2(DEPTH)	//Number of bits in a pointer
 ) (
-	input wire								clk,				//Capture clock
-	input wire[CHANNELS-1:0][MAX_WIDTH-1:0]	probe_in,			//Probe signals
+	input wire								clk,						//Capture clock
+	input wire[CHANNELS-1:0][MAX_WIDTH-1:0]	probe_in,					//Probe signals
 
-	input wire[CHANNELS-1:0][MAX_WIDTH-1:0]	compare_target,		//Comparison targets for trigger comparators
-	input wire ila_compare_t[CHANNELS-1:0]	compare_mode,		//Comparison modes for trigger comparators
-	input wire								compare_match_all,	//true = match all triggers at once
-																//false = match any trigger
-	input wire								use_ext_trig,		//if true, ignore internal trigger block
-																//and just use trig_in instead
+	input wire[CHANNELS-1:0][MAX_WIDTH-1:0]	compare_target,				//Comparison targets for trigger comparators
+	input wire ila_compare_t[CHANNELS-1:0]	compare_mode,				//Comparison modes for trigger comparators
+	input wire								compare_match_all,			//true = match all triggers at once
+																		//false = match any trigger
+	input wire								use_ext_trig,				//if true, ignore internal trigger block
+																		//and just use trig_in instead
 
-	input wire[ADDR_BITS-1:0]				trig_offset,		//time point of trigger in capture buffer
+	input wire								trig_armed,					//Trigger is ignored unless this is high
+	input wire								trig_force,					//Set high for one cycle to force a trigger
+																		//(bypasses normal trigger subsystem)
+	input wire[ADDR_BITS-1:0]				trig_offset,				//time point of trigger in capture buffer
 
-	input wire								trig_in,
-	output logic							trig_out	= 0
+	input wire								trig_in,					//external trigger input
+	output logic							trig_out	= 0,			//trigger status output
+	output ila_status_t						status		= STATUS_IDLE	//current LA state
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -161,14 +165,109 @@ module InternalLogicAnalyzer #(
 		else
 			trig_out	<= |comparator_match;
 
+		//If trigger isn't armed, never trigger
+		if(!trig_armed)
+			trig_out	<= 0;
+
+		//Force trigger overrides everything else
+		if(trig_force)
+			trig_out	<= 1;
+
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Signal memory
 
-	logic[TOTAL_WIDTH-1:0] capture_buf[DEPTH-1:0];
+	logic[TOTAL_WIDTH-1:0]	capture_wdata	= 0;
+	logic					capture_we		= 0;
+
+	logic[ADDR_BITS-1:0]	base_wptr		= 0;
+	logic[ADDR_BITS-1:0]	capture_wptr	= 0;
+
+	logic[TOTAL_WIDTH-1:0]	capture_buf[DEPTH-1:0];
+
+	always_ff @(posedge clk) begin
+		if(capture_we)
+			capture_buf[capture_wptr]	<= capture_wdata;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Capture logic
+
+	enum logic[3:0]
+	{
+		STATE_IDLE		= 0,
+		STATE_PRE_TRIG	= 1,
+		STATE_READY		= 2,
+		STATE_CAPTURE	= 3,
+		STATE_DONE		= 4
+	} state;
+
+	always_ff @(posedge clk) begin
+
+		//Register capture data
+		for(integer i=0; i<CHANNELS; i++)
+			capture_wdata[PROBE_HIGH[i] : PROBE_LOW[i]] <= probe_in[i][WIDTHS[i]-1:0];
+
+		case(state)
+
+			STATE_IDLE: begin
+
+				//When trigger is armed, begin capturing the "head" area
+				if(trig_armed) begin
+					state			<= STATE_PRE_TRIG;
+					capture_wptr	<= 0;
+				end
+
+			end	//end STATE_IDLE
+
+			//Capture the pre-trigger stuff before even looking for a trigger
+			STATE_PRE_TRIG: begin
+				capture_wptr	<= capture_wptr + 1;
+				capture_we		<= 1;
+				if(capture_wptr == trig_offset) begin
+					status		<= STATUS_ARMED;
+					state		<= STATE_READY;
+				end
+			end	//end STATE_PRE_TRIG
+
+			STATE_READY: begin
+
+				//Continue capturing the rolling buffer until we trigger
+				capture_wptr	<= capture_wptr	+ 1;
+				capture_we		<= 1;
+
+				if(trig_out) begin
+					base_wptr	<= capture_wptr - trig_offset;	//nominal start of the capture
+					status		<= STATUS_CAPTURING;
+					state		<= STATE_CAPTURE;
+				end
+
+			end	//end STATE_READY
+
+			STATE_CAPTURE: begin
+
+				if( (capture_wptr + 1) == base_wptr) begin
+					status			<= STATUS_DONE;
+					state			<= STATE_DONE;
+				end
+
+				//Continue capturing the rolling buffer until we hit the end
+				else begin
+					capture_wptr	<= capture_wptr	+ 1;
+					capture_we		<= 1;
+				end
+
+			end	//end STATE_CAPTURE
+
+			STATE_DONE: begin
+				if(!trig_armed) begin
+					state	<= STATE_IDLE;
+					status	<= STATUS_DONE;
+				end
+			end	//end STATE_DONE
+
+		endcase
+	end
 
 endmodule
