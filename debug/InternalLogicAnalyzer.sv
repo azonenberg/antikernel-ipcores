@@ -43,8 +43,9 @@ module InternalLogicAnalyzer #(
 																					//(truncated to X chars)
 	parameter integer						MAX_WIDTH				= 1024,			//Maximum legal width of any channel
 
-	parameter integer 						DEPTH					= 1024,			//Number of samples to capture
-	localparam integer						ADDR_BITS				= $clog2(DEPTH)	//Number of bits in a pointer
+	parameter integer 						DEPTH					= 1024,				//Number of samples to capture
+	localparam integer						ADDR_BITS				= $clog2(DEPTH),	//Number of bits in a pointer
+	localparam integer						CHANNEL_BITS			= $clog2(CHANNELS)	//Number of bits in a channel ID
 ) (
 	input wire								clk,						//Capture clock
 	input wire[CHANNELS-1:0][MAX_WIDTH-1:0]	probe_in,					//Probe signals
@@ -63,7 +64,11 @@ module InternalLogicAnalyzer #(
 
 	input wire								trig_in,					//external trigger input
 	output logic							trig_out	= 0,			//trigger status output
-	output ila_status_t						status		= STATUS_IDLE	//current LA state
+	output ila_status_t						status		= STATUS_IDLE,	//current LA state
+
+	input wire								symtab_rd_en,
+	input wire[CHANNEL_BITS-1:0]			symtab_rd_addr,
+	output logic[NAME_BITS-1:0]				symtab_rd_data	= 0
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -133,6 +138,11 @@ module InternalLogicAnalyzer #(
 	initial begin
 		for(integer i=0; i<CHANNELS; i++)
 			symbol_table[i] = NAMES[i];
+	end
+
+	always_ff @(posedge clk) begin
+		if(symtab_rd_en)
+			symtab_rd_data	<= symbol_table[symtab_rd_addr];
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

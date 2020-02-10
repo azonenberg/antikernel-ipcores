@@ -114,6 +114,10 @@ module InternalLogicAnalyzer_UARTWrapper #(
 		end
 	end
 
+	logic					symtab_rd_en	= 0;
+	logic[CHANNEL_BITS-1:0]	cur_channel		= 0;
+	wire[NAME_BITS-1:0]		symtab_rd_data;
+
 	InternalLogicAnalyzer #(
 		.CHANNELS(CHANNELS),
 		.WIDTHS(WIDTHS),
@@ -133,7 +137,11 @@ module InternalLogicAnalyzer_UARTWrapper #(
 		.trig_out(trig_out),
 		.trig_armed(trig_armed),
 		.trig_force(trig_force),
-		.status(status)
+		.status(status),
+
+		.symtab_rd_en(symtab_rd_en),
+		.symtab_rd_addr(cur_channel),
+		.symtab_rd_data(symtab_rd_data)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -157,27 +165,37 @@ module InternalLogicAnalyzer_UARTWrapper #(
 		CMD_ARM					= 8'h05,	//Arm the trigger
 		CMD_STOP				= 8'h06,	//Stop the trigger
 		CMD_FORCE				= 8'h07,	//Force trigger
-		CMD_GET_STATUS			= 8'h08		//Get the current LA status
+		CMD_GET_STATUS			= 8'h08,	//Get the current LA status
+		CMD_GET_NAME_LEN		= 8'h09,	//Get the length of a name table entry (in bytes)
+		CMD_GET_CHANNEL_COUNT	= 8'h0a,	//Get the number of channels
+		CMD_GET_NAME			= 8'h0b,	//Get a single entry of the name table
+											//1 arg byte: channel number
+		CMD_GET_WIDTH			= 8'h0c		//Get the width of a channel
+											//1 arg byte: channel number
 	} cmd_t;
 
 	enum logic[3:0]
 	{
-		STATE_IDLE				= 0,
-		STATE_MATCH_ALL			= 1,
-		STATE_TRIG_OFFSET		= 2,
-		STATE_TRIG_MODE			= 3,
-		STATE_COMPARE_TARGET_0	= 4,
-		STATE_COMPARE_TARGET_1	= 5,
-		STATE_TX_HOLD			= 6
+		STATE_IDLE				= 4'h00,
+		STATE_MATCH_ALL			= 4'h01,
+		STATE_TRIG_OFFSET		= 4'h02,
+		STATE_TRIG_MODE			= 4'h03,
+		STATE_COMPARE_TARGET_0	= 4'h04,
+		STATE_COMPARE_TARGET_1	= 4'h05,
+		STATE_TX_HOLD			= 4'h06,
+		STATE_GET_NAME_0		= 4'h07,
+		STATE_GET_NAME_1		= 4'h08,
+		STATE_GET_NAME_2		= 4'h09,
+		STATE_GET_WIDTH			= 4'h0a
 	} state;
 
-	logic[7:0]				rx_count	= 0;
-	logic[CHANNEL_BITS-1:0]	cur_channel	= 0;
+	logic[7:0]				count	= 0;
 
 	always_ff @(posedge clk) begin
 
-		trig_force	<= 0;
-		uart_tx_en	<= 0;
+		trig_force		<= 0;
+		uart_tx_en		<= 0;
+		symtab_rd_en	<= 0;
 
 		case(state)
 
@@ -186,7 +204,7 @@ module InternalLogicAnalyzer_UARTWrapper #(
 
 			STATE_IDLE: begin
 
-				rx_count	<= 0;
+				count	<= 0;
 
 				if(uart_rx_en) begin
 
@@ -209,6 +227,21 @@ module InternalLogicAnalyzer_UARTWrapper #(
 							state				<= STATE_TX_HOLD;
 						end
 
+						CMD_GET_NAME_LEN: begin
+							uart_tx_en			<= 1;
+							uart_tx_data		<= NAME_LEN;
+							state				<= STATE_TX_HOLD;
+						end
+
+						CMD_GET_CHANNEL_COUNT: begin
+							uart_tx_en			<= 1;
+							uart_tx_data		<= CHANNELS;
+							state				<= STATE_TX_HOLD;
+						end
+
+						CMD_GET_NAME:			state	<= STATE_GET_NAME_0;
+						CMD_GET_WIDTH:			state	<= STATE_GET_WIDTH;
+
 						default: begin
 						end	//default
 
@@ -230,8 +263,8 @@ module InternalLogicAnalyzer_UARTWrapper #(
 
 			STATE_TRIG_OFFSET: begin
 				if(uart_rx_en) begin
-					rx_count	<= rx_count + 1'h1;
-					if(rx_count == 0)
+					count	<= count + 1'h1;
+					if(count == 0)
 						trig_offset[ADDR_BITS-1:8]	<= uart_rx_data;
 					else begin
 						trig_offset[7:0]			<= uart_rx_data;
@@ -242,9 +275,9 @@ module InternalLogicAnalyzer_UARTWrapper #(
 
 			STATE_TRIG_MODE: begin
 				if(uart_rx_en) begin
-					rx_count	<= rx_count + 1'h1;
+					count	<= count + 1'h1;
 
-					if(rx_count == 0)
+					if(count == 0)
 						cur_channel					<= uart_rx_data;
 					else begin
 						compare_mode[cur_channel]	<= ila_compare_t'(uart_rx_data);
@@ -257,17 +290,17 @@ module InternalLogicAnalyzer_UARTWrapper #(
 			STATE_COMPARE_TARGET_0: begin
 				if(uart_rx_en) begin
 					cur_channel						<= uart_rx_data;
-					rx_count						<= COL_BYTES-1;
+					count							<= COL_BYTES-1;
 					state							<= STATE_COMPARE_TARGET_1;
 				end
 			end	//end STATE_COMPARE_TARGET_0
 
 			STATE_COMPARE_TARGET_1: begin
 				if(uart_rx_en) begin
-					rx_count						<= rx_count - 1;
+					count						<= count - 1;
 
 					for(integer i=0; i<COL_BYTES; i++) begin
-						if(rx_count == i) begin
+						if(count == i) begin
 							if(i == COL_BYTES-1)
 								compare_target[cur_channel][MAX_WIDTH-1 : (COL_BYTES-1)*8]	<= uart_rx_data;
 							else
@@ -275,7 +308,7 @@ module InternalLogicAnalyzer_UARTWrapper #(
 						end
 					end
 
-					if(rx_count == 0)
+					if(count == 0)
 						state						<= STATE_IDLE;
 				end
 			end	//end STATE_COMPARE_TARGET_1
@@ -287,6 +320,42 @@ module InternalLogicAnalyzer_UARTWrapper #(
 				if(uart_tx_done)
 					state							<= STATE_IDLE;
 			end	//end STATE_TX_HOLD
+
+			STATE_GET_NAME_0: begin
+				if(uart_rx_en) begin
+					cur_channel						<= uart_rx_data;
+					symtab_rd_en					<= 1;
+					count							<= 0;
+					state							<= STATE_GET_NAME_1;
+				end
+			end	//end STATE_GET_NAME_0
+
+			STATE_GET_NAME_1: begin
+				state								<= STATE_GET_NAME_2;
+			end	//end STATE_GET_NAME_1
+
+			STATE_GET_NAME_2: begin
+				if( (count == 0) || (uart_tx_done) ) begin
+
+					uart_tx_en		<= 1;
+					uart_tx_data	<= symtab_rd_data[count*8 +: 8];
+					count			<= count + 1;
+
+					if(count+1 == NAME_LEN)
+						state	<= STATE_IDLE;
+				end
+			end	//end STATE_GET_NAME_1
+
+			STATE_GET_WIDTH: begin
+				if(uart_rx_en) begin
+					uart_tx_en						<= 1;
+					for(integer i=0; i<CHANNELS; i=i+1) begin
+						if(uart_rx_data == i)
+							uart_tx_data			<= WIDTHS[i];
+					end
+					state							<= STATE_TX_HOLD;
+				end
+			end
 
 		endcase
 
