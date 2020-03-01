@@ -45,7 +45,8 @@ module InternalLogicAnalyzer_UARTWrapper #(
 	parameter integer 			DEPTH					= 1024,					//Number of samples to capture
 	localparam integer			ADDR_BITS				= $clog2(DEPTH),		//Number of bits in a pointer
 	localparam integer			CHANNEL_BITS			= $clog2(CHANNELS),		//Number of bits in a channel index
-	localparam integer			COL_BYTES				= $ceil(MAX_WIDTH/8.0)	//Number of bits in a column index
+	localparam integer			COL_BYTES				= $ceil(MAX_WIDTH/8.0),	//Number of bits in a column index
+	parameter integer			SAMPLE_PERIOD_PS		= 1						//Sample period, in picoseconds
 )(
 	input wire								clk,				//Capture clock
 	input wire[CHANNELS-1:0][MAX_WIDTH-1:0]	probe_in,			//Probe signals
@@ -94,6 +95,7 @@ module InternalLogicAnalyzer_UARTWrapper #(
 	// The ILA
 
 	`include "InternalLogicAnalyzer_types.svh"
+	`include "InternalLogicAnalyzer_functions.svh"
 
 	logic								use_ext_trig		= 0;
 	logic								compare_match_all	= 0;
@@ -118,13 +120,21 @@ module InternalLogicAnalyzer_UARTWrapper #(
 	logic[CHANNEL_BITS-1:0]	cur_channel		= 0;
 	wire[NAME_BITS-1:0]		symtab_rd_data;
 
+	//Total width of all probes
+	localparam TOTAL_WIDTH = CalcTotalWidth();
+
+	logic					data_rd_en		= 0;
+	logic[ADDR_BITS-1:0]	data_rd_addr	= 0;
+	wire[TOTAL_WIDTH-1:0]	data_rd_data;
+
 	InternalLogicAnalyzer #(
 		.CHANNELS(CHANNELS),
 		.WIDTHS(WIDTHS),
 		.NAME_LEN(NAME_LEN),
 		.NAMES(NAMES),
 		.MAX_WIDTH(MAX_WIDTH),
-		.DEPTH(DEPTH)
+		.DEPTH(DEPTH),
+		.TOTAL_WIDTH(TOTAL_WIDTH)
 	) la (
 		.clk(clk),
 		.probe_in(probe_in),
@@ -141,7 +151,11 @@ module InternalLogicAnalyzer_UARTWrapper #(
 
 		.symtab_rd_en(symtab_rd_en),
 		.symtab_rd_addr(cur_channel),
-		.symtab_rd_data(symtab_rd_data)
+		.symtab_rd_data(symtab_rd_data),
+
+		.data_rd_en(data_rd_en),
+		.data_rd_addr(data_rd_addr),
+		.data_rd_data(data_rd_data)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -170,23 +184,36 @@ module InternalLogicAnalyzer_UARTWrapper #(
 		CMD_GET_CHANNEL_COUNT	= 8'h0a,	//Get the number of channels
 		CMD_GET_NAME			= 8'h0b,	//Get a single entry of the name table
 											//1 arg byte: channel number
-		CMD_GET_WIDTH			= 8'h0c		//Get the width of a channel
+		CMD_GET_WIDTH			= 8'h0c,	//Get the width of a channel
 											//1 arg byte: channel number
+		CMD_GET_DATA			= 8'h0d,	//Download waveform data
+		CMD_GET_DEPTH			= 8'h0e,	//Get depth of the memory
+											//24-bit result
+		CMD_GET_TOTAL_WIDTH		= 8'h0f,	//Get width of all channels combined
+											//24-bit result
+		CMD_GET_SAMPLE_PERIOD	= 8'h10		//Get sample period, in ps
+											//24-bit result
 	} cmd_t;
 
-	enum logic[3:0]
+	enum logic[4:0]
 	{
-		STATE_IDLE				= 4'h00,
-		STATE_MATCH_ALL			= 4'h01,
-		STATE_TRIG_OFFSET		= 4'h02,
-		STATE_TRIG_MODE			= 4'h03,
-		STATE_COMPARE_TARGET_0	= 4'h04,
-		STATE_COMPARE_TARGET_1	= 4'h05,
-		STATE_TX_HOLD			= 4'h06,
-		STATE_GET_NAME_0		= 4'h07,
-		STATE_GET_NAME_1		= 4'h08,
-		STATE_GET_NAME_2		= 4'h09,
-		STATE_GET_WIDTH			= 4'h0a
+		STATE_IDLE				= 5'h00,
+		STATE_MATCH_ALL			= 5'h01,
+		STATE_TRIG_OFFSET		= 5'h02,
+		STATE_TRIG_MODE			= 5'h03,
+		STATE_COMPARE_TARGET_0	= 5'h04,
+		STATE_COMPARE_TARGET_1	= 5'h05,
+		STATE_TX_HOLD			= 5'h06,
+		STATE_GET_NAME_0		= 5'h07,
+		STATE_GET_NAME_1		= 5'h08,
+		STATE_GET_NAME_2		= 5'h09,
+		STATE_GET_WIDTH			= 5'h0a,
+		STATE_GET_DEPTH			= 5'h0b,
+		STATE_GET_TOTAL_WIDTH	= 5'h0c,
+		STATE_GET_DATA_0		= 5'h0d,
+		STATE_GET_DATA_1		= 5'h0e,
+		STATE_GET_DATA_2		= 5'h0f,
+		STATE_GET_PERIOD		= 5'h10
 	} state;
 
 	logic[7:0]				count	= 0;
@@ -196,6 +223,7 @@ module InternalLogicAnalyzer_UARTWrapper #(
 		trig_force		<= 0;
 		uart_tx_en		<= 0;
 		symtab_rd_en	<= 0;
+		data_rd_en		<= 0;
 
 		case(state)
 
@@ -241,6 +269,33 @@ module InternalLogicAnalyzer_UARTWrapper #(
 
 						CMD_GET_NAME:			state	<= STATE_GET_NAME_0;
 						CMD_GET_WIDTH:			state	<= STATE_GET_WIDTH;
+						CMD_GET_DEPTH: begin
+							uart_tx_en		<= 1;
+							uart_tx_data	<= DEPTH[23:16];
+							count			<= 0;
+							state			<= STATE_GET_DEPTH;
+						end
+
+						CMD_GET_TOTAL_WIDTH: begin
+							uart_tx_en		<= 1;
+							uart_tx_data	<= TOTAL_WIDTH[23:16];
+							count			<= 0;
+							state			<= STATE_GET_TOTAL_WIDTH;
+						end
+
+						CMD_GET_DATA: begin
+							data_rd_en		<= 1;
+							data_rd_addr	<= 0;
+							count			<= 0;
+							state			<= STATE_GET_DATA_0;
+						end
+
+						CMD_GET_SAMPLE_PERIOD: begin
+							uart_tx_en		<= 1;
+							uart_tx_data	<= SAMPLE_PERIOD_PS[23:16];
+							count			<= 0;
+							state			<= STATE_GET_PERIOD;
+						end
 
 						default: begin
 						end	//default
@@ -356,6 +411,98 @@ module InternalLogicAnalyzer_UARTWrapper #(
 					state							<= STATE_TX_HOLD;
 				end
 			end
+
+			STATE_GET_DEPTH: begin
+				if(uart_tx_done) begin
+					count				<= count + 1;
+
+					uart_tx_en			<=	1;
+					if(count == 0)
+						uart_tx_data	<= DEPTH[15:8];
+					else begin
+						uart_tx_data	<= DEPTH[7:0];
+						state			<= STATE_TX_HOLD;
+					end
+				end
+			end	//end STATE_GET_DEPTH
+
+			STATE_GET_TOTAL_WIDTH: begin
+				if(uart_tx_done) begin
+					count				<= count + 1;
+
+					uart_tx_en			<=	1;
+					if(count == 0)
+						uart_tx_data	<= TOTAL_WIDTH[15:8];
+					else begin
+						uart_tx_data	<= TOTAL_WIDTH[7:0];
+						state			<= STATE_TX_HOLD;
+					end
+				end
+			end	//end STATE_GET_TOTAL_WIDTH
+
+			STATE_GET_PERIOD: begin
+				if(uart_tx_done) begin
+					count				<= count + 1;
+
+					uart_tx_en			<=	1;
+					if(count == 0)
+						uart_tx_data	<= SAMPLE_PERIOD_PS[15:8];
+					else begin
+						uart_tx_data	<= SAMPLE_PERIOD_PS[7:0];
+						state			<= STATE_TX_HOLD;
+					end
+				end
+			end	//end STATE_GET_PERIOD
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Data readback
+
+			//Wait for readback of the memory line
+			STATE_GET_DATA_0: begin
+				if(!data_rd_en) begin
+					state			<= STATE_GET_DATA_1;
+					count			<= count + 1;
+
+					uart_tx_en		<= 1;
+					uart_tx_data	<= data_rd_data[count*8 +: 8];
+				end
+			end	//end STATE_GET_DATA_0
+
+			//Read stuff
+			STATE_GET_DATA_1: begin
+
+				if(uart_tx_done) begin
+
+					//Send the next byte
+					count			<= count + 1;
+					uart_tx_en		<= 1;
+
+					uart_tx_data	<= data_rd_data[count*8 +: 8];
+
+					//Are we at the end of the line?
+					if(count*8+8 > TOTAL_WIDTH) begin
+						count				<= 0;
+
+						//See if we need to read another line
+						if(data_rd_addr + 1 >= DEPTH)
+							state			<= STATE_TX_HOLD;
+						else
+							state			<= STATE_GET_DATA_2;
+
+					end
+
+				end
+
+			end	//end STATE_GET_DATA_1
+
+			//End of line
+			STATE_GET_DATA_2: begin
+				if(uart_tx_done) begin
+					data_rd_en		<= 1;
+					data_rd_addr	<= data_rd_addr + 1;
+					state			<= STATE_GET_DATA_0;
+				end
+			end	//end STATE_GET_DATA_1
 
 		endcase
 

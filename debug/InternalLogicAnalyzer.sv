@@ -42,6 +42,7 @@ module InternalLogicAnalyzer #(
 	parameter[NAME_BITS-1:0]				NAMES[CHANNELS-1:0],					//Display name of each channel
 																					//(truncated to X chars)
 	parameter integer						MAX_WIDTH				= 1024,			//Maximum legal width of any channel
+	parameter integer						TOTAL_WIDTH				= 1,			//Total width of all channels
 
 	parameter integer 						DEPTH					= 1024,				//Number of samples to capture
 	localparam integer						ADDR_BITS				= $clog2(DEPTH),	//Number of bits in a pointer
@@ -68,7 +69,11 @@ module InternalLogicAnalyzer #(
 
 	input wire								symtab_rd_en,
 	input wire[CHANNEL_BITS-1:0]			symtab_rd_addr,
-	output logic[NAME_BITS-1:0]				symtab_rd_data	= 0
+	output logic[NAME_BITS-1:0]				symtab_rd_data	= 0,
+
+	input wire								data_rd_en,
+	input wire[ADDR_BITS-1:0]				data_rd_addr,
+	output logic[TOTAL_WIDTH-1:0]			data_rd_data	= 0
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -76,44 +81,7 @@ module InternalLogicAnalyzer #(
 
 	typedef integer indexes_t[CHANNELS-1:0];
 
-	function integer CalcTotalWidth;
-		integer w;
-		begin
-			w = 0;
-			for(integer i=0; i<CHANNELS; i++)
-				w += WIDTHS[i];
-			return w;
-		end
-	endfunction
-
-	function indexes_t CalcLowerBound;
-		integer base;
-		indexes_t ret;
-		begin
-			base = 0;
-			for(integer i=0; i<CHANNELS; i++) begin
-				ret[i] = base;
-				base += WIDTHS[i];
-			end
-			return ret;
-		end
-	endfunction
-
-	function indexes_t CalcUpperBound;
-		integer base;
-		indexes_t ret;
-		begin
-			base = 0;
-			for(integer i=0; i<CHANNELS; i++) begin
-				base += WIDTHS[i];
-				ret[i] = base - 1;
-			end
-			return ret;
-		end
-	endfunction
-
-	//Total width of all probes
-	localparam TOTAL_WIDTH = CalcTotalWidth();
+	`include "InternalLogicAnalyzer_functions.svh"
 
 	//Lower / upper bit index of each probe
 	localparam indexes_t PROBE_LOW = CalcLowerBound();
@@ -199,6 +167,8 @@ module InternalLogicAnalyzer #(
 	always_ff @(posedge clk) begin
 		if(capture_we)
 			capture_buf[capture_wptr]	<= capture_wdata;
+		if(data_rd_en)
+			data_rd_data	<= capture_buf[data_rd_addr];
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

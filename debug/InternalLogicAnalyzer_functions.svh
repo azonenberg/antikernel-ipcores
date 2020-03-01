@@ -27,27 +27,39 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`ifndef InternalLogicAnalyzer_types_h
-`define InternalLogicAnalyzer_types_h
+function integer CalcTotalWidth;
+	integer w;
+	begin
+		w = 0;
+		for(integer i=0; i<CHANNELS; i++)
+			w += WIDTHS[i];
+		return w;
+	end
+endfunction
 
-typedef enum logic[2:0]
-{
-	COMPARE_ALWAYS	= 0,	//always true
-	COMPARE_NEVER	= 1,	//never true
-	COMPARE_EQUAL	= 2,	//strictly equal
-	COMPARE_LEQUAL	= 3,	//less than or equal
-	COMPARE_GEQUAL	= 4,	//greater than or equal
-	COMPARE_LESS	= 5,	//less than
-	COMPARE_GREATER	= 6,	//greater than
-	COMPARE_UNEQUAL	= 7		//not equal
-} ila_compare_t;
+function indexes_t CalcLowerBound;
+	integer base;
+	indexes_t ret;
+	begin
+		base = 0;
+		for(integer i=0; i<CHANNELS; i++) begin
+			ret[i] = base;
+			base += WIDTHS[i];
+		end
+		return ret;
+	end
+endfunction
 
-typedef enum logic[1:0]
-{
-	STATUS_IDLE			= 0,	//idle, waiting for trigger to be armed
-	STATUS_ARMED		= 1,	//armed, waiting for trigger
-	STATUS_CAPTURING	= 2,	//triggered, actively capturing
-	STATUS_DONE			= 3		//data ready for readback
-} ila_status_t;
+function indexes_t CalcUpperBound;
+	integer base;
+	indexes_t ret;
+	begin
+		base = 0;
+		for(integer i=0; i<CHANNELS; i++) begin
+			base += WIDTHS[i];
+			ret[i] = base - 1;
+		end
+		return ret;
+	end
+endfunction
 
-`endif
