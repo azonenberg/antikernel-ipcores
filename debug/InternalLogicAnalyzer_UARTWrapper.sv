@@ -484,8 +484,10 @@ module InternalLogicAnalyzer_UARTWrapper #(
 						count				<= 0;
 
 						//See if we need to read another line
-						if(data_rd_addr + 1 >= DEPTH)
+						if(data_rd_addr + 1 >= DEPTH) begin
+							trig_armed		<= 0;
 							state			<= STATE_TX_HOLD;
+						end
 						else
 							state			<= STATE_GET_DATA_2;
 
