@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -54,76 +54,66 @@ module UART(
 	input wire[15:0]	clkdiv,
 
 	input wire			rx,
-	output reg			rxactive	= 0,
-	output reg[7:0]		rx_data		= 0,
-	output reg			rx_en		= 0,
+	output logic		rxactive	= 0,
+	output logic[7:0]	rx_data		= 0,
+	output logic		rx_en		= 0,
 
-	output reg			tx			= 1,
+	output logic		tx			= 1,
 	input wire[7:0]		tx_data,
 	input wire			tx_en,
-	output reg			txactive	= 0,
-	output reg			tx_done		= 0
+	output logic		txactive	= 0,
+	output logic		tx_done		= 0
 	);
 
 	//1/4 of the clock divisor (for 90 degree phase offset)
-	wire[14:0] clkdiv_offset;
+	wire[13:0] clkdiv_offset;
 	assign clkdiv_offset = clkdiv[15:2];
+
+	///////////////////////////////////////////////////////////////////////////////////////////////
+	// Metastability protection on input
+
+	wire	rx_sync;
+
+	ThreeStageSynchronizer #(
+		.INIT(1),
+		.IN_REG(0)
+	) sync_rx(
+		.clk_in(),
+		.din(rx),
+		.clk_out(clk),
+		.dout(rx_sync)
+	);
 
 	///////////////////////////////////////////////////////////////////////////////////////////////
 	// Receiver
 
-	reg[15:0]	rxbrg		= 0;
-	reg[4:0]	rxbitcount	= 0;
-	reg[7:0]	rxbuf		= 0;
-
-	//Enable this to slightly increase gate count while improving noise immunity
-	//by oversampling.
-	parameter OVERSAMPLE	= 0;
-
-	wire oversampled_rx;								//Oversampled value
-	generate
-
-		if(OVERSAMPLE) begin
-			reg[4:0] oversamples = 5'h1f;				//buffer of over oversamples
-
-			UART_MajorityVoter mvoter(
-				.din(oversamples),
-				.dout(oversampled_rx));
-
-			//5-bit shift register going into oversampler
-			always @(posedge clk) begin
-				oversamples <= {rx, oversamples[4:1]};
-			end
-		end
-		else
-			assign oversampled_rx = rx;
-
-	endgenerate
+	logic[15:0]	rxbrg		= 0;
+	logic[4:0]	rxbitcount	= 0;
+	logic[7:0]	rxbuf		= 0;
 
 	always @(posedge clk) begin
 
 		//Clear data from output after one clock
 		if(rx_en) begin
-			rx_en <= 0;
-			rx_data <= 0;
+			rx_en		<= 0;
+			rx_data		<= 0;
 		end
 
 		//If not currently recieving, look for falling edge on RX (start bit).
-		//Make sure we get 5 bits in a row low to  avoid glitching
 		if(!rxactive) begin
-			if(oversampled_rx == 0) begin
+			if(rx_sync == 0) begin
 
 				//Falling edge, start receiving after 1.25 bit period
 				//We want to sample 90 degrees out of phase with the original signal to get nice stable values
-				rxactive <= 1;
-				rxbrg <= clkdiv_offset + clkdiv;
-				rxbitcount <= 0;
+				rxactive	<= 1;
+				rxbrg 		<= clkdiv_offset + clkdiv;
+				rxbitcount	<= 0;
 			end
 		end
 
 		//Currently recieving
 		else begin
-			rxbrg <= rxbrg - 16'd1;
+			rxbrg	<= rxbrg - 16'd1;
 
 			//Time to sample a new bit
 			if(rxbrg == 0) begin
@@ -131,31 +121,21 @@ module UART(
 				//If we are on bits 0 through 7 (not the stop bit)
 				//read the bit into the rxbuf and bump the bit count, then reset the baud generator
 				if(rxbitcount < 8) begin
-					rxbuf <= {rx, rxbuf[7:1]};
-					rxbitcount <= rxbitcount + 5'd1;
-					rxbrg <= clkdiv;
+					rxbuf		<= { rx_sync, rxbuf[7:1] };
+					rxbitcount	<= rxbitcount + 5'd1;
+					rxbrg		<= clkdiv;
 				end
 
 				//Stop bit
 				else begin
 
-					//Should always be 1, print warning in sim if this isnt the case
-					`ifdef XILINX_ISIM
-					if(rx != 1)
-						$display("[UART] Warning - stop bit isn't zero");
-					`endif
-
 					//We're done reading
-					rxbitcount <= 0;
-					rxactive <= 0;
+					rxbitcount	<= 0;
+					rxactive	<= 0;
 
 					//Data is ready
-					rx_data <= rxbuf;
-					rx_en <= 1;
-
-					`ifdef XILINX_ISIM
-					$display("[UART] Read byte 0x%02x - '%c'", rxbuf, rxbuf);
-					`endif
+					rx_data		<= rxbuf;
+					rx_en		<= 1;
 				end
 
 			end
@@ -167,11 +147,11 @@ module UART(
 	///////////////////////////////////////////////////////////////////////////////////////////////
 	//Transmitter
 
-	reg[15:0]	txbrg		= 0;
-	reg[7:0] 	txbuf		= 0;
-	reg [3:0]	txbitcount	= 0;
+	logic[15:0]	txbrg		= 0;
+	logic[7:0] 	txbuf		= 0;
+	logic[3:0]	txbitcount	= 0;
 
-	always @(posedge clk) begin
+	always_ff @(posedge clk) begin
 
 		tx_done	<= 0;
 
@@ -181,26 +161,10 @@ module UART(
 			//Already transmitting? Drop the byte, nothing we can do here.
 			//External FIFO required to handle stuff
 			if(txactive) begin
-				`ifdef XILINX_ISIM
-				$display("[UART] Warning - transmit buffer overflow, byte dropped");
-				`endif
 			end
 
 			//Nope, set up a transmission
 			else begin
-				/*
-				`ifdef UART_PRINT_RAW
-					$write("%c", tx_data);
-				`else
-					if(tx_data > 8'h20) begin
-						$display("[UART] sending byte 0x%02x - '%c'", tx_data, tx_data);
-					end
-					else begin
-						$display("[UART] sending byte 0x%02x", tx_data);
-					end
-				`endif
-				*/
-
 				txbuf		<= tx_data;
 				txactive	<= 1;
 				txbitcount	<= 0;
@@ -245,60 +209,11 @@ module UART(
 			end
 
 			//Nope, just keep count
-			else begin
+			else
 				txbrg			<= txbrg - 16'd1;
-			end
 
 		end
 
-	end
-
-endmodule
-
-/*
-	@brief Majority voter - given 5 bits return the bit that occurs most often
- */
-module UART_MajorityVoter(din, dout);
-
-	input wire[4:0] din;
-	output reg dout;
-
-	//Return
-	always @(din) begin
-		case(din)
-			5'b00000: dout <= 0;
-			5'b00001: dout <= 0;
-			5'b00010: dout <= 0;
-			5'b00011: dout <= 0;
-			5'b00100: dout <= 0;
-			5'b00101: dout <= 0;
-			5'b00110: dout <= 0;
-			5'b00111: dout <= 1;
-			5'b01000: dout <= 0;
-			5'b01001: dout <= 0;
-			5'b01010: dout <= 0;
-			5'b01011: dout <= 1;
-			5'b01100: dout <= 0;
-			5'b01101: dout <= 1;
-			5'b01110: dout <= 1;
-			5'b01111: dout <= 1;
-			5'b10000: dout <= 0;
-			5'b10001: dout <= 0;
-			5'b10010: dout <= 0;
-			5'b10011: dout <= 1;
-			5'b10100: dout <= 0;
-			5'b10101: dout <= 1;
-			5'b10110: dout <= 1;
-			5'b10111: dout <= 1;
-			5'b11000: dout <= 0;
-			5'b11001: dout <= 1;
-			5'b11010: dout <= 1;
-			5'b11011: dout <= 1;
-			5'b11100: dout <= 1;
-			5'b11101: dout <= 1;
-			5'b11110: dout <= 1;
-			5'b11111: dout <= 1;
-		endcase
 	end
 
 endmodule
