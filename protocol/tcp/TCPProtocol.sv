@@ -29,6 +29,7 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "EthernetBus.svh"
 `include "IPv4Bus.svh"
 `include "TCPv4Bus.svh"
 
@@ -44,7 +45,7 @@ module TCPProtocol(
 
 	//Outbound bus to applications
 	output TCPv4RxBus		rx_l4_bus	=	{$bits(TCPv4RxBus){1'b0}},
-	input TCPv4TxBus		tx_l4_bus
+	input wire TCPv4TxBus	tx_l4_bus
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
