@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -58,8 +58,9 @@ module RGMIIToGMIIBridge #(
 	input wire GmiiBus	gmii_tx_bus,
 
 	//In-band status (if supported by the PHY)
-	output logic		link_up		= 0,
-	output lspeed_t		link_speed	= LINK_SPEED_10M
+	output logic		link_up			= 0,
+	output lspeed_t		link_speed		= LINK_SPEED_10M,
+	output logic		false_carrier	= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -172,7 +173,7 @@ module RGMIIToGMIIBridge #(
 		//10/100 un-DDR-ing
 		logic		gmii_rx_bus_en_ff	= 0;
 		logic		dvalid_raw			= 0;
-		logic[31:0]	rx_parallel_data_ff	= 0;
+		logic[7:0]	rx_parallel_data_ff	= 0;
 		always_ff @(posedge gmii_rxc) begin
 			gmii_rx_bus_en_ff	<= gmii_rx_bus.en;
 			rx_parallel_data_ff	<= rx_parallel_data;
@@ -247,7 +248,8 @@ module RGMIIToGMIIBridge #(
 
 		.clk_b(gmii_txc),
 		.updated_b(),
-		.reg_b(link_speed_sync_raw)
+		.reg_b(link_speed_sync_raw),
+		.reset_b(1'b0)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -381,7 +383,7 @@ module RGMIIToGMIIBridge #(
 			tx_data_lo	<= gmii_tx_bus.data[3:0];
 			tx_data_hi	<= gmii_tx_bus.data[3:0];
 		end
-		else if(tx_phase == 1) begin
+		else/* if(tx_phase == 1)*/ begin
 			tx_data_lo	<= gmii_tx_bus.data[7:4];
 			tx_data_hi	<= gmii_tx_bus.data[7:4];
 		end
@@ -405,9 +407,6 @@ module RGMIIToGMIIBridge #(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Decode in-band link state
-
-	//In-band status flags
-	logic	false_carrier	= 0;
 
 	always_ff @(posedge gmii_rxc) begin
 		false_carrier	<= 0;
