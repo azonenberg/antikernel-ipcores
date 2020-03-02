@@ -191,8 +191,10 @@ module InternalLogicAnalyzer_UARTWrapper #(
 											//24-bit result
 		CMD_GET_TOTAL_WIDTH		= 8'h0f,	//Get width of all channels combined
 											//24-bit result
-		CMD_GET_SAMPLE_PERIOD	= 8'h10		//Get sample period, in ps
+		CMD_GET_SAMPLE_PERIOD	= 8'h10,	//Get sample period, in ps
 											//24-bit result
+		CMD_GET_MAX_WIDTH		= 8'h11		//Get maximum width of a channel
+											//For now, 8-bit result
 	} cmd_t;
 
 	enum logic[4:0]
@@ -295,6 +297,12 @@ module InternalLogicAnalyzer_UARTWrapper #(
 							uart_tx_data	<= SAMPLE_PERIOD_PS[23:16];
 							count			<= 0;
 							state			<= STATE_GET_PERIOD;
+						end
+
+						CMD_GET_MAX_WIDTH: begin
+							uart_tx_en		<= 1;
+							uart_tx_data	<= MAX_WIDTH[7:0];
+							state			<= STATE_TX_HOLD;
 						end
 
 						default: begin

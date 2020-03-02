@@ -168,7 +168,7 @@ module InternalLogicAnalyzer #(
 		if(capture_we)
 			capture_buf[capture_wptr]	<= capture_wdata;
 		if(data_rd_en)
-			data_rd_data	<= capture_buf[data_rd_addr];
+			data_rd_data	<= capture_buf[base_wptr + data_rd_addr];
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
