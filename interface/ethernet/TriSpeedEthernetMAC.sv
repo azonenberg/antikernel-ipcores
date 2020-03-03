@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -287,7 +287,8 @@ module TriSpeedEthernetMAC #(
 
 		.clk_b(gmii_tx_clk),
 		.updated_b(),
-		.reg_b(link_speed_sync_raw)
+		.reg_b(link_speed_sync_raw),
+		.reset_b(1'b0)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
