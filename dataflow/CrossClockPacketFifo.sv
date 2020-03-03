@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -169,7 +169,8 @@ module CrossClockPacketFifo #(
 
 		.clk_b(rd_clk),
 		.updated_b(),
-		.reg_b(data_tail)
+		.reg_b(data_tail),
+		.reset_b(rd_reset)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -191,7 +192,8 @@ module CrossClockPacketFifo #(
 
 		.clk_b(wr_clk),
 		.updated_b(),
-		.reg_b(data_head)
+		.reg_b(data_head),
+		.reset_b(rd_reset)
 	);
 
 endmodule
