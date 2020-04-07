@@ -32,11 +32,18 @@
 `include "EthernetBus.svh"
 `include "IPv4Bus.svh"
 `include "TCPv4Bus.svh"
+`include "IPProtocols.svh"
 
-module TCPProtocol(
+module TCPProtocol #(
+	parameter		AGE_INTERVAL	= 125000000,		//clocks per aging tick (default is 1 Hz @ 125 MHz)
+	parameter		MAX_AGE			= 60				//close sockets after a minute of inactivity
+)(
 
 	//Clocks
 	input wire				clk,
+
+	//Address information
+	input wire IPv4Config	ip_config,
 
 	//Incoming data bus from IP stack
 	//TODO: make this parameterizable for IPv4/IPv6, for now we only do v4
@@ -49,6 +56,23 @@ module TCPProtocol(
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Outbound sequence number generation LFSR
+
+	wire[31:0]	next_seq;
+
+	PRBS31 #(
+		.WIDTH(32),
+		.INITIAL_SEED(31'h0eadbeef),
+		.MSB_FIRST(0)
+	) seq_prbs (
+		.clk(clk),
+		.update(1'b1),
+		.init(1'b0),
+		.seed(31'h0),
+		.dout(next_seq)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Socket state
 
 	//The SocketManager stores mappings from (sport, dport, client_ip) to socket handles.
@@ -59,6 +83,8 @@ module TCPProtocol(
 	wire			lookup_done;
 	wire			lookup_hit;
 	wire[10:0]		lookup_sockid;
+
+	logic			aging_tick	= 0;
 
 	SocketManager #(
 		.WAYS(4),
@@ -83,16 +109,33 @@ module TCPProtocol(
 		.remove_sockid(),
 		.remove_done(),
 
-		.aging_tick(),
-		.max_age()
+		.aging_tick(aging_tick),
+		.max_age(10'd30)
 	);
 
-	typedef struct
+	typedef struct packed
 	{
 		logic[31:0]	tx_seq;		//Starting sequence number for our next outbound segment
 		logic[31:0]	rx_seq;		//Expected sequence number of the next inbound segment
 		logic[15:0] tx_window;	//max window we're able to send
 	} tcpstate_t;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Aging timer for sockets
+
+	logic[31:0]	aging_count;
+
+	always_ff @(posedge clk) begin
+
+		aging_count	<= aging_count + 1'h1;
+		aging_tick	<= 0;
+
+		if(aging_count == (AGE_INTERVAL - 1)) begin
+			aging_count	<= 0;
+			aging_tick	<= 1;
+		end
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX checksum verification
@@ -110,7 +153,63 @@ module TCPProtocol(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// RX datapath
+	// Events (header-only packets) that the RX logic wants the TX side to send
+
+	typedef struct packed
+	{
+		logic[31:0]	remote_ip;
+		logic[15:0]	remote_port;
+		logic[15:0]	our_port;
+
+		logic		flag_syn;
+		logic		flag_ack;
+		logic		flag_fin;
+		logic		flag_rst;
+
+		logic[31:0]	seq;
+		logic[31:0]	ack;
+
+	} event_t;
+
+	logic		event_wr_en	= 0;
+	event_t		wr_event;
+
+	wire[4:0]	event_rsize;
+	logic		event_rd_en	= 0;
+	event_t		rd_event;
+
+	/*
+		No need for overflow handling or size checks here.
+
+		FIFO is well defined to discard writes when full.
+		If a write is lost, this is no worse than the network dropping a packet, so the TCP protocol
+		will recover just fine.
+	 */
+	SingleClockFifo #(
+		.WIDTH($bits(event_t)),
+		.DEPTH(32),
+		.USE_BLOCK(0)
+	) event_fifo (
+		.clk(clk),
+
+		.wr(event_wr_en),
+		.din(wr_event),
+
+		.overflow(),
+		.underflow(),
+		.empty(),
+		.full(),
+		.rsize(event_rsize),
+		.wsize(),
+
+		.reset(1'b0),
+
+		.rd(event_rd_en),
+		.dout(rd_event)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// RX side
 
 	enum logic[3:0]
 	{
@@ -145,6 +244,8 @@ module TCPProtocol(
 		rx_l4_bus.data_valid	<= 0;
 		rx_l4_bus.commit		<= 0;
 		rx_l4_bus.drop			<= 0;
+
+		event_wr_en			<= 0;
 
 		case(rx_state)
 
@@ -311,6 +412,24 @@ module TCPProtocol(
 
 				if(rx_checksum_expected == 16'h0000) begin
 					rx_l4_bus.commit	<= 1;
+
+					//If this is a SYN, get ready to send an ACK
+					//TODO: only do this if port is open
+					if(rx_flag_syn && !rx_flag_ack) begin
+						event_wr_en		<= 1;
+
+						wr_event.remote_ip		<= rx_l3_bus.src_ip;
+						wr_event.remote_port	<= lookup_headers.client_port;
+						wr_event.our_port		<= lookup_headers.server_port;
+						wr_event.flag_syn		<= 1;
+						wr_event.flag_ack		<= 1;
+						wr_event.flag_fin		<= 0;
+						wr_event.flag_rst		<= 0;
+						wr_event.seq			<= next_seq;
+						wr_event.ack			<= rx_current_seq + 1;
+
+					end
+
 					rx_state			<= RX_STATE_IDLE;
 				end
 				else begin
@@ -331,31 +450,200 @@ module TCPProtocol(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TX datapath
+	// TX checksum computation
+
+	//TODO: we can precompute the IP pseudo-header for each socket, as it remains static
+
+	logic		tx_checksum_reset	= 0;
+	logic		tx_checksum_process	= 0;
+	logic[31:0]	tx_checksum_din	= 0;
+	wire[31:0]	tx_checksum;
+
+	InternetChecksum32bit tx_csum(
+		.clk(clk),
+		.load(1'b0),
+		.reset(tx_checksum_reset),
+		.process(tx_checksum_process),
+		.din(tx_checksum_din),
+		.sumout(),
+		.csumout(tx_checksum)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX side
+
+	enum logic[3:0]
+	{
+		TX_STATE_IDLE					= 4'h0,
+		TX_STATE_EVENT_POP				= 4'h1,
+		TX_STATE_EVENT_HEADER_CHECKSUM	= 4'h2,
+		TX_STATE_EVENT_PORT_HEADER		= 4'h3,
+		TX_STATE_EVENT_SEQ				= 4'h4,
+		TX_STATE_EVENT_ACK				= 4'h5,
+		TX_STATE_EVENT_FLAGS			= 4'h6,
+		TX_STATE_EVENT_CHECKSUM			= 4'h7,
+		TX_STATE_EVENT_COMMIT			= 4'h8
+	} tx_state = TX_STATE_IDLE;
+
+	logic[10:0]	tx_count;
+
+	/*
+		The TX logic has two jobs:
+
+		1) Take events in rx_event_fifo, synthesize full TCP headers around them, and emit them as TCP segments
+		2) Send application layer data (details TBD)
+	 */
+	always_ff @(posedge clk) begin
+
+		event_rd_en			<= 0;
+		tx_checksum_reset	<= 0;
+		tx_checksum_process	<= 0;
+
+		tx_l3_bus.start			<= 0;
+		tx_l3_bus.data_valid	<= 0;
+		tx_l3_bus.commit		<= 0;
+		tx_l3_bus.drop			<= 0;
+
+		case(tx_state)
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// IDLE - wait for events or transmit data
+
+			TX_STATE_IDLE: begin
+
+				if( (event_rsize > 1) || (event_rsize == 1 ** !event_rd_en) ) begin
+					event_rd_en	<= 1;
+					tx_state	<= TX_STATE_EVENT_POP;
+				end
+
+			end	//end TX_STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// EVENT - send a header-only segment
+
+			//POP - wait for the fifo to pop
+			TX_STATE_EVENT_POP: begin
+				if(!event_rd_en) begin
+					tx_state	<= TX_STATE_EVENT_HEADER_CHECKSUM;
+					tx_count	<= 0;
+				end
+			end	//end TX_STATE_EVENT_POP
+
+			//HEADER CHECKSUM - checksum the IP pseudo header
+			TX_STATE_EVENT_HEADER_CHECKSUM: begin
+
+				tx_checksum_process 	<= 1;
+				tx_count				<= tx_count + 1;
+
+				case(tx_count)
+
+					0: 	tx_checksum_din	<= rd_event.remote_ip;
+					1:	tx_checksum_din	<= ip_config.address;
+					2: begin
+						tx_checksum_din			<= {8'h0, IP_PROTO_TCP, 16'd20 };	//min size, no options
+
+						tx_l3_bus.start			<= 1;
+						tx_l3_bus.payload_len	<= 16'd20;	//min size, no options
+						tx_l3_bus.protocol		<= IP_PROTO_TCP;
+						tx_l3_bus.dst_ip		<= rd_event.remote_ip;
+
+						//Get ready to send stuff
+						tx_state				<= TX_STATE_EVENT_PORT_HEADER;
+					end
+
+				endcase
+
+			end	//end TX_STATE_EVENT_HEADER_CHECKSUM
+
+			//PORT_HEADER - send the port number header
+			TX_STATE_EVENT_PORT_HEADER: begin
+				tx_l3_bus.data_valid			<= 1;
+				tx_l3_bus.bytes_valid			<= 4;
+				tx_l3_bus.data					<= { rd_event.our_port, rd_event.remote_port };
+				tx_state						<= TX_STATE_EVENT_SEQ;
+			end	//end TX_STATE_EVENT_PORT_HEADER
+
+			TX_STATE_EVENT_SEQ: begin
+				tx_l3_bus.data_valid			<= 1;
+				tx_l3_bus.bytes_valid			<= 4;
+				tx_l3_bus.data					<= rd_event.seq;
+				tx_state						<= TX_STATE_EVENT_ACK;
+			end	//end TX_STATE_EVENT_SEQ
+
+			TX_STATE_EVENT_ACK: begin
+				tx_l3_bus.data_valid			<= 1;
+				tx_l3_bus.bytes_valid			<= 4;
+				tx_l3_bus.data					<= rd_event.ack;
+				tx_state						<= TX_STATE_EVENT_FLAGS;
+			end	//end TX_STATE_EVENT_ACK
+
+			TX_STATE_EVENT_FLAGS: begin
+				tx_l3_bus.data_valid			<= 1;
+				tx_l3_bus.bytes_valid			<= 4;
+				tx_l3_bus.data					<=
+				{
+					4'd5,
+					7'h0,
+					rd_event.flag_ack,
+					1'b0,
+					rd_event.flag_rst,
+					rd_event.flag_syn,
+					rd_event.flag_fin,
+					16'd1024					//TODO: proper window size!!!
+				};
+				tx_state						<= TX_STATE_EVENT_CHECKSUM;
+			end	//end TX_STATE_EVENT_FLAGS
+
+			TX_STATE_EVENT_CHECKSUM: begin
+				tx_l3_bus.data_valid			<= 1;
+				tx_l3_bus.bytes_valid			<= 4;
+				tx_l3_bus.data					<= 32'hdeadbeef;
+				tx_state						<= TX_STATE_EVENT_COMMIT;
+			end	//end TX_STATE_EVENT_CHECKSUM
+
+			TX_STATE_EVENT_COMMIT: begin
+				tx_l3_bus.commit				<= 1;
+				tx_state						<= TX_STATE_IDLE;
+			end	//end TX_STATE_EVENT_COMMIT
+
+		endcase
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug stuff
 
 	ila_0 ila(
 		.clk(clk),
-		.probe0(rx_l3_bus),
-		.probe1(rx_l4_bus),
-		.probe2(rx_state),
-		.probe3(lookup_en),
-		.probe4(lookup_headers),
-		.probe5(lookup_done),
-		.probe6(lookup_hit),
-		.probe7(lookup_sockid),
-		.probe8(rx_current_seq),
-		.probe9(rx_current_ack),
-		.probe10(rx_current_window),
-		.probe11(rx_data_offset),
-		.probe12(rx_flag_ack),
-		.probe13(rx_flag_rst),
-		.probe14(rx_flag_syn),
-		.probe15(rx_flag_fin),
-		.probe16(rx_current_option),
-		.probe17(rx_checksum_expected)
+
+		.probe0(rx_state),
+		.probe1(rx_flag_ack),
+		.probe2(rx_flag_rst),
+		.probe3(rx_flag_syn),
+		.probe4(rx_flag_fin),
+		.probe5(event_wr_en),
+		.probe6(wr_event),
+		.probe7(lookup_en),
+		.probe8(lookup_headers),
+		.probe9(lookup_done),
+		.probe10(lookup_hit),
+		.probe11(lookup_sockid),
+		.probe12(rx_l3_bus.start),
+		.probe13(rx_l3_bus.data_valid),
+		.probe14(rx_l3_bus.bytes_valid),
+		.probe15(rx_l3_bus.data),
+		.probe16(rx_l3_bus.commit),
+
+		.probe17(tx_state),
+		.probe18(event_rsize),
+		.probe19(event_rd_en),
+		.probe20(rd_event),
+		.probe21(tx_checksum_reset),
+		.probe22(tx_checksum_process),
+		.probe23(tx_checksum_din),
+		.probe24(tx_checksum),
+		.probe25(tx_count),
+		.probe26(tx_l3_bus)
 		);
 
 endmodule
