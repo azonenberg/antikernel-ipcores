@@ -153,7 +153,7 @@ module TCPProtocol #(
 	) sockstate_mem (
 		.porta_clk(clk),
 		.porta_en(state_wr_en),
-		.porta_addr(),
+		.porta_addr(state_wr_addr),
 		.porta_we(state_wr_en),
 		.porta_din(state_wr_data),
 		.porta_dout(),
