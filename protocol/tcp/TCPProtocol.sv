@@ -174,7 +174,7 @@ module TCPProtocol #(
 	logic		event_wr_en	= 0;
 	event_t		wr_event;
 
-	wire[4:0]	event_rsize;
+	wire[5:0]	event_rsize;
 	logic		event_rd_en	= 0;
 	event_t		rd_event;
 
@@ -456,8 +456,11 @@ module TCPProtocol #(
 
 	logic		tx_checksum_reset	= 0;
 	logic		tx_checksum_process	= 0;
-	logic[31:0]	tx_checksum_din	= 0;
-	wire[31:0]	tx_checksum;
+	logic[31:0]	tx_checksum_din		= 0;
+	wire[15:0]	tx_checksum;
+
+	logic[2:0]	bytes_valid_adv		= 0;
+	logic		data_valid_adv		= 0;
 
 	InternetChecksum32bit tx_csum(
 		.clk(clk),
@@ -481,8 +484,9 @@ module TCPProtocol #(
 		TX_STATE_EVENT_SEQ				= 4'h4,
 		TX_STATE_EVENT_ACK				= 4'h5,
 		TX_STATE_EVENT_FLAGS			= 4'h6,
-		TX_STATE_EVENT_CHECKSUM			= 4'h7,
-		TX_STATE_EVENT_COMMIT			= 4'h8
+		TX_STATE_EVENT_CHECKSUM_1		= 4'h7,
+		TX_STATE_EVENT_CHECKSUM_2		= 4'h8,
+		TX_STATE_EVENT_COMMIT			= 4'h9
 	} tx_state = TX_STATE_IDLE;
 
 	logic[10:0]	tx_count;
@@ -504,6 +508,14 @@ module TCPProtocol #(
 		tx_l3_bus.commit		<= 0;
 		tx_l3_bus.drop			<= 0;
 
+		bytes_valid_adv			<= 0;
+		data_valid_adv			<= 0;
+
+		//Pipeline the data
+		tx_l3_bus.bytes_valid	<= bytes_valid_adv;
+		tx_l3_bus.data_valid	<= data_valid_adv;
+		tx_l3_bus.data			<= tx_checksum_din;
+
 		case(tx_state)
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -524,8 +536,9 @@ module TCPProtocol #(
 			//POP - wait for the fifo to pop
 			TX_STATE_EVENT_POP: begin
 				if(!event_rd_en) begin
-					tx_state	<= TX_STATE_EVENT_HEADER_CHECKSUM;
-					tx_count	<= 0;
+					tx_state			<= TX_STATE_EVENT_HEADER_CHECKSUM;
+					tx_checksum_reset	<= 1;
+					tx_count			<= 0;
 				end
 			end	//end TX_STATE_EVENT_POP
 
@@ -541,13 +554,6 @@ module TCPProtocol #(
 					1:	tx_checksum_din	<= ip_config.address;
 					2: begin
 						tx_checksum_din			<= {8'h0, IP_PROTO_TCP, 16'd20 };	//min size, no options
-
-						tx_l3_bus.start			<= 1;
-						tx_l3_bus.payload_len	<= 16'd20;	//min size, no options
-						tx_l3_bus.protocol		<= IP_PROTO_TCP;
-						tx_l3_bus.dst_ip		<= rd_event.remote_ip;
-
-						//Get ready to send stuff
 						tx_state				<= TX_STATE_EVENT_PORT_HEADER;
 					end
 
@@ -557,30 +563,41 @@ module TCPProtocol #(
 
 			//PORT_HEADER - send the port number header
 			TX_STATE_EVENT_PORT_HEADER: begin
-				tx_l3_bus.data_valid			<= 1;
-				tx_l3_bus.bytes_valid			<= 4;
-				tx_l3_bus.data					<= { rd_event.our_port, rd_event.remote_port };
+
+				//Start the outbound IP packet
+				tx_l3_bus.start			<= 1;
+				tx_l3_bus.payload_len	<= 16'd20;	//min size, no options
+				tx_l3_bus.protocol		<= IP_PROTO_TCP;
+				tx_l3_bus.dst_ip		<= rd_event.remote_ip;
+
+				data_valid_adv					<= 1;
+				bytes_valid_adv					<= 4;
+				tx_checksum_process				<= 1;
+				tx_checksum_din					<= { rd_event.our_port, rd_event.remote_port };
 				tx_state						<= TX_STATE_EVENT_SEQ;
 			end	//end TX_STATE_EVENT_PORT_HEADER
 
 			TX_STATE_EVENT_SEQ: begin
-				tx_l3_bus.data_valid			<= 1;
-				tx_l3_bus.bytes_valid			<= 4;
-				tx_l3_bus.data					<= rd_event.seq;
+				data_valid_adv					<= 1;
+				bytes_valid_adv					<= 4;
+				tx_checksum_process				<= 1;
+				tx_checksum_din					<= rd_event.seq;
 				tx_state						<= TX_STATE_EVENT_ACK;
 			end	//end TX_STATE_EVENT_SEQ
 
 			TX_STATE_EVENT_ACK: begin
-				tx_l3_bus.data_valid			<= 1;
-				tx_l3_bus.bytes_valid			<= 4;
-				tx_l3_bus.data					<= rd_event.ack;
+				data_valid_adv					<= 1;
+				bytes_valid_adv					<= 4;
+				tx_checksum_process				<= 1;
+				tx_checksum_din					<= rd_event.ack;
 				tx_state						<= TX_STATE_EVENT_FLAGS;
 			end	//end TX_STATE_EVENT_ACK
 
 			TX_STATE_EVENT_FLAGS: begin
-				tx_l3_bus.data_valid			<= 1;
-				tx_l3_bus.bytes_valid			<= 4;
-				tx_l3_bus.data					<=
+				data_valid_adv					<= 1;
+				bytes_valid_adv					<= 4;
+				tx_checksum_process				<= 1;
+				tx_checksum_din					<=
 				{
 					4'd5,
 					7'h0,
@@ -591,15 +608,21 @@ module TCPProtocol #(
 					rd_event.flag_fin,
 					16'd1024					//TODO: proper window size!!!
 				};
-				tx_state						<= TX_STATE_EVENT_CHECKSUM;
+				tx_state						<= TX_STATE_EVENT_CHECKSUM_1;
 			end	//end TX_STATE_EVENT_FLAGS
 
-			TX_STATE_EVENT_CHECKSUM: begin
+			TX_STATE_EVENT_CHECKSUM_1: begin
+				//wait for checksum computation
+				tx_state						<= TX_STATE_EVENT_CHECKSUM_2;
+			end	//end TX_STATE_EVENT_CHECKSUM_1
+
+			TX_STATE_EVENT_CHECKSUM_2: begin
 				tx_l3_bus.data_valid			<= 1;
 				tx_l3_bus.bytes_valid			<= 4;
-				tx_l3_bus.data					<= 32'hdeadbeef;
+				tx_l3_bus.data					<= { tx_checksum, 16'h0 };
+
 				tx_state						<= TX_STATE_EVENT_COMMIT;
-			end	//end TX_STATE_EVENT_CHECKSUM
+			end	//end TX_STATE_EVENT_CHECKSUM_2
 
 			TX_STATE_EVENT_COMMIT: begin
 				tx_l3_bus.commit				<= 1;
@@ -643,7 +666,11 @@ module TCPProtocol #(
 		.probe23(tx_checksum_din),
 		.probe24(tx_checksum),
 		.probe25(tx_count),
-		.probe26(tx_l3_bus)
+		.probe26(tx_l3_bus),
+
+		.probe27(bytes_valid_adv),
+		.probe28(data_valid_adv),
+		.probe29(ip_config.address)
 		);
 
 endmodule

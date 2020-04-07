@@ -279,8 +279,12 @@ module TCPIPStack #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Layer 4 TCP (for IPv4)
 
-	TCPProtocol tcp_ipv4(
+	TCPProtocol #(
+		.AGE_INTERVAL(CLK_IPSTACK_HZ)
+	) tcp_ipv4 (
 		.clk(clk_ipstack),
+
+		.ip_config(ip_config),
 
 		.rx_l3_bus(ipv4_rx_l3_bus),
 		.rx_l4_bus(tcpv4_rx_bus),
