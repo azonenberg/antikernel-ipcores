@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -96,10 +96,9 @@ module Ethernet2TypeDecoder(
 	always_ff @(posedge rx_clk) begin
 
 		rx_l2_bus.data_valid	<= 0;
-		rx_l2_bus.headers_valid	<= 0;
 
 		//Forward flags
-		rx_l2_bus.start		<= mac_rx_bus.start;
+		rx_l2_bus.start		<= 0;
 		rx_l2_bus.commit	<= mac_rx_bus.commit;
 		rx_l2_bus.drop		<= mac_rx_bus.drop;
 
@@ -196,10 +195,12 @@ module Ethernet2TypeDecoder(
 						end
 						else
 							rx_l2_bus.ethertype		<= ethertype_t'(mac_rx_bus.data[31:16]);
+
 						rx_l2_bus.ethertype_is_ipv4	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV4);
 						rx_l2_bus.ethertype_is_ipv6	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV6);
 						rx_l2_bus.ethertype_is_arp	<= (mac_rx_bus.data[31:16] == ETHERTYPE_ARP);
-						rx_l2_bus.headers_valid		<= 1;
+
+						rx_l2_bus.start	<= 1;
 					end
 
 					//If not in promiscuous mode, and we get a unicast that's not for us, drop it
@@ -217,7 +218,7 @@ module Ethernet2TypeDecoder(
 					rx_l2_bus.ethertype_is_ipv4	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV4);
 					rx_l2_bus.ethertype_is_ipv6	<= (mac_rx_bus.data[31:16] == ETHERTYPE_IPV6);
 					rx_l2_bus.ethertype_is_arp	<= (mac_rx_bus.data[31:16] == ETHERTYPE_ARP);
-					rx_l2_bus.headers_valid		<= 1;
+					rx_l2_bus.start				<= 1;
 				end
 
 				//If we're not an Ethernet II frame, strip padding based on the provided length
@@ -288,7 +289,6 @@ module Ethernet2TypeDecoder(
 			rx_bytecount			<= 0;
 			rx_l2_bus.bytes_valid	<= 0;
 			rx_l2_bus.data			<= 0;
-			rx_l2_bus.headers_valid	<= 0;
 			frame_has_len			<= 0;
 		end
 

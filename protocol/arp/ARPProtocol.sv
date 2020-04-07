@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -101,23 +101,22 @@ module ARPProtocol(
 	enum logic[4:0]
 	{
 		RX_STATE_IDLE		= 5'h00,
-		RX_STATE_L2_HEADER	= 5'h01,
-		RX_STATE_BODY_0		= 5'h02,
-		RX_STATE_BODY_1		= 5'h03,
-		RX_STATE_BODY_2		= 5'h04,
-		RX_STATE_BODY_3		= 5'h05,
-		RX_STATE_BODY_4		= 5'h06,
-		RX_STATE_BODY_5		= 5'h07,
-		RX_STATE_BODY_6		= 5'h08,
-		RX_STATE_COMMIT		= 5'h09,
-		RX_STATE_QUERY_0	= 5'h0a,
-		RX_STATE_QUERY_1	= 5'h0b,
-		RX_STATE_QUERY_2	= 5'h0c,
-		RX_STATE_QUERY_3	= 5'h0d,
-		RX_STATE_QUERY_4	= 5'h0e,
-		RX_STATE_QUERY_5	= 5'h0f,
-		RX_STATE_QUERY_6	= 5'h10,
-		RX_STATE_QUERY_7	= 5'h11
+		RX_STATE_BODY_0		= 5'h01,
+		RX_STATE_BODY_1		= 5'h02,
+		RX_STATE_BODY_2		= 5'h03,
+		RX_STATE_BODY_3		= 5'h04,
+		RX_STATE_BODY_4		= 5'h05,
+		RX_STATE_BODY_5		= 5'h06,
+		RX_STATE_BODY_6		= 5'h07,
+		RX_STATE_COMMIT		= 5'h08,
+		RX_STATE_QUERY_0	= 5'h09,
+		RX_STATE_QUERY_1	= 5'h0a,
+		RX_STATE_QUERY_2	= 5'h0b,
+		RX_STATE_QUERY_3	= 5'h0c,
+		RX_STATE_QUERY_4	= 5'h0d,
+		RX_STATE_QUERY_5	= 5'h0e,
+		RX_STATE_QUERY_6	= 5'h0f,
+		RX_STATE_QUERY_7	= 5'h10
 	} rx_state	= RX_STATE_IDLE;
 
 	localparam ARP_OP_REQUEST			= 16'h1;
@@ -151,8 +150,8 @@ module ARPProtocol(
 
 			RX_STATE_IDLE: begin
 
-				if(rx_l2_bus.start)
-					rx_state	<= RX_STATE_L2_HEADER;
+				if(rx_l2_bus.start && rx_l2_bus.ethertype_is_arp)
+					rx_state	<= RX_STATE_BODY_0;
 
 				//We need to send an ARP query.
 				//For now, incoming ARP requests will be ignored for 8 clocks while we do this.
@@ -224,22 +223,6 @@ module ARPProtocol(
 				tx_l2_bus.commit		<= 1;
 				rx_state				<= RX_STATE_IDLE;
 			end	//end RX_STATE_QUERY_7
-
-			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// L2 HEADER - wait for the layer-2 headers to be valid. Discard any other ethertypes.
-
-			RX_STATE_L2_HEADER: begin
-
-				if(rx_l2_bus.headers_valid) begin
-					if(rx_l2_bus.ethertype_is_arp)
-						rx_state	<= RX_STATE_BODY_0;
-					else begin
-						tx_l2_bus.drop	<= 1;
-						rx_state	<= RX_STATE_IDLE;
-					end
-				end
-
-			end	//end RX_STATE_L2_HEADER
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// BODY - crunch incoming data

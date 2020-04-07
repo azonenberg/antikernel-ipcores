@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -238,7 +238,7 @@ module EthernetTransmitElasticBuffer #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Read control logic
 
-	reg			tx_active			= 1'b0;
+	reg			tx_active			= 0;
 
 	reg[13:0]	tx_bytes_left		= 0;
 	reg[4:0]	tx_count			= 0;

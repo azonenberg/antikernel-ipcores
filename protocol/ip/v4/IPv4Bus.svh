@@ -2,7 +2,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -53,7 +53,7 @@ typedef struct packed
 
 typedef struct packed
 {
-	logic		start;			//asserted for one cycle before a frame starts
+	logic		start;			//asserted for one cycle before a frame starts once headers are valid
 	logic		data_valid;		//asserted when data is ready to be processed
 	logic[2:0]	bytes_valid;	//when data_valid is set, indicated number of valid bytes in data
 								//Valid bits are left aligned in data
@@ -68,7 +68,6 @@ typedef struct packed
 	logic		protocol_is_tcp;
 	logic[31:0]	src_ip;
 	logic[31:0]	dst_ip;
-	logic		headers_valid;
 	logic[15:0]	pseudo_header_csum;
 
 	logic		commit;			//asserted for one cycle at end of packet if checksum was good

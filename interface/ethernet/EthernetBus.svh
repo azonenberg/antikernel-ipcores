@@ -2,7 +2,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -103,7 +103,8 @@ typedef struct packed
 //Bus from Ethernet decoder to layer-3 protocols
 typedef struct packed
 {
-	logic		start;				//asserted for one cycle before a frame starts
+	logic		start;				//asserted for one cycle once all headers are valid
+									//but before any data is ready
 	logic		data_valid;			//asserted when data is ready to be processed
 	logic[2:0]	bytes_valid;		//when data_valid is set, indicated number of valid bytes in data
 									//Valid bits are left aligned in data
@@ -113,7 +114,6 @@ typedef struct packed
 	logic		commit;				//asserted for one cycle at end of packet if checksum was good
 	logic		drop;				//asserted for one cycle to indicate packet is invalid and should be discarded
 
-	logic		headers_valid;		//Indicates the following fields of the structure are valid
 	logic[47:0]	dst_mac;
 	logic[47:0]	src_mac;
 	ethertype_t	ethertype;

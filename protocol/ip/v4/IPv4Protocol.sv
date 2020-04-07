@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -60,14 +60,13 @@ module IPv4Protocol(
 	enum logic[3:0]
 	{
 		RX_STATE_IDLE		= 4'h0,
-		RX_STATE_HEADER_0	= 4'h1,
-		RX_STATE_HEADER_1	= 4'h2,
-		RX_STATE_HEADER_2	= 4'h3,
-		RX_STATE_HEADER_3	= 4'h4,
-		RX_STATE_HEADER_4	= 4'h5,
-		RX_STATE_HEADER_5	= 4'h6,
-		RX_STATE_BODY		= 4'h7,
-		RX_STATE_PADDING	= 4'h8
+		RX_STATE_HEADER_1	= 4'h1,
+		RX_STATE_HEADER_2	= 4'h2,
+		RX_STATE_HEADER_3	= 4'h3,
+		RX_STATE_HEADER_4	= 4'h4,
+		RX_STATE_HEADER_5	= 4'h5,
+		RX_STATE_BODY		= 4'h6,
+		RX_STATE_PADDING	= 4'h7
 	} rx_state = RX_STATE_IDLE;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -153,14 +152,13 @@ module IPv4Protocol(
 
 	always_ff @(posedge clk) begin
 
-		//Forward flags from layer 2 by default
-		rx_l3_bus.start			<= rx_l2_bus.start;
+		//Forward drop flag from layer 2
 		rx_l3_bus.drop			<= rx_l2_bus.drop;
 
 		rx_l3_bus.data_valid	<= 0;
 		rx_l3_bus.bytes_valid	<= 0;
 		rx_l3_bus.commit		<= 0;
-		rx_l3_bus.headers_valid	<= 0;
+		rx_l3_bus.start			<= 0;
 
 		case(rx_state)
 
@@ -169,30 +167,15 @@ module IPv4Protocol(
 
 			RX_STATE_IDLE: begin
 
-				if(rx_l2_bus.start) begin
+				if(rx_l2_bus.start && rx_l2_bus.ethertype_is_ipv4) begin
 					payload_bytes_so_far	<= 0;
-					rx_state				<= RX_STATE_HEADER_0;
+					rx_state		<= RX_STATE_HEADER_1;
 				end
 
 			end	//end RX_STATE_IDLE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// HEADER - read the packet headers and calculate the checksum
-
-			RX_STATE_HEADER_0: begin
-
-				//Wait for layer 2 headers to be read
-				//Drop anything that's not an IPv4 packet
-				if(rx_l2_bus.headers_valid) begin
-					if(rx_l2_bus.ethertype_is_ipv4)
-						rx_state		<= RX_STATE_HEADER_1;
-					else begin
-						rx_state		<= RX_STATE_IDLE;
-						rx_l3_bus.drop	<= 1;
-					end
-				end
-
-			end	//end RX_STATE_HEADER_0
 
 			RX_STATE_HEADER_1: begin
 
@@ -305,6 +288,7 @@ module IPv4Protocol(
 					end
 
 					else begin
+						rx_l3_bus.start				<= 1;		//send start flag a little bit before we need it
 						rx_l3_bus.src_ip			<= rx_l2_bus.data;
 						rx_state					<= RX_STATE_HEADER_5;
 					end
@@ -334,7 +318,7 @@ module IPv4Protocol(
 							(rx_l2_bus.data == 32'hffffffff) ) begin
 
 							rx_state				<= RX_STATE_BODY;
-							rx_l3_bus.headers_valid	<= 1;
+							rx_l3_bus.start			<= 1;
 
 						end
 

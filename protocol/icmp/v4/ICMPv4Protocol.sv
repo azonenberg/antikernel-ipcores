@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -74,10 +74,9 @@ module ICMPv4Protocol(
 	enum logic[3:0]
 	{
 		RX_STATE_IDLE			= 4'h0,
-		RX_STATE_HEADER_0		= 4'h1,
-		RX_STATE_HEADER_1		= 4'h2,
-		RX_STATE_PING_HEADER	= 4'h3,
-		RX_STATE_PING_BODY		= 4'h4
+		RX_STATE_HEADER_1		= 4'h1,
+		RX_STATE_PING_HEADER	= 4'h2,
+		RX_STATE_PING_BODY		= 4'h3
 	} rx_state = RX_STATE_IDLE;
 
 	enum logic[3:0]
@@ -195,33 +194,14 @@ module ICMPv4Protocol(
 
 			RX_STATE_IDLE: begin
 
-				if(rx_l3_bus.start)
-					rx_state			<= RX_STATE_HEADER_0;
+				//Wait for a valid, interesting packet to show up
+				if(rx_l3_bus.start && (rx_l3_bus.payload_len >= 8) && rx_l3_bus.protocol_is_icmp )
+					rx_state		<= RX_STATE_HEADER_1;
 
 			end	//end RX_STATE_IDLE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// HEADER - crunch packet headers
-
-			//Wait for IP headers
-			RX_STATE_HEADER_0: begin
-
-				if(rx_l3_bus.headers_valid) begin
-
-					//Drop anything that isn't ICMP, or too small to be a valid ICMP packet
-					if( (rx_l3_bus.payload_len < 8) || !rx_l3_bus.protocol_is_icmp ) begin
-						tx_l3_bus.drop	<= 1;
-						rx_state		<= RX_STATE_IDLE;
-					end
-
-					//Send the start command out to layer 3 after we get the payload length
-					else begin
-						rx_state		<= RX_STATE_HEADER_1;
-					end
-
-				end
-
-			end	//end RX_STATE_HEADER_0
 
 			//ICMP type/code/checksum
 			RX_STATE_HEADER_1: begin
@@ -247,7 +227,6 @@ module ICMPv4Protocol(
 									rx_state		<= RX_STATE_PING_HEADER;
 
 									//Reply with an echo-reply message
-
 
 								end
 
