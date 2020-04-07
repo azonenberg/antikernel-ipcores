@@ -36,7 +36,10 @@
 
 module TCPProtocol #(
 	parameter		AGE_INTERVAL	= 125000000,		//clocks per aging tick (default is 1 Hz @ 125 MHz)
-	parameter		MAX_AGE			= 60				//close sockets after a minute of inactivity
+	parameter		MAX_AGE			= 60,				//close sockets after a minute of inactivity
+
+	localparam		MAX_SOCKETS		= 2048,				//TODO: SocketManager config affects this
+	localparam		SOCKET_BITS		= $clog2(MAX_SOCKETS)
 )(
 
 	//Clocks
@@ -78,17 +81,23 @@ module TCPProtocol #(
 	//The SocketManager stores mappings from (sport, dport, client_ip) to socket handles.
 	//We need to store other state ourselves.
 
-	logic			lookup_en	= 0;
-	socketstate_t	lookup_headers	= 0;
-	wire			lookup_done;
-	wire			lookup_hit;
-	wire[10:0]		lookup_sockid;
+	logic						lookup_en		= 0;
+	socketstate_t				lookup_headers	= 0;
+	wire						lookup_done;
+	wire						lookup_hit;
+	wire[SOCKET_BITS-1:0]		lookup_sockid;
 
-	logic			aging_tick	= 0;
+	logic						insert_en		= 0;
+	socketstate_t				insert_headers	= 0;
+	wire						insert_done;
+	wire						insert_fail;
+	wire[SOCKET_BITS-1:0]		insert_sockid;
+
+	logic						aging_tick		= 0;
 
 	SocketManager #(
 		.WAYS(4),
-		.LATENCY(2),
+		.LATENCY(2),	//must be 2 to allow for proper lookups of headers
 		.BINS(256)
 	) state_mgr (
 		.clk(clk),
@@ -99,11 +108,11 @@ module TCPProtocol #(
 		.lookup_hit(lookup_hit),
 		.lookup_sockid(lookup_sockid),
 
-		.insert_en(),
-		.insert_headers(),
-		.insert_done(),
-		.insert_fail(),
-		.insert_sockid(),
+		.insert_en(insert_en),
+		.insert_headers(insert_headers),
+		.insert_done(insert_done),
+		.insert_fail(insert_fail),
+		.insert_sockid(insert_sockid),
 
 		.remove_en(),
 		.remove_sockid(),
@@ -113,12 +122,49 @@ module TCPProtocol #(
 		.max_age(10'd30)
 	);
 
+	typedef enum logic[1:0]
+	{
+		TCP_STATE_HALF_OPEN	=	0,	//Sent SYN+ACK, no ACK yet
+		TCP_STATE_OPEN		=	1	//Socket is ready for data
+		//TODO: others
+	} tcpstate_t;
+
 	typedef struct packed
 	{
+		tcpstate_t	state;		//current state of the connection
 		logic[31:0]	tx_seq;		//Starting sequence number for our next outbound segment
 		logic[31:0]	rx_seq;		//Expected sequence number of the next inbound segment
-		logic[15:0] tx_window;	//max window we're able to send
-	} tcpstate_t;
+		logic[15:0] tx_window;	//max window we're able to send (no scaling yet)
+	} tcpsocket_t;
+
+	logic						state_wr_en		= 0;
+	logic[SOCKET_BITS-1:0]		state_wr_addr	= 0;
+	tcpsocket_t					state_wr_data;
+
+	tcpsocket_t					state_rd_data;
+
+	MemoryMacro #(
+		.WIDTH($bits(tcpsocket_t)),
+		.DEPTH(MAX_SOCKETS),
+		.USE_BLOCK(1),
+		.OUT_REG(1),
+		.DUAL_PORT(1),
+		.TRUE_DUAL(0)
+	) sockstate_mem (
+		.porta_clk(clk),
+		.porta_en(state_wr_en),
+		.porta_addr(),
+		.porta_we(state_wr_en),
+		.porta_din(state_wr_data),
+		.porta_dout(),
+
+		.portb_clk(clk),
+		.portb_en(lookup_hit),
+		.portb_addr(lookup_sockid),
+		.portb_we(1'b0),
+		.portb_din(),
+		.portb_dout(state_rd_data)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Aging timer for sockets
@@ -144,7 +190,7 @@ module TCPProtocol #(
 
 	InternetChecksum32bit rx_csum(
 		.clk(clk),
-		.load(rx_l3_bus.headers_valid),
+		.load(rx_l3_bus.start),
 		.reset(1'b0),
 		.process(rx_l3_bus.data_valid),
 		.din(rx_l3_bus.data_valid ? rx_l3_bus.data : rx_l3_bus.pseudo_header_csum),
@@ -214,15 +260,15 @@ module TCPProtocol #(
 	enum logic[3:0]
 	{
 		RX_STATE_IDLE				= 4'h0,
-		RX_STATE_IP_HEADER			= 4'h1,
-		RX_STATE_PORT_HEADER		= 4'h2,
-		RX_STATE_SEQ_HEADER			= 4'h3,
-		RX_STATE_ACK_HEADER			= 4'h4,
-		RX_STATE_FLAG_HEADER		= 4'h5,
-		RX_STATE_CHECKSUM_HEADER	= 4'h6,
-		RX_STATE_OPTION_HEADER		= 4'h7,
-		RX_STATE_DATA				= 4'h8,
-		RX_STATE_CHECKSUM			= 4'h9
+		RX_STATE_PORT_HEADER		= 4'h1,
+		RX_STATE_SEQ_HEADER			= 4'h2,
+		RX_STATE_ACK_HEADER			= 4'h3,
+		RX_STATE_FLAG_HEADER		= 4'h4,
+		RX_STATE_CHECKSUM_HEADER	= 4'h5,
+		RX_STATE_OPTION_HEADER		= 4'h6,
+		RX_STATE_DATA				= 4'h7,
+		RX_STATE_CHECKSUM			= 4'h8,
+		RX_STATE_CREATE_SOCKET		= 4'h9
 	} rx_state = RX_STATE_IDLE;
 
 	logic[31:0]	rx_current_seq		= 0;
@@ -239,35 +285,25 @@ module TCPProtocol #(
 	always_ff @(posedge clk) begin
 
 		lookup_en	<= 0;
+		insert_en	<= 0;
 
 		rx_l4_bus.start			<= 0;
 		rx_l4_bus.data_valid	<= 0;
 		rx_l4_bus.commit		<= 0;
 		rx_l4_bus.drop			<= 0;
 
-		event_wr_en			<= 0;
+		event_wr_en				<= 0;
+		state_wr_en				<= 0;
 
 		case(rx_state)
 
 			//Start when we get a new packet
 			RX_STATE_IDLE: begin
 
-				if(rx_l3_bus.start)
-					rx_state			<= RX_STATE_IP_HEADER;
+				if(rx_l3_bus.start && (rx_l3_bus.payload_len >= 20) && rx_l3_bus.protocol_is_tcp )
+					rx_state			<= RX_STATE_PORT_HEADER;
 
 			end	//end RX_STATE_IDLE
-
-			RX_STATE_IP_HEADER: begin
-
-				if(rx_l3_bus.headers_valid) begin
-					if( (rx_l3_bus.payload_len < 20) || !rx_l3_bus.protocol_is_tcp )
-						rx_state			<= RX_STATE_IDLE;
-					else
-						rx_state			<= RX_STATE_PORT_HEADER;
-
-				end
-
-			end	//end RX_STATE_IP_HEADER
 
 			RX_STATE_PORT_HEADER: begin
 				if(rx_l3_bus.data_valid) begin
@@ -277,7 +313,7 @@ module TCPProtocol #(
 						rx_state	<= RX_STATE_IDLE;
 
 					else begin
-						rx_l4_bus.start				<= 1;
+						//rx_l4_bus.start				<= 1;
 						rx_l4_bus.src_port			<= rx_l3_bus.data[31:16];
 						rx_l4_bus.dst_port			<= rx_l3_bus.data[15:0];
 						rx_state					<= RX_STATE_SEQ_HEADER;
@@ -402,35 +438,57 @@ module TCPProtocol #(
 			end	//end RX_STATE_OPTION_HEADER
 
 			RX_STATE_DATA: begin
-				if(rx_l3_bus.commit) begin
+				if(rx_l3_bus.commit)
 					rx_state		<= RX_STATE_CHECKSUM;
-				end
 			end	//end RX_STATE_DATA
 
 			//Verify checksum
 			RX_STATE_CHECKSUM: begin
 
 				if(rx_checksum_expected == 16'h0000) begin
-					rx_l4_bus.commit	<= 1;
 
-					//If this is a SYN, get ready to send an ACK
-					//TODO: only do this if port is open
+					//TODO: commit data if any
+					//rx_l4_bus.commit	<= 1;
+
+					//SYN with no ACK: open new socket
 					if(rx_flag_syn && !rx_flag_ack) begin
-						event_wr_en		<= 1;
 
+						//Get ready to send a reply packet
 						wr_event.remote_ip		<= rx_l3_bus.src_ip;
 						wr_event.remote_port	<= lookup_headers.client_port;
 						wr_event.our_port		<= lookup_headers.server_port;
-						wr_event.flag_syn		<= 1;
-						wr_event.flag_ack		<= 1;
+						wr_event.flag_syn		<= 0;
+						wr_event.flag_ack		<= 0;
 						wr_event.flag_fin		<= 0;
 						wr_event.flag_rst		<= 0;
 						wr_event.seq			<= next_seq;
 						wr_event.ack			<= rx_current_seq + 1;
 
+						//Create a new socket entry for the current state
+						insert_en				<= 1;
+						insert_headers			<= lookup_headers;
+						rx_state				<= RX_STATE_CREATE_SOCKET;
+
 					end
 
-					rx_state			<= RX_STATE_IDLE;
+					//ACK, packet is half open? We're now fully open
+					else if(rx_flag_ack && (state_rd_data.state == TCP_STATE_HALF_OPEN) ) begin
+
+						state_wr_en				<= 1;
+						state_wr_addr			<= lookup_sockid;
+						state_wr_data.tx_seq	<= state_rd_data.tx_seq;
+						state_wr_data.rx_seq	<= rx_current_seq;
+						state_wr_data.tx_window	<= state_rd_data.tx_window;
+						state_wr_data.state		<= TCP_STATE_OPEN;
+
+						rx_state				<= RX_STATE_IDLE;
+
+					end
+
+					//Any other flags: discard for now
+					else
+						rx_state			<= RX_STATE_IDLE;
+
 				end
 				else begin
 					rx_l4_bus.drop		<= 1;
@@ -438,6 +496,39 @@ module TCPProtocol #(
 				end
 
 			end	//end RX_STATE_CHECKSUM
+
+			//Wait for a new socket table entry to be created
+			RX_STATE_CREATE_SOCKET: begin
+
+				if(insert_done) begin
+
+					//Socket couldn't be created (not enough space in the table)
+					//Send a RST
+					if(insert_fail) begin
+						wr_event.flag_syn	<= 0;
+						wr_event.flag_rst	<= 1;
+					end
+
+					//Socket created successfully.
+					//Send a SYN+ACK and write the state to the table
+					else begin
+						wr_event.flag_syn		<= 1;
+						wr_event.flag_ack		<= 1;
+
+						state_wr_en				<= 1;
+						state_wr_addr			<= insert_sockid;
+						state_wr_data.state		<= TCP_STATE_HALF_OPEN;
+						state_wr_data.tx_seq	<= wr_event.seq;
+						state_wr_data.rx_seq	<= wr_event.ack;
+						state_wr_data.tx_window	<= 16'd1024;	//TODO: proper window size
+					end
+
+					event_wr_en				<= 1;
+					rx_state				<= RX_STATE_IDLE;
+
+				end
+
+			end	//end RX_STATE_CREATE_SOCKET
 
 		endcase
 
@@ -638,7 +729,6 @@ module TCPProtocol #(
 
 	ila_0 ila(
 		.clk(clk),
-
 		.probe0(rx_state),
 		.probe1(rx_flag_ack),
 		.probe2(rx_flag_rst),
@@ -651,26 +741,16 @@ module TCPProtocol #(
 		.probe9(lookup_done),
 		.probe10(lookup_hit),
 		.probe11(lookup_sockid),
-		.probe12(rx_l3_bus.start),
-		.probe13(rx_l3_bus.data_valid),
-		.probe14(rx_l3_bus.bytes_valid),
-		.probe15(rx_l3_bus.data),
-		.probe16(rx_l3_bus.commit),
+		.probe12(insert_en),
+		.probe13(insert_headers),
+		.probe14(insert_done),
+		.probe15(insert_fail),
+		.probe16(insert_sockid),
+		.probe17(state_wr_en),
+		.probe18(state_wr_addr),
+		.probe19(state_wr_data),
 
-		.probe17(tx_state),
-		.probe18(event_rsize),
-		.probe19(event_rd_en),
-		.probe20(rd_event),
-		.probe21(tx_checksum_reset),
-		.probe22(tx_checksum_process),
-		.probe23(tx_checksum_din),
-		.probe24(tx_checksum),
-		.probe25(tx_count),
-		.probe26(tx_l3_bus),
-
-		.probe27(bytes_valid_adv),
-		.probe28(data_valid_adv),
-		.probe29(ip_config.address)
+		.probe20(state_rd_data)
 		);
 
 endmodule
