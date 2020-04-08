@@ -34,6 +34,9 @@
 `include "TCPv4Bus.svh"
 `include "IPProtocols.svh"
 
+/**
+	@brief The TCP protocol implementation
+ */
 module TCPProtocol #(
 	parameter		AGE_INTERVAL	= 125000000,		//clocks per aging tick (default is 1 Hz @ 125 MHz)
 	parameter		MAX_AGE			= 60,				//close sockets after a minute of inactivity
@@ -55,8 +58,65 @@ module TCPProtocol #(
 
 	//Outbound bus to applications
 	output TCPv4RxBus		rx_l4_bus	=	{$bits(TCPv4RxBus){1'b0}},
-	input wire TCPv4TxBus	tx_l4_bus
+	input wire TCPv4TxBus	tx_l4_bus,
+
+	//Port opening/closing
+	input wire				port_open_en,
+	input wire				port_close_en,
+	input wire portnum_t	port_num
 );
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Table of open/closed port numbers
+
+	localparam PORT_WAYS = 4;
+
+	typedef portnum_t[PORT_WAYS-1:0]	port_row_t;
+	port_row_t	open_port_table[255:0];
+
+	initial begin
+		for(integer i=0; i<256; i++)
+			open_port_table[i] <= 0;
+	end
+
+	logic		port_check_en		= 0;
+	portnum_t	port_check_num		= 0;
+	logic		port_check_is_open	= 0;
+
+	logic		found				= 0;
+	always_ff @(posedge clk) begin
+
+		//Open ports
+		if(port_open_en) begin
+			found	= 0;
+			for(integer i=0; i<PORT_WAYS; i++) begin
+				if(!found && (open_port_table[port_num[7:0]][i] == 0) ) begin
+					open_port_table[port_num[7:0]][i]	<= port_num;
+					found								= 1;
+				end
+			end
+		end
+
+		//Close ports
+		else if(port_close_en) begin
+			for(integer i=0; i<PORT_WAYS; i++) begin
+				if(open_port_table[port_num[7:0]][i] == port_num)
+					open_port_table[port_num[7:0]][i]	<= 0;
+			end
+		end
+
+		//Port state lookup
+		if(port_check_en) begin
+			port_check_is_open	<= 0;
+
+			for(integer i=0; i<PORT_WAYS; i++) begin
+				if(open_port_table[port_check_num[7:0]][i] == port_check_num)
+					port_check_is_open	<= 1;
+			end
+
+		end
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Outbound sequence number generation LFSR
@@ -299,6 +359,8 @@ module TCPProtocol #(
 		event_wr_en				<= 0;
 		state_wr_en				<= 0;
 
+		port_check_en			<= 0;
+
 		case(rx_state)
 
 			//Start when we get a new packet
@@ -328,6 +390,10 @@ module TCPProtocol #(
 						lookup_headers.address		<= rx_l3_bus.src_ip;
 						lookup_headers.client_port	<= rx_l3_bus.data[31:16];
 						lookup_headers.server_port	<= rx_l3_bus.data[15:0];
+
+						//See if the port is open as well.
+						port_check_en				<= 1;
+						port_check_num				<= rx_l3_bus.data[15:0];
 
 					end
 
@@ -472,10 +538,20 @@ module TCPProtocol #(
 						wr_event.seq			<= next_seq;
 						wr_event.ack			<= rx_current_seq + 1;
 
-						//Create a new socket entry for the current state
-						insert_en				<= 1;
-						insert_headers			<= lookup_headers;
-						rx_state				<= RX_STATE_CREATE_SOCKET;
+						//If the port is closed, send an immediate RST
+						if(!port_check_is_open) begin
+							wr_event.flag_rst	<= 1;
+							wr_event.flag_ack	<= 1;
+							event_wr_en			<= 1;
+							rx_state			<= RX_STATE_IDLE;
+						end
+
+						//It's open. Create a new socket for this connection
+						else begin
+							insert_en			<= 1;
+							insert_headers		<= lookup_headers;
+							rx_state			<= RX_STATE_CREATE_SOCKET;
+						end
 
 					end
 
@@ -800,8 +876,15 @@ module TCPProtocol #(
 		.probe17(state_wr_en),
 		.probe18(state_wr_addr),
 		.probe19(state_wr_data),
+		.probe20(state_rd_data),
 
-		.probe20(state_rd_data)
+		.probe21(port_check_en),
+		.probe22(port_check_num),
+		.probe23(port_check_is_open),
+
+		.probe24(open_port_table[8'ha1]),
+		.probe25(port_open_en),
+		.probe26(port_num)
 		);
 
 endmodule

@@ -2,7 +2,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -36,12 +36,14 @@
 `ifndef TCPv4Bus_h
 `define TCPv4Bus_h
 
+typedef logic[15:0]	portnum_t;
+
 typedef struct packed
 {
 	logic		start;			//asserted for one cycle before a frame starts
 	logic[31:0]	src_ip;			//IP the data came from (important if we're replying)
-	logic[15:0]	src_port;
-	logic[15:0]	dst_port;
+	portnum_t	src_port;
+	portnum_t	dst_port;
 
 	logic		data_valid;		//asserted when data is ready to be processed
 	logic[2:0]	bytes_valid;	//when data_valid is set, indicated number of valid bytes in data
@@ -60,8 +62,8 @@ typedef struct packed
 {
 	logic		start;
 	logic[31:0]	dst_ip;
-	logic[15:0]	src_port;
-	logic[15:0]	dst_port;
+	portnum_t	src_port;
+	portnum_t	dst_port;
 
 	logic		data_valid;
 	logic[2:0]	bytes_valid;

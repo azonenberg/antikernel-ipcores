@@ -71,7 +71,10 @@ module TCPIPStack #(
 
 	//TCP socket interface
 	output TCPv4RxBus			tcpv4_rx_bus,
-	input TCPv4TxBus			tcpv4_tx_bus
+	input TCPv4TxBus			tcpv4_tx_bus,
+	input wire					tcp_port_open_en,
+	input wire					tcp_port_close_en,
+	input wire portnum_t		tcp_port_num
 
 	//TODO: performance counters
 );
@@ -295,7 +298,11 @@ module TCPIPStack #(
 		.rx_l4_bus(tcpv4_rx_bus),
 
 		.tx_l3_bus(tcp_ipv4_tx_l3_bus),
-		.tx_l4_bus(tcpv4_tx_bus)
+		.tx_l4_bus(tcpv4_tx_bus),
+
+		.port_open_en(tcp_port_open_en),
+		.port_close_en(tcp_port_close_en),
+		.port_num(tcp_port_num)
 	);
 
 endmodule
