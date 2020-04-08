@@ -95,6 +95,9 @@ module TCPProtocol #(
 
 	logic						aging_tick		= 0;
 
+	logic						remove_en		= 0;
+	logic[SOCKET_BITS-1:0]		remove_sockid	= 0;
+
 	SocketManager #(
 		.WAYS(4),
 		.LATENCY(2),	//must be 2 to allow for proper lookups of headers
@@ -125,8 +128,8 @@ module TCPProtocol #(
 	typedef enum logic[1:0]
 	{
 		TCP_STATE_HALF_OPEN	=	0,	//Sent SYN+ACK, no ACK yet
-		TCP_STATE_OPEN		=	1	//Socket is ready for data
-		//TODO: others
+		TCP_STATE_OPEN		=	1,	//Socket is ready for data
+		TCP_STATE_CLOSED	=	2	//Socket is closed, discard traffic from it
 	} tcpstate_t;
 
 	typedef struct packed
@@ -284,8 +287,9 @@ module TCPProtocol #(
 
 	always_ff @(posedge clk) begin
 
-		lookup_en	<= 0;
-		insert_en	<= 0;
+		lookup_en				<= 0;
+		insert_en				<= 0;
+		remove_en				<= 0;
 
 		rx_l4_bus.start			<= 0;
 		rx_l4_bus.data_valid	<= 0;
@@ -438,6 +442,10 @@ module TCPProtocol #(
 			end	//end RX_STATE_OPTION_HEADER
 
 			RX_STATE_DATA: begin
+
+				//TODO: If the ACK number of this packet is too high, we're missing stuff that came in between.
+				//Drop this packet.
+
 				if(rx_l3_bus.commit)
 					rx_state		<= RX_STATE_CHECKSUM;
 			end	//end RX_STATE_DATA
@@ -476,12 +484,55 @@ module TCPProtocol #(
 
 						state_wr_en				<= 1;
 						state_wr_addr			<= lookup_sockid;
-						state_wr_data.tx_seq	<= state_rd_data.tx_seq;
+						state_wr_data.tx_seq	<= state_rd_data.tx_seq + 1;
 						state_wr_data.rx_seq	<= rx_current_seq;
 						state_wr_data.tx_window	<= state_rd_data.tx_window;
 						state_wr_data.state		<= TCP_STATE_OPEN;
 
 						rx_state				<= RX_STATE_IDLE;
+
+					end
+
+					//FIN, other end closed the socket.
+					//Close the socket and send a FIN+ACK.
+					//TODO: if we have queued transmit data or un-ACKed transmit traffic, send that first.
+					else if(rx_flag_fin) begin
+
+						//Send a reply packet
+						wr_event.remote_ip		<= rx_l3_bus.src_ip;
+						wr_event.remote_port	<= lookup_headers.client_port;
+						wr_event.our_port		<= lookup_headers.server_port;
+						wr_event.flag_syn		<= 0;
+						wr_event.flag_ack		<= 1;
+						wr_event.flag_fin		<= 1;
+						wr_event.flag_rst		<= 0;
+						wr_event.seq			<= state_rd_data.tx_seq;
+						wr_event.ack			<= rx_current_seq + 1;
+						event_wr_en				<= 1;
+
+						//Mark the socket as closed
+						state_wr_en				<= 1;
+						state_wr_addr			<= lookup_sockid;
+						state_wr_data.tx_seq	<= state_rd_data.tx_seq;
+						state_wr_data.rx_seq	<= rx_current_seq + 1;
+						state_wr_data.tx_window	<= state_rd_data.tx_window;
+						state_wr_data.state		<= TCP_STATE_CLOSED;
+
+						rx_state				<= RX_STATE_IDLE;
+
+					end
+
+					//RST, other end aborted the socket.
+					//Close the socket without sending any traffic.
+					//TODO: if we have un-ACK'd transmit data, discard it
+					else if(rx_flag_rst) begin
+
+						state_wr_en				<= 1;
+						state_wr_addr			<= lookup_sockid;
+						state_wr_data.tx_seq	<= state_rd_data.tx_seq;
+						state_wr_data.rx_seq	<= rx_current_seq + 1;
+						state_wr_data.tx_window	<= state_rd_data.tx_window;
+						state_wr_data.state		<= TCP_STATE_CLOSED;
 
 					end
 
