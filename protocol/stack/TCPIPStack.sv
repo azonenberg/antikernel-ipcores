@@ -52,6 +52,7 @@ module TCPIPStack #(
 	input wire					clk_ipstack,
 
 	//Configuration
+	input wire					link_up,
 	input wire IPv4Config		ip_config,
 	input wire[47:0]			mac_address,				//clk_ipstack domain
 	input wire					promisc_mode,
@@ -198,6 +199,10 @@ module TCPIPStack #(
 		.MAX_AGE(3600)
 	) arp_mgr (
 		.clk(clk_ipstack),
+
+		.link_up(link_up),
+		.config_update(config_update),
+		.ip_config(ip_config),
 
 		.ipv4_tx_l2_bus(ipv4_tx_l2_bus),
 		.ipv4_tx_arp_bus(ipv4_tx_arp_bus),

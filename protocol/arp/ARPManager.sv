@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -30,6 +30,7 @@
 ***********************************************************************************************************************/
 
 `include "EthernetBus.svh"
+`include "IPv4Bus.svh"
 
 /**
 	@file
@@ -46,6 +47,11 @@ module ARPManager #(
 
 	//Incoming data from the IPv4 stack
 	input wire EthernetTxArpBus	ipv4_tx_l2_bus,
+
+	//Network configuration
+	input wire					link_up,
+	input wire					config_update,
+	input wire IPv4Config		ip_config,
 
 	//Outgoing data to the arbiter
 	output EthernetTxL2Bus		ipv4_tx_arp_bus,
@@ -176,7 +182,7 @@ module ARPManager #(
 		TX_STATE_BODY		= 4'h3
 	} tx_state = TX_STATE_IDLE;
 
-	logic	tx_fifo_rd_ff	= 0;
+	logic	tx_fifo_rd_ff			= 0;
 
 	always_ff @(posedge clk) begin
 
@@ -192,7 +198,7 @@ module ARPManager #(
 		case(tx_state)
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// Wait for somebody to send a packet
+			// Wait for somebody to send a packet, or the gateway to need a lookup
 
 			TX_STATE_IDLE: begin
 
@@ -285,12 +291,38 @@ module ARPManager #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// ARP query generation
 
+	logic	gateway_lookup_pending		= 0;
+	logic	link_up_ff					= 0;
+
+	logic[23:0]	gateway_lookup_timeout	= 0;	//24 bit timer @ 100 MHz = 167 ms
+
 	always_ff @(posedge clk) begin
 		query_en	<= 0;
 
+		link_up_ff	<= link_up;
+
+		if(gateway_lookup_timeout != 0)
+			gateway_lookup_timeout	<= gateway_lookup_timeout - 1;
+
+		//If we change IP config, or the link flaps
+		//send a query for our default gateway after a short timeout period
+		//TODO: if none comes back send more?
+		if(link_up && (!link_up_ff || config_update) ) begin
+			gateway_lookup_pending	<= 1;
+			gateway_lookup_timeout	<= 24'hffffff;
+		end
+
+		//Generate a query in response to an ARP cache miss
 		if(lookup_done && !lookup_hit) begin
 			query_en	<= 1;
 			query_ip	<= lookup_ip;
+		end
+
+		//Look up our gateway
+		else if(gateway_lookup_pending && (gateway_lookup_timeout == 0) ) begin
+			gateway_lookup_pending	<= 0;
+			query_en				<= 1;
+			query_ip				<= ip_config.gateway;
 		end
 
 	end
