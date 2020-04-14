@@ -343,6 +343,10 @@ module TCPProtocol #(
 	logic		rx_flag_fin			= 0;
 	logic		rx_flag_rst			= 0;
 
+	logic[15:0]	rx_segment_len		= 0;
+
+	logic		rx_socket_is_active	= 0;
+
 	logic[3:0]	rx_current_option	= 0;
 
 	always_ff @(posedge clk) begin
@@ -379,7 +383,6 @@ module TCPProtocol #(
 						rx_state	<= RX_STATE_IDLE;
 
 					else begin
-						//rx_l4_bus.start				<= 1;
 						rx_l4_bus.src_port			<= rx_l3_bus.data[31:16];
 						rx_l4_bus.dst_port			<= rx_l3_bus.data[15:0];
 						rx_state					<= RX_STATE_SEQ_HEADER;
@@ -473,15 +476,27 @@ module TCPProtocol #(
 						//current data is checksum and urgent pointer, we don't care about either
 						//so just ignore them
 
+						rx_segment_len	<= 0;
+
 						//No options, jump right into data
-						if(rx_data_offset <= 5)
-							rx_state	<= RX_STATE_DATA;
+						if(rx_data_offset <= 5) begin
+							rx_l4_bus.start	<= 1;
+							rx_state		<= RX_STATE_DATA;
+						end
 
 						//We have options
 						else begin
 							rx_state			<= RX_STATE_OPTION_HEADER;
 							rx_current_option	<= 6;
 						end
+
+						//Drop SYNs during a session, or non-SYN outside a session.
+						if( (lookup_hit && rx_flag_syn) || (!lookup_hit && !rx_flag_syn) )
+							rx_state	<= RX_STATE_IDLE;
+
+						//Remember if this is an active session or not
+						else
+							rx_socket_is_active	<= lookup_hit;
 
 					end
 				end
@@ -499,8 +514,10 @@ module TCPProtocol #(
 					else begin
 						rx_current_option	<= rx_current_option + 1;
 
-						if(rx_current_option == rx_data_offset)
-							rx_state	<= RX_STATE_DATA;
+						if(rx_current_option == rx_data_offset) begin
+							rx_state		<= RX_STATE_DATA;
+							rx_l4_bus.start	<= 1;
+						end
 					end
 
 				end
@@ -509,8 +526,28 @@ module TCPProtocol #(
 
 			RX_STATE_DATA: begin
 
-				//TODO: If the ACK number of this packet is too high, we're missing stuff that came in between.
-				//Drop this packet.
+				//If this is not an active socket, ignore frame content
+				if(!rx_socket_is_active) begin
+				end
+
+				//If the incoming sequence number doesn't match what we expect, drop it.
+				//Duplicate or re-ordered packet.
+				else if(rx_current_seq != state_rd_data.rx_seq) begin
+					rx_l4_bus.drop	<= 1;
+					rx_state		<= RX_STATE_IDLE;
+				end
+
+				//Valid data from a currently open socket.
+				//Forward to the application layer.
+				else begin
+					rx_l4_bus.data_valid	<= rx_l3_bus.data_valid;
+					rx_l4_bus.bytes_valid	<= rx_l3_bus.bytes_valid;
+					rx_l4_bus.data			<= rx_l3_bus.data;
+
+					if(rx_l3_bus.data_valid)
+						rx_segment_len		<= rx_segment_len + rx_l3_bus.bytes_valid;
+
+				end
 
 				if(rx_l3_bus.commit)
 					rx_state		<= RX_STATE_CHECKSUM;
@@ -520,9 +557,6 @@ module TCPProtocol #(
 			RX_STATE_CHECKSUM: begin
 
 				if(rx_checksum_expected == 16'h0000) begin
-
-					//TODO: commit data if any
-					//rx_l4_bus.commit	<= 1;
 
 					//SYN with no ACK: open new socket
 					if(rx_flag_syn && !rx_flag_ack) begin
@@ -552,20 +586,6 @@ module TCPProtocol #(
 							insert_headers		<= lookup_headers;
 							rx_state			<= RX_STATE_CREATE_SOCKET;
 						end
-
-					end
-
-					//ACK, packet is half open? We're now fully open
-					else if(rx_flag_ack && (state_rd_data.state == TCP_STATE_HALF_OPEN) ) begin
-
-						state_wr_en				<= 1;
-						state_wr_addr			<= lookup_sockid;
-						state_wr_data.tx_seq	<= state_rd_data.tx_seq + 1;
-						state_wr_data.rx_seq	<= rx_current_seq;
-						state_wr_data.tx_window	<= state_rd_data.tx_window;
-						state_wr_data.state		<= TCP_STATE_OPEN;
-
-						rx_state				<= RX_STATE_IDLE;
 
 					end
 
@@ -612,11 +632,65 @@ module TCPProtocol #(
 
 					end
 
-					//Any other flags: discard for now
-					else
+					//Half-open socket. Expect an ACK
+					else if(state_rd_data.state == TCP_STATE_HALF_OPEN) begin
+
+						//All good, now fully open
+						if(rx_flag_ack) begin
+							state_wr_en				<= 1;
+							state_wr_addr			<= lookup_sockid;
+							state_wr_data.tx_seq	<= state_rd_data.tx_seq + 1;
+							state_wr_data.rx_seq	<= rx_current_seq;
+							state_wr_data.tx_window	<= state_rd_data.tx_window;
+							state_wr_data.state		<= TCP_STATE_OPEN;
+						end
+
+						//silently discard anything without ACK bit set
+
+						rx_state					<= RX_STATE_IDLE;
+
+					end
+
+					//We had data. ACK it, and tell the app layer all is good.
+					else if(state_rd_data.state == TCP_STATE_OPEN) begin
+
+						if(rx_segment_len > 0) begin
+							rx_l4_bus.commit		<= 1;
+
+							//Update the state table
+							state_wr_en				<= 1;
+							state_wr_addr			<= lookup_sockid;
+							state_wr_data.tx_seq	<= state_rd_data.tx_seq;
+							state_wr_data.rx_seq	<= rx_current_seq + rx_segment_len;
+							state_wr_data.tx_window	<= state_rd_data.tx_window;
+							state_wr_data.state		<= TCP_STATE_OPEN;
+
+							//Send the ACK
+							wr_event.remote_ip		<= rx_l3_bus.src_ip;
+							wr_event.remote_port	<= lookup_headers.client_port;
+							wr_event.our_port		<= lookup_headers.server_port;
+							wr_event.flag_syn		<= 0;
+							wr_event.flag_ack		<= 1;
+							wr_event.flag_fin		<= 0;
+							wr_event.flag_rst		<= 0;
+							wr_event.seq			<= state_rd_data.tx_seq;
+							wr_event.ack			<= rx_current_seq + rx_segment_len;
+							event_wr_en				<= 1;
+
+						end
+
 						rx_state			<= RX_STATE_IDLE;
+					end
+
+					//Something unexpected. Drop it silently.
+					else begin
+						rx_l4_bus.drop		<= 1;
+						rx_state			<= RX_STATE_IDLE;
+					end
 
 				end
+
+				//Bad checksum, drop the packet
 				else begin
 					rx_l4_bus.drop		<= 1;
 					rx_state			<= RX_STATE_IDLE;
@@ -771,8 +845,8 @@ module TCPProtocol #(
 					0: 	tx_checksum_din	<= rd_event.remote_ip;
 					1:	tx_checksum_din	<= ip_config.address;
 					2: begin
-						tx_checksum_din			<= {8'h0, IP_PROTO_TCP, 16'd20 };	//min size, no options
-						tx_state				<= TX_STATE_EVENT_PORT_HEADER;
+						tx_checksum_din	<= {8'h0, IP_PROTO_TCP, 16'd20 };	//min size, no options
+						tx_state		<= TX_STATE_EVENT_PORT_HEADER;
 					end
 
 				endcase
@@ -788,34 +862,34 @@ module TCPProtocol #(
 				tx_l3_bus.protocol		<= IP_PROTO_TCP;
 				tx_l3_bus.dst_ip		<= rd_event.remote_ip;
 
-				data_valid_adv					<= 1;
-				bytes_valid_adv					<= 4;
-				tx_checksum_process				<= 1;
-				tx_checksum_din					<= { rd_event.our_port, rd_event.remote_port };
-				tx_state						<= TX_STATE_EVENT_SEQ;
+				data_valid_adv			<= 1;
+				bytes_valid_adv			<= 4;
+				tx_checksum_process		<= 1;
+				tx_checksum_din			<= { rd_event.our_port, rd_event.remote_port };
+				tx_state				<= TX_STATE_EVENT_SEQ;
 			end	//end TX_STATE_EVENT_PORT_HEADER
 
 			TX_STATE_EVENT_SEQ: begin
-				data_valid_adv					<= 1;
-				bytes_valid_adv					<= 4;
-				tx_checksum_process				<= 1;
-				tx_checksum_din					<= rd_event.seq;
-				tx_state						<= TX_STATE_EVENT_ACK;
+				data_valid_adv			<= 1;
+				bytes_valid_adv			<= 4;
+				tx_checksum_process		<= 1;
+				tx_checksum_din			<= rd_event.seq;
+				tx_state				<= TX_STATE_EVENT_ACK;
 			end	//end TX_STATE_EVENT_SEQ
 
 			TX_STATE_EVENT_ACK: begin
-				data_valid_adv					<= 1;
-				bytes_valid_adv					<= 4;
-				tx_checksum_process				<= 1;
-				tx_checksum_din					<= rd_event.ack;
-				tx_state						<= TX_STATE_EVENT_FLAGS;
+				data_valid_adv			<= 1;
+				bytes_valid_adv			<= 4;
+				tx_checksum_process		<= 1;
+				tx_checksum_din			<= rd_event.ack;
+				tx_state				<= TX_STATE_EVENT_FLAGS;
 			end	//end TX_STATE_EVENT_ACK
 
 			TX_STATE_EVENT_FLAGS: begin
-				data_valid_adv					<= 1;
-				bytes_valid_adv					<= 4;
-				tx_checksum_process				<= 1;
-				tx_checksum_din					<=
+				data_valid_adv			<= 1;
+				bytes_valid_adv			<= 4;
+				tx_checksum_process		<= 1;
+				tx_checksum_din			<=
 				{
 					4'd5,
 					7'h0,
@@ -826,25 +900,25 @@ module TCPProtocol #(
 					rd_event.flag_fin,
 					16'd1024					//TODO: proper window size!!!
 				};
-				tx_state						<= TX_STATE_EVENT_CHECKSUM_1;
+				tx_state				<= TX_STATE_EVENT_CHECKSUM_1;
 			end	//end TX_STATE_EVENT_FLAGS
 
 			TX_STATE_EVENT_CHECKSUM_1: begin
 				//wait for checksum computation
-				tx_state						<= TX_STATE_EVENT_CHECKSUM_2;
+				tx_state				<= TX_STATE_EVENT_CHECKSUM_2;
 			end	//end TX_STATE_EVENT_CHECKSUM_1
 
 			TX_STATE_EVENT_CHECKSUM_2: begin
-				tx_l3_bus.data_valid			<= 1;
-				tx_l3_bus.bytes_valid			<= 4;
-				tx_l3_bus.data					<= { tx_checksum, 16'h0 };
+				tx_l3_bus.data_valid	<= 1;
+				tx_l3_bus.bytes_valid	<= 4;
+				tx_l3_bus.data			<= { tx_checksum, 16'h0 };
 
-				tx_state						<= TX_STATE_EVENT_COMMIT;
+				tx_state				<= TX_STATE_EVENT_COMMIT;
 			end	//end TX_STATE_EVENT_CHECKSUM_2
 
 			TX_STATE_EVENT_COMMIT: begin
-				tx_l3_bus.commit				<= 1;
-				tx_state						<= TX_STATE_IDLE;
+				tx_l3_bus.commit		<= 1;
+				tx_state				<= TX_STATE_IDLE;
 			end	//end TX_STATE_EVENT_COMMIT
 
 		endcase
@@ -857,34 +931,22 @@ module TCPProtocol #(
 	ila_0 ila(
 		.clk(clk),
 		.probe0(rx_state),
-		.probe1(rx_flag_ack),
-		.probe2(rx_flag_rst),
-		.probe3(rx_flag_syn),
-		.probe4(rx_flag_fin),
-		.probe5(event_wr_en),
-		.probe6(wr_event),
-		.probe7(lookup_en),
-		.probe8(lookup_headers),
-		.probe9(lookup_done),
-		.probe10(lookup_hit),
-		.probe11(lookup_sockid),
-		.probe12(insert_en),
-		.probe13(insert_headers),
-		.probe14(insert_done),
-		.probe15(insert_fail),
-		.probe16(insert_sockid),
-		.probe17(state_wr_en),
-		.probe18(state_wr_addr),
-		.probe19(state_wr_data),
-		.probe20(state_rd_data),
+		.probe1(rx_l3_bus.data_valid),
+		.probe2(rx_l3_bus.bytes_valid),
+		.probe3(rx_l3_bus.data),
+		.probe4(lookup_done),
+		.probe5(lookup_hit),
+		.probe6(rx_socket_is_active),
+		.probe7(rx_current_seq),
+		.probe8(state_rd_data),
+		.probe9(rx_l4_bus.start),
+		.probe10(rx_l4_bus.drop),
+		.probe11(rx_l4_bus.commit),
+		.probe12(rx_l4_bus.data_valid),
+		.probe13(rx_l4_bus.bytes_valid),
+		.probe14(rx_l4_bus.data),
 
-		.probe21(port_check_en),
-		.probe22(port_check_num),
-		.probe23(port_check_is_open),
-
-		.probe24(open_port_table[8'ha1]),
-		.probe25(port_open_en),
-		.probe26(port_num)
+		.probe15(rx_segment_len)
 		);
 
 endmodule
