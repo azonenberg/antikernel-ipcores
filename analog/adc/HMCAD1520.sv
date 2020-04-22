@@ -161,23 +161,23 @@ module HMCAD1520(
 		ucode[1] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h0};
 
 		ucode[2] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h1};	//Powerdown cycle
-		ucode[3] <= {1'b0, 8'h00, 16'h0000, 1'h0, 1'h0};
+		ucode[3] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h0};
 
-		ucode[4] <= {1'b0, 8'h31, 16'h0001, 1'h0, 1'h0};	//Set mode to single channel
+		ucode[4] <= {1'b0, 8'h31, 16'h0001, 1'h1, 1'h0};	//Set mode to single channel
 
 		ucode[5] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h1};	//Powerdown cycle
-		ucode[6] <= {1'b0, 8'h00, 16'h0000, 1'h0, 1'h0};
+		ucode[6] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h0};
 
-		ucode[7] <= {1'b0, 8'h3a, 16'h0202, 1'h0, 1'h0};	//Select channel 1 on all ADCs
-		ucode[8] <= {1'b0, 8'h3b, 16'h0202, 1'h0, 1'h0};
+		ucode[7] <= {1'b0, 8'h3a, 16'h0202, 1'h1, 1'h0};	//Select channel 1 on all ADCs
+		ucode[8] <= {1'b0, 8'h3b, 16'h0202, 1'h1, 1'h0};
 
-		ucode[9] <= {1'b0, 8'h53, 16'h0000, 1'h0, 1'h0};	//??
+		ucode[9] <= {1'b0, 8'h53, 16'h0000, 1'h1, 1'h0};	//??
 
 		ucode[10] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h1};	//Powerdown cycle
-		ucode[11] <= {1'b0, 8'h00, 16'h0000, 1'h0, 1'h0};
+		ucode[11] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h0};
 
-		ucode[12] <= {1'b0, 8'h56, 16'h0008, 1'h0, 1'h0};	//??
-		ucode[13] <= {1'b0, 8'h30, 16'h00ff, 1'h0, 1'h0};	//??
+		ucode[12] <= {1'b0, 8'h56, 16'h0008, 1'h1, 1'h0};	//??
+		ucode[13] <= {1'b0, 8'h30, 16'h00ff, 1'h1, 1'h0};	//??
 	end
 
 	logic[3:0] ucode_addr = 0;
