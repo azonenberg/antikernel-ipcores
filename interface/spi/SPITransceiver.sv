@@ -39,7 +39,7 @@ module SPITransceiver(
 	input wire clk,
 	input wire[15:0] clkdiv,
 
-	//SPI niterface
+	//SPI interface
 	output logic spi_sck = 0,
 	output logic spi_mosi = 0,
 	input wire spi_miso,
