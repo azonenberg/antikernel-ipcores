@@ -58,10 +58,12 @@ module HMCAD1520(
 
 	//Control signals
 	output logic	pd			= 0,
-	output logic	rst_n		= 1
+	output logic	rst_n		= 1,
 
-	//output wire		pd,
-	//output wire		rst_n
+	//Interface to PLL (externally supplied)
+	output wire		lclk,		//1/2x sample clock
+	input wire		fast_clk,	//copy of LCLK
+	input wire		slow_clk	//1/8x sample clock
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -154,7 +156,7 @@ module HMCAD1520(
 		logic		pd;
 	} ucode_t;
 
-	ucode_t[13:0] ucode;
+	ucode_t[14:0] ucode;
 
 	initial begin
 		ucode[0] <= {1'b0, 8'h00, 16'h0000, 1'h0, 1'h0};	//Reset cycle
@@ -163,21 +165,23 @@ module HMCAD1520(
 		ucode[2] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h1};	//Powerdown cycle
 		ucode[3] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h0};
 
-		ucode[4] <= {1'b0, 8'h31, 16'h0001, 1'h1, 1'h0};	//Set mode to single channel
+		ucode[4] <= {1'b1, 8'h31, 16'h0001, 1'h1, 1'h0};	//Set mode to single channel
 
 		ucode[5] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h1};	//Powerdown cycle
 		ucode[6] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h0};
 
-		ucode[7] <= {1'b0, 8'h3a, 16'h0202, 1'h1, 1'h0};	//Select channel 1 on all ADCs
-		ucode[8] <= {1'b0, 8'h3b, 16'h0202, 1'h1, 1'h0};
+		ucode[7] <= {1'b1, 8'h3a, 16'h0202, 1'h1, 1'h0};	//Select channel 1 on all ADCs
+		ucode[8] <= {1'b1, 8'h3b, 16'h0202, 1'h1, 1'h0};
 
-		ucode[9] <= {1'b0, 8'h53, 16'h0000, 1'h1, 1'h0};	//??
+		ucode[9] <= {1'b1, 8'h53, 16'h0000, 1'h1, 1'h0};	//??
 
 		ucode[10] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h1};	//Powerdown cycle
 		ucode[11] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h0};
 
-		ucode[12] <= {1'b0, 8'h56, 16'h0008, 1'h1, 1'h0};	//??
-		ucode[13] <= {1'b0, 8'h30, 16'h00ff, 1'h1, 1'h0};	//??
+		ucode[12] <= {1'b1, 8'h56, 16'h0008, 1'h1, 1'h0};	//??
+		ucode[13] <= {1'b1, 8'h30, 16'h00ff, 1'h1, 1'h0};	//??
+
+		ucode[14] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h0};	//No-op at end of table
 	end
 
 	logic[3:0] ucode_addr = 0;
@@ -194,7 +198,7 @@ module HMCAD1520(
 		if(!rst_done) begin
 
 			count <= count + 1;
-			if(count == 1024) begin
+			if(count == 1023) begin
 				count		<= 0;
 
 				//Execute the next line of microcode
@@ -206,7 +210,7 @@ module HMCAD1520(
 
 				//Move to the next line
 				ucode_addr	<= ucode_addr + 1;
-				if(ucode_addr == 13)
+				if(ucode_addr == 14)
 					rst_done	<= 1;
 
 			end
@@ -214,128 +218,232 @@ module HMCAD1520(
 		end
 	end
 
-
-	/*
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Boot time initialization
-
-	logic[2:0] init_state	= 0;
-
-	wire	trig_out;
-
-	always_ff @(posedge ctl_clk) begin
-
-		reg_wr	<= 0;
-
-		case(init_state)
-
-			0: begin
-				if(rst_done && trig_out) begin
-					reg_wr		<= 1;
-					reg_addr	<= 8'h31;		//channel_num / clk_divide
-					reg_value	<= 16'h1;		//single channel, no clock divider
-
-					init_state	<= 1;
-				end
-			end
-
-			1: begin
-				if(reg_done) begin
-					reg_wr		<= 1;
-					reg_addr	<= 8'h3a;		//inp_sel_adc1/2
-					reg_value	<= 16'h0202;	//in1 / in1
-
-					init_state	<= 2;
-				end
-			end
-
-			2: begin
-				if(reg_done) begin
-					reg_wr		<= 1;
-					reg_addr	<= 8'h3b;		//inp_sel_adc3/4
-					reg_value	<= 16'h0202;	//in1 / in1
-
-					init_state	<= 3;
-				end
-			end
-
-			//powerdown again?
-
-		endcase
-
-	end
-	*/
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Input buffering
 
 	wire	lclk_raw;
-	wire	lclk;
-	DifferentialInputBuffer #(
+
+	IBUFDS #(
 		.IOSTANDARD("LVDS_25"),
-		.ODT(0)	//no ODT on INTEGRALSTICK clock input
-				//TODO: fix this for other boards
-	) ibuf_lclk(
-		.pad_in_p(lclk_p),
-		.pad_in_n(lclk_n),
-		.fabric_out(lclk_raw)
+		.IBUF_LOW_PWR("FALSE"),
+		.DIFF_TERM("FALSE") //no ODT on INTEGRALSTICK clock input
+							//TODO: fix this for other boards
+	) ibuf_lclk (
+		.I(lclk_p),
+		.IB(lclk_n),
+		.O(lclk_raw)
 	);
-	ClockBuffer bufh_lclk(.clkin(lclk_raw), .ce(1), .clkout(lclk));
+
+	ClockBuffer #(
+		.TYPE("GLOBAL"),
+		.CE("NO")
+	) bufg_lclk(
+		.clkin(lclk_raw),
+		.ce(1),
+		.clkout(lclk)
+	);
 
 	wire	fclk;
-	DifferentialInputBuffer #(
-		.IOSTANDARD("LVDS_25")
+
+	IBUFDS #(
+		.IOSTANDARD("LVDS_25"),
+		.IBUF_LOW_PWR("FALSE"),
+		.DIFF_TERM("TRUE")
 	) ibuf_fclk (
-		.pad_in_p(fclk_p),
-		.pad_in_n(fclk_n),
-		.fabric_out(fclk)
+		.I(fclk_p),
+		.IB(fclk_n),
+		.O(fclk)
 	);
 
 	wire[3:0]	data_a;
-	DifferentialInputBuffer #(
-		.WIDTH(4),
-		.IOSTANDARD("LVDS_25")
-	) ibuf_data_a(
-		.pad_in_p(data_a_p),
-		.pad_in_n(data_a_n),
-		.fabric_out(data_a)
-	);
-
 	wire[3:0]	data_b;
-	DifferentialInputBuffer #(
-		.WIDTH(4),
-		.IOSTANDARD("LVDS_25")
-	) ibuf_data_b(
-		.pad_in_p(data_b_p),
-		.pad_in_n(data_b_n),
-		.fabric_out(data_b)
-	);
+	for(genvar g=0; g<4; g++) begin
+		IBUFDS #(
+			.IOSTANDARD("LVDS_25"),
+			.IBUF_LOW_PWR("FALSE"),
+			.DIFF_TERM("TRUE")
+		) ibuf_a (
+			.I(data_a_p[g]),
+			.IB(data_a_n[g]),
+			.O(data_a[g])
+		);
+
+		IBUFDS #(
+			.IOSTANDARD("LVDS_25"),
+			.IBUF_LOW_PWR("FALSE"),
+			.DIFF_TERM("TRUE")
+		) ibuf_b (
+			.I(data_b_p[g]),
+			.IB(data_b_n[g]),
+			.O(data_b[g])
+		);
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Input data capture (4:1 serialization)
+	// Input data capture (8:1 SERDES)
 
-	//For now, assume all inputs inverted including FCLK
+	//Synchronize SERDES reset status into the RX local clock domain
+	wire		rst_done_sync;
+	ThreeStageSynchronizer sync_rst_done(
+		.clk_in(ctl_clk),
+		.din(rst_done),
+		.clk_out(slow_clk),
+		.dout(rst_done_sync)
+	);
+
+	//Reset all of the SERDES once the ADC is initialized
+	logic		serdes_reset		= 0;
+	logic[2:0]	serdes_reset_state	= 0;
+	always_ff @(posedge slow_clk) begin
+		case(serdes_reset_state)
+			0: begin
+				if(rst_done_sync) begin
+					serdes_reset_state	<= 1;
+					serdes_reset		<= 1;
+				end
+			end
+			1: 	serdes_reset_state	<= 2;
+			2:	serdes_reset_state	<= 3;
+			3: 	serdes_reset		<= 0;
+		endcase
+	end
+
+	logic		serdes_bitslip	= 0;
+
+	//SERDES for FCLK
+	wire[7:0]	fclk_data;
+	ISERDESE2 #(
+		.DATA_WIDTH(8),
+		.INTERFACE_TYPE("NETWORKING")
+	) iserdes_fclk (
+		.Q1(fclk_data[0]),
+		.Q2(fclk_data[1]),
+		.Q3(fclk_data[2]),
+		.Q4(fclk_data[3]),
+		.Q5(fclk_data[4]),
+		.Q6(fclk_data[5]),
+		.Q7(fclk_data[6]),
+		.Q8(fclk_data[7]),
+		.O(),
+		.SHIFTOUT1(),
+		.SHIFTOUT2(),
+		.D(fclk),
+		.DDLY(),
+		.CLK(fast_clk),
+		.CLKB(!fast_clk),
+		.CE1(1'b1),
+		.CE2(1'b1),
+		.RST(serdes_reset),
+		.CLKDIV(slow_clk),
+		.CLKDIVP(1'b0),
+		.OCLK(),
+		.OCLKB(),
+		.BITSLIP(serdes_bitslip),
+		.SHIFTIN1(1'b0),
+		.SHIFTIN2(1'b0),
+		.OFB(1'b0),
+		.DYNCLKDIVSEL(1'b0),		//TODO: clock inversion
+		.DYNCLKSEL(1'b0)
+	);
+
+	//Re-shuffle input data lanes into a format more amenable to ganged SERDES
+	//7 = oldest, 0 = newest
+	wire[7:0] rx_data = { data_a[0], data_b[0], data_a[1], data_b[1], data_a[2], data_b[2], data_a[3], data_b[3] };
+
+	wire[7:0] rx_samples[7:0];
+
+	for(genvar g=0; g<8; g++) begin
+		ISERDESE2 #(
+			.DATA_WIDTH(8),
+			.INTERFACE_TYPE("NETWORKING")
+		) iserdes_fclk (
+			.Q1(rx_samples[g][0]),
+			.Q2(rx_samples[g][1]),
+			.Q3(rx_samples[g][2]),
+			.Q4(rx_samples[g][3]),
+			.Q5(rx_samples[g][4]),
+			.Q6(rx_samples[g][5]),
+			.Q7(rx_samples[g][6]),
+			.Q8(rx_samples[g][7]),
+			.O(),
+			.SHIFTOUT1(),
+			.SHIFTOUT2(),
+			.D(rx_data[g]),
+			.DDLY(),
+			.CLK(fast_clk),
+			.CLKB(!fast_clk),
+			.CE1(1'b1),
+			.CE2(1'b1),
+			.RST(serdes_reset),
+			.CLKDIV(slow_clk),
+			.CLKDIVP(1'b0),
+			.OCLK(),
+			.OCLKB(),
+			.BITSLIP(serdes_bitslip),
+			.SHIFTIN1(1'b0),
+			.SHIFTIN2(1'b0),
+			.OFB(1'b0),
+			.DYNCLKDIVSEL(1'b0),		//TODO: clock inversion
+			.DYNCLKSEL(1'b0)
+		);
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Invert all data because of pin swapping
+
+	//TODO: make this configurable
+	logic[7:0] fclk_data_inv	= 0;
+	logic[7:0] rx_samples_inv[7:0];
+	always_ff @(posedge slow_clk) begin
+		fclk_data_inv	<= ~fclk_data;
+		for(integer i=0; i<8; i++)
+			rx_samples_inv[i]	<= ~rx_samples[i];
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Input data phase alignment
+
+	logic[7:0]	phase_window	= 0;
+	logic[7:0]	phase_errs		= 0;
+
+	always_ff @(posedge slow_clk) begin
+
+		serdes_bitslip	<= 0;
+
+		phase_window	<= phase_window + 1;
+
+		//Nominal synchronization in 8-bit mode is FCLK high for first half of the sample (bits 0-3)
+		//and low for the second half (bits 4-7)
+		if(fclk_data_inv != 8'h0f)
+			phase_errs	<= phase_errs + 1;
+
+		//At end of the window, if we have more than a handful of errors, trigger a bitslip
+		//Can't make the threshold too low because there's some latency in the bitslip and inversion path etc
+		if(phase_window == 8'hff) begin
+			phase_errs	<= 0;
+			if(phase_errs > 16)
+				serdes_bitslip	<= 1;
+		end
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug ILA
-	/*
+
 	ila_1 ila(
-		.clk(ctl_clk),
-		.probe0(rst_done),
-		.probe1(init_state),
-		.probe2(reg_state),
-		.probe3(reg_value),
-		.probe4(reg_wr),
-		.probe5(reg_addr),
-		.probe6(reg_done),
-		.probe7(shift_en),
-		.probe8(shift_done),
-		.probe9(tx_data),
-		.probe10(pd),
-		.probe11(rst_n),
-		.trig_out(trig_out),
-		.trig_out_ack(trig_out)
+		.clk(slow_clk),
+		.probe0(fclk_data_inv),
+		.probe1(phase_window),
+		.probe2(phase_errs),
+		.probe3(serdes_bitslip),
+		.probe4(rx_samples_inv[0]),
+		.probe5(rx_samples_inv[1]),
+		.probe6(rx_samples_inv[2]),
+		.probe7(rx_samples_inv[3]),
+		.probe8(rx_samples_inv[4]),
+		.probe9(rx_samples_inv[5]),
+		.probe10(rx_samples_inv[6]),
+		.probe11(rx_samples_inv[7])
 	);
-	*/
 
 endmodule
