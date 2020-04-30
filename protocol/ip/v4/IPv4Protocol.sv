@@ -626,7 +626,7 @@ module IPv4Protocol(
 
 				//Send last (potentially partial) block
 				else begin
-					tx_bytes_left			<= 0;					//not necessary as nothing checks it after this
+					tx_bytes_left			<= 0;				//not necessary as nothing checks it after this
 																//but makes debug traces cleaner
 					tx_l2_bus.bytes_valid	<= tx_bytes_left;
 					tx_state				<= TX_STATE_COMMIT;
