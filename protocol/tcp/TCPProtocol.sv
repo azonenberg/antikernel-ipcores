@@ -273,6 +273,12 @@ module TCPProtocol #(
 		.portb_dout(tx_state_rd_data)
 	);
 
+	//Pending writes to the socket state table
+	logic						tx_state_wr_en			= 0;
+	logic						tx_state_wr_en_pending	= 0;
+	logic[SOCKET_BITS-1:0]		tx_state_wr_addr		= 0;
+	tcpsocket_t					tx_state_wr_data;
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Aging timer for sockets
 
@@ -408,6 +414,22 @@ module TCPProtocol #(
 		state_wr_en				<= 0;
 
 		port_check_en			<= 0;
+
+		//Writeback to state table from the TX subsystem
+		if(tx_state_wr_en || tx_state_wr_en_pending) begin
+
+			//States in which no write can be issued
+			if(rx_state < RX_STATE_CHECKSUM) begin
+				state_wr_en			<= 1;
+				state_wr_addr		<= tx_state_wr_addr;
+				state_wr_data		<= tx_state_wr_data;
+				tx_state_wr_en_pending	<= 0;
+			end
+
+			//Might be issuing a write this cycle, do the pending write later
+			else
+				tx_state_wr_en_pending	<= 1;
+		end
 
 		case(rx_state)
 
@@ -1006,6 +1028,8 @@ module TCPProtocol #(
 		tx_l3_bus.data_valid	<= data_valid_adv;
 		tx_l3_bus.data			<= tx_checksum_din;
 
+		tx_state_wr_en			<= 0;
+
 		case(tx_state)
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1150,6 +1174,13 @@ module TCPProtocol #(
 			end	//end TX_STATE_DATA_BODY
 
 			TX_STATE_DATA_COMMIT: begin
+
+				//Bump the sequence number of the current socket
+				tx_state_wr_en			<= 1;
+				tx_state_wr_data		<= tx_state_rd_data;
+				tx_state_wr_addr		<= tx_rd_header.sockid;
+				tx_state_wr_data.tx_seq	<= tx_state_rd_data.tx_seq + tx_rd_header.payload_len;
+
 				tx_l3_bus.commit		<= 1;
 				tx_state				<= TX_STATE_IDLE;
 			end	//end TX_STATE_DATA_COMMIT
@@ -1270,9 +1301,9 @@ module TCPProtocol #(
 		.probe5(tx_state_rd_data),
 		.probe6(tx_header_fifo_empty),
 		.probe7(tx_header_fifo_wr),
-		.probe8(tx_l4_bus.start),
-		.probe9(tx_l4_bus.commit),
-		.probe10(tx_checksum_din),
+		.probe8(state_wr_addr),
+		.probe9(tx_state_wr_addr),
+		.probe10(tx_l4_bus),
 		.probe11(tx_checksum_process),
 		.probe12(tx_l3_bus.data_valid),
 		.probe13(tx_l3_bus.bytes_valid),
@@ -1281,11 +1312,8 @@ module TCPProtocol #(
 		.probe16(tx_data_fifo_rd_bytes_valid),
 		.probe17(tx_data_fifo_rd_data),
 		.probe18(tx_count),
-		.probe19(rx_l3_bus.start),
-		.probe20(rx_l3_bus.protocol_is_tcp),
-		.probe21(body_checksum),
-		.probe22(tx_l4_bus),
-		.probe23(tx_data_fifo_rsize)
+		.probe19(tx_state_wr_en),
+		.probe20(state_wr_en)
 		);
 
 endmodule
