@@ -45,36 +45,48 @@ module TCPIPStack #(
 	parameter ARP_CACHE_LINES_PER_WAY	= 128,
 	parameter ARP_CACHE_WAYS			= 4,
 	parameter TX_PACKET_DEPTH			= 8192,
-	parameter TX_HEADER_DEPTH			= 512
+	parameter TX_HEADER_DEPTH			= 512,
+	parameter TCP_RAM_DEPTH				= 8192,
+	localparam TCP_ADDR_BITS			= $clog2(TCP_RAM_DEPTH)
 ) (
 
 	//Core clock
-	input wire					clk_ipstack,
+	input wire						clk_ipstack,
 
 	//Configuration
-	input wire					link_up,
-	input wire IPv4Config		ip_config,
-	input wire[47:0]			mac_address,				//clk_ipstack domain
-	input wire					promisc_mode,
-	input wire					config_update,				//assert when ip_config/mac_addr/promisc_mode are changed
+	input wire						link_up,
+	input wire IPv4Config			ip_config,
+	input wire[47:0]				mac_address,				//clk_ipstack domain
+	input wire						promisc_mode,
+	input wire						config_update,				//assert when ip_config/mac_addr/promisc_mode are changed
 
 	//Link to the MAC
-	input wire					mac_rx_clk,
-	input wire EthernetRxBus	mac_rx_bus,
-	input wire					mac_tx_clk,
-	output EthernetTxBus		mac_tx_bus,
-	input wire					mac_tx_ready,
+	input wire						mac_rx_clk,
+	input wire EthernetRxBus		mac_rx_bus,
+	input wire						mac_tx_clk,
+	output EthernetTxBus			mac_tx_bus,
+	input wire						mac_tx_ready,
 
 	//UDP socket interface
-	output UDPv4RxBus			udpv4_rx_bus,
-	input UDPv4TxBus			udpv4_tx_bus,
+	output UDPv4RxBus				udpv4_rx_bus,
+	input UDPv4TxBus				udpv4_tx_bus,
 
 	//TCP socket interface
-	output TCPv4RxBus			tcpv4_rx_bus,
-	input TCPv4TxBus			tcpv4_tx_bus,
-	input wire					tcp_port_open_en,
-	input wire					tcp_port_close_en,
-	input wire portnum_t		tcp_port_num
+	output TCPv4RxBus				tcpv4_rx_bus,
+	input TCPv4TxBus				tcpv4_tx_bus,
+	input wire						tcp_port_open_en,
+	input wire						tcp_port_close_en,
+	input wire portnum_t			tcp_port_num,
+
+	//RAM interface for TCP transmit buffers
+	input wire						ram_ready,
+	output wire						ram_wr_en,
+	output wire[TCP_ADDR_BITS-1:0]	ram_wr_addr,
+	output wire[511:0]				ram_wr_data,
+	input wire						ram_rd_en,
+	input wire[TCP_ADDR_BITS-1:0]	ram_rd_addr,
+	input wire[511:0]				ram_rd_data,
+	input wire						ram_rd_valid
 
 	//TODO: performance counters
 );
@@ -303,6 +315,21 @@ module TCPIPStack #(
 		.port_open_en(tcp_port_open_en),
 		.port_close_en(tcp_port_close_en),
 		.port_num(tcp_port_num)
+	);
+
+	TCPTransmitBufferManager #(
+		.RAM_DEPTH(TCP_RAM_DEPTH)
+	) tcp_bufmgr (
+		.clk(clk_ipstack),
+
+		.ram_ready(ram_ready),
+		.ram_wr_en(ram_wr_en),
+		.ram_wr_addr(ram_wr_addr),
+		.ram_wr_data(ram_wr_data),
+		.ram_rd_en(ram_rd_en),
+		.ram_rd_addr(ram_rd_addr),
+		.ram_rd_data(ram_rd_data),
+		.ram_rd_valid(ram_rd_valid)
 	);
 
 endmodule

@@ -53,6 +53,7 @@ typedef struct packed
 
 	logic[15:0]	payload_len;	//size of upper layer payload only
 								//(not the IP datagram length)
+	logic[15:0]	sockid;			//ID of the socket that this segment came from
 
 	logic		commit;			//asserted for one cycle at end of packet if checksum was good
 	logic		drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
@@ -61,6 +62,7 @@ typedef struct packed
 typedef struct packed
 {
 	logic		start;
+	logic[15:0]	sockid;
 	logic[31:0]	dst_ip;
 	portnum_t	src_port;
 	portnum_t	dst_port;
@@ -69,7 +71,8 @@ typedef struct packed
 	logic[2:0]	bytes_valid;
 	logic[31:0]	data;
 
-	logic[15:0]	payload_len;
+	//payload length is calculated at commit time, since we can't send the packet without a checksum anyway
+	//no need to make application layer precompute it
 
 	logic		commit;
 	logic		drop;

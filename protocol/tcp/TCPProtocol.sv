@@ -187,9 +187,10 @@ module TCPProtocol #(
 
 	typedef enum logic[1:0]
 	{
-		TCP_STATE_HALF_OPEN	=	0,	//Sent SYN+ACK, no ACK yet
-		TCP_STATE_OPEN		=	1,	//Socket is ready for data
-		TCP_STATE_CLOSED	=	2	//Socket is closed, discard traffic from it
+		TCP_STATE_UNUSED	=	0,	//Not yet used
+		TCP_STATE_HALF_OPEN	=	1,	//Sent SYN+ACK, no ACK yet
+		TCP_STATE_OPEN		=	2,	//Socket is ready for data
+		TCP_STATE_CLOSED	=	3	//Socket is closed, discard traffic from it
 	} tcpstate_t;
 
 	typedef struct packed
@@ -206,14 +207,30 @@ module TCPProtocol #(
 
 	tcpsocket_t					state_rd_data;
 
+	//Headers of outbound data
+	typedef struct packed
+	{
+		logic		valid;	//if false, discard the packet
+		logic[15:0]	sockid;
+		logic[31:0]	dst_ip;
+		portnum_t	src_port;
+		portnum_t	dst_port;
+		logic[15:0]	payload_len;	//size of app layer payload only
+		logic[15:0] body_checksum;
+	} tx_header_t;
+
+	tx_header_t	tx_rd_header;
+
+	//First bank of socket memory (used by RX logic)
 	MemoryMacro #(
 		.WIDTH($bits(tcpsocket_t)),
 		.DEPTH(MAX_SOCKETS),
 		.USE_BLOCK(1),
 		.OUT_REG(1),
 		.DUAL_PORT(1),
-		.TRUE_DUAL(0)
-	) sockstate_mem (
+		.TRUE_DUAL(0),
+		.INIT_VALUE({$bits(tcpsocket_t){1'b0}})
+	) sockstate_rx_mem (
 		.porta_clk(clk),
 		.porta_en(state_wr_en),
 		.porta_addr(state_wr_addr),
@@ -227,6 +244,33 @@ module TCPProtocol #(
 		.portb_we(1'b0),
 		.portb_din(),
 		.portb_dout(state_rd_data)
+	);
+
+	//Second bank (used by TX logic)
+	logic		tx_header_fifo_rd_en_ff = 0;
+	tcpsocket_t	tx_state_rd_data;
+	MemoryMacro #(
+		.WIDTH($bits(tcpsocket_t)),
+		.DEPTH(MAX_SOCKETS),
+		.USE_BLOCK(1),
+		.OUT_REG(1),
+		.DUAL_PORT(1),
+		.TRUE_DUAL(0),
+		.INIT_VALUE({$bits(tcpsocket_t){1'b0}})
+	) sockstate_tx_mem (
+		.porta_clk(clk),
+		.porta_en(state_wr_en),
+		.porta_addr(state_wr_addr),
+		.porta_we(state_wr_en),
+		.porta_din(state_wr_data),
+		.porta_dout(),
+
+		.portb_clk(clk),
+		.portb_en(tx_header_fifo_rd_en_ff),
+		.portb_addr(tx_rd_header.sockid),
+		.portb_we(1'b0),
+		.portb_din(),
+		.portb_dout(tx_state_rd_data)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -383,6 +427,7 @@ module TCPProtocol #(
 						rx_state	<= RX_STATE_IDLE;
 
 					else begin
+						rx_l4_bus.src_ip			<= rx_l3_bus.src_ip;
 						rx_l4_bus.src_port			<= rx_l3_bus.data[31:16];
 						rx_l4_bus.dst_port			<= rx_l3_bus.data[15:0];
 						rx_state					<= RX_STATE_SEQ_HEADER;
@@ -445,6 +490,9 @@ module TCPProtocol #(
 						rx_current_window	<= rx_l3_bus.data[15:0];
 						rx_data_offset		<= rx_l3_bus.data[31:28];
 
+						//Upper layer payload length
+						rx_l4_bus.payload_len <= rx_l3_bus.payload_len - {rx_l3_bus.data[31:28], 2'b0};
+
 						//27:25 reserved
 						//24 = NS (not supported)
 						//23 = CWR (not supported)
@@ -495,8 +543,10 @@ module TCPProtocol #(
 							rx_state	<= RX_STATE_IDLE;
 
 						//Remember if this is an active session or not
-						else
+						else begin
 							rx_socket_is_active	<= lookup_hit;
+							rx_l4_bus.sockid	<= lookup_sockid;
+						end
 
 					end
 				end
@@ -742,6 +792,136 @@ module TCPProtocol #(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// FIFO of segments waiting to be sent
+
+	wire[15:0]	body_checksum;
+
+	InternetChecksum32bit body_csum(
+		.clk(clk),
+		.load(1'b0),
+		.reset(tx_l4_bus.start),
+		.process(tx_l4_bus.data_valid),
+		.din(tx_l4_bus.data),
+		.csumout(),
+		.sumout(body_checksum)
+	);
+
+	//Data waiting to be sent
+	logic		tx_data_fifo_wr		= 0;
+	logic[34:0] tx_data_fifo_wdata	= 0;
+	wire[11:0]	tx_data_fifo_wsize;
+
+	logic		tx_data_fifo_rd		= 0;
+	wire[2:0]	tx_data_fifo_rd_bytes_valid;
+	wire[31:0]	tx_data_fifo_rd_data;
+	wire[11:0]	tx_data_fifo_rsize;
+	SingleClockFifo #(
+		.WIDTH(35),
+		.DEPTH(2048),
+		.USE_BLOCK(1),
+		.OUT_REG(1)
+	) tx_data_fifo (
+		.clk(clk),
+		.wr(tx_data_fifo_wr),
+		.din(tx_data_fifo_wdata),
+		.rd(tx_data_fifo_rd),
+		.dout({tx_data_fifo_rd_bytes_valid, tx_data_fifo_rd_data}),
+		.overflow(),
+		.underflow(),
+		.empty(),
+		.full(),
+		.rsize(tx_data_fifo_rsize),
+		.wsize(tx_data_fifo_wsize),
+		.reset()
+	);
+
+	tx_header_t	tx_wr_header;
+	logic		tx_header_fifo_wr		= 0;
+
+	wire		tx_header_fifo_empty;
+	logic		tx_header_fifo_rd_en	= 0;
+
+	//FIFO of outbound headers
+	SingleClockFifo #(
+		.WIDTH($bits(tx_header_t)),
+		.DEPTH(64),
+		.USE_BLOCK(0),
+		.OUT_REG(1)
+	) tx_header_fifo (
+		.clk(clk),
+		.wr(tx_header_fifo_wr),
+		.din(tx_wr_header),
+		.rd(tx_header_fifo_rd_en),
+		.dout(tx_rd_header),
+		.overflow(),
+		.underflow(),
+		.empty(tx_header_fifo_empty),
+		.full(),
+		.rsize(),
+		.wsize(),
+		.reset()
+	);
+
+	enum logic[1:0]
+	{
+		FIFO_STATE_IDLE	= 0,
+		FIFO_STATE_DATA	= 1,
+		FIFO_STATE_DROP	= 2
+	} fifo_state;
+
+	always_ff @(posedge clk) begin
+
+		tx_data_fifo_wr				<= 0;
+		tx_header_fifo_wr			<= 0;
+
+		case(fifo_state)
+
+			FIFO_STATE_IDLE: begin
+
+				//Initialize things when a new packet starts
+				if(tx_l4_bus.start) begin
+					tx_wr_header.payload_len	<= 0;
+					tx_wr_header.dst_ip			<= tx_l4_bus.dst_ip;
+					tx_wr_header.dst_port		<= tx_l4_bus.dst_port;
+					tx_wr_header.src_port		<= tx_l4_bus.src_port;
+					tx_wr_header.sockid			<= tx_l4_bus.sockid;
+					tx_wr_header.valid			<= 1;	//assume OK to start
+					fifo_state					<= FIFO_STATE_DATA;
+				end
+
+			end	//end FIFO_STATE_IDLE
+
+			FIFO_STATE_DATA: begin
+
+				if(tx_l4_bus.data_valid) begin
+					tx_data_fifo_wr				<= 1;
+					tx_data_fifo_wdata			<= { tx_l4_bus.bytes_valid, tx_l4_bus.data };
+					tx_wr_header.payload_len	<= tx_wr_header.payload_len + tx_l4_bus.bytes_valid;
+				end
+
+				//Abort if we run out of buffer space or the app layer wants us to drop
+				if(tx_l4_bus.drop || (tx_data_fifo_wsize < 2) ) begin
+					tx_wr_header.valid			<= 0;
+					fifo_state					<= FIFO_STATE_DROP;
+				end
+
+				//Done
+				if(tx_l4_bus.commit) begin
+					tx_header_fifo_wr			<= 1;
+					tx_wr_header.body_checksum	<= body_checksum;
+					fifo_state					<= FIFO_STATE_IDLE;
+				end
+			end	//end FIFO_STATE_DATA
+
+			//TODO: handle this
+			FIFO_STATE_DROP: begin
+			end	//end FIFO_STATE_DROP
+
+		endcase
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX checksum computation
 
 	//TODO: we can precompute the IP pseudo-header for each socket, as it remains static
@@ -750,13 +930,14 @@ module TCPProtocol #(
 	logic		tx_checksum_process	= 0;
 	logic[31:0]	tx_checksum_din		= 0;
 	wire[15:0]	tx_checksum;
+	logic		tx_checksum_load	= 0;
 
 	logic[2:0]	bytes_valid_adv		= 0;
 	logic		data_valid_adv		= 0;
 
 	InternetChecksum32bit tx_csum(
 		.clk(clk),
-		.load(1'b0),
+		.load(tx_checksum_load),
 		.reset(tx_checksum_reset),
 		.process(tx_checksum_process),
 		.din(tx_checksum_din),
@@ -765,20 +946,32 @@ module TCPProtocol #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TX side
+	// TX segment generation
 
-	enum logic[3:0]
+	enum logic[4:0]
 	{
-		TX_STATE_IDLE					= 4'h0,
-		TX_STATE_EVENT_POP				= 4'h1,
-		TX_STATE_EVENT_HEADER_CHECKSUM	= 4'h2,
-		TX_STATE_EVENT_PORT_HEADER		= 4'h3,
-		TX_STATE_EVENT_SEQ				= 4'h4,
-		TX_STATE_EVENT_ACK				= 4'h5,
-		TX_STATE_EVENT_FLAGS			= 4'h6,
-		TX_STATE_EVENT_CHECKSUM_1		= 4'h7,
-		TX_STATE_EVENT_CHECKSUM_2		= 4'h8,
-		TX_STATE_EVENT_COMMIT			= 4'h9
+		TX_STATE_IDLE					= 5'h00,
+		TX_STATE_EVENT_POP				= 5'h01,
+		TX_STATE_EVENT_HEADER_CHECKSUM	= 5'h02,
+		TX_STATE_EVENT_PORT_HEADER		= 5'h03,
+		TX_STATE_EVENT_SEQ				= 5'h04,
+		TX_STATE_EVENT_ACK				= 5'h05,
+		TX_STATE_EVENT_FLAGS			= 5'h06,
+		TX_STATE_EVENT_CHECKSUM_1		= 5'h07,
+		TX_STATE_EVENT_CHECKSUM_2		= 5'h08,
+		TX_STATE_EVENT_COMMIT			= 5'h09,
+
+		TX_STATE_DATA_POP				= 5'h0a,
+		TX_STATE_DATA_LOOKUP			= 5'h0b,
+		TX_STATE_DATA_HEADER_CHECKSUM	= 5'h0c,
+		TX_STATE_DATA_PORT_HEADER		= 5'h0d,
+		TX_STATE_DATA_SEQ				= 5'h0e,
+		TX_STATE_DATA_ACK				= 5'h0f,
+		TX_STATE_DATA_FLAGS				= 5'h10,
+		TX_STATE_DATA_CHECKSUM_1		= 5'h11,
+		TX_STATE_DATA_CHECKSUM_2		= 5'h12,
+		TX_STATE_DATA_BODY				= 5'h13,
+		TX_STATE_DATA_COMMIT			= 5'h14
 	} tx_state = TX_STATE_IDLE;
 
 	logic[10:0]	tx_count;
@@ -791,9 +984,14 @@ module TCPProtocol #(
 	 */
 	always_ff @(posedge clk) begin
 
-		event_rd_en			<= 0;
-		tx_checksum_reset	<= 0;
-		tx_checksum_process	<= 0;
+		event_rd_en				<= 0;
+		tx_checksum_reset		<= 0;
+		tx_checksum_process		<= 0;
+
+		tx_data_fifo_rd			<= 0;
+		tx_header_fifo_rd_en	<= 0;
+		tx_header_fifo_rd_en_ff	<= tx_header_fifo_rd_en;
+		tx_checksum_load		<= 0;
 
 		tx_l3_bus.start			<= 0;
 		tx_l3_bus.data_valid	<= 0;
@@ -815,12 +1013,146 @@ module TCPProtocol #(
 
 			TX_STATE_IDLE: begin
 
-				if( (event_rsize > 1) || (event_rsize == 1 ** !event_rd_en) ) begin
+				//Events have higher priority, they're tiny
+				if( (event_rsize > 1) || (event_rsize == 1 && !event_rd_en) ) begin
 					event_rd_en	<= 1;
 					tx_state	<= TX_STATE_EVENT_POP;
 				end
 
+				//If no events, send data
+				else if(!tx_header_fifo_empty) begin
+					tx_header_fifo_rd_en	<= 1;
+					tx_state				<= TX_STATE_DATA_POP;
+				end
+
 			end	//end TX_STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// DATA - send a segment with actual content
+
+			//POP - wait for the header to pop so we know what we're dealing with
+			TX_STATE_DATA_POP: begin
+				if(!tx_header_fifo_rd_en) begin
+
+					//Load the checksum with the frame data
+					tx_checksum_load	<= 1;
+					tx_checksum_din		<= tx_rd_header.body_checksum;
+					tx_count			<= 0;
+					tx_state			<= TX_STATE_DATA_HEADER_CHECKSUM;
+
+				end
+			end	//end TX_STATE_DATA_POP
+
+			TX_STATE_DATA_HEADER_CHECKSUM: begin
+
+				tx_checksum_process 	<= 1;
+				tx_count				<= tx_count + 1;
+
+				case(tx_count)
+
+					0: 	tx_checksum_din	<= tx_rd_header.dst_ip;
+					1:	tx_checksum_din	<= ip_config.address;
+					2: begin
+						tx_checksum_din[31:16]	<= {8'h0, IP_PROTO_TCP};
+						tx_checksum_din[15:0]	<= tx_rd_header.payload_len + 20;
+						tx_state				<= TX_STATE_DATA_PORT_HEADER;
+					end
+
+				endcase
+
+			end	//end TX_STATE_DATA_HEADER_CHECKSUM
+
+			TX_STATE_DATA_PORT_HEADER: begin
+
+				//Start the outbound IP packet
+				tx_l3_bus.start			<= 1;
+				tx_l3_bus.payload_len	<= tx_rd_header.payload_len + 20;
+				tx_l3_bus.protocol		<= IP_PROTO_TCP;
+				tx_l3_bus.dst_ip		<= tx_rd_header.dst_ip;
+
+				data_valid_adv			<= 1;
+				bytes_valid_adv			<= 4;
+				tx_checksum_process		<= 1;
+				tx_checksum_din			<= { tx_rd_header.src_port, tx_rd_header.dst_port };
+				tx_state				<= TX_STATE_DATA_SEQ;
+			end	//end TX_STATE_DATA_PORT_HEADER
+
+			TX_STATE_DATA_SEQ: begin
+				data_valid_adv			<= 1;
+				bytes_valid_adv			<= 4;
+				tx_checksum_process		<= 1;
+				tx_checksum_din			<= tx_state_rd_data.tx_seq;
+				tx_state				<= TX_STATE_DATA_ACK;
+			end	//end TX_STATE_DATA_SEQ
+
+			TX_STATE_DATA_ACK: begin
+				data_valid_adv			<= 1;
+				bytes_valid_adv			<= 4;
+				tx_checksum_process		<= 1;
+				tx_checksum_din			<= tx_state_rd_data.rx_seq;
+				tx_state				<= TX_STATE_DATA_FLAGS;
+			end	//end TX_STATE_EVENT_ACK
+
+			TX_STATE_DATA_FLAGS: begin
+				data_valid_adv			<= 1;
+				bytes_valid_adv			<= 4;
+				tx_checksum_process		<= 1;
+				tx_checksum_din			<=
+				{
+					4'd5,
+					7'h0,
+					1'b1,	//ack
+					1'b1,	//psh
+					1'b0,	//rst
+					1'b0,	//syn
+					1'b0,	//fin
+					16'd1024			//TODO: proper window size!!!
+				};
+				tx_state				<= TX_STATE_DATA_CHECKSUM_1;
+			end	//end TX_STATE_DATA_FLAGS
+
+			TX_STATE_DATA_CHECKSUM_1: begin
+				//wait for checksum computation, start reading frame data
+				tx_data_fifo_rd			<= 1;
+				tx_count				<= 0;
+				tx_state				<= TX_STATE_DATA_CHECKSUM_2;
+			end	//end TX_STATE_DATA_CHECKSUM_1
+
+			TX_STATE_DATA_CHECKSUM_2: begin
+				tx_l3_bus.data_valid	<= 1;
+				tx_l3_bus.bytes_valid	<= 4;
+				tx_l3_bus.data			<= { tx_checksum, 16'h0 };
+
+				if( (tx_count + 4) < tx_rd_header.payload_len)
+					tx_data_fifo_rd		<= 1;
+
+				tx_state				<= TX_STATE_DATA_BODY;
+			end	//end TX_STATE_DATA_CHECKSUM_2
+
+			//Actual frame content
+			TX_STATE_DATA_BODY: begin
+
+				tx_l3_bus.data_valid	<= 1;
+				tx_l3_bus.bytes_valid	<= tx_data_fifo_rd_bytes_valid;
+				tx_l3_bus.data			<= tx_data_fifo_rd_data;
+
+				//Keep track of how many bytes have already been sent
+				tx_count				<= tx_count + tx_data_fifo_rd_bytes_valid;
+
+				//We already have 4 bytes in flight being fetched.
+				//If those are the last, don't read more
+				if( (tx_count + 4) < tx_rd_header.payload_len)
+					tx_data_fifo_rd		<= 1;
+
+				//If we do not have another word being read, commit next cycle
+				else
+					tx_state			<= TX_STATE_DATA_COMMIT;
+			end	//end TX_STATE_DATA_BODY
+
+			TX_STATE_DATA_COMMIT: begin
+				tx_l3_bus.commit		<= 1;
+				tx_state				<= TX_STATE_IDLE;
+			end	//end TX_STATE_DATA_COMMIT
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// EVENT - send a header-only segment
@@ -930,23 +1262,30 @@ module TCPProtocol #(
 
 	ila_0 ila(
 		.clk(clk),
-		.probe0(rx_state),
-		.probe1(rx_l3_bus.data_valid),
-		.probe2(rx_l3_bus.bytes_valid),
-		.probe3(rx_l3_bus.data),
-		.probe4(lookup_done),
-		.probe5(lookup_hit),
-		.probe6(rx_socket_is_active),
-		.probe7(rx_current_seq),
-		.probe8(state_rd_data),
-		.probe9(rx_l4_bus.start),
-		.probe10(rx_l4_bus.drop),
-		.probe11(rx_l4_bus.commit),
-		.probe12(rx_l4_bus.data_valid),
-		.probe13(rx_l4_bus.bytes_valid),
-		.probe14(rx_l4_bus.data),
-
-		.probe15(rx_segment_len)
+		.probe0(tx_state),
+		.probe1(tx_header_fifo_rd_en),
+		.probe2(tx_rd_header),
+		.probe3(tx_checksum_load),
+		.probe4(tx_header_fifo_rd_en_ff),
+		.probe5(tx_state_rd_data),
+		.probe6(tx_header_fifo_empty),
+		.probe7(tx_header_fifo_wr),
+		.probe8(tx_l4_bus.start),
+		.probe9(tx_l4_bus.commit),
+		.probe10(tx_checksum_din),
+		.probe11(tx_checksum_process),
+		.probe12(tx_l3_bus.data_valid),
+		.probe13(tx_l3_bus.bytes_valid),
+		.probe14(tx_l3_bus.data),
+		.probe15(tx_data_fifo_rd),
+		.probe16(tx_data_fifo_rd_bytes_valid),
+		.probe17(tx_data_fifo_rd_data),
+		.probe18(tx_count),
+		.probe19(rx_l3_bus.start),
+		.probe20(rx_l3_bus.protocol_is_tcp),
+		.probe21(body_checksum),
+		.probe22(tx_l4_bus),
+		.probe23(tx_data_fifo_rsize)
 		);
 
 endmodule

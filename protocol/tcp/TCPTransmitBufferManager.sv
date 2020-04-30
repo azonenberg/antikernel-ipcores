@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -32,27 +32,28 @@
 /**
 	@brief Buffer manager for the TCP transmit state
 
-	Does not contain any buffer memory, just keeps track of metadata.
+	Stores segment metadata internally, bulk segment data externally.
 
-	When sending a TCP segment:
-		Set sockid, seq appropriately for the packet being sent
-		Assert alloc_en
+	Assumes a 512-bit / 64 byte RAM bus, which is typical for a DDR3 SODIMM.
  */
 module TCPTransmitBufferManager #(
-	parameter BUFFER_DEPTH	= 8192,
-	parameter SOCKET_BITS	= 11
+	parameter	RAM_DEPTH		= 8192,
+
+	localparam	RAM_ADDR_BITS	= $clog2(RAM_DEPTH)
 )(
-	input wire					clk,
+	input wire						clk,
 
-	//Stack-facing interface
-	output logic				booting	= 1,
-	input wire					alloc_en,
-	input wire[SOCKET_BITS-1:0]	sockid,
-	input wire[31:0]			seq,
+	//RAM interface
+	input wire						ram_ready,
+	output logic					ram_wr_en		= 0,
+	output logic[RAM_ADDR_BITS-1:0]	ram_wr_addr		= 0,
+	output logic[511:0]				ram_wr_data		= 0,
+	output logic					ram_rd_en		= 0,
+	output logic[RAM_ADDR_BITS-1:0]	ram_rd_addr		= 0,
+	input wire[511:0]				ram_rd_data,
+	input wire						ram_rd_valid
 
-	//External memory interface
-	output logic				ram_en	= 0,
-	output logic				ram_wr	= 0
+	//Sending frames
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
