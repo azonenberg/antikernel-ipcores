@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -30,16 +30,9 @@
 ***********************************************************************************************************************/
 
 /**
-	@file
-	@author Andrew D. Zonenberg
-	@brief Wrapper around SingleClockFifo for allowing arbitrary sized input (1-4 bytes per clock)
+	@brief Converts a stream of bytes to a stream of 32-bit words
  */
-module ByteInputFifo #(
-	parameter DEPTH 		= 512,
-	localparam ADDR_BITS 	= $clog2(DEPTH),
-	parameter USE_BLOCK 	= 1,
-	parameter OUT_REG 		= 1
-)(
+module ByteToWordConverter(
 	input wire					clk,
 	input wire					wr,
 	input wire[31:0]			din,
@@ -47,70 +40,92 @@ module ByteInputFifo #(
 	input wire					flush,			//push din_temp into the fifo
 												//(must not be same cycle as wr)
 
-	input wire					rd,
-	output wire[31:0]			dout,
+	input wire					reset,
 
-	output wire					overflow,
-	output wire					underflow,
-
-	output wire					empty,
-	output wire					full,
-
-	output logic[ADDR_BITS:0]	rsize,
-	output wire[ADDR_BITS:0]	wsize,
-
-	input wire					reset
+	output logic				dout_valid,
+	output logic[2:0]			dout_bytes_valid,
+	output logic[31:0]			dout
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Width conversion
+	// Input logic
 
-	wire		fifo_wr;
-	wire[31:0]	fifo_din;
+	logic[23:0]					din_temp	= 0;
+	logic[1:0]					temp_valid	= 0;
 
-	ByteToWordConverter converter (
-		.clk(clk),
-		.wr(wr),
-		.din(din),
-		.bytes_valid(bytes_valid),
-		.flush(flush),
-		.reset(reset),
+	logic[55:0]					din_merged;
+	logic[2:0]					din_merged_valid;
 
-		.dout_valid(fifo_wr),
-		.dout_bytes_valid(),	//for now don't track this
-		.dout(fifo_din)
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The actual FIFO
-
-	wire[ADDR_BITS:0] rsize_raw;
 	always_comb begin
-		if(temp_valid > 0)
-			rsize = rsize_raw + 1;
-		else
-			rsize = rsize_raw;
+
+		if(wr) begin
+
+			din_merged_valid	= temp_valid + bytes_valid;
+
+			case(temp_valid)
+				0: din_merged	= { din, 24'h0 };
+				1: din_merged	= { din_temp[23:16], din, 16'h0 };
+				2: din_merged	= { din_temp[23:8], din, 8'h0 };
+				3: din_merged	= { din_temp[23:0], din };
+			endcase
+
+		end
+
+		else begin
+			din_merged_valid	= temp_valid;
+
+			case(temp_valid)
+				0: din_merged	= { 56'h0 };
+				1: din_merged	= { din_temp[23:16], 48'h0 };
+				2: din_merged	= { din_temp[23:8], 40'h0 };
+				3: din_merged	= { din_temp[23:0], 32'h0 };
+			endcase
+		end
+
+		//We have 4 bytes, push them into the fifo
+		if(din_merged_valid >= 4) begin
+			dout_valid			= 1;
+			dout_bytes_valid	= 4;
+			dout				= din_merged[55:24];
+		end
+
+		//When flushing, push whatever we have
+		else if(flush && (din_merged_valid > 0) ) begin
+			dout_valid			= 1;
+			dout_bytes_valid	= din_merged_valid;
+			dout				= { din_temp, 8'h0 };
+		end
+
+		//Not pushing
+		else begin
+			dout_valid			= 0;
+			dout_bytes_valid	= 0;
+			dout				= 0;
+		end
+
 	end
 
+	always_ff @(posedge clk) begin
 
-	SingleClockFifo #(
-		.WIDTH(32),
-		.DEPTH(DEPTH),
-		.USE_BLOCK(USE_BLOCK),
-		.OUT_REG(OUT_REG)
-	) fifo (
-		.clk(clk),
-		.wr(fifo_wr),
-		.din(fifo_din),
-		.rd(rd),
-		.dout(dout),
-		.underflow(underflow),
-		.overflow(overflow),
-		.empty(empty),
-		.full(full),
-		.rsize(rsize_raw),
-		.wsize(wsize),
-		.reset(reset)
-	);
+		//Save the bytes that didn't get pushed
+		if(dout_valid) begin
+			temp_valid	<= din_merged_valid - 4;
+			din_temp	<= din_merged[23:0];
+		end
+
+		//Not enough to push, just save the existing stuff
+		else begin
+			din_temp	<= din_merged[55:32];
+			temp_valid	<= din_merged_valid;
+		end
+
+		//After a flush or reset we have nothing left in the temporary buffer
+		if(flush || reset) begin
+			din_temp	<= 0;
+			temp_valid	<= 0;
+		end
+
+	end
+
 
 endmodule
