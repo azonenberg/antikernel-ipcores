@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -36,7 +36,9 @@
 	Input is fed to the checksum 32 bits at a time.
  */
 
-module InternetChecksum32bit(
+module InternetChecksum32bit#(
+	parameter RESET_VALUE = 16'h0000
+)(
 	input wire			clk,
 	input wire			load,
 	input wire			reset,
@@ -57,8 +59,8 @@ module InternetChecksum32bit(
 	always @(posedge clk) begin
 
 		if(reset) begin
-			sumout	<= 16'h0;
-			csumout	<= 16'hffff;
+			sumout	<= RESET_VALUE;
+			csumout	<= ~RESET_VALUE;
 		end
 
 		else if(load) begin
