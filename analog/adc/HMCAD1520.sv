@@ -29,6 +29,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "HMCAD1520.svh"
+
 /**
 	@brief Controller for a HMCAD1520 ADC
  */
@@ -63,7 +65,10 @@ module HMCAD1520(
 	//Interface to PLL (externally supplied)
 	output wire		lclk,		//1/2x sample clock
 	input wire		fast_clk,	//copy of LCLK
-	input wire		slow_clk	//1/8x sample clock
+	input wire		slow_clk,	//1/8x sample clock
+
+	//Waveform data (synchronous to slow_clk)
+	h1520bus_t		sample_bus = {$bits(h1520bus_t){1'b0}}
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -393,11 +398,10 @@ module HMCAD1520(
 
 	//TODO: make this configurable
 	logic[7:0] fclk_data_inv	= 0;
-	logic[7:0] rx_samples_inv[7:0];
 	always_ff @(posedge slow_clk) begin
 		fclk_data_inv	<= ~fclk_data;
 		for(integer i=0; i<8; i++)
-			rx_samples_inv[i]	<= ~rx_samples[i];
+			sample_bus.samples[i]	<= ~rx_samples[i];
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -426,24 +430,5 @@ module HMCAD1520(
 		end
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
-
-	ila_1 ila(
-		.clk(slow_clk),
-		.probe0(fclk_data_inv),
-		.probe1(phase_window),
-		.probe2(phase_errs),
-		.probe3(serdes_bitslip),
-		.probe4(rx_samples_inv[0]),
-		.probe5(rx_samples_inv[1]),
-		.probe6(rx_samples_inv[2]),
-		.probe7(rx_samples_inv[3]),
-		.probe8(rx_samples_inv[4]),
-		.probe9(rx_samples_inv[5]),
-		.probe10(rx_samples_inv[6]),
-		.probe11(rx_samples_inv[7])
-	);
 
 endmodule
