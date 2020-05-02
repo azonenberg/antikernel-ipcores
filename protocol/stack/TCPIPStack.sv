@@ -44,8 +44,8 @@ module TCPIPStack #(
 	parameter CLK_IPSTACK_HZ			= 125000000,		//used for aging timers
 	parameter ARP_CACHE_LINES_PER_WAY	= 128,
 	parameter ARP_CACHE_WAYS			= 4,
-	parameter TX_PACKET_DEPTH			= 8192,
-	parameter TX_HEADER_DEPTH			= 512,
+	parameter TX_PACKET_DEPTH			= 4096,
+	parameter TX_HEADER_DEPTH			= 256,
 	parameter TCP_RAM_DEPTH				= 8192,
 	localparam TCP_ADDR_BITS			= $clog2(TCP_RAM_DEPTH)
 ) (

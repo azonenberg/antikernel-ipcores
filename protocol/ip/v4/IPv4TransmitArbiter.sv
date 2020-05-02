@@ -38,7 +38,7 @@
 	@brief	Arbiter between IPv4 layer-4 protocols
  */
 module IPv4TransmitArbiter #(
-	parameter FIFO_DEPTH	=	4096
+	parameter FIFO_DEPTH	=	1024
 )(
 	input wire	clk,
 

@@ -1291,6 +1291,7 @@ module TCPProtocol #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug stuff
 
+	/*
 	ila_0 ila(
 		.clk(clk),
 		.probe0(tx_state),
@@ -1314,6 +1315,6 @@ module TCPProtocol #(
 		.probe18(tx_count),
 		.probe19(tx_state_wr_en),
 		.probe20(state_wr_en)
-		);
+		);*/
 
 endmodule
