@@ -68,7 +68,7 @@ module HMCAD1520(
 	input wire		slow_clk,	//1/8x sample clock
 
 	//Waveform data (synchronous to slow_clk)
-	h1520bus_t		sample_bus = {$bits(h1520bus_t){1'b0}}
+	output h1520bus_t	sample_bus = {$bits(h1520bus_t){1'b0}}
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -161,7 +161,7 @@ module HMCAD1520(
 		logic		pd;
 	} ucode_t;
 
-	ucode_t[14:0] ucode;
+	ucode_t[15:0] ucode;
 
 	initial begin
 		ucode[0] <= {1'b0, 8'h00, 16'h0000, 1'h0, 1'h0};	//Reset cycle
@@ -186,7 +186,10 @@ module HMCAD1520(
 		ucode[12] <= {1'b1, 8'h56, 16'h0008, 1'h1, 1'h0};	//??
 		ucode[13] <= {1'b1, 8'h30, 16'h00ff, 1'h1, 1'h0};	//??
 
+		//ucode[14] <= {1'b1, 8'h25, 16'h0040, 1'h1, 1'h0};	//full scale ramp test pattern
+
 		ucode[14] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h0};	//No-op at end of table
+		ucode[15] <= {1'b0, 8'h00, 16'h0000, 1'h1, 1'h0};	//No-op at end of table
 	end
 
 	logic[3:0] ucode_addr = 0;
@@ -215,7 +218,7 @@ module HMCAD1520(
 
 				//Move to the next line
 				ucode_addr	<= ucode_addr + 1;
-				if(ucode_addr == 14)
+				if(ucode_addr == 15)
 					rst_done	<= 1;
 
 			end
@@ -321,14 +324,14 @@ module HMCAD1520(
 		.DATA_WIDTH(8),
 		.INTERFACE_TYPE("NETWORKING")
 	) iserdes_fclk (
-		.Q1(fclk_data[0]),
-		.Q2(fclk_data[1]),
-		.Q3(fclk_data[2]),
-		.Q4(fclk_data[3]),
-		.Q5(fclk_data[4]),
-		.Q6(fclk_data[5]),
-		.Q7(fclk_data[6]),
-		.Q8(fclk_data[7]),
+		.Q1(fclk_data[7]),
+		.Q2(fclk_data[6]),
+		.Q3(fclk_data[5]),
+		.Q4(fclk_data[4]),
+		.Q5(fclk_data[3]),
+		.Q6(fclk_data[2]),
+		.Q7(fclk_data[1]),
+		.Q8(fclk_data[0]),
 		.O(),
 		.SHIFTOUT1(),
 		.SHIFTOUT2(),
@@ -362,14 +365,14 @@ module HMCAD1520(
 			.DATA_WIDTH(8),
 			.INTERFACE_TYPE("NETWORKING")
 		) iserdes_fclk (
-			.Q1(rx_samples[g][0]),
-			.Q2(rx_samples[g][1]),
-			.Q3(rx_samples[g][2]),
-			.Q4(rx_samples[g][3]),
-			.Q5(rx_samples[g][4]),
-			.Q6(rx_samples[g][5]),
-			.Q7(rx_samples[g][6]),
-			.Q8(rx_samples[g][7]),
+			.Q1(rx_samples[g][7]),
+			.Q2(rx_samples[g][6]),
+			.Q3(rx_samples[g][5]),
+			.Q4(rx_samples[g][4]),
+			.Q5(rx_samples[g][3]),
+			.Q6(rx_samples[g][2]),
+			.Q7(rx_samples[g][1]),
+			.Q8(rx_samples[g][0]),
 			.O(),
 			.SHIFTOUT1(),
 			.SHIFTOUT2(),
