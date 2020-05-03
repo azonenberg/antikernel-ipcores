@@ -57,6 +57,10 @@ typedef struct packed
 
 	logic		commit;			//asserted for one cycle at end of packet if checksum was good
 	logic		drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
+
+	//Socket state notifications, asserted for one cycle when something happens to a socket
+	logic		open;
+	logic		close;
 } TCPv4RxBus;
 
 typedef struct packed
@@ -76,6 +80,7 @@ typedef struct packed
 
 	logic		commit;
 	logic		drop;
+
 } TCPv4TxBus;
 
 `endif

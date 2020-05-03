@@ -409,6 +409,8 @@ module TCPProtocol #(
 		rx_l4_bus.data_valid	<= 0;
 		rx_l4_bus.commit		<= 0;
 		rx_l4_bus.drop			<= 0;
+		rx_l4_bus.close			<= 0;
+		rx_l4_bus.open			<= 0;
 
 		event_wr_en				<= 0;
 		state_wr_en				<= 0;
@@ -686,6 +688,8 @@ module TCPProtocol #(
 						state_wr_data.tx_window	<= state_rd_data.tx_window;
 						state_wr_data.state		<= TCP_STATE_CLOSED;
 
+						rx_l4_bus.close			<= 1;
+
 						rx_state				<= RX_STATE_IDLE;
 
 					end
@@ -702,6 +706,8 @@ module TCPProtocol #(
 						state_wr_data.tx_window	<= state_rd_data.tx_window;
 						state_wr_data.state		<= TCP_STATE_CLOSED;
 
+						rx_l4_bus.close			<= 1;
+
 					end
 
 					//Half-open socket. Expect an ACK
@@ -715,6 +721,8 @@ module TCPProtocol #(
 							state_wr_data.rx_seq	<= rx_current_seq;
 							state_wr_data.tx_window	<= state_rd_data.tx_window;
 							state_wr_data.state		<= TCP_STATE_OPEN;
+
+							rx_l4_bus.open			<= 1;
 						end
 
 						//silently discard anything without ACK bit set
