@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -31,97 +31,149 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief SPI slave-mode transceiver based on oversampling.
+	@brief SPI host-mode transceiver
 
-	clk frequency must be at least 4x SCK frequency.
+	Does not manage chip select signals, the parent code is responsible for doing this as needed.
  */
-module SPISlave(
-	input wire			clk,
+module SPIHostInterface(
 
-	input wire			spi_mosi,
-	input wire			spi_sck,
-	input wire			spi_cs_n,
-	output logic		spi_miso = 0,
+	//Clocking
+	input wire clk,
+	input wire[15:0]	clkdiv,
 
-	output wire			cs_falling,
+	//SPI interface
+	output logic		spi_sck = 0,
+	output logic		spi_mosi = 0,
+	input wire			spi_miso,
+
+	//Control interface
+	input wire			shift_en,
+	output logic		shift_done = 0,
 	input wire[7:0]		tx_data,
-	input wire			tx_data_valid,
-	output logic[7:0]	rx_data			= 0,
-	output logic		rx_data_valid	= 0
-	);
+	output reg[7:0]		rx_data = 0
+    );
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Parameter declarations
+
+	//Indicates which edge of SCK the remote end samples data on.
+	parameter SAMPLE_EDGE = "RISING";
+
+	//Indicates which edge of SCK the local end samples data on
+	//NORMAL = same as remote
+	//INVERTED = opposite
+	parameter LOCAL_EDGE = "NORMAL";
+
+	//Set true to gate transitions on rx_data during a shift operation
+	//and only update when shift_done goes high. Adds one cycle of latency
+	parameter CHANGE_ON_DONE	= 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Synchronize all of the inputs to our local clock domain
+	// Main state machine
 
-	wire	spi_mosi_sync;
-	wire	spi_sck_sync;
-	wire	spi_cs_n_sync;
+	logic		active		= 0;
+	logic[3:0]	count		= 0;
+	logic[14:0]	clkcount	= 0;
 
-	ThreeStageSynchronizer #(.IN_REG(0)) sync_mosi (
-		.clk_in(clk),
-		.din(spi_mosi),
-		.clk_out(clk),
-		.dout(spi_mosi_sync));
+	logic[6:0]	tx_shreg		= 0;
 
-	ThreeStageSynchronizer #(.IN_REG(0)) sync_sck (
-		.clk_in(clk),
-		.din(spi_sck),
-		.clk_out(clk),
-		.dout(spi_sck_sync));
+	logic[7:0]	rx_shreg		= 0;
+	logic		shift_done_adv	= 0;
 
-	ThreeStageSynchronizer #(.IN_REG(0)) sync_cs_n (
-		.clk_in(clk),
-		.din(spi_cs_n),
-		.clk_out(clk),
-		.dout(spi_cs_n_sync));
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Detect falling CS# edge and use this to (synchronously) reset byte indexing etc
-
-	logic	spi_cs_n_ff	= 1;
-	logic	spi_sck_ff = 0;
-
-	always_ff @(posedge clk) begin
-		spi_cs_n_ff	<= spi_cs_n_sync;
-		spi_sck_ff	<= spi_sck_sync;
-	end
-
-	assign	cs_falling = (spi_cs_n_ff && !spi_cs_n_sync);
-	wire	sck_rising = (!spi_sck_ff && spi_sck_sync);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Transceiver logic
-
-	logic[2:0] nbit = 0;
-	logic[7:0] rx_temp = 0;
-	logic[7:0] tx_temp = 0;
-
-	always_comb
-		spi_miso	= tx_temp[7];
-
-	always_ff @(posedge clk) begin
-
-		rx_data_valid	<= 0;
-
-		if(cs_falling) begin
-			nbit		<= 0;
-			rx_temp		<= 0;
-			tx_temp		<= tx_data;
-		end
-
-		if(sck_rising) begin
-			nbit		<= nbit + 1'h1;
-			rx_temp		<= {rx_temp[6:0], spi_mosi_sync};
-			tx_temp		<= {tx_temp[6:0], 1'b0 };
-
-			if(nbit == 7) begin
-				rx_data			<= {rx_temp[6:0], spi_mosi_sync};
-				rx_data_valid	<= 1;
+	//Optionally: Only update output at end of a shift operation
+	generate
+		if(CHANGE_ON_DONE) begin
+			always @(posedge clk) begin
+				shift_done		<= 0;
+				if(shift_done_adv) begin
+					rx_data		<= rx_shreg;
+					shift_done	<= 1;
+				end
 			end
 		end
 
-		if(tx_data_valid)
-			tx_temp		<= tx_data;
+		else begin
+			always @(*) begin
+				rx_data		<= rx_shreg;
+				shift_done	<= shift_done_adv;
+			end
+		end
+	endgenerate
+
+	initial begin
+		if( (SAMPLE_EDGE != "RISING") && (SAMPLE_EDGE != "FALLING") ) begin
+			$fatal("ERROR: Invalid sample edge in SPIHostInterface");
+		end
+	end
+
+	logic almost_done	= 0;
+	always_ff @(posedge clk) begin
+		shift_done_adv	<= 0;
+
+		//Wait for a start request
+		if(shift_en) begin
+			active		<= 1;
+			clkcount	<= 0;
+
+			if(SAMPLE_EDGE == "FALLING") begin
+				count	<= 1;
+				spi_sck <= 1;
+			end
+			else begin
+				count	<= 0;
+				spi_sck <= 0;
+			end
+
+			spi_mosi <= tx_data[7];
+			tx_shreg <= tx_data[6:0];
+		end
+
+		//Toggle processing
+		else if(active) begin
+			clkcount <= clkcount + 15'h1;
+			if(clkcount == clkdiv[15:1]) begin
+
+				//Reset the counter and toggle the clock
+				clkcount <= 0;
+				spi_sck <= !spi_sck;
+
+				//Make the done flag wait half a bit period if necessary
+				if(almost_done) begin
+					spi_sck			<= 0;
+					shift_done_adv	<= 1;
+					active			<= 0;
+					almost_done		<= 0;
+				end
+
+				//ACTIVE EDGE
+				else if( (spi_sck && (SAMPLE_EDGE == "RISING")) || (!spi_sck && (SAMPLE_EDGE == "FALLING")) ) begin
+					spi_mosi <= tx_shreg[6];
+
+					tx_shreg <= {tx_shreg[5:0], 1'b0};
+
+					if(LOCAL_EDGE == "INVERTED")
+						rx_shreg <= {rx_shreg[6:0], spi_miso};
+
+				end
+
+				//INACTIVE EDGE
+				else begin
+					count <= count + 4'h1;
+
+					if(LOCAL_EDGE == "NORMAL")
+						rx_shreg <= {rx_shreg[6:0], spi_miso};
+
+					//Stop on the last inactive edge
+					if( (count == 'd8) ) begin
+						spi_sck		<= 0;
+						almost_done	<= 1;
+					end
+
+				end
+
+			end
+		end
+
 	end
 
 endmodule
