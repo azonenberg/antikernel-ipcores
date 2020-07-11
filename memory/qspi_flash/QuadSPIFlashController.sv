@@ -132,7 +132,7 @@ module QuadSPIFlashController #(
 	reg[7:0]	spi_tx_data		= 0;
 	wire[7:0]	spi_rx_data;
 
-	SPITransceiver #(
+	SPIHostInterface #(
 		.SAMPLE_EDGE("RISING"),
 		.LOCAL_EDGE("INVERTED"),
 		.CHANGE_ON_DONE(1)
