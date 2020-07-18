@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -35,7 +35,7 @@
  */
 module IODelayCalibration(
 
-	//Reference clock (always 200 MHz for now)
+	//Reference clock (always 200 or 400 MHz for now)
 	input wire refclk
 	);
 
@@ -44,7 +44,7 @@ module IODelayCalibration(
 
 	logic			delay_reset = 1;
 
-	//Minimum reset pulse for Kintex-7 is 52 ns or about 11 clocks at 200 MHz.
+	//Minimum reset pulse for Kintex-7 is 52 ns or about 11 clocks at 200 MHz / 22 clocks at 400 MHz.
 	//Do 32 clocks just to be safe
 	logic[4:0]		reset_count	= 1;
 	always_ff @(posedge refclk) begin

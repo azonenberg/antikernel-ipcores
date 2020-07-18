@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -38,6 +38,9 @@
 module IODelayBlock #(
 	parameter WIDTH = 16,
 
+	parameter CAL_FREQ		= 200,		//IDELAYCTRL reference frequency (MHz)
+										//For now, only support 200/400 MHz, not 300
+
 	parameter INPUT_DELAY	= 100,		//picoseconds
 	parameter OUTPUT_DELAY	= 100,		//picoseconds
 	parameter DIRECTION		= "INPUT",	//INPUT or OUTPUT only support for now (no IO mode yet)
@@ -58,12 +61,13 @@ module IODelayBlock #(
 	for(genvar i=0; i<WIDTH; i++) begin
 
 		//PTV-calibrated delays for 7 series
-		//For now, we only support fixed delays and assume the reference clock is 200 MHz
-		//(300/400 MHz refclk only supported in -2 and -3 speed grades for 7 series)
+		//For now, we only support fixed delays
+		//300/400 MHz refclk only supported in -2 and -3 speed grades for 7 series!
 		//Delays for artix7 and kintex7 are the same
 		`ifdef XILINX_7SERIES
 
-			localparam tap_size				= 78;	//78.125 ps per tap at 200 MHz
+			localparam tap_size				= (CAL_FREQ == 400) ? 39 : 78;	//39.0625 ps per tap at 400 MHz
+																			//78.125 ps per tap at 200 MHz
 			localparam input_delay_taps 	= INPUT_DELAY / tap_size;
 			localparam output_delay_taps	= INPUT_DELAY / tap_size;
 
@@ -130,9 +134,9 @@ module IODelayBlock #(
 			//Print stats
 			initial begin
 				if(i == 0) begin
-					$info("INFO: Target input delay for IODelayBlock is %d ps, actual is %d",
+					$info("INFO: Target input delay for IODelayBlock %m is %d ps, actual is %d",
 						INPUT_DELAY, input_delay_taps * tap_size);
-					$info("INFO: Target output delay for IODelayBlock is %d ps, actual is %d",
+					$info("INFO: Target output delay for IODelayBlock %m is %d ps, actual is %d",
 						OUTPUT_DELAY, input_delay_taps * tap_size);
 				end
 			end
