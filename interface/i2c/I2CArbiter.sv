@@ -61,11 +61,10 @@ module I2CArbiter #(
 	logic[PORT_BITS-1:0]	selected_port	= 0;
 
 	//Transmit side mux
-	integer i;
 	always_comb begin
 
 		//clear unused ports
-		for(i=0; i<NUM_PORTS; i=i+1)
+		for(integer i=0; i<NUM_PORTS; i++)
 			driver_cout[i]	<= {$bits(i2c_out_t){1'b0}};
 		txvr_cin			<= {$bits(i2c_in_t){1'b0}};
 
@@ -78,7 +77,6 @@ module I2CArbiter #(
 	//Arbitration
 	logic[NUM_PORTS-1:0]	pending	= 0;
 	logic[PORT_BITS-1:0]	rr_port	= 0;
-	integer j;
 	always_ff @(posedge clk) begin
 
 		//Clear flags
@@ -111,7 +109,7 @@ module I2CArbiter #(
 
 		//Arbitration step 2: lowest numbered port wins
 		else if(pending) begin
-			for(j=0; j<NUM_PORTS; j=j+1) begin
+			for(integer j=0; j<NUM_PORTS; j++) begin
 
 				//If we already activated another port, don't ACK another
 				if(port_active) begin

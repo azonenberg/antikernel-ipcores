@@ -33,6 +33,7 @@
 `include "IPv4Bus.svh"
 `include "TCPv4Bus.svh"
 `include "IPProtocols.svh"
+`include "SocketBus.svh"
 
 /**
 	@brief The TCP protocol implementation
