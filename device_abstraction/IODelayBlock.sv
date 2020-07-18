@@ -93,7 +93,7 @@ module IODelayBlock #(
 					.IDELAY_VALUE(input_delay_taps),
 					.HIGH_PERFORMANCE_MODE("FALSE"),		//TODO: decide when to enable
 					.SIGNAL_PATTERN(IS_CLOCK ? "CLOCK" : "DATA"),
-					.REFCLK_FREQUENCY(200),					//TODO: Make configurable
+					.REFCLK_FREQUENCY(CAL_FREQ),
 					.CINVCTRL_SEL("FALSE"),
 					.PIPE_SEL("FALSE")
 				) idelayblock (
