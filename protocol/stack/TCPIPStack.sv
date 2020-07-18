@@ -54,7 +54,7 @@ module TCPIPStack #(
 	input wire						clk_ipstack,
 
 	//Configuration
-	input wire						link_up,
+	input wire						link_up,					//mac_rx_clk domain
 	input wire IPv4Config			ip_config,
 	input wire[47:0]				mac_address,				//clk_ipstack domain
 	input wire						promisc_mode,
@@ -90,6 +90,18 @@ module TCPIPStack #(
 
 	//TODO: performance counters
 );
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Synchronize link-up state into the IP stack clock domain
+
+	wire	link_up_sync;
+
+	ThreeStageSynchronizer sync_link_up(
+		.clk_in(mac_rx_clk),
+		.din(link_up),
+		.clk_out(clk_ipstack),
+		.dout(link_up_sync)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Synchronize MAC address to the TX clock domain for sending frames
@@ -215,7 +227,7 @@ module TCPIPStack #(
 	) arp_mgr (
 		.clk(clk_ipstack),
 
-		.link_up(link_up),
+		.link_up(link_up_sync),
 		.config_update(config_update),
 		.ip_config(ip_config),
 
