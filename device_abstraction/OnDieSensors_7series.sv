@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -55,7 +55,10 @@ module OnDieSensors_7series #(
 	//External analog input values
 	//Full scale = 1V
 	output logic[191:0]	ext_in			= 0,	//ADn = n*12 +: 12
-	output logic		ext_update		= 0
+	output logic		ext_update		= 0,
+
+	//Native die temperature (raw ADC code, used by MIG)
+	output logic[11:0]	die_temp_native	= 0
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -196,10 +199,11 @@ module OnDieSensors_7series #(
 			//In fixed point, this is ((ADC * 0x1F7.F9) / 4096) - 0x111.26
 			3: begin
 				if(xadc_ready) begin
-					mult_en		<= 1;
-					mult_a		<= xadc_dout[15:4];	//ignore four LSBs
-					mult_b		<= 32'h1F7F9;
-					xadc_state	<= 4;
+					mult_en			<= 1;
+					mult_a			<= xadc_dout[15:4];	//ignore four LSBs
+					die_temp_native	<= xadc_dout[15:4];
+					mult_b			<= 32'h1F7F9;
+					xadc_state		<= 4;
 				end
 			end
 
