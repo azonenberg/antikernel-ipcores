@@ -75,61 +75,121 @@ module OnDieSensors_7series #(
 	wire		xadc_busy;
 	logic		xadc_reset		= 1;
 
-	XADC #(
-		.INIT_40(16'h2000),		//average 16 samples continously
-		.INIT_41(16'h20F0),		//continuous sampling mode, calibrate everything
-		.INIT_42(16'h0A00),		//Not powered down, DCLK = clk_noc/10
-		.INIT_43(16'h0000),		//factory test
-		.INIT_44(16'h0000),		//factory test
-		.INIT_45(16'h0000),		//factory test
-		.INIT_46(16'h0000),		//factory test
-		.INIT_47(16'h0000),		//factory test
-		.INIT_48(16'h4701),		//VCCBRAM, VCCAUX, VCCINT, temp, cal
-		.INIT_49(EXT_IN_ENABLE),//bitmask of enabled external channels
-		.INIT_4A(16'h4700),		//do averaging on all selected channels
-		.INIT_4B(EXT_IN_ENABLE),//do averaging on all external channels in use
-		.INIT_4C(16'h0000),		//internal sensors unipolar
-		.INIT_4D(16'h0000),		//external inputs unipolar
-		.INIT_4E(16'h0000),		//no additional settling time
-		.INIT_4F(16'h0000),		//no additional settling time
-		.INIT_50(16'hb5ed),		//temp alarm +85C
-		.INIT_51(16'h5999),		//vccint alarm 1.05V
-		.INIT_52(16'hA147),		//vccaux alarm 1.89V
-		.INIT_53(16'hdddd),		//thermal shutdown at 125C
-		.INIT_54(16'ha93a),		//reset temp alarm at 60C
-		.INIT_55(16'h5111),		//vccint alarm 0.95V
-		.INIT_56(16'h91eb),		//vccaux alarm 1.71V
-		.INIT_57(16'hae4e),		//reset thermal shutdown at 70C
-		.INIT_58(16'h5999),		//vccbram alarm 1.05V
-		//59 - 5b are alarm thresholds for zynq PS, ignored for now
-		//TODO: specify them on zynq
-		.INIT_5C(16'h5111)		//vccbram alarm 0.95V
-	) xadc (
-		.DI(xadc_din),
-		.DO(xadc_dout),
-		.DADDR(xadc_addr),
-		.DEN(xadc_en),
-		.DWE(xadc_we),
-		.DCLK(clk),
-		.DRDY(xadc_ready),
-		.RESET(xadc_reset),
-		.CONVST(1'b0),
-		.CONVSTCLK(1'b0),
-		.VP(1'b0),
-		.VN(1'b0),
-		.VAUXP(vin_p),
-		.VAUXN(vin_n),
-		.ALM(xadc_alarm),
-		.OT(xadc_overheat),
-		.MUXADDR(),				//no external mux
-		.CHANNEL(),
-		.EOC(),
-		.EOS(),
-		.BUSY(xadc_busy),
-		.JTAGLOCKED(),			//ignore jtag stuff, we assume its not in use
-		.JTAGMODIFIED(),
-		.JTAGBUSY()
+	if(EXT_IN_ENABLE == 0) begin
+		XADC #(
+			.INIT_40(16'h2000),		//average 16 samples continously
+			.INIT_41(16'h20F0),		//continuous sampling mode, calibrate everything
+			.INIT_42(16'h0A00),		//Not powered down, DCLK = clk_noc/10
+			.INIT_43(16'h0000),		//factory test
+			.INIT_44(16'h0000),		//factory test
+			.INIT_45(16'h0000),		//factory test
+			.INIT_46(16'h0000),		//factory test
+			.INIT_47(16'h0000),		//factory test
+			.INIT_48(16'h4701),		//VCCBRAM, VCCAUX, VCCINT, temp, cal
+			.INIT_49(EXT_IN_ENABLE),//bitmask of enabled external channels
+			.INIT_4A(16'h4700),		//do averaging on all selected channels
+			.INIT_4B(EXT_IN_ENABLE),//do averaging on all external channels in use
+			.INIT_4C(16'h0000),		//internal sensors unipolar
+			.INIT_4D(16'h0000),		//external inputs unipolar
+			.INIT_4E(16'h0000),		//no additional settling time
+			.INIT_4F(16'h0000),		//no additional settling time
+			.INIT_50(16'hb5ed),		//temp alarm +85C
+			.INIT_51(16'h5999),		//vccint alarm 1.05V
+			.INIT_52(16'hA147),		//vccaux alarm 1.89V
+			.INIT_53(16'hdddd),		//thermal shutdown at 125C
+			.INIT_54(16'ha93a),		//reset temp alarm at 60C
+			.INIT_55(16'h5111),		//vccint alarm 0.95V
+			.INIT_56(16'h91eb),		//vccaux alarm 1.71V
+			.INIT_57(16'hae4e),		//reset thermal shutdown at 70C
+			.INIT_58(16'h5999),		//vccbram alarm 1.05V
+			//59 - 5b are alarm thresholds for zynq PS, ignored for now
+			//TODO: specify them on zynq
+			.INIT_5C(16'h5111)		//vccbram alarm 0.95V
+		) xadc (
+			.DI(xadc_din),
+			.DO(xadc_dout),
+			.DADDR(xadc_addr),
+			.DEN(xadc_en),
+			.DWE(xadc_we),
+			.DCLK(clk),
+			.DRDY(xadc_ready),
+			.RESET(xadc_reset),
+			.CONVST(1'b0),
+			.CONVSTCLK(1'b0),
+			.VP(1'b0),
+			.VN(1'b0),
+			.VAUXP(),
+			.VAUXN(),
+			.ALM(xadc_alarm),
+			.OT(xadc_overheat),
+			.MUXADDR(),				//no external mux
+			.CHANNEL(),
+			.EOC(),
+			.EOS(),
+			.BUSY(xadc_busy),
+			.JTAGLOCKED(),			//ignore jtag stuff, we assume its not in use
+			.JTAGMODIFIED(),
+			.JTAGBUSY()
 		);
+	end
+
+	else begin
+		XADC #(
+			.INIT_40(16'h2000),		//average 16 samples continously
+			.INIT_41(16'h20F0),		//continuous sampling mode, calibrate everything
+			.INIT_42(16'h0A00),		//Not powered down, DCLK = clk_noc/10
+			.INIT_43(16'h0000),		//factory test
+			.INIT_44(16'h0000),		//factory test
+			.INIT_45(16'h0000),		//factory test
+			.INIT_46(16'h0000),		//factory test
+			.INIT_47(16'h0000),		//factory test
+			.INIT_48(16'h4701),		//VCCBRAM, VCCAUX, VCCINT, temp, cal
+			.INIT_49(EXT_IN_ENABLE),//bitmask of enabled external channels
+			.INIT_4A(16'h4700),		//do averaging on all selected channels
+			.INIT_4B(EXT_IN_ENABLE),//do averaging on all external channels in use
+			.INIT_4C(16'h0000),		//internal sensors unipolar
+			.INIT_4D(16'h0000),		//external inputs unipolar
+			.INIT_4E(16'h0000),		//no additional settling time
+			.INIT_4F(16'h0000),		//no additional settling time
+			.INIT_50(16'hb5ed),		//temp alarm +85C
+			.INIT_51(16'h5999),		//vccint alarm 1.05V
+			.INIT_52(16'hA147),		//vccaux alarm 1.89V
+			.INIT_53(16'hdddd),		//thermal shutdown at 125C
+			.INIT_54(16'ha93a),		//reset temp alarm at 60C
+			.INIT_55(16'h5111),		//vccint alarm 0.95V
+			.INIT_56(16'h91eb),		//vccaux alarm 1.71V
+			.INIT_57(16'hae4e),		//reset thermal shutdown at 70C
+			.INIT_58(16'h5999),		//vccbram alarm 1.05V
+			//59 - 5b are alarm thresholds for zynq PS, ignored for now
+			//TODO: specify them on zynq
+			.INIT_5C(16'h5111)		//vccbram alarm 0.95V
+		) xadc (
+			.DI(xadc_din),
+			.DO(xadc_dout),
+			.DADDR(xadc_addr),
+			.DEN(xadc_en),
+			.DWE(xadc_we),
+			.DCLK(clk),
+			.DRDY(xadc_ready),
+			.RESET(xadc_reset),
+			.CONVST(1'b0),
+			.CONVSTCLK(1'b0),
+			.VP(1'b0),
+			.VN(1'b0),
+			.VAUXP(vin_p),
+			.VAUXN(vin_n),
+			.ALM(xadc_alarm),
+			.OT(xadc_overheat),
+			.MUXADDR(),				//no external mux
+			.CHANNEL(),
+			.EOC(),
+			.EOS(),
+			.BUSY(xadc_busy),
+			.JTAGLOCKED(),			//ignore jtag stuff, we assume its not in use
+			.JTAGMODIFIED(),
+			.JTAGBUSY()
+			);
+	end
 
 	//Pipelined multiplier
 	logic[15:0] 	mult_a		= 0;
