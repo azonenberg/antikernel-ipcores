@@ -42,7 +42,7 @@ module TCPUARTBridge(
 	input wire				clk_tcp,
 	input wire[15:0]		tcp_port,
 	input wire TCPv4RxBus	tcp_rx_bus,
-	output logic TCPv4TxBus	tcp_tx_bus,
+	output TCPv4TxBus		tcp_tx_bus,
 
 	output logic			tcp_rts	= 0,
 	input wire				tcp_cts,
