@@ -134,19 +134,20 @@ module IODelayBlock #(
 			//Print stats
 			initial begin
 				if(i == 0) begin
-					$info("INFO: Target input delay for IODelayBlock %m is %d ps, actual is %d",
-						INPUT_DELAY, input_delay_taps * tap_size);
-					$info("INFO: Target output delay for IODelayBlock %m is %d ps, actual is %d",
-						OUTPUT_DELAY, input_delay_taps * tap_size);
+					if(DIRECTION != "OUTPUT") begin
+						$info("Target input delay for IODelayBlock %m is %d ps, actual is %d",
+							INPUT_DELAY, input_delay_taps * tap_size);
+					end
+					if(DIRECTION != "INPUT") begin
+						$info("Target output delay for IODelayBlock %m is %d ps, actual is %d",
+							OUTPUT_DELAY, input_delay_taps * tap_size);
+					end
 				end
 			end
 
 		`endif
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Delay calibration during initialization
 
 endmodule
 
