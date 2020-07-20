@@ -529,17 +529,12 @@ module ReconfigurablePLL #(
 	end
 
 	//ROM addresses
-	logic[5:0]	vco_romaddr;
-	logic[6:0]	vco_mult_dec;
-	always_comb begin
-		vco_mult_dec	= reconfig_vco_mult - 6'b1;
-		vco_romaddr		= vco_mult_dec[5:0];
-	end
+	wire[5:0]	vco_romaddr	= reconfig_vco_mult - 1'd1;
 
 	//Filter selection
 	logic[7:0]	pll_filter_out_highbw;
 	logic[7:0]	pll_filter_out_lowbw;
-	logic[9:0]	pll_filter_out;
+	logic[7:0]	pll_filter_out;
 	always_comb begin
 		pll_filter_out_highbw	= pll_filter_highbw[vco_romaddr];
 		pll_filter_out_lowbw	= pll_filter_lowbw[vco_romaddr];
