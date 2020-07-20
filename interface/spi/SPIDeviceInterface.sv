@@ -44,6 +44,7 @@ module SPIDeviceInterface(
 	output logic		spi_miso = 0,
 
 	output wire			cs_falling,
+	output wire			cs_n_sync,
 	input wire[7:0]		tx_data,
 	input wire			tx_data_valid,
 	output logic[7:0]	rx_data			= 0,
@@ -55,7 +56,6 @@ module SPIDeviceInterface(
 
 	wire	spi_mosi_sync;
 	wire	spi_sck_sync;
-	wire	spi_cs_n_sync;
 
 	ThreeStageSynchronizer #(.IN_REG(0)) sync_mosi (
 		.clk_in(clk),
@@ -73,7 +73,7 @@ module SPIDeviceInterface(
 		.clk_in(clk),
 		.din(spi_cs_n),
 		.clk_out(clk),
-		.dout(spi_cs_n_sync));
+		.dout(cs_n_sync));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Detect falling CS# edge and use this to (synchronously) reset byte indexing etc
@@ -82,11 +82,11 @@ module SPIDeviceInterface(
 	logic	spi_sck_ff = 0;
 
 	always_ff @(posedge clk) begin
-		spi_cs_n_ff	<= spi_cs_n_sync;
+		spi_cs_n_ff	<= cs_n_sync;
 		spi_sck_ff	<= spi_sck_sync;
 	end
 
-	assign	cs_falling = (spi_cs_n_ff && !spi_cs_n_sync);
+	assign	cs_falling = (spi_cs_n_ff && !cs_n_sync);
 	wire	sck_rising = (!spi_sck_ff && spi_sck_sync);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

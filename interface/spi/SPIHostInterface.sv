@@ -110,6 +110,12 @@ module SPIHostInterface(
 	always_ff @(posedge clk) begin
 		shift_done_adv	<= 0;
 
+		//Prevent starting in illegal states during formal verification
+		`ifdef FORMAL
+			assert(clkcount <= clkdiv[15:1]);
+			assert(count <= 9);
+		`endif
+
 		//Wait for a start request
 		if(shift_en) begin
 			active		<= 1;
@@ -131,7 +137,7 @@ module SPIHostInterface(
 		//Toggle processing
 		else if(active) begin
 			clkcount <= clkcount + 15'h1;
-			if(clkcount == clkdiv[15:1]) begin
+			if(clkcount >= clkdiv[15:1]) begin
 
 				//Reset the counter and toggle the clock
 				clkcount <= 0;
