@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -49,24 +49,24 @@
 		Data buffer is now considered invalid, do not touch
  */
 module HandshakeSynchronizer(
-	input wire	clk_a,
-	input wire	en_a,
-	output reg	ack_a = 0,
-	output wire busy_a,
-	
-	input wire	clk_b,
-	output reg	en_b = 0,
-	input wire	ack_b,
-	output wire	busy_b
+	input wire		clk_a,
+	input wire		en_a,
+	output logic	ack_a = 0,
+	output wire		busy_a,
+
+	input wire		clk_b,
+	output logic	en_b = 0,
+	input wire		ack_b,
+	output wire		busy_b
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Flag synchronizers
 
-	reg tx_en_in = 0;
+	logic tx_en_in = 0;
 	wire tx_en_out;
 
-	reg tx_ack_in = 0;
+	logic tx_ack_in = 0;
 	wire tx_ack_out;
 
 	ThreeStageSynchronizer sync_tx_en
@@ -77,11 +77,10 @@ module HandshakeSynchronizer(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Control logic, transmit side
 
-	reg[1:0] state_a = 0;
-
+	logic[1:0] state_a = 0;
 	assign busy_a = state_a[1] || en_a;
 
-	always @(posedge clk_a) begin
+	always_ff @(posedge clk_a) begin
 
 		ack_a <= 0;
 
@@ -119,10 +118,10 @@ module HandshakeSynchronizer(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Control logic, receive side
 
+	logic[1:0] state_b = 0;
 	assign busy_b = state_b[1];
 
-	reg[1:0] state_b = 0;
-	always @(posedge clk_b) begin
+	always_ff @(posedge clk_b) begin
 
 		en_b <= 0;
 
