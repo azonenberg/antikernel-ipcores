@@ -43,7 +43,7 @@ module IODelayBlock #(
 
 	parameter INPUT_DELAY	= 100,		//picoseconds
 	parameter OUTPUT_DELAY	= 100,		//picoseconds
-	parameter DIRECTION		= "INPUT",	//INPUT or OUTPUT only support for now (no IO mode yet)
+	parameter DIRECTION		= "IN",		//IN or OUT only support for now (no IO mode yet)
 	parameter IS_CLOCK		= 0
 ) (
 	input wire[WIDTH-1 : 0]		i_pad,				//input from pad to rx datapath
@@ -134,11 +134,11 @@ module IODelayBlock #(
 			//Print stats
 			initial begin
 				if(i == 0) begin
-					if(DIRECTION != "OUTPUT") begin
+					if(DIRECTION != "OUT") begin
 						$info("Target input delay for IODelayBlock %m is %d ps, actual is %d",
 							INPUT_DELAY, input_delay_taps * tap_size);
 					end
-					if(DIRECTION != "INPUT") begin
+					if(DIRECTION != "IN") begin
 						$info("Target output delay for IODelayBlock %m is %d ps, actual is %d",
 							OUTPUT_DELAY, input_delay_taps * tap_size);
 					end
