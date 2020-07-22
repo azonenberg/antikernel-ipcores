@@ -51,6 +51,10 @@ module SPIHostInterface(
 	output logic		shift_done = 0,
 	input wire[7:0]		tx_data,
 	output reg[7:0]		rx_data = 0
+
+	`ifdef FORMAL
+	, output logic active	= 0
+	`endif
     );
 
     ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -71,7 +75,10 @@ module SPIHostInterface(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main state machine
 
+	`ifndef FORMAL
 	logic		active		= 0;
+	`endif
+
 	logic[3:0]	count		= 0;
 	logic[14:0]	clkcount	= 0;
 
@@ -114,6 +121,10 @@ module SPIHostInterface(
 		`ifdef FORMAL
 			assert(clkcount <= clkdiv[15:1]);
 			assert(count <= 9);
+
+			if(!active) begin
+				assert(!almost_done);
+			end
 		`endif
 
 		//Wait for a start request

@@ -49,6 +49,10 @@ module SPIDeviceInterface(
 	input wire			tx_data_valid,
 	output logic[7:0]	rx_data			= 0,
 	output logic		rx_data_valid	= 0
+
+	`ifdef FORMAL
+	, output wire busy
+	`endif
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -57,23 +61,33 @@ module SPIDeviceInterface(
 	wire	spi_mosi_sync;
 	wire	spi_sck_sync;
 
-	ThreeStageSynchronizer #(.IN_REG(0)) sync_mosi (
-		.clk_in(clk),
-		.din(spi_mosi),
-		.clk_out(clk),
-		.dout(spi_mosi_sync));
+	`ifdef FORMAL
 
-	ThreeStageSynchronizer #(.IN_REG(0)) sync_sck (
-		.clk_in(clk),
-		.din(spi_sck),
-		.clk_out(clk),
-		.dout(spi_sck_sync));
+		//Bypass synchronizers in formal verification so it's easier to constrain TX and RX to be phase aligned
+		assign spi_mosi_sync = spi_mosi;
+		assign spi_sck_sync = spi_sck;
+		assign cs_n_sync = spi_cs_n;
 
-	ThreeStageSynchronizer #(.IN_REG(0)) sync_cs_n (
-		.clk_in(clk),
-		.din(spi_cs_n),
-		.clk_out(clk),
-		.dout(cs_n_sync));
+	`else
+
+		ThreeStageSynchronizer #(.IN_REG(0)) sync_mosi (
+			.clk_in(clk),
+			.din(spi_mosi),
+			.clk_out(clk),
+			.dout(spi_mosi_sync));
+
+		ThreeStageSynchronizer #(.IN_REG(0)) sync_sck (
+			.clk_in(clk),
+			.din(spi_sck),
+			.clk_out(clk),
+			.dout(spi_sck_sync));
+
+		ThreeStageSynchronizer #(.IN_REG(0)) sync_cs_n (
+			.clk_in(clk),
+			.din(spi_cs_n),
+			.clk_out(clk),
+			.dout(cs_n_sync));
+	`endif
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Detect falling CS# edge and use this to (synchronously) reset byte indexing etc
@@ -99,6 +113,10 @@ module SPIDeviceInterface(
 	always_comb
 		spi_miso	= tx_temp[7];
 
+	`ifdef FORMAL
+		assign busy = (nbit != 0) && !cs_falling;
+	`endif
+
 	always_ff @(posedge clk) begin
 
 		rx_data_valid	<= 0;
@@ -119,6 +137,13 @@ module SPIDeviceInterface(
 				rx_data_valid	<= 1;
 			end
 		end
+
+		`ifdef FORMAL
+			//data can only be valid after nbit wraps
+			if(rx_data_valid)
+				assert(nbit == 0);
+
+		`endif
 
 		if(tx_data_valid)
 			tx_temp		<= tx_data;
