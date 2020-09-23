@@ -66,6 +66,8 @@ module I2CRegisterHelper #(
 	input wire[7:0]					wdata,
 	output logic					need_wdata	= 0,
 	output logic					burst_done	= 0,
+	input wire						ping,
+	output logic					ping_ack	= 0,
 
 	//Ports to arbiter
 	output logic					request = 0,
@@ -88,7 +90,9 @@ module I2CRegisterHelper #(
 		STATE_READ_DATA 				= 4'h8,
 		STATE_WRITE_WAIT				= 4'h9,
 		STATE_WRITE_DATA				= 4'ha,
-		STATE_STOP						= 4'hb
+		STATE_STOP						= 4'hb,
+		STATE_PING_ADDR					= 4'hc,
+		STATE_PING_DONE					= 4'hd
 	} state = STATE_IDLE;
 
 	localparam ADDR_BITS 	= $clog2(ADDR_BYTES);
@@ -96,7 +100,7 @@ module I2CRegisterHelper #(
 
 	logic[ADDR_SIZE-1:0]	saved_addr	= 0;
 	wire[ADDR_SIZE+7:0]		saved_addr_shifted	= {saved_addr, 8'h0};
-	logic[ADDR_BITS-1:0]	addr_count	= 0;
+	logic[ADDR_BITS:0]		addr_count	= 0;
 	logic[7:0]				bytes_left	= 0;
 
 	always_ff @(posedge clk) begin
@@ -116,6 +120,7 @@ module I2CRegisterHelper #(
 		need_wdata		<= 0;
 
 		burst_done		<= 0;
+		ping_ack		<= 0;
 
 		case(state)
 
@@ -147,6 +152,12 @@ module I2CRegisterHelper #(
 					state			<= STATE_SELECT_SLAVE_ADDR_WRITE;
 				end
 
+				if(ping) begin
+					ready			<= 0;
+					cin.start_en	<= 1;
+					state			<= STATE_PING_ADDR;
+				end
+
 				if(close) begin
 					done			<= 1;
 					ready			<= 0;
@@ -154,6 +165,29 @@ module I2CRegisterHelper #(
 				end
 
 			end	//end STATE_OPEN_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Do an ID ping in write mode, but don't actually send any data. Just look for the ACK
+
+			STATE_PING_ADDR: begin
+				if(!cout.busy) begin
+					cin.tx_en		<= 1;
+					cin.tx_data		<= { slave_addr[7:1], 1'b0 };
+					saved_addr		<= addr;
+					addr_count		<= 0;
+					state			<= STATE_PING_DONE;
+				end
+			end	//end STATE_PING_ADDR
+
+			STATE_PING_DONE: begin
+				if(!cout.busy) begin
+					burst_done			<= 1;
+					ping_ack			<= cout.tx_ack;
+
+					cin.stop_en			<= 1;
+					state				<= STATE_STOP;
+				end
+			end	//end STATE_PING_DONE
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Select the device and send the address header
@@ -208,8 +242,8 @@ module I2CRegisterHelper #(
 					end
 
 					//Nope, send next byte
-					else begin
-					end
+					else
+						state	<= STATE_SELECT_REG_ADDR_0;
 
 				end
 			end	//end STATE_SELECT_REG_ADDR_1
