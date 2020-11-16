@@ -143,7 +143,7 @@ module EthernetSimulationPacketGenerator #(
 
 		fp = $fopen(PCAP_FILE, "rb");
 		if(!fp)
-			$fatal("Couldn't open pcap file");
+			$fatal(0, "Couldn't open pcap file");
 
 		//Read file header
 		if(4 != $fread(magic, fp))
@@ -161,31 +161,31 @@ module EthernetSimulationPacketGenerator #(
 
 		//Sanity check version numbers
 		if(2 != $fread(major, fp))
-			$fatal("Failed to read major version");
+			$fatal(0, "Failed to read major version");
 		if(2 != $fread(minor, fp))
-			$fatal("Failed to read minor version");
+			$fatal(0, "Failed to read minor version");
 		major = FixEndianness16(major, need_swap);
 		minor = FixEndianness16(minor, need_swap);
 		$display("    PCAP file is version %0d.%0d", major, minor);
 
 		//Ignore reserved fields
 		if(4 != $fread(reserved1, fp))
-			$fatal("Failed to read reserved1");
+			$fatal(0, "Failed to read reserved1");
 		if(4 != $fread(reserved2, fp))
-			$fatal("Failed to read reserved2");
+			$fatal(0, "Failed to read reserved2");
 
 		//Max packet length
 		if(4 != $fread(maxlen, fp))
-			$fatal("Failed to read maxlen");
+			$fatal(0, "Failed to read maxlen");
 		maxlen = FixEndianness32(maxlen, need_swap);
 		$display("    Max packet length is %0d", maxlen);
 
 		//Link type
 		if(4 != $fread(linktype, fp))
-			$fatal("Failed to read linktype");
+			$fatal(0, "Failed to read linktype");
 		linktype = FixEndianness32(linktype, need_swap);
 		if(linktype != 1)
-			$fatal("Expected LINKTYPE_ETHERNET (32'h00000001), got %8x instead", linktype);
+			$fatal(0, "Expected LINKTYPE_ETHERNET (32'h00000001), got %8x instead", linktype);
 
 		//Done reading file headers. Wait 50 clocks for stuff to initialize.
 		//TODO: make this parameterizable
@@ -197,20 +197,20 @@ module EthernetSimulationPacketGenerator #(
 
 			//Read the pcaprec_hdr_t
 			if(4 != $fread(ts_sec, fp))
-				$fatal("Failed to read ts_sec");
+				break;
 			if(4 != $fread(ts_usec, fp))
-				$fatal("Failed to read ts_usec");
+				$fatal(0, "Failed to read ts_usec");
 			if(4 != $fread(incl_len, fp))
-				$fatal("Failed to read incl_len");
+				$fatal(0, "Failed to read incl_len");
 			if(4 != $fread(orig_len, fp))
-				$fatal("Failed to read orig_len");
+				$fatal(0, "Failed to read orig_len");
 			ts_sec = FixEndianness32(ts_sec, need_swap);
 			ts_usec = FixEndianness32(ts_usec, need_swap);
 			incl_len = FixEndianness32(incl_len, need_swap);
 			orig_len = FixEndianness32(orig_len, need_swap);
 
 			if(orig_len != incl_len)
-				$fatal("Truncated packets not supported");
+				$fatal(0, "Truncated packets not supported");
 
 			//Reset FCS
 			crc = 32'hffffffff;
@@ -232,9 +232,9 @@ module EthernetSimulationPacketGenerator #(
 				bytes_left = orig_len - i;
 
 				//Read full block of data
-				if(bytes_left > 8) begin
+				if(bytes_left >= 8) begin
 					if(8 != $fread(read_buf, fp))
-						$fatal("Failed to read packet data");
+						$fatal(0, "Failed to read packet data");
 
 					bus.ctl = 0;
 					bus.data = read_buf;
@@ -246,23 +246,28 @@ module EthernetSimulationPacketGenerator #(
 
 			end
 
-			//Read the remaining data
+			//Read the remaining data.
+			//This is messier than it needs to be, because Vivado 2020.1 fails to handle part selects in $fread.
+			//https://forums.xilinx.com/t5/Simulation-and-Verification/SystemVerilog-fread-into-bit-select-gives-incorrect-results/td-p/1173984
 			bytes_left = orig_len % 8;
 			case(bytes_left)
 				0: bytes_read = 0;
-				1: bytes_read = $fread(read_buf[63:56], fp);
-				2: bytes_read = $fread(read_buf[63:48], fp);
-				3: bytes_read = $fread(read_buf[63:40], fp);
-				4: bytes_read = $fread(read_buf[63:32], fp);
-				5: bytes_read = $fread(read_buf[63:24], fp);
-				6: bytes_read = $fread(read_buf[63:16], fp);
-				7: bytes_read = $fread(read_buf[63:8], fp);
+				1: bytes_read = $fread(read_buf[7:0], fp);
+				2: bytes_read = $fread(read_buf[15:0], fp);
+				3: bytes_read = $fread(read_buf[23:0], fp);
+				4: bytes_read = $fread(read_buf[31:0], fp);
+				5: bytes_read = $fread(read_buf[39:0], fp);
+				6: bytes_read = $fread(read_buf[47:0], fp);
+				7: bytes_read = $fread(read_buf[55:0], fp);
 				//can never read all 64 bits
 			endcase
 
+			//Shift the read data left so it's in the correct location
+			read_buf = read_buf << 8*(8 - bytes_left);
+
 			//Make sure we actually got it
 			if(bytes_read != bytes_left)
-				$fatal("Failed to read end of packet data");
+				$fatal(0, "Failed to read end of packet data");
 
 			//Calculate final CRC
 			crc = UpdateCRC(read_buf, crc, bytes_read);
