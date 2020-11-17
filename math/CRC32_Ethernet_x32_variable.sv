@@ -40,8 +40,7 @@
 		1					Process din[31:24]
 		2					Process din[31:16]
 		3					Process din[31:8]
-		4					Process din[31:0]
-		5..7				Illegal, ignored
+		4...7				Process din[31:0]
  */
 module CRC32_Ethernet_x32_variable(
 	input wire			clk,

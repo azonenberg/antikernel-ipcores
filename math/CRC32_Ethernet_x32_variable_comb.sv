@@ -1,5 +1,4 @@
 `timescale 1ns / 1ps
-`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
@@ -32,57 +31,56 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief Ethernet CRC-32 engine
+	@brief Ethernet CRC-32 (derived from easics.com generator)
 
-	Accepts 0 to 8 bytes per clock, left aligned in din
+	Original license:
+
+	Copyright (C) 1999-2008 Easics NV.
+	 This source file may be used and distributed without restriction
+	 provided that this copyright statement is not removed from the file
+	 and that any derivative work contains the original copyright notice
+	 and the associated disclaimer.
+
+	 THIS SOURCE FILE IS PROVIDED "AS IS" AND WITHOUT ANY EXPRESS
+	 OR IMPLIED WARRANTIES, INCLUDING, WITHOUT LIMITATION, THE IMPLIED
+	 WARRANTIES OF MERCHANTIBILITY AND FITNESS FOR A PARTICULAR PURPOSE.
+
+	 Purpose : synthesizable CRC function
+	   * polynomial: (0 1 2 4 5 7 8 10 11 12 16 22 23 26 32)
+	   * data width: 8
+
+	 Info : tools@easics.be
+	        http://www.easics.com
+
+	Assumes input bit ordering is already reversed!
  */
-module CRC32_Ethernet_x64_variable(
-	input wire			clk,
-
-	input wire			reset,
-	input wire[3:0]		din_len,
-	input wire[63:0]	din,
-
-	output wire[31:0]	crc_out
-);
+module CRC32_Ethernet_x32_variable_comb(
+	input wire[31:0] 	d,
+	input wire[2:0]		len,
+	input wire[31:0] 	c,
+	output logic[31:0]	crc);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Ethernet CRC32
-
-	logic[31:0]	crc;
-
-	//Bit twiddling for the output
-	//Complement and flip bit ordering
-	assign crc_out =
-	{
-		~crc[24], ~crc[25], ~crc[26], ~crc[27], ~crc[28], ~crc[29], ~crc[30], ~crc[31],
-		~crc[16], ~crc[17], ~crc[18], ~crc[19], ~crc[20], ~crc[21], ~crc[22], ~crc[23],
-		~crc[8],  ~crc[9],  ~crc[10], ~crc[11], ~crc[12], ~crc[13], ~crc[14], ~crc[15],
-		~crc[0],  ~crc[1],  ~crc[2],  ~crc[3],  ~crc[4],  ~crc[5],  ~crc[6],  ~crc[7]
-	};
-
+	// The actual CRC function
 
 	logic[7:0]	current_byte;
 	logic		lsb;
 
-	always_ff @(posedge clk) begin
+	always_comb begin
+		crc = c;
 
-		if(reset)
-			crc	= 32'hffffffff;				//equivalent to complementing the first 32 bits of the frame
-											//as per 802.3 3.2.9 (a)
+		for(integer nbyte=0; nbyte<4; nbyte++) begin
 
-		for(integer nbyte=0; nbyte<8; nbyte++) begin
-
-			if(nbyte < din_len) begin
+			if(nbyte < len) begin
 
 				//Need to swap byte ordering to match canonical Ethernet ordering (LSB sent first)
 				//rather than the "sensible" MSB-LSB order
-				current_byte = din[(7-nbyte)*8 +: 8];
+				current_byte = d[(3-nbyte)*8 +: 8];
 
 				for(integer nbit=0; nbit<8; nbit++) begin
 
 					//Default to shifting left and mixing in the new bit
-					lsb 	= current_byte[nbit] ^ crc[31];
+					lsb 	= current_byte[7-nbit] ^ crc[31];
 					crc		= { crc[30:0], lsb };
 
 					//XOR in the polynomial
@@ -105,8 +103,6 @@ module CRC32_Ethernet_x64_variable(
 			end
 
 		end
-
 	end
-
 
 endmodule
