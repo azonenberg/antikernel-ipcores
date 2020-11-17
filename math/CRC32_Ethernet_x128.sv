@@ -120,6 +120,37 @@ module CRC32_Ethernet_x128(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Pipeline data registers
+
+	logic			stage0_done		= 0;
+	logic[31:0]		stage0_crc_out	= 0;
+	logic[127:0]	stage0_data_in	= 0;
+	logic[31:0]		stage0_crc_in	= 0;
+	logic[3:0]		stage0_crc_len	= 0;
+	wire[31:0]		stage0_crc_x64;
+
+	logic			stage1_done		= 0;
+	logic[31:0]		stage1_crc_out	= 0;
+	logic[127:0]	stage1_data_in	= 0;
+	logic[31:0]		stage1_crc_in	= 0;
+	logic[3:0]		stage1_crc_len	= 0;
+	logic[31:0]		stage1_crc_x64	= 0;
+
+	logic			stage2_done		= 0;
+	logic[31:0]		stage2_crc_out	= 0;
+	logic[127:0]	stage2_data_in	= 0;
+	logic[31:0]		stage2_crc_in	= 0;
+	logic[3:0]		stage2_crc_len	= 0;
+	wire[31:0]		stage2_crc_x32;
+
+	logic			stage3_done		= 0;
+	logic[31:0]		stage3_crc_out	= 0;
+	logic[127:0]	stage3_data_in 	= 0;
+	logic[31:0]		stage3_crc_in	= 0;
+	logic[3:0]		stage3_crc_len	= 0;
+	wire[31:0]		stage3_crc_x32;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// CRC calculation blocks
 
 	wire[31:0]	crc_x128;
@@ -131,146 +162,113 @@ module CRC32_Ethernet_x128(
 		.crc(crc_x128)
 	);
 
-	logic[127:0]	final_data_in 	= 0;
-	logic[31:0]		final_crc_in	= 0;
-	logic[3:0]		final_crc_len	= 0;
-
-	wire[31:0]		crc_x64;
-	wire[31:0]		crc_x32;
-
-	logic[127:0]	stage0_data_in	= 0;
-	logic[31:0]		stage0_crc_in	= 0;
-
 	CRC32_Ethernet_x64_comb stage0_crc64(
 		.d(stage0_data_in[127:64]),
 		.c(stage0_crc_in),
-		.crc(crc_x64)
+		.crc(stage0_crc_x64)
 	);
 
-	CRC32_Ethernet_x32_variable_comb crc32(
-		.d(final_data_in[127:96]),
-		.len(final_crc_len[2:0]),
-		.c(final_crc_in),
-		.crc(crc_x32)
+	CRC32_Ethernet_x32_variable_comb stage2_crc32(
+		.d(stage2_data_in[127:96]),
+		.len(stage2_crc_len[2:0]),
+		.c(stage2_crc_in),
+		.crc(stage2_crc_x32)
+	);
+
+	CRC32_Ethernet_x32_variable_comb stage3_crc32(
+		.d(stage3_data_in[127:96]),
+		.len(stage3_crc_len[2:0]),
+		.c(stage3_crc_in),
+		.crc(stage3_crc_x32)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Pipeline registers
 
-	enum logic[2:0]
-	{
-		FINISH_STATE_IDLE,
-		FINISH_STATE_WAIT_X64,
-		FINISH_STATE_X64,
-		FINISH_STATE_X32,
-		FINISH_STATE_LAST
-	} finish_state = FINISH_STATE_IDLE;
-
-	logic			stage0_done		= 0;
-	logic[31:0]		stage0_crc_out	= 0;
-	logic[3:0]		stage0_crc_len	= 0;
-
-	logic			stage1_done		= 0;
-	logic[31:0]		stage1_crc_out	= 0;
-
-	logic 		done		= 0;
-	logic 		last_ff		= 0;
-
-	logic[31:0]	crc_x64_ff	= 0;
+	logic 			last_ff			= 0;
 
 	always_ff @(posedge clk) begin
 
-		crc_x128_ff	<= crc_x128;
-		crc_x64_ff	<= crc_x64;
-		last_ff		<= last;
+		crc_x128_ff		<= crc_x128;
+		last_ff			<= last;
 
-		case(finish_state)
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// Pipeline stage 0: process x128 output
 
-			FINISH_STATE_IDLE: begin
+		stage0_done		<= (last && din_len[4]);
+		stage0_crc_out	<= crc_x128;
+		stage0_data_in	<= din_flipped;
+		stage0_crc_in	<= crc_x128_ff;
+		stage0_crc_len	<= din_len;
 
-				stage0_data_in	<= din_flipped;
-				stage0_crc_in	<= crc_x128_ff;
-				stage0_crc_len	<= din_len;
-				done			<= 0;
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// Pipeline stage 1: register x64 output
 
-				//Start the completion process on the last word of data
-				if(last_ff || (update && !din_len[4] )) begin
-					finish_state	<= FINISH_STATE_WAIT_X64;
+		stage1_done		<= stage0_done;
+		stage1_crc_out	<= stage0_crc_out;
+		stage1_data_in	<= stage0_data_in;
+		stage1_crc_in	<= stage0_crc_in;
+		stage1_crc_len	<= stage0_crc_len;
+		stage1_crc_x64	<= stage0_crc_x64;
 
-					if(last_ff && din_len[4]) begin
-						stage0_crc_out		<= crc_x128_ff;
-						stage0_done			<= 1;
-					end
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// Pipeline stage 2: process x64 output
 
-				end
+		//If this is the end, save the result
+		if(!stage1_done && stage1_crc_len == 8) begin
+			stage2_crc_out		<= stage1_crc_x64;
+			stage2_done			<= 1;
+		end
+		else begin
+			stage2_crc_out	<= stage1_crc_out;
+			stage2_done		<= stage1_done;
+		end
 
-			end	//end FINISH_STATE_IDLE
+		//If we have >= 8 bytes left, we want the 64 bit CRC
+		if(stage1_crc_len[3]) begin
+			stage2_data_in	<= { stage1_data_in[63:0], 64'h0 };
+			stage2_crc_in	<= stage1_crc_x64;
+			stage2_crc_len	<= {1'b0, stage1_crc_len[2:0]};
+		end
 
-			FINISH_STATE_WAIT_X64: begin
-				finish_state	<= FINISH_STATE_X64;
+		else begin
+			stage2_data_in	<= stage1_data_in;
+			stage2_crc_in	<= stage1_crc_in;
+			stage2_crc_len	<= stage1_crc_len;
+		end
 
-				stage1_done		<= stage0_done;
-				stage1_crc_out	<= stage0_crc_out;
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// Pipeline stage 3: process x32 output
 
-				final_data_in	<= stage0_data_in;
-				final_crc_in	<= stage0_crc_in;
-				final_crc_len	<= stage0_crc_len;
-			end	//end FINISH_STATE_WAIT_X64
+		//If we have >= 4 bytes left, we want the full 32 bit CRC
+		if(stage2_crc_len[2]) begin
+			stage3_data_in	<= { stage2_data_in[95:0], 32'h0 };
+			stage3_crc_in	<= stage2_crc_x32;
+			stage3_crc_len	<= {2'b0, stage2_crc_len[1:0]};
+		end
+		else begin
+			stage3_data_in	<= stage2_data_in;
+			stage3_crc_in	<= stage2_crc_in;
+			stage3_crc_len	<= stage2_crc_len;
+		end
 
-			FINISH_STATE_X64: begin
+		//If this is the end, save the result
+		if(!stage2_done && stage2_crc_len[1:0] == 0) begin
+			stage3_crc_out	<= stage2_crc_x32;
+			stage3_done		<= 1;
+		end
+		else begin
+			stage3_crc_out	<= stage2_crc_out;
+			stage3_done		<= stage2_done;
+		end
 
-				crc_out			<= stage0_crc_out;
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// Pipeline stage 4: process partial x32 output
 
-				//If we have >= 8 bytes left, we want the 64 bit CRC
-				if(final_crc_len[3]) begin
-
-					done			<= stage1_done;
-
-					final_crc_in	<= crc_x64_ff;
-					final_crc_len	<= final_crc_len[2:0];
-
-					final_data_in	<= { final_data_in[63:0], 64'h0 };
-
-					//If this is the end, save the result
-					if(!stage1_done && final_crc_len[2:0] == 0) begin
-						crc_out		<=  crc_x64;
-						done		<= 1;
-					end
-				end
-
-				finish_state	<= FINISH_STATE_X32;
-
-			end	//end FINISH_STATE_X64
-
-			FINISH_STATE_X32: begin
-
-				//If we have >= 4 bytes left, we want the full 32 bit CRC
-				if(final_crc_len[2]) begin
-
-					final_data_in	<= { final_data_in[95:0], 32'h0 };
-
-					final_crc_in	<= crc_x32;
-					final_crc_len	<= final_crc_len[1:0];
-				end
-
-				//If this is the end, save the result
-				if(!done && final_crc_len[1:0] == 0) begin
-					crc_out		<= crc_x32;
-					done		<= 1;
-				end
-
-				finish_state	<= FINISH_STATE_LAST;
-
-			end	//end FINISH_STATE_X32
-
-			FINISH_STATE_LAST: begin
-				if(!done)
-					crc_out		<= crc_x32;
-
-				finish_state	<= FINISH_STATE_IDLE;
-			end	//end FINISH_STATE_LAST
-
-		endcase
+		if(!stage3_done)
+			crc_out		<= stage3_crc_x32;
+		else
+			crc_out		<= stage3_crc_out;
 
 	end
 
