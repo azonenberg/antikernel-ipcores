@@ -168,9 +168,8 @@ module CRC32_Ethernet_x128(
 		.crc(stage0_crc_x64)
 	);
 
-	CRC32_Ethernet_x32_variable_comb stage2_crc32(
+	CRC32_Ethernet_x32_comb stage2_crc32(
 		.d(stage2_data_in[63:32]),
-		.len(stage2_crc_len),
 		.c(stage2_crc_in),
 		.crc(stage2_crc_x32)
 	);
