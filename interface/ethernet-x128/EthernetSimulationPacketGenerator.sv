@@ -40,7 +40,7 @@ module EthernetSimulationPacketGenerator #(
 												//Standard IFG for 40GbE is 12 bytes, but can be as low as one at RX.
 )(
 	input wire			clk_625mhz,
-	output xlgmii64		bus
+	output xlgmii64		bus = 0
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -85,8 +85,19 @@ module EthernetSimulationPacketGenerator #(
 						lsb 	= current_byte[nbit] ^ crc[31];
 						crc		= { crc[30:0], lsb };
 
-						if(lsb)
-							crc = crc ^ 32'h4c11db6;
+						crc[1]	= lsb ^ crc[1];
+						crc[2]	= lsb ^ crc[2];
+						crc[4]	= lsb ^ crc[4];
+						crc[5]	= lsb ^ crc[5];
+						crc[7]	= lsb ^ crc[7];
+						crc[8]	= lsb ^ crc[8];
+						crc[10] = lsb ^ crc[10];
+						crc[11] = lsb ^ crc[11];
+						crc[12] = lsb ^ crc[12];
+						crc[16] = lsb ^ crc[16];
+						crc[22] = lsb ^ crc[22];
+						crc[23] = lsb ^ crc[23];
+						crc[26] = lsb ^ crc[26];
 					end
 				end
 			end
@@ -123,10 +134,12 @@ module EthernetSimulationPacketGenerator #(
 
 	integer bytes_left;
 	integer bytes_read;
+	integer padding_bytes_left = 0;
 
 	logic[63:0]	read_buf;
 
 	logic[31:0] crc;
+	logic[31:0] crc_debug_flipped;
 
 	localparam CRC_POLY = 32'h04c11db7;
 
@@ -226,51 +239,120 @@ module EthernetSimulationPacketGenerator #(
 			bus.data[7:0]			= 8'hd5;
 			@(posedge clk_625mhz);
 
-			//Read the packet content
+			//Read all full data blocks in the packet
 			for(integer i=0; i<orig_len; i += 8) begin
 
 				bytes_left = orig_len - i;
 
-				//Read full block of data
 				if(bytes_left >= 8) begin
+
 					if(8 != $fread(read_buf, fp))
 						$fatal(0, "Failed to read packet data");
+
+					crc = UpdateCRC(read_buf, crc, 8);
+					crc_debug_flipped = FlipCRCBits(crc);
 
 					bus.ctl = 0;
 					bus.data = read_buf;
 					@(posedge clk_625mhz);
-				end
 
-				//Update the CRC
-				crc = UpdateCRC(read_buf, crc, 8);
+				end
 
 			end
 
 			//Read the remaining data.
-			//This is messier than it needs to be, because Vivado 2020.1 fails to handle part selects in $fread.
+			//This is messier than it needs to be, because Vivado fails to handle part selects in $fread.
+			//(At least 2019.2 and 2020.1 are known to be affected, but most likely all released versions to date.)
 			//https://forums.xilinx.com/t5/Simulation-and-Verification/SystemVerilog-fread-into-bit-select-gives-incorrect-results/td-p/1173984
 			bytes_left = orig_len % 8;
 			case(bytes_left)
-				0: bytes_read = 0;
-				1: bytes_read = $fread(read_buf[7:0], fp);
-				2: bytes_read = $fread(read_buf[15:0], fp);
-				3: bytes_read = $fread(read_buf[23:0], fp);
-				4: bytes_read = $fread(read_buf[31:0], fp);
-				5: bytes_read = $fread(read_buf[39:0], fp);
-				6: bytes_read = $fread(read_buf[47:0], fp);
-				7: bytes_read = $fread(read_buf[55:0], fp);
+				0: begin
+					bytes_read = 0;
+					read_buf = 64'h0;
+				end
+				1: begin
+					bytes_read = $fread(read_buf[7:0], fp);
+					read_buf = { read_buf[7:0], 56'h0 };
+				end
+				2: begin
+					bytes_read = $fread(read_buf[15:0], fp);
+					read_buf = { read_buf[15:0], 48'h0 };
+				end
+				3: begin
+					bytes_read = $fread(read_buf[23:0], fp);
+					read_buf = { read_buf[23:0], 40'h0 };
+				end
+				4: begin
+					bytes_read = $fread(read_buf[31:0], fp);
+					read_buf = { read_buf[31:0], 32'h0 };
+				end
+				5: begin
+					bytes_read = $fread(read_buf[39:0], fp);
+					read_buf = { read_buf[39:0], 24'h0 };
+				end
+				6: begin
+					bytes_read = $fread(read_buf[47:0], fp);
+					read_buf = { read_buf[47:0], 16'h0 };
+				end
+				7: begin
+					bytes_read = $fread(read_buf[55:0], fp);
+					read_buf = { read_buf[55:0], 8'h0 };
+				end
 				//can never read all 64 bits
 			endcase
-
-			//Shift the read data left so it's in the correct location
-			read_buf = read_buf << 8*(8 - bytes_left);
 
 			//Make sure we actually got it
 			if(bytes_read != bytes_left)
 				$fatal(0, "Failed to read end of packet data");
 
+			//Now comes the fun part! If the packet is less than 60 bytes long (plus FCS), we have to add padding.
+			if(orig_len < 60) begin
+
+				padding_bytes_left = 60 - orig_len;
+				$display("Packet is %0d bytes long, minimum is 60 plus FCS. Need to add %0d padding bytes",
+					orig_len, padding_bytes_left);
+
+				//If we're adding a relatively small amount of padding (just finishing this block) it's easy.
+				//Just declare the zeroes at the end of this block to be data and move on.
+				if( (padding_bytes_left + bytes_read) <= 8)
+					bytes_read = bytes_read + padding_bytes_left;
+
+				//Nope, adding at least one block of padding.
+				else begin
+
+					//Current block is padded. CRC it and send it out.
+					crc = UpdateCRC(read_buf, crc, 8);
+					crc_debug_flipped = FlipCRCBits(crc);
+					padding_bytes_left -= (8 - bytes_read);
+
+					bus.ctl = 0;
+					bus.data = read_buf;
+					@(posedge clk_625mhz);
+
+					//Clock out blocks of zeroes until we hit the last block
+					while(padding_bytes_left >= 8) begin
+						crc = UpdateCRC(64'h0, crc, 8);
+						crc_debug_flipped = FlipCRCBits(crc);
+						padding_bytes_left -= 8;
+
+						bus.ctl = 0;
+						bus.data = 64'h0;
+						@(posedge clk_625mhz);
+
+					end
+
+					//Done, add any partial padding in the last block
+					read_buf = 0;
+					bytes_read = padding_bytes_left;
+					bytes_left = bytes_read;
+
+				end
+
+			end
+
 			//Calculate final CRC
 			crc = UpdateCRC(read_buf, crc, bytes_read);
+			crc_debug_flipped = FlipCRCBits(crc);
 			crc = FlipCRCBits(crc);
 
 			//Merge the CRC into the final read data and clock it out
