@@ -309,8 +309,8 @@ module EthernetSimulationPacketGenerator #(
 			if(orig_len < 60) begin
 
 				padding_bytes_left = 60 - orig_len;
-				$display("Packet is %0d bytes long, minimum is 60 plus FCS. Need to add %0d padding bytes",
-					orig_len, padding_bytes_left);
+				//$display("Packet is %0d bytes long, minimum is 60 plus FCS. Need to add %0d padding bytes",
+				//	orig_len, padding_bytes_left);
 
 				//If we're adding a relatively small amount of padding (just finishing this block) it's easy.
 				//Just declare the zeroes at the end of this block to be data and move on.
