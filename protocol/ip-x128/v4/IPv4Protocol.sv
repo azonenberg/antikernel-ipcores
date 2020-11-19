@@ -54,6 +54,7 @@ module IPv4Protocol(
 		RX_STATE_IDLE,
 		RX_STATE_SECOND,
 		RX_STATE_THIRD,
+		RX_STATE_BODY,
 		RX_STATE_HANG
 	} rx_state = RX_STATE_IDLE;
 
@@ -61,17 +62,25 @@ module IPv4Protocol(
 
 	logic[17:0]	rx_header_checksum_stage1[1:0];
 	logic[16:0]	rx_header_checksum_stage2[1:0];
-	logic[16:0]	rx_header_checksum_stage3;
-	logic[15:0]	rx_header_checksum_final			= 0;
+
+	//Finish calculating the header checksum
+	wire[16:0] rx_header_checksum_stage3	= rx_header_checksum_stage2[0][15:0] +
+											rx_header_checksum_stage2[1][15:0] +
+											rx_header_checksum_stage2[0][16] +
+											rx_header_checksum_stage2[1][16];
+	wire[15:0] rx_header_checksum_final	= rx_header_checksum_stage3[15:0] + rx_header_checksum_stage3[16];
 
 	EthernetRxBus	rx_bus_ff;
+
+	wire[15:0]	first_payload_len	= rx_bus_ff.bytes_valid - 4;
+	wire[15:0]	second_payload_len	= first_payload_len + rx_bus.bytes_valid;
+
+	logic[15:0]		rx_bytes_left	= 0;
 
 	always_ff @(posedge rx_clk) begin
 
 		rx_bus_ff	<= rx_bus;
-
-		//DEBUG
-		rx_l3_bus.data					<= rx_header_checksum_final;
+		rx_l3_bus	<= 0;
 
 		case(rx_state)
 
@@ -140,7 +149,7 @@ module IPv4Protocol(
 					//Second stage of header checksum calculation
 					rx_header_checksum_stage2[0]	= rx_header_checksum_stage1[0][15:0] +
 														rx_header_checksum_stage1[1][15:0];
-					rx_header_checksum_stage2[1]	= rx_bus.data[127:112] + rx_bus.data[111:96] +
+					rx_header_checksum_stage2[1]	<= rx_bus.data[127:112] + rx_bus.data[111:96] +
 														rx_header_checksum_stage1[0][17:16] +
 														rx_header_checksum_stage1[1][17:16];
 
@@ -153,15 +162,89 @@ module IPv4Protocol(
 
 			RX_STATE_THIRD: begin
 
-				rx_header_checksum_stage3	= rx_header_checksum_stage2[0][15:0] +
-													rx_header_checksum_stage2[1][15:0] +
-													rx_header_checksum_stage2[0][16] +
-													rx_header_checksum_stage2[1][16];
-				rx_header_checksum_final	<= rx_header_checksum_stage3[15:0] + rx_header_checksum_stage3[16];
+				//TODO: Pseudo-header checksum
 
-				rx_state	<= RX_STATE_HANG;
+				//Assume we're starting a new frame (might cancel later if header checksum is bad)
+				rx_l3_bus.start			<= 1;
+				rx_l3_bus.data_valid	<= 1;
+
+				//If last cycle was the end of the packet, it was tiny.
+				//Send whatever partial data there was (after trimming off the dest IP address)
+				if(rx_bus_ff.commit) begin
+
+					//Trim off padding if we have a tiny payload
+					if(rx_l3_headers.payload_len < first_payload_len)
+						rx_l3_bus.bytes_valid	<= rx_l3_headers.payload_len;
+					else
+						rx_l3_bus.bytes_valid	<= first_payload_len;
+
+					rx_l3_bus.data			<= { rx_bus_ff.data[95:0], 32'h0 };
+
+					//Verify checksum
+					if(rx_header_checksum_final == rx_checksum_expected)
+						rx_l3_bus.commit	<= 1;
+					else
+						rx_l3_bus.start		<= 0;
+
+					//Done
+					rx_state			<= RX_STATE_IDLE;
+
+				end
+
+				//If this cycle is the end, but we have <= 4 bytes, it's still a single cycle payload at the output,
+				//but we have to combine data from two input cycles.
+				else if(rx_bus.commit && (rx_bus.bytes_valid <= 4) ) begin
+
+					//Trim off padding if we have a tiny payload
+					if(rx_l3_headers.payload_len < second_payload_len)
+						rx_l3_bus.bytes_valid	<= rx_l3_headers.payload_len;
+					else
+						rx_l3_bus.bytes_valid	<= second_payload_len;
+					rx_l3_bus.data			<= { rx_bus_ff.data[95:0], rx_bus.data[127:96] };
+
+					//Verify checksum
+					if(rx_header_checksum_final == rx_checksum_expected)
+						rx_l3_bus.commit	<= 1;
+					else
+						rx_l3_bus.start		<= 0;
+
+					//Done
+					rx_state			<= RX_STATE_IDLE;
+
+				end
+
+				//We have a full 16 bytes of data this cycle;
+				else begin
+
+					//Trim off padding if we have a tiny payload
+					if(rx_l3_headers.payload_len < 16) begin
+						rx_l3_bus.bytes_valid	<= rx_l3_headers.payload_len;
+						rx_l3_bus.commit		<= 1;
+						rx_state				<= RX_STATE_IDLE;
+					end
+
+					//Full length cycle
+					else begin
+						rx_l3_bus.bytes_valid	<= 16;
+						rx_bytes_left			<= rx_l3_headers.payload_len - 16;
+						rx_state				<= RX_STATE_BODY;
+					end
+
+					rx_l3_bus.data			<= { rx_bus_ff.data[95:0], rx_bus.data[127:96] };
+
+					//Verify checksum
+					if(rx_header_checksum_final != rx_checksum_expected) begin
+						rx_l3_bus.start		<= 0;
+						rx_state			<= RX_STATE_IDLE;
+					end
+
+				end
 
 			end	//end RX_STATE_THIRD
+
+			RX_STATE_BODY: begin
+				//TODO
+			end	//end RX_STATE_BODY
 
 		endcase
 
