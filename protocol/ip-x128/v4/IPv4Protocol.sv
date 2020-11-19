@@ -1,3 +1,5 @@
+`timescale 1ns/1ps
+`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
@@ -52,15 +54,14 @@ module IPv4Protocol(
 		RX_STATE_IDLE,
 		RX_STATE_SECOND,
 		RX_STATE_THIRD,
-		RX_STATE_FOURTH,
 		RX_STATE_HANG
 	} rx_state = RX_STATE_IDLE;
 
 	logic[15:0]	rx_checksum_expected	= 0;
 
-	logic[16:0]	rx_header_checksum_stage1[3:0];
-	logic[17:0]	rx_header_checksum_stage2[2:0];
-	logic[16:0]	rx_header_checksum_stage3[1:0];
+	logic[17:0]	rx_header_checksum_stage1[1:0];
+	logic[16:0]	rx_header_checksum_stage2[1:0];
+	logic[16:0]	rx_header_checksum_stage3;
 	logic[15:0]	rx_header_checksum_final			= 0;
 
 	EthernetRxBus	rx_bus_ff;
@@ -68,6 +69,9 @@ module IPv4Protocol(
 	always_ff @(posedge rx_clk) begin
 
 		rx_bus_ff	<= rx_bus;
+
+		//DEBUG
+		rx_l3_bus.data					<= rx_header_checksum_final;
 
 		case(rx_state)
 
@@ -83,10 +87,15 @@ module IPv4Protocol(
 					rx_checksum_expected		<= ~rx_bus.data[47:32];
 
 					//Calculate first stage of the checksum
-					rx_header_checksum_stage1[0]	<= { 9'h45, rx_bus.data[119:112] } + rx_bus.data[111:96];
-					rx_header_checksum_stage1[1]	<= rx_bus.data[95:80] + {1'b0, rx_bus.data[78], 14'h0 };
-					rx_header_checksum_stage1[2]	<= rx_bus.data[63:48] + rx_bus.data[31:16];
-					rx_header_checksum_stage1[3]	<= rx_bus.data[15:0];
+					rx_header_checksum_stage1[0]	<=
+					{
+						1'h0,
+						rx_bus.data[78],
+						!rx_bus.data[78],
+						6'h05,
+						rx_bus.data[119:112]
+					} + rx_bus.data[15:0] + rx_bus.data[95:80];
+					rx_header_checksum_stage1[1]	<= rx_bus.data[111:96] + rx_bus.data[63:48] + rx_bus.data[31:16];
 
 					//Match valid IPv4 packets. Silently discard anything we don't care about.
 					if(
@@ -118,7 +127,7 @@ module IPv4Protocol(
 			//Second word of an IPv4 packet
 			RX_STATE_SECOND: begin
 
-				//As a minimum, any IPv4 packet needs to have a full headers. So bail if there's not enough payload.
+				//As a minimum, any IPv4 packet needs to have full headers. So bail if there's not enough payload.
 				if(!rx_bus.data_valid || (rx_bus.bytes_valid < 4) ) begin
 				end
 
@@ -129,9 +138,11 @@ module IPv4Protocol(
 					rx_l3_headers.dst_ip			<= rx_bus.data[127:96];
 
 					//Second stage of header checksum calculation
-					rx_header_checksum_stage2[0]	<= rx_header_checksum_stage1[0] + rx_header_checksum_stage1[1];
-					rx_header_checksum_stage2[1]	<= rx_header_checksum_stage1[2] + rx_header_checksum_stage1[3];
-					rx_header_checksum_stage2[2]	<= rx_bus.data[127:112] + rx_bus.data[111:96];
+					rx_header_checksum_stage2[0]	= rx_header_checksum_stage1[0][15:0] +
+														rx_header_checksum_stage1[1][15:0];
+					rx_header_checksum_stage2[1]	= rx_bus.data[127:112] + rx_bus.data[111:96] +
+														rx_header_checksum_stage1[0][17:16] +
+														rx_header_checksum_stage1[1][17:16];
 
 					//Move on without actually sending any traffic to the upper layer protocol yet.
 					rx_state						<= RX_STATE_THIRD;
@@ -142,25 +153,15 @@ module IPv4Protocol(
 
 			RX_STATE_THIRD: begin
 
-				rx_header_checksum_stage3[0]	<= rx_header_checksum_stage2[0][15:0] +
-													rx_header_checksum_stage2[1][15:0];
-				rx_header_checksum_stage3[1]	<= rx_header_checksum_stage2[2][15:0] +
-													rx_header_checksum_stage2[0][17:16] +
-													rx_header_checksum_stage2[1][17:16] +
-													rx_header_checksum_stage2[2][17:16];
-
-				rx_state	<= RX_STATE_FOURTH;
-
-			end	//end RX_STATE_THIRD
-
-			RX_STATE_FOURTH: begin
-				rx_header_checksum_final		<= rx_header_checksum_stage3[0][15:0] +
-													rx_header_checksum_stage3[1][15:0] +
-													rx_header_checksum_stage3[0][16] +
-													rx_header_checksum_stage3[1][16];
+				rx_header_checksum_stage3	= rx_header_checksum_stage2[0][15:0] +
+													rx_header_checksum_stage2[1][15:0] +
+													rx_header_checksum_stage2[0][16] +
+													rx_header_checksum_stage2[1][16];
+				rx_header_checksum_final	<= rx_header_checksum_stage3[15:0] + rx_header_checksum_stage3[16];
 
 				rx_state	<= RX_STATE_HANG;
-			end	//end RX_STATE_FOURTH
+
+			end	//end RX_STATE_THIRD
 
 		endcase
 
