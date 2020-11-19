@@ -1,10 +1,8 @@
-`timescale 1ns / 1ps
-`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -29,84 +27,17 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-/**
-	@file EthernetBus.svh
-	@author Andrew D. Zonenberg
-	@brief Structure definitions for layer-2 Ethernet with a nominal 128-bit datapath width
- */
+`ifndef Ethertypes_h
+`define Ethertypes_h
 
-`ifndef EthernetBus_svh
-`define EthernetBus_svh
-
-`include "Ethertypes.svh"
-
-/**
-	@brief XLGMII control fields
- */
-typedef enum logic[7:0]
+typedef enum logic[15:0]
 {
-	XLGMII_CTL_LPI 			= 8'h06,
-	XLGMII_CTL_IDLE			= 8'h07,
-	XLGMII_CTL_SEQUENCE		= 8'h9c,
-	XLGMII_CTL_START		= 8'hfb,
-	XLGMII_CTL_TERMINATE	= 8'hfd,
-	XLGMII_CTL_ERROR		= 8'hfe
-} xlgmii_ctl_t;
-
-/**
-	@brief XLGMII bus as specified in 802.3-2018 clause 81
-
-	We use an INVERTED convention for lane numbering (lane 7 is first, not 0).
-	This means that bytes show up in as-transmitted order in LA/sim traces, so things make a lot more sense.
- */
-typedef struct packed
-{
-	logic[7:0]	ctl;
-	logic[63:0]	data;
-} xlgmii64;
-
-/**
-	@brief XLGMII-128 bus. Double width (128 bit) and half speed (312.5 MHz) compared to standard XLGMII.
-
-	We use an INVERTED convention for lane numbering (lane 7 is first, not 0).
-	This means that bytes show up in as-transmitted order in LA/sim traces, so things make a lot more sense.
- */
-typedef struct packed
-{
-	logic[15:0]		ctl;
-	logic[127:0]	data;
-} xlgmii128;
-
-
-//Data output from MAC
-typedef struct packed
-{
-	logic			start;			//Asserted during the first cycle of a frame.
-									//Always concurrent with first cycle with data_valid asserted.
-
-	logic			data_valid;		//asserted when data is ready to be processed
-	logic[4:0]		bytes_valid;	//when data_valid is set, indicated number of valid bytes in data
-									//Valid bytes are left aligned in data
-
-	logic[127:0]	data;			//actual packet content
-
-	logic			commit;			//asserted for one cycle at end of packet if checksum was good
-	logic			drop;			//asserted for one cycle to indicate packet is invalid and should be discarded
-									//Both commit and drop may be asserted concurrent with last cycle of data_valid.
-} EthernetRxBus;
-
-//Ethernet frame headers
-typedef struct packed
-{
-	logic[47:0]	dst_mac;
-	logic[47:0]	src_mac;
-
-	ethertype_t	ethertype;
-
-	logic		has_vlan_tag;
-	logic[11:0]	vlan_id;			//802.1q header fields
-	logic[2:0]	qos_pri;
-	logic		drop_eligible;
-} EthernetHeaders;
+	ETHERTYPE_LLC	= 16'h0000,
+	ETHERTYPE_IPV4 	= 16'h0800,
+	ETHERTYPE_ARP  	= 16'h0806,
+	ETHERTYPE_DOT1Q	= 16'h8100,
+	ETHERTYPE_LLDP	= 16'h88cc,
+	ETHERTYPE_IPV6 	= 16'h86dd
+} ethertype_t;
 
 `endif
