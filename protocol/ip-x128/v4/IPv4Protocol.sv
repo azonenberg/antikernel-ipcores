@@ -73,7 +73,9 @@ module IPv4Protocol(
 	wire[15:0]		first_payload_len	= rx_bus_ff2.bytes_valid - 4;
 	wire[15:0]		second_payload_len	= first_payload_len + rx_bus_ff.bytes_valid;
 
-	logic[15:0]		rx_bytes_left	= 0;
+	logic[15:0]		rx_bytes_left		= 0;
+
+	IPv4Headers		rx_l3_headers_adv	= 0;
 
 	always_ff @(posedge rx_clk) begin
 
@@ -82,59 +84,34 @@ module IPv4Protocol(
 
 		rx_l3_bus	<= 0;
 
+		//Calculate first stage of the checksum
+		rx_header_checksum_stage1[0]	<=
+		{
+			1'h0,
+			rx_bus.data[78],
+			!rx_bus.data[78],
+			6'h05,
+			rx_bus.data[119:112]
+		} + rx_bus.data[15:0] + rx_bus.data[95:80];
+		rx_header_checksum_stage1[1]	<= rx_bus.data[111:96] + rx_bus.data[63:48];
+		rx_header_checksum_stage1[2]	<= rx_bus.data[47:32] + rx_bus.data[31:16];
+
+		//Extract fields up here to avoid lots of nested conditionals on the critical path.
+		rx_l3_headers_adv.payload_len	<= rx_bus.data[111:96] - 'd20;
+		rx_l3_headers_adv.protocol		<= ipproto_t'(rx_bus.data[55:48]);
+		rx_l3_headers_adv.src_ip		<= rx_bus.data[31:0];
+
 		case(rx_state)
 
 			RX_STATE_IDLE: begin
-
-				//Look for new packets
-				if(rx_bus.start) begin
-
-					//Extract fields up here to avoid lots of nested conditionals on the critical path.
-					rx_l3_headers.payload_len	<= rx_bus.data[111:96] - 'd20;
-					rx_l3_headers.protocol		<= ipproto_t'(rx_bus.data[55:48]);
-					rx_l3_headers.src_ip		<= rx_bus.data[31:0];
-
-					//Calculate first stage of the checksum
-					rx_header_checksum_stage1[0]	<=
-					{
-						1'h0,
-						rx_bus.data[78],
-						!rx_bus.data[78],
-						6'h05,
-						rx_bus.data[119:112]
-					} + rx_bus.data[15:0] + rx_bus.data[95:80];
-					rx_header_checksum_stage1[1]	<= rx_bus.data[111:96] + rx_bus.data[63:48];
-					rx_header_checksum_stage1[2]	<= rx_bus.data[47:32] + rx_bus.data[31:16];
-
-					//Match valid IPv4 packets. Silently discard anything we don't care about.
-					if(
-						rx_bus.data_valid && (rx_bus.bytes_valid == 16) &&			//Full sized word
-						(rx_headers.ethertype == ETHERTYPE_IPV4) &&					//IPv4 ethertype
-						(rx_bus.data[127:124] == 4'h4) &&							//IPv4
-						(rx_bus.data[123:120] == 5) &&								//Header length 20 bytes (no options).
-																					//Discard anything with options.
-						//119:114 is DSCP, ignore
-						//113:112 is ECN, ignore
-						(rx_bus.data[111:96] >= 20) &&								//valid length
-						//95:80 is identification, ignore
-						!rx_bus.data[79] &&											//evil bit (reserved) not set
-						//78 is DF bit, ignore
-						!rx_bus.data[77] &&											//more fragments bit not set
-																					//(we don't support fragmentation)
-						(rx_bus.data[76:64] == 0)									//fragment offset is zero
-						//63:56 is TTL, ignore
-						) begin
-
-						rx_state	<= RX_STATE_SECOND;
-
-					end
-
-				end
-
 			end	//end RX_STATE_IDLE
 
 			//Second word of an IPv4 packet
 			RX_STATE_SECOND: begin
+
+				//Extract the last header field
+				rx_l3_headers					<= rx_l3_headers_adv;
+				rx_l3_headers.dst_ip			<= rx_bus.data[127:96];
 
 				//Second stage of header checksum calculation
 				//Note that stage1 is 18 bits, but only the [0] can actually fill the LSB.
@@ -154,19 +131,10 @@ module IPv4Protocol(
 													rx_header_checksum_stage2[0][16];
 
 				//As a minimum, any IPv4 packet needs to have full headers. So bail if there's not enough payload.
-				if(!rx_bus.data_valid || (rx_bus.bytes_valid < 4) ) begin
-				end
-
-				//Valid traffic
-				else begin
-
-					//Extract the last header field
-					rx_l3_headers.dst_ip			<= rx_bus.data[127:96];
-
-					//Move on without actually sending any traffic to the upper layer protocol yet.
+				if(rx_bus.data_valid && (rx_bus.bytes_valid >= 4) )
 					rx_state						<= RX_STATE_THIRD;
-
-				end
+				else
+					rx_state						<= RX_STATE_IDLE;
 
 			end	//end RX_STATE_SECOND
 
@@ -329,6 +297,30 @@ module IPv4Protocol(
 			end	//end RX_STATE_BODY
 
 		endcase
+
+		//Match valid IPv4 packets. Silently discard anything we don't care about.
+		if(
+			rx_bus.start &&
+			rx_bus.data_valid && (rx_bus.bytes_valid == 16) &&			//Full sized word
+			(rx_headers.ethertype == ETHERTYPE_IPV4) &&					//IPv4 ethertype
+			(rx_bus.data[127:124] == 4'h4) &&							//IPv4
+			(rx_bus.data[123:120] == 5) &&								//Header length 20 bytes (no options).
+																		//Discard anything with options.
+			//119:114 is DSCP, ignore
+			//113:112 is ECN, ignore
+			(rx_bus.data[111:96] >= 20) &&								//valid length
+			//95:80 is identification, ignore
+			!rx_bus.data[79] &&											//evil bit (reserved) not set
+			//78 is DF bit, ignore
+			!rx_bus.data[77] &&											//more fragments bit not set
+																		//(we don't support fragmentation)
+			(rx_bus.data[76:64] == 0)									//fragment offset is zero
+			//63:56 is TTL, ignore
+			) begin
+
+			rx_state	<= RX_STATE_SECOND;
+
+		end
 
 		//Abort if we're dropping stuff
 		if(rx_bus.drop) begin
