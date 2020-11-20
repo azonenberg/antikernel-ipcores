@@ -77,6 +77,9 @@ module IPv4Protocol(
 
 	IPv4Headers		rx_l3_headers_adv	= 0;
 
+	logic			rx_match_broadcast	= 0;
+	logic			rx_global_broadcast	= 0;
+
 	always_ff @(posedge rx_clk) begin
 
 		rx_bus_ff	<= rx_bus;
@@ -113,6 +116,12 @@ module IPv4Protocol(
 				rx_l3_headers					<= rx_l3_headers_adv;
 				rx_l3_headers.dst_ip			<= rx_bus.data[127:96];
 
+				//Look at the destination IP and figure out addressing
+				rx_l3_headers.unicast			<= (rx_bus.data[127:96] == ip_config.address);
+				rx_match_broadcast				<= (rx_bus.data[127:96] == ip_config.broadcast);
+				rx_global_broadcast				<= (rx_bus.data[127:96] == 32'hffffffff);
+				rx_l3_headers.multicast			<= (rx_bus.data[127:124] == 4'he);
+
 				//Second stage of header checksum calculation
 				//Note that stage1 is 18 bits, but only the [0] can actually fill the LSB.
 				//[1] and [2] only use 16:0.
@@ -146,7 +155,15 @@ module IPv4Protocol(
 
 				//TODO: Pseudo-header checksum
 
-				rx_state					<= RX_STATE_BODY_FIRST;
+				//Finalize address matching
+				rx_l3_headers.broadcast		<= rx_match_broadcast || rx_global_broadcast;
+
+				if(rx_l3_headers.unicast || rx_l3_headers.multicast || rx_match_broadcast || rx_global_broadcast)
+					rx_state					<= RX_STATE_BODY_FIRST;
+
+				//Drop anything that's not meant for us
+				else
+					rx_state					<= RX_STATE_IDLE;
 
 			end	//end RX_STATE_THIRD
 

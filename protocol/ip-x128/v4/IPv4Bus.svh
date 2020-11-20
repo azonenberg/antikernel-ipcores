@@ -59,6 +59,10 @@ typedef struct packed
 	logic[31:0] src_ip;
 	logic[31:0] dst_ip;
 	logic[15:0]	pseudo_header_csum;
+
+	logic		unicast;
+	logic		multicast;
+	logic		broadcast;
 } IPv4Headers;
 
 `endif
