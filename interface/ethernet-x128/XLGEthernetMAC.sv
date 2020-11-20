@@ -343,6 +343,13 @@ module XLGEthernetMAC(
 
 			rx_crc_bus.data_valid	<= 1;
 			rx_crc_bus.bytes_valid	<= 16;
+
+			//If we have *exactly* a CRC next cycle, commit now.
+			if(rx_bus_internal.bytes_valid == 4) begin
+				rx_crc_bus.commit	<= 1;
+				rx_crc_expected		<= rx_bus_internal.data[96 +: 32];
+			end
+
 		end
 
 		//We have full data this cycle, but less than a CRC next cycle.
@@ -363,14 +370,13 @@ module XLGEthernetMAC(
 		end
 
 		//This is the last cycle. Push all but the last 4 bytes.
-		else if(rx_bus_internal_ff.commit && (rx_bus_internal_ff.bytes_valid >= 4) ) begin
+		else if(rx_bus_internal_ff.commit && (rx_bus_internal_ff.bytes_valid > 4) ) begin
 
 			rx_crc_bus.data_valid	<= 1;
 			rx_crc_bus.bytes_valid	<= rx_bus_internal_ff.bytes_valid - 4;
 			rx_crc_bus.commit		<= 1;
 
 			case(rx_bus_internal_ff.bytes_valid)
-				4: rx_crc_expected	<= rx_bus_internal_ff.data[96 +: 32];
 				5: rx_crc_expected	<= rx_bus_internal_ff.data[88 +: 32];
 				6: rx_crc_expected	<= rx_bus_internal_ff.data[80 +: 32];
 				7: rx_crc_expected	<= rx_bus_internal_ff.data[72 +: 32];
