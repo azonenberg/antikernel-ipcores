@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2021 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -69,6 +69,9 @@ module DDRInputBuffer #(
 				.S(1'b0),
 				.D(din[i])
 			);
+
+		`else
+			$fatal(1, "DDRInputBuffer: unrecognized device family (did you forget to define XILINX_7SERIES?)");
 		`endif
 
 	end

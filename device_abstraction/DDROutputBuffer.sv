@@ -71,6 +71,8 @@ module DDROutputBuffer #(
 				.S(1'b0),
 				.Q(dout[i])
 			);
+		`else
+			$fatal(1, "DDRInputBuffer: unrecognized device family (did you forget to define XILINX_7SERIES?)");
 		`endif
 
 	end
