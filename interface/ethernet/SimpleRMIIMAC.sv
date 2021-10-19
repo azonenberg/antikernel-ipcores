@@ -51,6 +51,7 @@ module SimpleRMIIMAC(
 
 	//FPGA-side interface
 	input wire EthernetTxBus	mac_tx_bus,
+	output logic				mac_tx_ready	= 1,
 
 	//MCU-side interface
 	output logic				rmii_rx_en	= 0,
@@ -69,13 +70,16 @@ module SimpleRMIIMAC(
 		.crc_out(tx_crc)
 	);
 
-	enum logic[2:0]
+	enum logic[3:0]
 	{
 		TX_STATE_IDLE,
+		TX_STATE_CARRIER_1,
+		TX_STATE_CARRIER_2,
 		TX_STATE_PREAMBLE_1,
 		TX_STATE_PREAMBLE_2,
 		TX_STATE_DATA,
-		TX_STATE_DATA_LAST,
+		TX_STATE_DATA_LAST1,
+		TX_STATE_DATA_LAST2,
 		TX_STATE_CRC
 	} tx_state = TX_STATE_IDLE;
 
@@ -90,9 +94,10 @@ module SimpleRMIIMAC(
 	logic[2:0]	tx_valid_ff3	= 0;
 	logic[31:0]	tx_data_ff3		= 0;
 
-	always_ff @(posedge clk_50mhz) begin
+	logic[2:0]	tx_valid_ff4	= 0;
+	logic[31:0]	tx_data_ff4		= 0;
 
-		rmii_rx_en	<= 0;
+	always_ff @(posedge clk_50mhz) begin
 
 		//Save incoming data
 		if(mac_tx_bus.data_valid) begin
@@ -102,6 +107,8 @@ module SimpleRMIIMAC(
 			tx_data_ff2		<= tx_data_ff;
 			tx_valid_ff3	<= tx_valid_ff2;
 			tx_data_ff3		<= tx_data_ff2;
+			tx_valid_ff4	<= tx_valid_ff3;
+			tx_data_ff4		<= tx_data_ff3;
 		end
 
 		case(tx_state)
@@ -109,17 +116,14 @@ module SimpleRMIIMAC(
 			//Wait for a frame to start
 			TX_STATE_IDLE: begin
 
-				//When we get a start flag, clean out the CRC but don't do anything else
-
-				//DEBUG
-				if(mac_tx_bus.start) begin
-					tx_valid_ff		<= 0;
-					tx_data_ff		<= 0;
-					tx_valid_ff2	<= 0;
-					tx_data_ff2		<= 0;
-					tx_valid_ff3	<= 0;
-					tx_data_ff3		<= 0;
+				if(rmii_rx_en) begin
+					rmii_rx_en	<= 0;
+					rmii_rxd	<= 0;
 				end
+
+				//When we get a start flag, we're no longer ready
+				if(mac_tx_bus.start)
+					mac_tx_ready	<= 0;
 
 				//Data valid? Start sending a preamble
 				if(mac_tx_bus.data_valid) begin
@@ -163,32 +167,53 @@ module SimpleRMIIMAC(
 			//sends least significant *bit* pair first
 			TX_STATE_DATA: begin
 
-				tx_count				<= tx_count + 1;
+				tx_count			<= tx_count + 1;
 
-				rmii_rx_en				<= 1;
-
+				rmii_rx_en			<= 1;
 				case(tx_count[3:2])
-					0:	rmii_rxd		<= tx_data_ff3[(tx_count[1:0]*2 + 24) +: 2];
-					1:	rmii_rxd		<= tx_data_ff3[(tx_count[1:0]*2 + 16) +: 2];
-					2:	rmii_rxd		<= tx_data_ff3[(tx_count[1:0]*2 + 8) +: 2];
-
-					3:	begin
-						rmii_rxd		<= tx_data_ff3[(tx_count[1:0]*2 + 0) +: 2];
-
-						//If we had a full cycle but the NEXT cycle is blank, we're done
-						if( (tx_count[1:0] == 2'b11) && (tx_valid_ff2 == 0) )
-							tx_state	<= TX_STATE_CRC;
-					end
-
+					0:	rmii_rxd	<= tx_data_ff3[(tx_count[1:0]*2 + 24) +: 2];
+					1:	rmii_rxd	<= tx_data_ff3[(tx_count[1:0]*2 + 16) +: 2];
+					2:	rmii_rxd	<= tx_data_ff3[(tx_count[1:0]*2 + 8) +: 2];
+					3:	rmii_rxd	<= tx_data_ff3[(tx_count[1:0]*2 + 0) +: 2];
 				endcase
 
-				//At end of cycle, but no new data coming in? Last word
-				if( (tx_count == 15) && !mac_tx_bus.data_valid)
-					tx_state			<= TX_STATE_DATA_LAST;
+				//At end of cycle, but no new data coming in? Last word.
+				//Cycle the shift register manually, because there's no input to do it for us
+				if( (tx_count == 15) && !mac_tx_bus.data_valid) begin
+					tx_state			<= TX_STATE_DATA_LAST1;
+
+					tx_valid_ff2	<= tx_valid_ff;
+					tx_data_ff2		<= tx_data_ff;
+					tx_valid_ff3	<= tx_valid_ff2;
+					tx_data_ff3		<= tx_data_ff2;
+				end
 
 			end	//end TX_STATE_DATA
 
-			TX_STATE_DATA_LAST: begin
+			//Send the last guaranteed-full word of packet content
+			TX_STATE_DATA_LAST1: begin
+
+				tx_count			<= tx_count + 1;
+
+				rmii_rx_en			<= 1;
+				case(tx_count[3:2])
+					0:	rmii_rxd	<= tx_data_ff3[(tx_count[1:0]*2 + 24) +: 2];
+					1:	rmii_rxd	<= tx_data_ff3[(tx_count[1:0]*2 + 16) +: 2];
+					2:	rmii_rxd	<= tx_data_ff3[(tx_count[1:0]*2 + 8) +: 2];
+					3:	rmii_rxd	<= tx_data_ff3[(tx_count[1:0]*2 + 0) +: 2];
+				endcase
+
+				//Cycle the shift register for the final time
+				if(tx_count == 15) begin
+					tx_state		<= TX_STATE_DATA_LAST2;
+					tx_valid_ff3	<= tx_valid_ff2;
+					tx_data_ff3		<= tx_data_ff2;
+				end
+
+			end	//end TX_STATE_DATA_LAST1
+
+			//Send the very last word of packet content (might be partial)
+			TX_STATE_DATA_LAST2: begin
 
 				tx_count				<= tx_count + 1;
 
@@ -196,37 +221,64 @@ module SimpleRMIIMAC(
 
 				case(tx_count[3:2])
 					0:	begin
-						rmii_rxd		<= tx_data_ff2[(tx_count[1:0]*2 + 24) +: 2];
+						rmii_rxd		<= tx_data_ff3[(tx_count[1:0]*2 + 24) +: 2];
 
-						if( (tx_count[1:0] == 2'b11) && (tx_valid_ff2 == 1) )
+						if( (tx_count[1:0] == 2'b11) && (tx_valid_ff3 == 1) ) begin
 							tx_state	<= TX_STATE_CRC;
+							tx_count		<= 0;
+						end
 					end
 
 					1:	begin
-						rmii_rxd		<= tx_data_ff2[(tx_count[1:0]*2 + 16) +: 2];
+						rmii_rxd		<= tx_data_ff3[(tx_count[1:0]*2 + 16) +: 2];
 
-						if( (tx_count[1:0] == 2'b11) && (tx_valid_ff2 == 2) )
+						if( (tx_count[1:0] == 2'b11) && (tx_valid_ff3 == 2) ) begin
 							tx_state	<= TX_STATE_CRC;
+							tx_count		<= 0;
+						end
 					end
 
 					2:	begin
 						rmii_rxd		<= tx_data_ff2[(tx_count[1:0]*2 + 8) +: 2];
 
-						if( (tx_count[1:0] == 2'b11) && (tx_valid_ff2 == 3) )
+						if( (tx_count[1:0] == 2'b11) && (tx_valid_ff3 == 3) ) begin
 							tx_state	<= TX_STATE_CRC;
+							tx_count		<= 0;
+						end
 					end
 
 					3:	begin
 						rmii_rxd		<= tx_data_ff2[(tx_count[1:0]*2 + 0) +: 2];
-						tx_state		<= TX_STATE_CRC;
+
+						if(tx_count[1:0] == 2'b11) begin
+							tx_state		<= TX_STATE_CRC;
+							tx_count		<= 0;
+						end
 					end
 
 				endcase
 
-			end	//end TX_STATE_DATA_LAST
+			end	//end TX_STATE_DATA_LAST2
 
+			//And finally, send the CRC32
 			TX_STATE_CRC: begin
-				tx_state			<= TX_STATE_IDLE;
+
+				tx_count			<= tx_count + 1;
+
+				rmii_rx_en			<= 1;
+				case(tx_count[3:2])
+					0:	rmii_rxd	<= tx_crc[(tx_count[1:0]*2 + 24) +: 2];
+					1:	rmii_rxd	<= tx_crc[(tx_count[1:0]*2 + 16) +: 2];
+					2:	rmii_rxd	<= tx_crc[(tx_count[1:0]*2 + 8) +: 2];
+					3:	rmii_rxd	<= tx_crc[(tx_count[1:0]*2 + 0) +: 2];
+				endcase
+
+				//Done?
+				if(tx_count == 15) begin
+					tx_state		<= TX_STATE_IDLE;
+					mac_tx_ready	<= 1;
+				end
+
 			end	//end TX_STATE_CRC
 
 		endcase
@@ -249,7 +301,10 @@ module SimpleRMIIMAC(
 		.probe8(tx_valid_ff2),
 		.probe9(tx_data_ff2),
 		.probe10(tx_valid_ff3),
-		.probe11(tx_data_ff3)
+		.probe11(tx_data_ff3),
+		.probe12(mac_tx_ready),
+		.probe13(tx_valid_ff4),
+		.probe14(tx_data_ff4)
 	);
 
 endmodule

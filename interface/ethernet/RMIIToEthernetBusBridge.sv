@@ -151,6 +151,7 @@ module RMIIToEthernetBusBridge(
 	logic[3:0] rx_count			= 0;
 	logic[9:0] rx_bytes_read	= 0;
 
+	wire mac_tx_ready;
 	EthernetTxBus mac_tx_bus_100m;
 
 	always_ff @(posedge clk_50mhz) begin
@@ -166,10 +167,10 @@ module RMIIToEthernetBusBridge(
 
 		case(rx_state)
 
-			//Wait for a header to be ready to pop
+			//Wait for a header to be ready to pop, and the MAC to be ready for a new frame
 			RX_STATE_IDLE: begin
 
-				if(!rx_header_rd_empty) begin
+				if(!rx_header_rd_empty && mac_tx_ready) begin
 					rx_bytes_read	<= 0;
 					rx_header_rd_en	<= 1;
 					rx_state		<= RX_STATE_HEADER_WAIT;
@@ -255,7 +256,10 @@ module RMIIToEthernetBusBridge(
 
 	SimpleRMIIMAC mac(
 		.clk_50mhz(clk_50mhz),
+
 		.mac_tx_bus(mac_tx_bus_100m),
+		.mac_tx_ready(mac_tx_ready),
+
 		.rmii_rx_en(rmii_rx_en),
 		.rmii_rxd(rmii_rxd)
 	);
