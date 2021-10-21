@@ -287,7 +287,7 @@ module SimpleRMIIMAC(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Logic analyzer for debug
-
+	/*
 	ila_0 ila(
 		.clk(clk_50mhz),
 		.probe0(rmii_rx_en),
@@ -306,5 +306,6 @@ module SimpleRMIIMAC(
 		.probe13(tx_valid_ff4),
 		.probe14(tx_data_ff4)
 	);
+	*/
 
 endmodule

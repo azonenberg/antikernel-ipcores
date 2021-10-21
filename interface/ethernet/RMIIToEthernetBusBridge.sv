@@ -39,7 +39,6 @@ module RMIIToEthernetBusBridge(
 
 	//Clocks
 	input wire					clk_50mhz,
-	input wire					clk_125mhz,
 	input wire					gmii_rxc,
 
 	//Host side data bus
