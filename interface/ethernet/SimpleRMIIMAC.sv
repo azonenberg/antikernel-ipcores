@@ -285,27 +285,4 @@ module SimpleRMIIMAC(
 
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Logic analyzer for debug
-	/*
-	ila_0 ila(
-		.clk(clk_50mhz),
-		.probe0(rmii_rx_en),
-		.probe1(rmii_rxd),
-		.probe2(mac_tx_bus),
-		.probe3(tx_state),
-		.probe4(tx_count),
-		.probe5(tx_crc),
-		.probe6(tx_valid_ff),
-		.probe7(tx_data_ff),
-		.probe8(tx_valid_ff2),
-		.probe9(tx_data_ff2),
-		.probe10(tx_valid_ff3),
-		.probe11(tx_data_ff3),
-		.probe12(mac_tx_ready),
-		.probe13(tx_valid_ff4),
-		.probe14(tx_data_ff4)
-	);
-	*/
-
 endmodule
