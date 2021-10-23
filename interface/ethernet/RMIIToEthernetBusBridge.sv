@@ -109,6 +109,7 @@ module RMIIToEthernetBusBridge(
 		.rmii_txd(rmii_txd)
 	);
 
+	/*
 	ila_2 ila(
 		.clk(clk_50mhz),
 		.probe0(rmii_rx_bus),
@@ -127,5 +128,6 @@ module RMIIToEthernetBusBridge(
 		.probe12(rmii_rx_en),
 		.probe13(rmii_tx_en)
 	);
+	*/
 
 endmodule

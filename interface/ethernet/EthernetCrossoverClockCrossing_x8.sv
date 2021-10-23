@@ -83,6 +83,8 @@ module EthernetCrossoverClockCrossing_x8(
 
 	wire[6:0] rx_header_wr_size;
 
+	wire[6:0] rx_header_rd_size;
+
 	//Header FIFO (big enough to hold a full rx_header_fifo worth of minimum sized frames)
 	CrossClockFifo #(
 		.WIDTH(11),
@@ -101,7 +103,7 @@ module EthernetCrossoverClockCrossing_x8(
 		.rd_clk(tx_clk),
 		.rd_en(rx_header_rd_en),
 		.rd_data(rx_header_rd_data),
-		.rd_size(),
+		.rd_size(rx_header_rd_size),
 		.rd_empty(rx_header_rd_empty),
 		.rd_underflow(),
 		.rd_reset(1'b0)
@@ -109,6 +111,7 @@ module EthernetCrossoverClockCrossing_x8(
 
 	//32 bits * 1024 rows = 4 kB.
 	//We want to be able to hold a couple of frames since the 100mbit RMII interface is a lot slower than 1000base-T.
+	wire[10:0] rx_data_fifo_rd_size;
 	CrossClockPacketFifo #(
 		.WIDTH(32),
 		.DEPTH(1024)
@@ -128,7 +131,7 @@ module EthernetCrossoverClockCrossing_x8(
 		.rd_pop_packet(rx_fifo_rd_pop_packet),
 		.rd_data(rx_fifo_rd_data),
 		.rd_packet_size(rx_fifo_rd_packet_size),
-		.rd_size(),
+		.rd_size(rx_data_fifo_rd_size),
 		.rd_reset()
 	);
 
@@ -141,7 +144,8 @@ module EthernetCrossoverClockCrossing_x8(
 		STATE_HEADER_WAIT,
 		STATE_DATA_WAIT,
 		STATE_DATA_FIRST,
-		STATE_DATA_COUNT
+		STATE_DATA_COUNT,
+		STATE_POP
 	} state = STATE_IDLE;
 
 	logic[1:0] rx_count			= 0;
@@ -192,7 +196,7 @@ module EthernetCrossoverClockCrossing_x8(
 			STATE_DATA_FIRST: begin
 
 				if(rx_bytes_read >= rx_header_rd_data)
-					state			<= STATE_IDLE;
+					state			<= STATE_POP;
 
 				else begin
 					tx_bus.data_valid	<= 1;
@@ -244,17 +248,22 @@ module EthernetCrossoverClockCrossing_x8(
 				//Last byte of the packet?
 				if(rx_count > current_bytes) begin
 					tx_bus.data_valid			<= 0;
-					rx_fifo_rd_pop_packet		<= 1;
-
-					if(rx_header_rd_data[1:0])
-						rx_fifo_rd_packet_size	<= rx_header_rd_data[10:2] + 1;
-					else
-						rx_fifo_rd_packet_size	<= rx_header_rd_data[10:2];
-
-					state				<= STATE_IDLE;
+					state						<= STATE_POP;
 				end
 
 			end	//end STATE_DATA_COUNT
+
+			STATE_POP: begin
+				rx_fifo_rd_pop_packet		<= 1;
+
+				if(rx_header_rd_data[1:0])
+					rx_fifo_rd_packet_size	<= rx_header_rd_data[10:2] + 1;
+				else
+					rx_fifo_rd_packet_size	<= rx_header_rd_data[10:2];
+
+				state	<= STATE_IDLE;
+
+			end	//end STATE_POP
 
 		endcase
 
@@ -262,7 +271,7 @@ module EthernetCrossoverClockCrossing_x8(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug ILA
-	/*
+
 	ila_0 ila(
 		.clk(tx_clk),
 		.probe0(tx_ready),
@@ -272,8 +281,12 @@ module EthernetCrossoverClockCrossing_x8(
 		.probe4(rx_count),
 		.probe5(current_bytes),
 		.probe6(rx_bytes_read),
-		.probe7(rx_header_rd_data)
+		.probe7(rx_header_rd_data),
+
+		.probe8(rx_header_rd_size),
+		.probe9(rx_data_fifo_rd_size),
+		.probe10(rx_fifo_rd_packet_size),
+		.probe11(rx_fifo_rd_pop_packet)
 	);
-	*/
 
 endmodule
