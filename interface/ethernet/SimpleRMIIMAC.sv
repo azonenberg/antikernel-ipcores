@@ -52,10 +52,13 @@ module SimpleRMIIMAC(
 	//FPGA-side interface
 	input wire EthernetTxBus	mac_tx_bus,
 	output logic				mac_tx_ready	= 1,
+	output EthernetRxBus		mac_rx_bus,
 
 	//MCU-side interface
 	output logic				rmii_rx_en	= 0,
-	output logic[1:0]			rmii_rxd	= 0
+	output logic[1:0]			rmii_rxd	= 0,
+	input wire					rmii_tx_en,
+	input wire[1:0]				rmii_txd
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -280,6 +283,188 @@ module SimpleRMIIMAC(
 				end
 
 			end	//end TX_STATE_CRC
+
+		endcase
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Receive side (MCU TX -> MAC RX)
+
+	enum logic[3:0]
+	{
+		RX_STATE_IDLE,
+		RX_STATE_CARRIER,
+		RX_STATE_PREAMBLE,
+		RX_STATE_DATA,
+		RX_STATE_CRC_0,
+		RX_STATE_CRC_1
+	} rx_state = RX_STATE_IDLE;
+
+	logic[2:0]	rx_bitcount			= 0;
+	logic[7:0]	rx_byte				= 0;
+	logic		rx_byte_valid		= 0;
+
+	logic		rx_data_valid_adv	= 0;
+	logic[2:0]	rx_bytes_valid_adv	= 0;
+	logic[31:0]	rx_data_adv			= 0;
+
+	logic		rx_data_valid_adv2	= 0;
+	logic[31:0]	rx_data_adv2		= 0;
+
+	wire[31:0]	rx_crc_calculated;
+	CRC32_Ethernet rx_crc_calc(
+		.clk(clk_50mhz),
+		.reset(mac_rx_bus.start),
+		.update(rx_byte_valid),
+		.din(rx_byte),
+		.crc_flipped(rx_crc_calculated)
+	);
+
+	logic[31:0]	rx_crc_expected		= 0;
+
+	logic		rx_byte_valid_ff	= 0;
+	logic[31:0]	rx_crc_calculated_ff	= 0;
+	logic[31:0]	rx_crc_calculated_ff2	= 0;
+	logic[31:0]	rx_crc_calculated_ff3	= 0;
+	logic[31:0]	rx_crc_calculated_ff4	= 0;
+	logic[31:0]	rx_crc_calculated_ff5	= 0;
+
+	always_ff @(posedge clk_50mhz) begin
+
+		mac_rx_bus.start		<= 0;
+		mac_rx_bus.data_valid	<= 0;
+		mac_rx_bus.commit		<= 0;
+		mac_rx_bus.drop			<= 0;
+
+		rx_data_valid_adv		<= 0;
+		rx_byte_valid			<= 0;
+
+		//Convert bytes to words
+		if(rx_byte_valid) begin
+
+			case(rx_bytes_valid_adv)
+				0:	rx_data_adv[31:24]	<= rx_byte;
+				1:	rx_data_adv[23:16]	<= rx_byte;
+				2:	rx_data_adv[15:8]	<= rx_byte;
+				3: begin
+					rx_data_adv[7:0]	<= rx_byte;
+					rx_data_valid_adv	<= 1;
+				end
+			endcase
+
+			rx_crc_expected		<= {rx_crc_expected[23:0], rx_byte};
+			rx_bytes_valid_adv	<= rx_bytes_valid_adv + 1;
+		end
+
+		//Push data words down pipeline and out
+		//Need delay so we don't accidentally send CRC
+		if(rx_data_valid_adv) begin
+			rx_data_valid_adv2		<= 1;
+			rx_data_adv2			<= rx_data_adv;
+			rx_bytes_valid_adv		<= 0;
+
+			//Drive full words
+			if(rx_data_valid_adv2) begin
+				mac_rx_bus.data_valid	<= 1;
+				mac_rx_bus.data			<= rx_data_adv2;
+				mac_rx_bus.bytes_valid	<= 4;
+			end
+
+		end
+
+		//Last partial word
+		if(rx_byte_valid_ff && !rmii_tx_en) begin
+			mac_rx_bus.data_valid	<= 1;
+			mac_rx_bus.data			<= rx_data_adv2;
+			mac_rx_bus.bytes_valid	<= rx_bytes_valid_adv;
+			rx_data_valid_adv2		<= 0;
+		end
+
+		//Push CRC down pipeline
+		rx_byte_valid_ff	<= rx_byte_valid;
+		if(rx_byte_valid_ff) begin
+			rx_crc_calculated_ff5	<= rx_crc_calculated_ff4;
+			rx_crc_calculated_ff4	<= rx_crc_calculated_ff3;
+			rx_crc_calculated_ff3	<= rx_crc_calculated_ff2;
+			rx_crc_calculated_ff2	<= rx_crc_calculated_ff;
+			rx_crc_calculated_ff	<= rx_crc_calculated;
+		end
+
+		case(rx_state)
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Wait for a frame to start
+
+			RX_STATE_IDLE: begin
+
+				if(rmii_tx_en)
+					rx_state		<= RX_STATE_CARRIER;
+
+			end	//end RX_STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Preamble and header
+
+			RX_STATE_CARRIER: begin
+				if(!rmii_tx_en)
+					rx_state		<= RX_STATE_IDLE;
+
+				else begin
+					if(rmii_txd == 2'b01)
+						rx_state	<= RX_STATE_PREAMBLE;
+				end
+
+			end	//end RX_STATE_CARRIER
+
+			RX_STATE_PREAMBLE: begin
+
+				if(!rmii_tx_en)
+					rx_state		<= RX_STATE_IDLE;
+
+				//Got a SFD
+				else if(rmii_txd == 2'b11) begin
+					rx_bitcount			<= 0;
+					rx_byte			<= 0;
+					rx_data_adv			<= 0;
+					rx_data_valid_adv	<= 0;
+					rx_bytes_valid_adv	<= 0;
+					mac_rx_bus.start	<= 1;
+					rx_state			<= RX_STATE_DATA;
+				end
+
+			end	//end RX_STATE_PREAMBLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Frame data
+
+			RX_STATE_DATA: begin
+
+				if(!rmii_tx_en)
+					rx_state		<= RX_STATE_CRC_0;
+
+				else begin
+					rx_bitcount		<= rx_bitcount + 2;
+					rx_byte			<= { rmii_txd, rx_byte[7:2] };
+
+					if(rx_bitcount == 6)
+						rx_byte_valid	<= 1;
+				end
+
+			end	//end RX_STATE_DATA
+
+			RX_STATE_CRC_0: begin
+				rx_state			<= RX_STATE_CRC_1;
+			end	//end RX_STATE_CRC_0
+
+			RX_STATE_CRC_1: begin
+				if(rx_crc_expected == rx_crc_calculated_ff5)
+					mac_rx_bus.commit	<= 1;
+				else
+					mac_rx_bus.drop		<= 1;
+
+				rx_state			<= RX_STATE_IDLE;
+			end	//end RX_STATE_CRC_1
 
 		endcase
 
