@@ -269,24 +269,4 @@ module EthernetCrossoverClockCrossing_x8(
 
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
-
-	ila_0 ila(
-		.clk(tx_clk),
-		.probe0(tx_ready),
-		.probe1(tx_bus),
-		.probe2(state),
-		.probe3(rx_fifo_rd_data),
-		.probe4(rx_count),
-		.probe5(current_bytes),
-		.probe6(rx_bytes_read),
-		.probe7(rx_header_rd_data),
-
-		.probe8(rx_header_rd_size),
-		.probe9(rx_data_fifo_rd_size),
-		.probe10(rx_fifo_rd_packet_size),
-		.probe11(rx_fifo_rd_pop_packet)
-	);
-
 endmodule
