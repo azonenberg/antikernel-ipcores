@@ -109,38 +109,4 @@ module RMIIToEthernetBusBridge(
 		.rmii_txd(rmii_txd)
 	);
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug LA
-
-	logic[15:0] temp = 0;
-	logic[31:0] uptime_ms = 0;
-	always_ff @(posedge clk_50mhz) begin
-		temp	<= temp + 1;
-		if(temp == 49999) begin
-			temp		<= 0;
-			uptime_ms	<= uptime_ms + 1;
-		end
-	end
-
-	ila_2 ila(
-		.clk(clk_50mhz),
-		.probe0(rmii_rx_bus),
-		.probe1(rmii_tx_ready),
-		.probe2(rmii_tx_bus),
-
-		.probe3(mac.rx_byte_valid),
-		.probe4(mac.rx_byte),
-		.probe5(mac.rx_state),
-		.probe6(mac.rx_data_valid_adv),
-		.probe7(mac.rx_bytes_valid_adv),
-		.probe8(mac.rx_data_adv),
-		.probe9(mac.rx_data_valid_adv2),
-		.probe10(mac.rx_data_adv2),
-		.probe11(mac.rx_byte_valid_ff),
-		.probe12(rmii_rx_en),
-		.probe13(rmii_tx_en),
-		.probe14(uptime_ms)
-	);
-
-
 endmodule
