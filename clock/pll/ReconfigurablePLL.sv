@@ -154,7 +154,7 @@ module ReconfigurablePLL #(
 	`include "ReconfigurablePLL_limits.svh"
 
 	//verify a suported device is selected
-	`ifndef XILINX_SPARTAN6
+	`ifndef XILINX_SPARTAN7
 	`ifndef XILINX_ARTIX7
 	`ifndef XILINX_KINTEX7
 	`ifndef XILINX_VIRTEX7
