@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -39,11 +39,10 @@ module ClockBuffer(clkin, ce, clkout);
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O / parameter declarations
 
-	parameter TYPE = "LOCAL";	//Set to LOCAL, GLOBAL, or "IO"
+	parameter TYPE = "LOCAL";	//Set to LOCAL, GLOBAL, REGIONAL, or IO
 								//LOCAL is a hint and may not always be possible
 	parameter CE = "YES";		//Set to YES or NO
-								//If NO, ce input is ignored and clock is always enabled
-								//Tying ce to 1'b1 is recommended for code readability
+								//If NO, ce input is ignored
 
 	input wire	clkin;
 	input wire	ce;
@@ -52,6 +51,8 @@ module ClockBuffer(clkin, ce, clkout);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual primitive
+
+	wire ce_internal = (CE == "YES") ? ce : 1'b1;
 
 	generate
 
@@ -121,6 +122,21 @@ module ClockBuffer(clkin, ce, clkout);
 					$fatal(0, "ERROR: ClockBuffer CE argument must be \"NO\" for TYPE == \"IO\"");
 				end
 			end
+
+		end
+
+		//Regional clock (7 series)
+		else if(TYPE == "REGIONAL") begin
+
+			(* DONT_TOUCH = "true" *)	//force the buffer to not get optimized out
+			BUFR #(
+				.BUFR_DIVIDE("BYPASS")
+			) clk_buf (
+				.I(clkin),
+				.O(clkout),
+				.CE(ce_internal),
+				.CLR(1'b0)
+				);
 
 		end
 

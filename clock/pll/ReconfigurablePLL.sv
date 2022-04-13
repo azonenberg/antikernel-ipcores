@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -91,6 +91,9 @@ module ReconfigurablePLL #(
 	//Set the corresponding bit high to use an I/O clock buffer on the output
 	parameter			OUTPUT_BUF_IO		= 6'b000000,
 
+//Set the corresponding bit high to use a regional clock buffer on the output
+	parameter			OUTPUT_BUF_REGIONAL	= 6'b000000,
+
 	//INPUT clock periods
 	parameter			IN0_PERIOD			= 50.0,		//50 ns = 20 MHz
 	parameter			IN1_PERIOD			= 50.0,
@@ -110,6 +113,9 @@ module ReconfigurablePLL #(
 	parameter			OUT3_DEFAULT_PHASE	= 0.000,
 	parameter			OUT4_DEFAULT_PHASE	= 0.000,
 	parameter			OUT5_DEFAULT_PHASE	= 0.000,
+
+	//Enable fine phase shift per output
+	parameter			FINE_PHASE_SHIFT	= 6'h0,
 
 	//Set true to automatically start in Fmax state
 	parameter			ACTIVE_ON_START			= 0,
@@ -145,7 +151,13 @@ module ReconfigurablePLL #(
 	input wire		reconfig_output_en,
 	input wire[2:0]	reconfig_output_idx,
 	input wire[7:0]	reconfig_output_div,
-	input wire[8:0]	reconfig_output_phase
+	input wire[8:0]	reconfig_output_phase,
+
+	//Reconfiguration: fine phase shift
+	input wire		phase_shift_clk,
+	input wire		phase_shift_en,
+	input wire		phase_shift_inc,
+	output wire		phase_shift_done
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -236,6 +248,18 @@ module ReconfigurablePLL #(
 			ClockBuffer #(
 				.CE(OUTPUT_GATE[i]? "YES" : "NO"),
 				.TYPE("IO")
+			) output_buf (
+				.clkin(clkout_raw[i]),
+				.ce(locked),
+				.clkout(clkout[i])
+			);
+		end
+
+		//Do a regional clock buffer if needed
+		else if(OUTPUT_BUF_REGIONAL[i]) begin
+			ClockBuffer #(
+				.CE(OUTPUT_GATE[i]? "YES" : "NO"),
+				.TYPE("REGIONAL")
 			) output_buf (
 				.clkin(clkout_raw[i]),
 				.ce(locked),
@@ -366,13 +390,13 @@ module ReconfigurablePLL #(
 
 			//Fine phase not supported
 			.CLKFBOUT_USE_FINE_PS("FALSE"),
-			.CLKOUT0_USE_FINE_PS("FALSE"),
-			.CLKOUT1_USE_FINE_PS("FALSE"),
-			.CLKOUT2_USE_FINE_PS("FALSE"),
-			.CLKOUT3_USE_FINE_PS("FALSE"),
-			.CLKOUT4_USE_FINE_PS("FALSE"),
-			.CLKOUT5_USE_FINE_PS("FALSE"),
-			.CLKOUT6_USE_FINE_PS("FALSE"),
+			.CLKOUT0_USE_FINE_PS(FINE_PHASE_SHIFT[0] ? "TRUE" : "FALSE"),
+			.CLKOUT1_USE_FINE_PS(FINE_PHASE_SHIFT[1] ? "TRUE" : "FALSE"),
+			.CLKOUT2_USE_FINE_PS(FINE_PHASE_SHIFT[2] ? "TRUE" : "FALSE"),
+			.CLKOUT3_USE_FINE_PS(FINE_PHASE_SHIFT[3] ? "TRUE" : "FALSE"),
+			.CLKOUT4_USE_FINE_PS(FINE_PHASE_SHIFT[4] ? "TRUE" : "FALSE"),
+			.CLKOUT5_USE_FINE_PS(FINE_PHASE_SHIFT[5] ? "TRUE" : "FALSE"),
+			.CLKOUT6_USE_FINE_PS(FINE_PHASE_SHIFT[6] ? "TRUE" : "FALSE"),
 
 			//Don't wait for PLL lock during boot
 			.STARTUP_WAIT("FALSE"),
@@ -433,11 +457,11 @@ module ReconfigurablePLL #(
 			.DO(drp_dout),
 			.DRDY(drp_ready),
 
-			//Fine phase shift (not implemented)
-			.PSCLK(1'b0),
-			.PSEN(1'b0),
-			.PSINCDEC(1'b0),
-			.PSDONE()
+			//Fine phase shift
+			.PSCLK(phase_shift_clk),
+			.PSEN(phase_shift_en),
+			.PSINCDEC(phase_shift_inc),
+			.PSDONE(phase_shift_done)
 		);
 
 	end
