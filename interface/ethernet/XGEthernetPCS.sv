@@ -49,7 +49,7 @@ module XGEthernetPCS(
 	output logic		rx_bitslip	= 0,
 
 	//Outbound data to the GT's 64/66b gearbox
-	output logic		tx_header_valid,
+	output logic[5:0]	tx_sequence	= 0,
 	output logic[1:0]	tx_header	= 0,
 	output logic[31:0]	tx_data		= 0,
 
@@ -621,6 +621,7 @@ module XGEthernetPCS(
 
 	end
 
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX 64-bit block generation
 
@@ -629,9 +630,12 @@ module XGEthernetPCS(
 	logic[7:0]		xgmii_txc_x64	= 0;
 	logic[63:0]		xgmii_txd_x64	= 0;
 
-	always_ff @(posedge tx_clk) begin
+	logic			xgmii_x64_toggle = 0;
 
-		if(tx_header_valid) begin
+	always_ff @(posedge tx_clk) begin
+		xgmii_x64_toggle			<= !xgmii_x64_toggle;
+
+		if(xgmii_x64_toggle) begin
 			xgmii_x64_valid			<= 0;
 			xgmii_txc_x64[7:4]		<= xgmii_tx_bus.ctl;
 			xgmii_txd_x64[63:32]	<= xgmii_tx_bus.data;
@@ -644,8 +648,7 @@ module XGEthernetPCS(
 
 	end
 
-	logic[1:0]		tx_header_next		= SYNC_CONTROL;
-	logic[1:0]		tx_header_next_ff	= SYNC_CONTROL;
+	logic[1:0]		tx_64b_header		= SYNC_CONTROL;
 	logic[63:0]		tx_64b_data			=
 	{
 		CTL_C8,
@@ -678,15 +681,20 @@ module XGEthernetPCS(
 
 	wire			tx_has_data = (xgmii_txc_x64 == 8'h0);
 
+	logic			tx_is_idle	= 0;
+
+	logic			tx_64b_header_valid	= 0;
 	always_ff @(posedge tx_clk) begin
 
-		tx_header_next_ff		<= tx_header_next;
+		tx_64b_header_valid		<= 0;
+		tx_is_idle				<= 0;
 
 		if(xgmii_x64_valid) begin
+			tx_64b_header_valid		<= 1;
 
 			//Everything is control characters except packet data
 			//so default to that
-			tx_header_next		<=	SYNC_CONTROL;
+			tx_64b_header		<=	SYNC_CONTROL;
 
 			//Start-of-frame in first block
 			//Assume everything after this is data octets (preamble) and send them
@@ -700,7 +708,7 @@ module XGEthernetPCS(
 
 			//Eight data octets - forward them along
 			else if(tx_has_data) begin
-				tx_header_next	<= SYNC_DATA;
+				tx_64b_header	<= SYNC_DATA;
 				tx_64b_data		<= xgmii_txd_x64;
 			end
 
@@ -726,6 +734,7 @@ module XGEthernetPCS(
 
 			//Nothing to do, send idles
 			else begin
+				tx_is_idle			<= 1;
 				tx_64b_data			<=
 				{
 					CTL_C8,
@@ -738,26 +747,95 @@ module XGEthernetPCS(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Rate matching for SERDES gearbox
+
+	logic	seq_div 	= 0;
+	logic	tx_pause	= 0;
+
+	always_ff @(posedge tx_clk) begin
+
+		seq_div		<= !seq_div;
+
+		//Run gearbox counter at half the USRCLK rate because the gearbox works on 64b blocks
+		if(seq_div) begin
+
+			tx_pause		<= (tx_sequence == 31);
+
+			if(tx_sequence == 32)
+				tx_sequence	<= 0;
+
+			else
+				tx_sequence	<= tx_sequence + 1;
+
+		end
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Elastic buffer for rate matching input (32 bits/cycle) to output (32 bits for 64 cycles, then nothing for 2)
+
+	logic		tx_elastic_wr	 = 0;
+	wire[9:0]	tx_elastic_rsize;
+	wire[9:0]	tx_elastic_wsize;
+	logic		tx_elastic_rd;
+	wire[1:0]	tx_elastic_rd_header;
+	wire[63:0]	tx_elastic_rd_data;
+
+	always_comb begin
+
+		//TODO: this is probably wrong but gotta start somewhere
+		tx_elastic_rd		= (tx_sequence != 31) && seq_div;
+
+		//If FIFO is still filling up, don't pop yet
+		if(tx_elastic_rsize < 4)
+			tx_elastic_rd	= 0;
+
+		//If close to full, and pushing an idle code, drop it
+		if( (tx_elastic_wsize < 64) && tx_is_idle)
+			tx_elastic_wr	= 0;
+		else
+			tx_elastic_wr	= tx_64b_header_valid;
+	end
+
+	SingleClockFifo #(
+		.WIDTH(66),
+		.DEPTH(512),
+		.USE_BLOCK(1),
+		.OUT_REG(1)
+	) tx_elastic (
+		.clk(tx_clk),
+		.wr(tx_elastic_wr),
+		.din({tx_64b_header, tx_64b_data}),
+		.rd(tx_elastic_rd),
+		.dout({tx_elastic_rd_header, tx_elastic_rd_data}),
+		.rsize(tx_elastic_rsize),
+		.wsize(tx_elastic_wsize),
+		.reset(1'b0)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX 32-bit block generation and byte reordering
+
+	logic			tx_elastic_header_valid		= 0;
 
 	//Pull out the right 32-bit word and twiddle bit odering
 	//We have two cycle latency through the line coding block right now, so send the leftmost block
 	//when tx_header_valid is about to go high
-	logic[31:0]		tx_32b_data		= 0;
+	logic[31:0]		tx_32b_data			= 0;
 	always_ff @(posedge tx_clk) begin
 
-		if(!tx_header_valid) begin
-			tx_32b_data[7:0]		<= tx_64b_data[63:56];
-			tx_32b_data[15:8]		<= tx_64b_data[55:48];
-			tx_32b_data[23:16]		<= tx_64b_data[47:40];
-			tx_32b_data[31:24]		<= tx_64b_data[39:32];
+		if(!tx_elastic_header_valid) begin
+			tx_32b_data[7:0]		<= tx_elastic_rd_data[63:56];
+			tx_32b_data[15:8]		<= tx_elastic_rd_data[55:48];
+			tx_32b_data[23:16]		<= tx_elastic_rd_data[47:40];
+			tx_32b_data[31:24]		<= tx_elastic_rd_data[39:32];
 		end
 
 		else begin
-			tx_32b_data[7:0]		<= tx_64b_data[31:24];
-			tx_32b_data[15:8]		<= tx_64b_data[23:16];
-			tx_32b_data[23:16]		<= tx_64b_data[15:8];
-			tx_32b_data[31:24]		<= tx_64b_data[7:0];
+			tx_32b_data[7:0]		<= tx_elastic_rd_data[31:24];
+			tx_32b_data[15:8]		<= tx_elastic_rd_data[23:16];
+			tx_32b_data[23:16]		<= tx_elastic_rd_data[15:8];
+			tx_32b_data[31:24]		<= tx_elastic_rd_data[7:0];
 		end
 
 	end
@@ -770,14 +848,16 @@ module XGEthernetPCS(
 
 	always_ff @(posedge tx_clk) begin
 
-		tx_header					<= tx_header_next_ff;
-		tx_header_valid				<= !tx_header_valid;
+		if(!tx_pause) begin
+			tx_header					<= tx_elastic_rd_header;
+			tx_elastic_header_valid		<= !tx_elastic_header_valid;
 
-		for(integer i=0; i<32; i=i+1) begin
-			tx_scramble_temp		= tx_32b_data[i] ^ tx_scramble[38] ^ tx_scramble[57];
+			for(integer i=0; i<32; i=i+1) begin
+				tx_scramble_temp		= tx_32b_data[i] ^ tx_scramble[38] ^ tx_scramble[57];
 
-			tx_data[31-i]			= tx_scramble_temp;
-			tx_scramble				= { tx_scramble[56:0], tx_scramble_temp };
+				tx_data[31-i]			= tx_scramble_temp;
+				tx_scramble				= { tx_scramble[56:0], tx_scramble_temp };
+			end
 		end
 
 	end
