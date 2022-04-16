@@ -41,13 +41,14 @@ module XGEthernetPCS(
 	input wire			rx_clk,
 	input wire			tx_clk,
 
-	//Incoming data from the GT's 64/66b async gearbox
+	//Incoming data from the GT's 64/66b gearbox
+	input wire			rx_data_valid,
 	input wire			rx_header_valid,
 	input wire[1:0]		rx_header,
 	input wire[31:0]	rx_data,
 	output logic		rx_bitslip	= 0,
 
-	//Outbound data to the GT's 64/66b async gearbox
+	//Outbound data to the GT's 64/66b gearbox
 	output logic		tx_header_valid,
 	output logic[1:0]	tx_header	= 0,
 	output logic[31:0]	tx_data		= 0,
@@ -177,13 +178,18 @@ module XGEthernetPCS(
 	// RX 64/66b descrambling and bit reordering
 
 	logic[31:0]	rx_data_descrambled	= 0;
-	logic[57:0]	rx_scramble = 0;
+	logic[57:0]	rx_scramble			= 0;
+	logic		rx_data_valid_ff	= 0;
 
 	always_ff @(posedge rx_clk) begin
 
-		for(integer i=0; i<32; i++) begin
-			rx_data_descrambled[i]		= rx_data[31-i] ^ rx_scramble[38] ^ rx_scramble[57];
-			rx_scramble					= { rx_scramble[56:0], rx_data[31-i] };
+		rx_data_valid_ff	<= rx_data_valid;
+
+		if(rx_data_valid) begin
+			for(integer i=0; i<32; i++) begin
+				rx_data_descrambled[i]		= rx_data[31-i] ^ rx_scramble[38] ^ rx_scramble[57];
+				rx_scramble					= { rx_scramble[56:0], rx_data[31-i] };
+			end
 		end
 
 	end
@@ -197,24 +203,28 @@ module XGEthernetPCS(
 
 	always_ff @(posedge rx_clk) begin
 
-		if(!rx_header_valid) begin
-			rx_block_is_control		<= (rx_header == 2'h2);
-			rx_block_valid			<= 0;
+		rx_block_valid				<= 0;
 
-			rx_block_data[63:56]	<= rx_data_descrambled[7:0];
-			rx_block_data[55:48]	<= rx_data_descrambled[15:8];
-			rx_block_data[47:40]	<= rx_data_descrambled[23:16];
-			rx_block_data[39:32]	<= rx_data_descrambled[31:24];
-		end
+		if(rx_data_valid_ff) begin
+			if(!rx_header_valid) begin
+				rx_block_is_control		<= (rx_header == 2'h2);
+				rx_block_valid			<= 0;
 
-		else begin
+				rx_block_data[63:56]	<= rx_data_descrambled[7:0];
+				rx_block_data[55:48]	<= rx_data_descrambled[15:8];
+				rx_block_data[47:40]	<= rx_data_descrambled[23:16];
+				rx_block_data[39:32]	<= rx_data_descrambled[31:24];
+			end
 
-			rx_block_data[31:24]	<= rx_data_descrambled[7:0];
-			rx_block_data[23:16]	<= rx_data_descrambled[15:8];
-			rx_block_data[15:8]		<= rx_data_descrambled[23:16];
-			rx_block_data[7:0]		<= rx_data_descrambled[31:24];
+			else begin
 
-			rx_block_valid			<= 1;
+				rx_block_data[31:24]	<= rx_data_descrambled[7:0];
+				rx_block_data[23:16]	<= rx_data_descrambled[15:8];
+				rx_block_data[15:8]		<= rx_data_descrambled[23:16];
+				rx_block_data[7:0]		<= rx_data_descrambled[31:24];
+
+				rx_block_valid			<= 1;
+			end
 		end
 
 	end
