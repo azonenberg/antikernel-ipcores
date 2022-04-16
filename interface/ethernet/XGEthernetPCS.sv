@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -191,8 +191,6 @@ module XGEthernetPCS(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX 64-bit block reassembly and byte reordering
 
-	//todo: can we make this combinatorial?
-
 	logic		rx_block_valid		= 0;
 	logic		rx_block_is_control	= 0;
 	logic[63:0]	rx_block_data		= 0;
@@ -250,19 +248,19 @@ module XGEthernetPCS(
 
 						//Send all control chars
 						xgmii_rx_bus.ctl			<= 4'b1111;
-						xgmii_rxc_next		<= 4'b1111;
+						xgmii_rxc_next				<= 4'b1111;
 
 						//If all idles, we're good
 						if(rx_block_data[55:0] == IDLE_X7) begin
 							xgmii_rx_bus.data		<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
-							xgmii_rxd_next	<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+							xgmii_rxd_next			<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
 
 						//Only other legal control character is error.
 						//Don't bother counting them, generate a burst of all error characters
 						else begin
 							xgmii_rx_bus.data		<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
-							xgmii_rxd_next	<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
+							xgmii_rxd_next			<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
 						end
 
 					end	//end CTL_C8
@@ -315,20 +313,20 @@ module XGEthernetPCS(
 					//Just send the control codes
 					CTL_D3_O1_C4: begin
 
-						xgmii_rx_bus.ctl			<= 4'b1111;
-						xgmii_rxc_next		<= 4'b1111;
+						xgmii_rx_bus.ctl		<= 4'b1111;
+						xgmii_rxc_next			<= 4'b1111;
 
 						//If all idles, we're good
 						if(rx_block_data[27:0] == IDLE_X4) begin
-							xgmii_rx_bus.data		<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
-							xgmii_rxd_next	<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+							xgmii_rx_bus.data	<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+							xgmii_rxd_next		<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
 
 						//Only other legal control character is error.
 						//Don't bother counting them, generate a burst of all error characters
 						else begin
-							xgmii_rx_bus.data		<= { XGMII_CTL_END, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
-							xgmii_rxd_next	<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
+							xgmii_rx_bus.data	<= { XGMII_CTL_END, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
+							xgmii_rxd_next		<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
 						end
 
 					end	//end CTL_D3_O1_C4
@@ -337,7 +335,7 @@ module XGEthernetPCS(
 					CTL_D7_START: begin
 
 						xgmii_rx_bus.ctl	<= 4'b1000;
-						xgmii_rx_bus.data			<= { XGMII_CTL_START, rx_block_data[55:32] };
+						xgmii_rx_bus.data	<= { XGMII_CTL_START, rx_block_data[55:32] };
 
 						xgmii_rxc_next		<= 4'b0000;
 						xgmii_rxd_next		<= rx_block_data[31:0];
@@ -347,20 +345,20 @@ module XGEthernetPCS(
 					//Four control characters, three padding bits, start of frame, three data octets
 					CTL_C4_D3: begin
 
-						xgmii_rx_bus.ctl	<= 4'b1111;
+						xgmii_rx_bus.ctl		<= 4'b1111;
 
 						//If all idles, we're good
 						if(rx_block_data[55:28] == IDLE_X4)
-							xgmii_rx_bus.data		<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+							xgmii_rx_bus.data	<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 
 						//Only other legal control character is error.
 						//Don't bother counting them, generate a burst of all error characters
 						else
-							xgmii_rx_bus.data		<= { XGMII_CTL_END, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
+							xgmii_rx_bus.data	<= { XGMII_CTL_END, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
 
 						//Either way, the next block is SOF plus data
-						xgmii_rxc_next		<= 4'b1000;
-						xgmii_rxd_next		<= { XGMII_CTL_START, rx_block_data[23:0] };
+						xgmii_rxc_next			<= 4'b1000;
+						xgmii_rxd_next			<= { XGMII_CTL_START, rx_block_data[23:0] };
 
 					end	//end CTL_C4_D3
 
@@ -370,20 +368,20 @@ module XGEthernetPCS(
 					CTL_C7: begin
 
 						//Send all control chars
-						xgmii_rx_bus.ctl	<= 4'b1111;
-						xgmii_rxc_next		<= 4'b1111;
+						xgmii_rx_bus.ctl		<= 4'b1111;
+						xgmii_rxc_next			<= 4'b1111;
 
 						//If all idles, we're good
 						if(rx_block_data[55:0] == IDLE_X7) begin
-							xgmii_rx_bus.data		<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
-							xgmii_rxd_next	<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+							xgmii_rx_bus.data	<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+							xgmii_rxd_next		<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
 
 						//Only other legal control character is error.
 						//Don't bother counting them, generate a burst of all error characters
 						else begin
-							xgmii_rx_bus.data		<= { XGMII_CTL_END, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
-							xgmii_rxd_next	<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
+							xgmii_rx_bus.data	<= { XGMII_CTL_END, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
+							xgmii_rxd_next		<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
 						end
 
 					end	//end CTL_C7
@@ -392,20 +390,20 @@ module XGEthernetPCS(
 					CTL_D1_C6: begin
 
 						//Send all control chars after the end of the packet
-						xgmii_rx_bus.ctl	<= 4'b0111;
-						xgmii_rxc_next		<= 4'b1111;
+						xgmii_rx_bus.ctl		<= 4'b0111;
+						xgmii_rxc_next			<= 4'b1111;
 
 						//If all idles, we're good
 						if(rx_block_data[41:0] == IDLE_X6) begin
-							xgmii_rx_bus.data		<= { rx_block_data[55:48], XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
-							xgmii_rxd_next	<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+							xgmii_rx_bus.data	<= { rx_block_data[55:48], XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+							xgmii_rxd_next		<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
 
 						//Only other legal control character is error.
 						//Don't bother counting them, generate a burst of all error characters
 						else begin
-							xgmii_rx_bus.data		<= { rx_block_data[55:48], XGMII_CTL_END, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
-							xgmii_rxd_next	<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
+							xgmii_rx_bus.data	<= { rx_block_data[55:48], XGMII_CTL_END, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
+							xgmii_rxd_next		<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
 						end
 
 					end	//end CTL_D1_C6
@@ -414,20 +412,20 @@ module XGEthernetPCS(
 					CTL_D2_C5: begin
 
 						//Send all control chars after the end of the packet
-						xgmii_rx_bus.ctl	<= 4'b0011;
-						xgmii_rxc_next		<= 4'b1111;
+						xgmii_rx_bus.ctl		<= 4'b0011;
+						xgmii_rxc_next			<= 4'b1111;
 
 						//If all idles, we're good
 						if(rx_block_data[34:0] == IDLE_X5) begin
-							xgmii_rx_bus.data		<= { rx_block_data[55:40], XGMII_CTL_END, XGMII_CTL_IDLE };
-							xgmii_rxd_next	<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+							xgmii_rx_bus.data	<= { rx_block_data[55:40], XGMII_CTL_END, XGMII_CTL_IDLE };
+							xgmii_rxd_next		<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
 
 						//Only other legal control character is error.
 						//Don't bother counting them, generate a burst of all error characters
 						else begin
-							xgmii_rx_bus.data		<= { rx_block_data[55:40], XGMII_CTL_END, XGMII_CTL_ERROR };
-							xgmii_rxd_next	<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
+							xgmii_rx_bus.data	<= { rx_block_data[55:40], XGMII_CTL_END, XGMII_CTL_ERROR };
+							xgmii_rxd_next		<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
 						end
 
 					end	//end CTL_D2_C5
@@ -436,20 +434,20 @@ module XGEthernetPCS(
 					CTL_D3_C4: begin
 
 						//Send all control chars after the end of the packet
-						xgmii_rx_bus.ctl	<= 4'b0001;
-						xgmii_rxc_next		<= 4'b1111;
+						xgmii_rx_bus.ctl		<= 4'b0001;
+						xgmii_rxc_next			<= 4'b1111;
 
 						//If all idles, we're good
 						if(rx_block_data[27:0] == IDLE_X4) begin
-							xgmii_rx_bus.data		<= { rx_block_data[55:32], XGMII_CTL_END };
-							xgmii_rxd_next	<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+							xgmii_rx_bus.data	<= { rx_block_data[55:32], XGMII_CTL_END };
+							xgmii_rxd_next		<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
 
 						//Only other legal control character is error.
 						//Don't bother counting them, generate a burst of all error characters
 						else begin
-							xgmii_rx_bus.data		<= { rx_block_data[55:32], XGMII_CTL_END };
-							xgmii_rxd_next	<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
+							xgmii_rx_bus.data	<= { rx_block_data[55:32], XGMII_CTL_END };
+							xgmii_rxd_next		<= { XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
 						end
 
 					end	//end CTL_D3_C4
@@ -458,20 +456,20 @@ module XGEthernetPCS(
 					CTL_D4_C3: begin
 
 						//Send all control chars after the end of the packet
-						xgmii_rx_bus.ctl	<= 4'b0000;
-						xgmii_rxc_next		<= 4'b1111;
+						xgmii_rx_bus.ctl		<= 4'b0000;
+						xgmii_rxc_next			<= 4'b1111;
 
 						//If all idles, we're good
 						if(rx_block_data[20:0] == IDLE_X3) begin
-							xgmii_rx_bus.data		<= rx_block_data[55:24];
-							xgmii_rxd_next	<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+							xgmii_rx_bus.data	<= rx_block_data[55:24];
+							xgmii_rxd_next		<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
 
 						//Only other legal control character is error.
 						//Don't bother counting them, generate a burst of all error characters
 						else begin
-							xgmii_rx_bus.data		<= rx_block_data[55:24];
-							xgmii_rxd_next	<= { XGMII_CTL_END, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
+							xgmii_rx_bus.data	<= rx_block_data[55:24];
+							xgmii_rxd_next		<= { XGMII_CTL_END, XGMII_CTL_ERROR, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
 						end
 
 					end	//end CTL_D4_C3
@@ -480,20 +478,20 @@ module XGEthernetPCS(
 					CTL_D5_C2: begin
 
 						//Send all control chars after the end of the packet
-						xgmii_rx_bus.ctl	<= 4'b0000;
-						xgmii_rxc_next		<= 4'b0111;
+						xgmii_rx_bus.ctl		<= 4'b0000;
+						xgmii_rxc_next			<= 4'b0111;
 
 						//If all idles, we're good
 						if(rx_block_data[13:0] == IDLE_X2) begin
-							xgmii_rx_bus.data		<= rx_block_data[55:24];
-							xgmii_rxd_next	<= { rx_block_data[23:16], XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+							xgmii_rx_bus.data	<= rx_block_data[55:24];
+							xgmii_rxd_next		<= { rx_block_data[23:16], XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
 
 						//Only other legal control character is error.
 						//Don't bother counting them, generate a burst of all error characters
 						else begin
-							xgmii_rx_bus.data		<= rx_block_data[55:24];
-							xgmii_rxd_next	<= { rx_block_data[23:16], XGMII_CTL_END, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
+							xgmii_rx_bus.data	<= rx_block_data[55:24];
+							xgmii_rxd_next		<= { rx_block_data[23:16], XGMII_CTL_END, XGMII_CTL_ERROR, XGMII_CTL_ERROR };
 						end
 
 					end	//end CTL_D5_C2
@@ -502,20 +500,20 @@ module XGEthernetPCS(
 					CTL_D6_C1: begin
 
 						//Send all control chars after the end of the packet
-						xgmii_rx_bus.ctl	<= 4'b0000;
-						xgmii_rxc_next		<= 4'b0011;
+						xgmii_rx_bus.ctl		<= 4'b0000;
+						xgmii_rxc_next			<= 4'b0011;
 
 						//If all idles, we're good
 						if(rx_block_data[7:0] == CTL_IDLE) begin
-							xgmii_rx_bus.data		<= rx_block_data[55:24];
-							xgmii_rxd_next	<= { rx_block_data[23:8], XGMII_CTL_END, XGMII_CTL_IDLE };
+							xgmii_rx_bus.data	<= rx_block_data[55:24];
+							xgmii_rxd_next		<= { rx_block_data[23:8], XGMII_CTL_END, XGMII_CTL_IDLE };
 						end
 
 						//Only other legal control character is error.
 						//Don't bother counting them, generate a burst of all error characters
 						else begin
-							xgmii_rx_bus.data		<= rx_block_data[55:24];
-							xgmii_rxd_next	<= { rx_block_data[23:8], XGMII_CTL_END, XGMII_CTL_ERROR };
+							xgmii_rx_bus.data	<= rx_block_data[55:24];
+							xgmii_rxd_next		<= { rx_block_data[23:8], XGMII_CTL_END, XGMII_CTL_ERROR };
 						end
 
 					end	//end CTL_D6_C1
@@ -524,11 +522,11 @@ module XGEthernetPCS(
 					CTL_D7_END: begin
 
 						//Send all control chars after the end of the packet
-						xgmii_rx_bus.ctl	<= 4'b0000;
-						xgmii_rxc_next		<= 4'b0001;
+						xgmii_rx_bus.ctl		<= 4'b0000;
+						xgmii_rxc_next			<= 4'b0001;
 
-						xgmii_rx_bus.data			<= rx_block_data[55:24];
-						xgmii_rxd_next	<= { rx_block_data[23:0], XGMII_CTL_END };
+						xgmii_rx_bus.data		<= rx_block_data[55:24];
+						xgmii_rxd_next			<= { rx_block_data[23:0], XGMII_CTL_END };
 
 					end	//end CTL_D7_END
 
