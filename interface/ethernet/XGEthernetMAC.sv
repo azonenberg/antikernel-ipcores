@@ -158,88 +158,90 @@ module XGEthernetMAC(
 	always @(posedge xgmii_rx_clk) begin
 
 		rx_bus.start		<= 0;
-
-		last_was_preamble	<= 0;
-
-		rx_bus.data			<= xgmii_rx_bus.data;
-		crc_expected_ff		<= crc_expected;
-		crc_expected_ff2	<= crc_expected_ff;
-
 		rx_bus.commit		<= 0;
 		rx_bus.drop			<= 0;
 
-		fcs_pending_0		<= 0;
-		fcs_pending_1		<= fcs_pending_0;
+		if(xgmii_rx_bus.valid) begin
 
-		//Pipeline checksum processing by two cycles for timing.
-		//This buys us some time, but we have to be careful when packets are at minimum spacing.
-		if(fcs_pending_1) begin
-			if(crc_expected_ff2 == rx_crc_dout)
-				rx_bus.commit	<= 1;
-			else
-				rx_bus.drop		<= 1;
-		end
+			last_was_preamble	<= 0;
 
-		case(rx_state)
+			rx_bus.data			<= xgmii_rx_bus.data;
+			crc_expected_ff		<= crc_expected;
+			crc_expected_ff2	<= crc_expected_ff;
 
-			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// IDLE - wait for a frame to start
+			fcs_pending_0		<= 0;
+			fcs_pending_1		<= fcs_pending_0;
 
-			STATE_IDLE: begin
-
-				//Ignore idles and errors
-				//Look for start of frame (can only occur in leftmost XGMII lane)
-				if(xgmii_rx_bus.ctl[3] && (xgmii_rx_bus.data[31:24] == XGMII_CTL_START) )
-					rx_state		<= STATE_PREAMBLE;
-
-			end	//end STATE_IDLE
-
-			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// PREAMBLE - Ethernet preamble, but no data for upper layers yet
-
-			STATE_PREAMBLE: begin
-
-				//Delay rx_bus.start by one cycle
-				//to give checksum calculation a chance to complete
-				rx_bus.start		<= 1;
-
-				//We should have exactly one XGMII clock in this stage
-				//and it should be data 55 55 55 D5. Anything else is an error, drop the frame.
-				if( (xgmii_rx_bus.ctl != 0) || (xgmii_rx_bus.data != 32'h555555d5) )
-					rx_state		<= STATE_IDLE;
-
-				//If we get here we're good, go on to the body
+			//Pipeline checksum processing by two cycles for timing.
+			//This buys us some time, but we have to be careful when packets are at minimum spacing.
+			if(fcs_pending_1) begin
+				if(crc_expected_ff2 == rx_crc_dout)
+					rx_bus.commit	<= 1;
 				else
-					rx_state		<= STATE_BODY;
+					rx_bus.drop		<= 1;
+			end
 
-				last_was_preamble	<= 1;
+			case(rx_state)
 
-			end	//end STATE_PREAMBLE
+				////////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// IDLE - wait for a frame to start
 
-			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// BODY - data to be processed by upper protocol layers
+				STATE_IDLE: begin
 
-			STATE_BODY: begin
+					//Ignore idles and errors
+					//Look for start of frame (can only occur in leftmost XGMII lane)
+					if(xgmii_rx_bus.ctl[3] && (xgmii_rx_bus.data[31:24] == XGMII_CTL_START) )
+						rx_state		<= STATE_PREAMBLE;
 
-				//If we hit the end of the packet, stop
-				//This can happen in any lane as packet lengths are not guaranteed to be 32-bit aligned
-				if(lane_has_end) begin
-					fcs_pending_0	<= 1;
-					rx_state		<= STATE_IDLE;
-				end
+				end	//end STATE_IDLE
 
-			end	//end STATE_BODY
+				////////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// PREAMBLE - Ethernet preamble, but no data for upper layers yet
 
-		endcase
+				STATE_PREAMBLE: begin
 
-		//Handle errors in the middle of the packet (just drop it)
-		//This overrides and any all other processing
-		if(lane_has_error && (rx_state != STATE_IDLE) ) begin
-			rx_state		<= STATE_IDLE;
-			rx_bus.drop		<= 1;
+					//Delay rx_bus.start by one cycle
+					//to give checksum calculation a chance to complete
+					rx_bus.start		<= 1;
 
-			fcs_pending_0	<= 0;
-			fcs_pending_1	<= 0;
+					//We should have exactly one XGMII clock in this stage
+					//and it should be data 55 55 55 D5. Anything else is an error, drop the frame.
+					if( (xgmii_rx_bus.ctl != 0) || (xgmii_rx_bus.data != 32'h555555d5) )
+						rx_state		<= STATE_IDLE;
+
+					//If we get here we're good, go on to the body
+					else
+						rx_state		<= STATE_BODY;
+
+					last_was_preamble	<= 1;
+
+				end	//end STATE_PREAMBLE
+
+				////////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// BODY - data to be processed by upper protocol layers
+
+				STATE_BODY: begin
+
+					//If we hit the end of the packet, stop
+					//This can happen in any lane as packet lengths are not guaranteed to be 32-bit aligned
+					if(lane_has_end) begin
+						fcs_pending_0	<= 1;
+						rx_state		<= STATE_IDLE;
+					end
+
+				end	//end STATE_BODY
+
+			endcase
+
+			//Handle errors in the middle of the packet (just drop it)
+			//This overrides and any all other processing
+			if(lane_has_error && (rx_state != STATE_IDLE) ) begin
+				rx_state		<= STATE_IDLE;
+				rx_bus.drop		<= 1;
+
+				fcs_pending_0	<= 0;
+				fcs_pending_1	<= 0;
+			end
 		end
 
 	end

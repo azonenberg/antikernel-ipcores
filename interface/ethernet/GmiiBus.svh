@@ -54,6 +54,7 @@ typedef enum logic[1:0]
 
 typedef struct packed
 {
+	logic		valid;
 	logic[3:0]	ctl;
 	logic[31:0]	data;
 } XgmiiBus;
