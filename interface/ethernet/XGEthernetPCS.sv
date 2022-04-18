@@ -841,6 +841,8 @@ module XGEthernetPCS(
 	logic[31:0]		tx_32b_data			= 0;
 	always_ff @(posedge tx_clk) begin
 
+		tx_elastic_rd_header_ff		<= tx_elastic_rd_header;
+
 		if(!tx_elastic_header_valid) begin
 			tx_32b_data[7:0]		<= tx_elastic_rd_data[63:56];
 			tx_32b_data[15:8]		<= tx_elastic_rd_data[55:48];
@@ -867,7 +869,6 @@ module XGEthernetPCS(
 	always_ff @(posedge tx_clk) begin
 
 		if(!tx_pause) begin
-			tx_elastic_rd_header_ff		<= tx_elastic_rd_header;
 			tx_header					<= tx_elastic_rd_header_ff;
 
 			for(integer i=0; i<32; i=i+1) begin
