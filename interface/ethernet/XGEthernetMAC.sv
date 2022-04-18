@@ -113,15 +113,19 @@ module XGEthernetMAC(
 	//Combinatorially figure out how many bytes of data in the current block are valid
 	always_comb begin
 		rx_bus.bytes_valid			= 0;
-		crc_expected				= 0;
-
 		rx_bus.data_valid			= 0;
+
+		crc_expected				= 0;
 
 		if(rx_state == STATE_BODY) begin
 
+			//output nothing if the input is stalling
+			if(!xgmii_rx_bus.valid) begin
+			end
+
 			//Feed everything before the end into the CRC engine
 			//(except for the FCS)
-			if(lane_has_end[3]) begin
+			else if(lane_has_end[3]) begin
 				//entire rxd_ff is FCS, don't crc it at all
 				crc_expected		= rx_bus.data;
 			end
@@ -252,6 +256,7 @@ module XGEthernetMAC(
 	CRC32_Ethernet_x32_variable_lat2 rx_crc(
 
 		.clk(xgmii_rx_clk),
+		.ce(xgmii_rx_bus.valid),
 		.reset(rx_bus.start),
 
 		.din_len(rx_bus.bytes_valid),
@@ -505,6 +510,7 @@ module XGEthernetMAC(
 	CRC32_Ethernet_x32_variable_lat2 tx_crc(
 
 		.clk(xgmii_tx_clk),
+		.ce(1'b1),
 		.reset(tx_bus.start),
 
 		.din_len(tx_crc_bytes_valid),

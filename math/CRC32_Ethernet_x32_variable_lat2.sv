@@ -48,6 +48,7 @@
 module CRC32_Ethernet_x32_variable_lat2(
 	input wire			clk,
 
+	input wire			ce,
 	input wire			reset,
 	input wire[2:0]		din_len,
 	input wire[31:0]	din,
@@ -76,7 +77,7 @@ module CRC32_Ethernet_x32_variable_lat2(
 			crc	= 32'hffffffff;				//equivalent to complementing the first 32 bits of the frame
 											//as per 802.3 3.2.9 (a)
 
-		else if(din_len != 0) begin
+		else if(din_len != 0 && ce) begin
 
 			for(integer nbyte=0; nbyte<4; nbyte++) begin
 
@@ -123,21 +124,24 @@ module CRC32_Ethernet_x32_variable_lat2(
 
 	always_ff @(posedge clk) begin
 
-		case(len_ff)
-			1:			fcrc	= ~crc_temp[0];
-			2:			fcrc	= ~crc_temp[1];
-			3:			fcrc	= ~crc_temp[2];
-			4:			fcrc	= ~crc_temp[3];
-			default:	fcrc	= ~crc;
-		endcase
+		if(ce) begin
 
-		crc_out <=
-		{
-			fcrc[24], fcrc[25], fcrc[26], fcrc[27], fcrc[28], fcrc[29], fcrc[30], fcrc[31],
-			fcrc[16], fcrc[17], fcrc[18], fcrc[19], fcrc[20], fcrc[21], fcrc[22], fcrc[23],
-			fcrc[8],  fcrc[9],  fcrc[10], fcrc[11], fcrc[12], fcrc[13], fcrc[14], fcrc[15],
-			fcrc[0],  fcrc[1],  fcrc[2],  fcrc[3],  fcrc[4],  fcrc[5],  fcrc[6],  fcrc[7]
-		};
+			case(len_ff)
+				1:			fcrc	= ~crc_temp[0];
+				2:			fcrc	= ~crc_temp[1];
+				3:			fcrc	= ~crc_temp[2];
+				4:			fcrc	= ~crc_temp[3];
+				default:	fcrc	= ~crc;
+			endcase
+
+			crc_out <=
+			{
+				fcrc[24], fcrc[25], fcrc[26], fcrc[27], fcrc[28], fcrc[29], fcrc[30], fcrc[31],
+				fcrc[16], fcrc[17], fcrc[18], fcrc[19], fcrc[20], fcrc[21], fcrc[22], fcrc[23],
+				fcrc[8],  fcrc[9],  fcrc[10], fcrc[11], fcrc[12], fcrc[13], fcrc[14], fcrc[15],
+				fcrc[0],  fcrc[1],  fcrc[2],  fcrc[3],  fcrc[4],  fcrc[5],  fcrc[6],  fcrc[7]
+			};
+		end
 
 	end
 
