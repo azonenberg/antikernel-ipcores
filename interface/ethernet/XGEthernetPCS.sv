@@ -772,8 +772,6 @@ module XGEthernetPCS(
 		//Run gearbox counter at half the USRCLK rate because the gearbox works on 64b blocks
 		if(seq_div) begin
 
-			tx_pause		<= (tx_sequence == 31);
-
 			if(tx_sequence == 32)
 				tx_sequence	<= 0;
 
@@ -781,6 +779,10 @@ module XGEthernetPCS(
 				tx_sequence	<= tx_sequence + 1;
 
 		end
+
+		//advance pause flag by half a word to allow for latency from tx_32b_data -> tx_data
+		else
+			tx_pause		<= (tx_sequence == 31);
 
 	end
 
