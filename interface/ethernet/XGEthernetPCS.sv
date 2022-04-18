@@ -326,7 +326,7 @@ module XGEthernetPCS(
 						xgmii_rx_bus.ctl			<= 4'b1111;
 
 						//If all idles, we're good
-						if(rx_s3_num_idles == 4)
+						if(rx_s3_num_idles >= 4)
 							xgmii_rx_bus.data		<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 
 						//Only other legal control character is error.
@@ -372,7 +372,7 @@ module XGEthernetPCS(
 						xgmii_rxc_next			<= 4'b1111;
 
 						//If all idles, we're good
-						if(rx_s3_num_idles == 4) begin
+						if(rx_s3_num_idles >= 4) begin
 							xgmii_rx_bus.data	<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 							xgmii_rxd_next		<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
@@ -403,7 +403,7 @@ module XGEthernetPCS(
 						xgmii_rx_bus.ctl		<= 4'b1111;
 
 						//If all idles, we're good
-						if(rx_s3_num_idles == 4)
+						if(rx_s3_num_idles >= 4)
 							xgmii_rx_bus.data	<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 
 						//Only other legal control character is error.
@@ -449,7 +449,7 @@ module XGEthernetPCS(
 						xgmii_rxc_next			<= 4'b1111;
 
 						//If all idles, we're good
-						if(rx_s3_num_idles == 6) begin
+						if(rx_s3_num_idles >= 6) begin
 							xgmii_rx_bus.data	<= { rx_s3_data[55:48], XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 							xgmii_rxd_next		<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
@@ -471,7 +471,7 @@ module XGEthernetPCS(
 						xgmii_rxc_next			<= 4'b1111;
 
 						//If all idles, we're good
-						if(rx_s3_num_idles == 5) begin
+						if(rx_s3_num_idles >= 5) begin
 							xgmii_rx_bus.data	<= { rx_s3_data[55:40], XGMII_CTL_END, XGMII_CTL_IDLE };
 							xgmii_rxd_next		<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
@@ -493,7 +493,7 @@ module XGEthernetPCS(
 						xgmii_rxc_next			<= 4'b1111;
 
 						//If all idles, we're good
-						if(rx_s3_num_idles == 4) begin
+						if(rx_s3_num_idles >= 4) begin
 							xgmii_rx_bus.data	<= { rx_s3_data[55:32], XGMII_CTL_END };
 							xgmii_rxd_next		<= { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
@@ -515,7 +515,7 @@ module XGEthernetPCS(
 						xgmii_rxc_next			<= 4'b1111;
 
 						//If all idles, we're good
-						if(rx_s3_num_idles == 3) begin
+						if(rx_s3_num_idles >= 3) begin
 							xgmii_rx_bus.data	<= rx_s3_data[55:24];
 							xgmii_rxd_next		<= { XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
@@ -537,7 +537,7 @@ module XGEthernetPCS(
 						xgmii_rxc_next			<= 4'b0111;
 
 						//If all idles, we're good
-						if(rx_s3_num_idles == 2) begin
+						if(rx_s3_num_idles >= 2) begin
 							xgmii_rx_bus.data	<= rx_s3_data[55:24];
 							xgmii_rxd_next		<= { rx_s3_data[23:16], XGMII_CTL_END, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
 						end
@@ -559,7 +559,7 @@ module XGEthernetPCS(
 						xgmii_rxc_next			<= 4'b0011;
 
 						//If all idles, we're good
-						if(rx_s3_num_idles == 1) begin
+						if(rx_s3_num_idles >= 1) begin
 							xgmii_rx_bus.data	<= rx_s3_data[55:24];
 							xgmii_rxd_next		<= { rx_s3_data[23:8], XGMII_CTL_END, XGMII_CTL_IDLE };
 						end
@@ -788,23 +788,24 @@ module XGEthernetPCS(
 	// Elastic buffer for rate matching input (32 bits/cycle) to output (32 bits for 64 cycles, then nothing for 2)
 
 	logic		tx_elastic_wr	 = 0;
-	wire[9:0]	tx_elastic_rsize;
-	wire[9:0]	tx_elastic_wsize;
+	wire[6:0]	tx_elastic_rsize;
+	wire[6:0]	tx_elastic_wsize;
 	logic		tx_elastic_rd;
 	wire[1:0]	tx_elastic_rd_header;
 	wire[63:0]	tx_elastic_rd_data;
 
 	always_comb begin
 
-		//TODO: this is probably wrong but gotta start somewhere
-		tx_elastic_rd		= (tx_sequence != 31) && seq_div;
+		tx_elastic_rd		= (tx_sequence != 30) && seq_div;
 
 		//If FIFO is still filling up, don't pop yet
 		if(tx_elastic_rsize < 4)
 			tx_elastic_rd	= 0;
 
-		//If close to full, and pushing an idle code, drop it
-		if( (tx_elastic_wsize < 64) && tx_is_idle)
+		//If somewhat full, and pushing an idle code, drop it
+		//Run the FIFO fairly light to reduce latency through it, but still use a block RAM to save area
+		//(we have a ton of LUT logic in this area but not much BRAM)
+		if( (tx_elastic_wsize < 20) && tx_is_idle)
 			tx_elastic_wr	= 0;
 		else
 			tx_elastic_wr	= tx_64b_header_valid;
@@ -812,7 +813,7 @@ module XGEthernetPCS(
 
 	SingleClockFifo #(
 		.WIDTH(66),
-		.DEPTH(512),
+		.DEPTH(64),
 		.USE_BLOCK(1),
 		.OUT_REG(1)
 	) tx_elastic (
@@ -829,7 +830,8 @@ module XGEthernetPCS(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX 32-bit block generation and byte reordering
 
-	logic			tx_elastic_header_valid		= 0;
+	wire	tx_elastic_header_valid;
+	assign	tx_elastic_header_valid = seq_div;
 
 	//Pull out the right 32-bit word and twiddle bit odering
 	//We have two cycle latency through the line coding block right now, so send the leftmost block
@@ -858,12 +860,13 @@ module XGEthernetPCS(
 
 	logic[57:0] 	tx_scramble = 0;
 	logic			tx_scramble_temp;
+	logic[1:0]		tx_elastic_rd_header_ff;
 
 	always_ff @(posedge tx_clk) begin
 
 		if(!tx_pause) begin
-			tx_header					<= tx_elastic_rd_header;
-			tx_elastic_header_valid		<= !tx_elastic_header_valid;
+			tx_elastic_rd_header_ff		<= tx_elastic_rd_header;
+			tx_header					<= tx_elastic_rd_header_ff;
 
 			for(integer i=0; i<32; i=i+1) begin
 				tx_scramble_temp		= tx_32b_data[i] ^ tx_scramble[38] ^ tx_scramble[57];
