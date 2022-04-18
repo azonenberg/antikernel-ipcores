@@ -122,9 +122,13 @@ module CRC32_Ethernet_x32_variable_lat2(
 
 	logic[31:0] fcrc;
 
+	logic		ce_ff	= 0;
+
 	always_ff @(posedge clk) begin
 
-		if(ce) begin
+		ce_ff	<= ce;
+
+		if(ce_ff) begin
 
 			case(len_ff)
 				1:			fcrc	= ~crc_temp[0];

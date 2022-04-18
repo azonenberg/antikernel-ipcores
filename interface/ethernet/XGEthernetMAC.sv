@@ -256,7 +256,7 @@ module XGEthernetMAC(
 	CRC32_Ethernet_x32_variable_lat2 rx_crc(
 
 		.clk(xgmii_rx_clk),
-		.ce(xgmii_rx_bus.valid),
+		.ce(rx_bus.data_valid),
 		.reset(rx_bus.start),
 
 		.din_len(rx_bus.bytes_valid),
