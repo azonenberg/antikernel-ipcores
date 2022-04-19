@@ -65,6 +65,7 @@ module XGEthernetPCS(
 	input wire XgmiiBus	xgmii_tx_bus,
 
 	//Link state etc signals
+	input wire			sfp_los,
 	output logic		block_sync_good,	//indicates valid 64/66b synchronization
 	output wire			link_up,
 	output logic		remote_fault
@@ -79,8 +80,18 @@ module XGEthernetPCS(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Link state calculation
 
+	wire	sfp_los_sync;
+
+	ThreeStageSynchronizer #(
+		.IN_REG(0)
+	) sync_sfp_los(
+		.clk_in(rx_clk),
+		.din(sfp_los),
+		.clk_out(rx_clk),
+		.dout(sfp_los_sync));
+
 	//TODO: detect invalid code groups etc and drop the link after too many
-	assign link_up	= block_sync_good && !remote_fault;
+	assign link_up	= block_sync_good && !remote_fault && !sfp_los_sync;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Ethernet protocol constants
