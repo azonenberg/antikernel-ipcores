@@ -37,16 +37,17 @@
 	TODO: refactor this when we have more ethertypes to use generate loops or something
  */
 module EthernetTransmitArbiter #(
-	parameter PACKET_DEPTH	= 8192,		//Packet-data FIFO is 32 bits wide x this many words
-										//Default 8192 = 32768 bytes
-										//(21 standard frames, 3 jumbo frames, 512 min-sized frames)
+	parameter PACKET_DEPTH		= 8192,		//Packet-data FIFO is 32 bits wide x this many words
+											//Default 8192 = 32768 bytes
+											//(21 standard frames, 3 jumbo frames, 512 min-sized frames)
 
-	parameter ARP_PACKET_DEPTH	= 512,	//Packet-data FIFO is 32 bits wide x this many words
-										//Default 512 = 2048 bytes
-										//(1 max sized frame, 44 ARP replies)
+	parameter ARP_PACKET_DEPTH		= 512,	//Packet-data FIFO is 32 bits wide x this many words
+											//Default 512 = 2048 bytes
+											//(1 max sized frame, 44 ARP replies)
 
-	parameter HEADER_DEPTH		= 512,	//Depth of header FIFO, in packets
-	parameter ARP_HEADER_DEPTH	= 64
+	parameter HEADER_DEPTH			= 512,	//Depth of header FIFO, in packets
+	parameter ARP_HEADER_DEPTH		= 64,
+	parameter JUMBO_FRAME_SUPPORT	= 1
 )(
 
 	//Clocks
@@ -147,18 +148,22 @@ module EthernetTransmitArbiter #(
 	reg[15:0]	ipv4_tx_frame_size	= 0;
 	reg[15:0]	arp_tx_frame_size	= 0;
 
+	localparam MIN_FREE = JUMBO_FRAME_SUPPORT ? 2250 : 375;
+
 	always_ff @(posedge clk) begin
 
 		//Keep track of frame state and only allow new frames if we have space
 		//For now, require 9000 bytes / 2250 words (jumbo frame typical MTU)
 		//TODO: allow arbitrary frame size and roll back if we overflow
 		if(ipv4_tx_l2_bus.start) begin
-			if(ipv4_payload_fifo_free > 2250) begin
+			if(ipv4_payload_fifo_free > MIN_FREE) begin
 				ipv4_packet_active	<= 1;
 				ipv4_tx_frame_size	<= 0;
 			end
-			else
+			else begin
+				ipv4_packet_active	<= 0;
 				perf.ipv4_dropped	<= perf.ipv4_dropped + 1'h1;
+			end
 		end
 		if(arp_tx_l2_bus.start) begin
 			if(arp_payload_fifo_free > 128) begin	//arp packets are much smaller
@@ -171,7 +176,7 @@ module EthernetTransmitArbiter #(
 
 		if(arp_tx_l2_bus.commit)
 			perf.arp_sent		<= perf.arp_sent + 1'h1;
-		if(ipv4_tx_l2_bus.commit)
+		if(ipv4_tx_l2_bus.commit && ipv4_packet_active)
 			perf.ipv4_sent		<= perf.ipv4_sent + 1'h1;
 
 		//Add new frame data as we go
@@ -211,7 +216,7 @@ module EthernetTransmitArbiter #(
 		.DEPTH(HEADER_DEPTH)
 	) ipv4_header_fifo (
 		.wr_clk(clk),
-		.wr_en(ipv4_tx_l2_bus.commit),
+		.wr_en(ipv4_tx_l2_bus.commit && ipv4_packet_active),
 		.wr_data({ipv4_tx_frame_size, ipv4_tx_l2_bus.dst_mac }),
 		.wr_reset(1'b0),
 		.wr_size(ipv4_header_fifo_free),
@@ -245,7 +250,7 @@ module EthernetTransmitArbiter #(
 		.DEPTH(ARP_HEADER_DEPTH)
 	) arp_header_fifo (
 		.wr_clk(clk),
-		.wr_en(arp_tx_l2_bus.commit),
+		.wr_en(arp_tx_l2_bus.commit && arp_packet_active),
 		.wr_data({arp_tx_frame_size, arp_tx_l2_bus.dst_mac }),
 		.wr_reset(1'b0),
 		.wr_size(arp_header_fifo_free),
