@@ -143,7 +143,7 @@ module CrossClockFifo #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Write logic
 
-	assign	wr_full = (wr_rd_ptr + DEPTH) == wr_ptr;
+	assign	wr_full = (wr_size == 0);
 	assign	wr_size = DEPTH + wr_rd_ptr - wr_ptr;
 
 	logic		wr_sync_busy	= 0;
