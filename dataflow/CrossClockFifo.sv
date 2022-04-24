@@ -74,7 +74,8 @@ module CrossClockFifo #(
 		.USE_BLOCK(USE_BLOCK),
 		.OUT_REG(OUT_REG),
 		.DUAL_PORT(1),
-		.TRUE_DUAL(0)
+		.TRUE_DUAL(0),
+		.PORTA_WRONLY(1)
 	) fifomem (
 		.porta_clk(wr_clk),
 		.porta_en(wr_en),

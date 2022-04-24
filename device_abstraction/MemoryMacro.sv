@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -68,6 +68,9 @@ module MemoryMacro #(
 
 	//set true to enable writes on port B (ignored if not dual port)
 	parameter TRUE_DUAL = 1,
+
+	//set true to disable reads on port A (write only)
+	parameter PORTA_WRONLY = 0,
 
 	//Initialize to address
 	parameter INIT_ADDR = 0,
@@ -193,15 +196,21 @@ module MemoryMacro #(
 		end
 
 		//Asynchronous read
-		if(!OUT_REG) begin
-			always @(*)
-				porta_dout_raw		<= storage[porta_addr];
+		if(!PORTA_WRONLY) begin
+			if(!OUT_REG) begin
+				always @(*)
+					porta_dout_raw		<= storage[porta_addr];
+			end
+
+			if( (OUT_REG == 0) || (OUT_REG == 1) )
+				assign porta_dout		= porta_dout_raw;
+			else
+				assign porta_dout		= porta_dout_raw_ff;
 		end
 
-		if( (OUT_REG == 0) || (OUT_REG == 1) )
-			assign porta_dout		= porta_dout_raw;
+		//No read port
 		else
-			assign porta_dout		= porta_dout_raw_ff;
+			assign porta_dout = {WIDTH{1'b0}};
 
 	endgenerate
 
