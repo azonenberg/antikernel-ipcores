@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2017 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -165,8 +165,6 @@ module SingleClockFifo #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The memory
 
-	wire[WIDTH-1:0] porta_unused;
-
 	`ifdef FORMAL
 	//Apply offset so dout_concat is relative to our sliding window.
 	//We want the word about to be popped to be at the MSB position.
@@ -181,6 +179,7 @@ module SingleClockFifo #(
 		.TRUE_DUAL(0),
 		.USE_BLOCK(USE_BLOCK),
 		.OUT_REG(OUT_REG),
+		.PORTA_WRONLY(1),
 		.INIT_ADDR(INIT_ADDR),
 		.INIT_FILE(INIT_FILE)
 	) mem (
@@ -189,7 +188,7 @@ module SingleClockFifo #(
 		.porta_addr(wpos[ADDR_BITS-1 : 0]),
 		.porta_we(!full),
 		.porta_din(din),
-		.porta_dout(porta_unused),
+		.porta_dout(),
 
 		.portb_clk(clk),
 		.portb_en(rd),
