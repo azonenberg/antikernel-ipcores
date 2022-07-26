@@ -136,8 +136,10 @@ module QSPIDeviceInterface #(
 	end
 
 	logic	sck_rising;
+	logic	sck_falling;
 	always_comb begin
 		sck_rising	= sck_sync && !sck_ff;
+		sck_falling	= !sck_sync && sck_ff;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -151,17 +153,91 @@ module QSPIDeviceInterface #(
 		STATE_TURNAROUND	= 4'h3,
 
 		STATE_WR_HI			= 4'h4,
-		STATE_WR_LO			= 4'h5
+		STATE_WR_LO			= 4'h5,
+
+		STATE_RD_HI			= 4'h6,
+		STATE_RD_LO			= 4'h7
 
 	} state = STATE_DESELECTED;
 
-	logic[3:0] insn_count = 0;
-	logic[3:0] dq_in_ff	= 0;
+	logic[3:0]	insn_count = 0;
+	logic[3:0]	dq_in_ff	= 0;
+	logic		insn_valid_ff;
+
+	//Combinatorial forwarding of read data
+	//Register it so we have it ready for when it's needed
+	logic[7:0]	rd_data_next	= 0;
+	logic[7:0]	rd_data_next_fwd;
+	always_comb begin
+		rd_data_next_fwd		= rd_data_next;
+		if(rd_valid)
+			rd_data_next_fwd	= rd_data;
+	end
+
+	//Combinatorially assert data-ready flag
+	always_comb begin
+		rd_ready		= 0;
+
+		//Request first data byte as soon as we get the instruction
+		if(insn_valid)
+			rd_ready	= 1;
+
+		//Request additional data as we send the last of the current byte
+		if( (state == STATE_RD_LO) && sck_falling )
+			rd_ready	= 1;
+
+	end
 
 	always_ff @(posedge clk) begin
-		insn_valid	<= 0;
-		rd_ready	<= 0;
-		wr_valid	<= 0;
+		insn_valid		<= 0;
+		wr_valid		<= 0;
+
+		rd_data_next	<= rd_data_next_fwd;
+
+		insn_valid_ff	<= insn_valid;
+
+		//Jump to correct state during bus turnaround period
+		if(state == STATE_TURNAROUND) begin
+			if(rd_mode) begin
+
+				if(sck_falling) begin
+
+					//Start driving outputs
+					dq_oe	<= 4'hf;
+
+					//set first nibble of output data here
+					dq_out	<= rd_data_next_fwd[7:4];
+
+					state	<= STATE_RD_LO;
+				end
+
+			end
+			else begin
+				if(sck_rising)
+					state	<= STATE_WR_HI;
+			end
+
+		end
+
+		//Read path executes on SCK falling edge
+		if(sck_falling) begin
+			case(state)
+
+				STATE_RD_HI: begin
+					state		<= STATE_RD_LO;
+					dq_out		<= rd_data_next_fwd[7:4];
+				end	//end STATE_RD_HI
+
+				STATE_RD_LO: begin
+					state		<= STATE_RD_HI;
+					dq_out		<= rd_data_next_fwd[3:0];
+				end	//end STATE_RD_LO
+
+				default: begin
+				end
+
+			endcase
+		end
 
 		//Most stuff happens on SCK rising edge
 		if(sck_rising) begin
@@ -194,10 +270,6 @@ module QSPIDeviceInterface #(
 
 				//Bus turnaround
 				STATE_TURNAROUND: begin
-
-					//TODO: handle read data path
-					state	<= STATE_WR_HI;
-
 				end	//end STATE_TURNAROUND
 
 				//Write data path
@@ -211,12 +283,19 @@ module QSPIDeviceInterface #(
 					state		<= STATE_WR_HI;
 				end	//end STATE_WR_LO
 
+				default: begin
+				end
+
 			endcase
 
 		end
 
-		if(cs_n_sync)
+		if(cs_n_sync) begin
 			state		<= STATE_DESELECTED;
+
+			//Immediately tristate output when deselected no matter what else was going on
+			dq_oe		<= 4'h0;
+		end
 
 		if(start) begin
 			state 		<= STATE_INSN;
@@ -247,7 +326,9 @@ module QSPIDeviceInterface #(
 		.probe12(rd_ready),
 		.probe13(rd_valid),
 		.probe14(rd_data),
-		.probe15(sck_rising)
+		.probe15(sck_rising),
+		.probe16(sck_falling),
+		.probe17(rd_data_next_fwd)
 	);
 
 endmodule
