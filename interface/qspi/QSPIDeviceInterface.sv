@@ -183,7 +183,7 @@ module QSPIDeviceInterface #(
 			rd_ready	= 1;
 
 		//Request additional data as we send the last of the current byte
-		if( (state == STATE_RD_LO) && sck_falling )
+		if( (state == STATE_RD_LO) && sck_rising )
 			rd_ready	= 1;
 
 	end
@@ -196,50 +196,10 @@ module QSPIDeviceInterface #(
 
 		insn_valid_ff	<= insn_valid;
 
-		//Jump to correct state during bus turnaround period
-		if(state == STATE_TURNAROUND) begin
-			if(rd_mode) begin
-
-				if(sck_falling) begin
-
-					//Start driving outputs
-					dq_oe	<= 4'hf;
-
-					//set first nibble of output data here
-					dq_out	<= rd_data_next_fwd[7:4];
-
-					state	<= STATE_RD_LO;
-				end
-
-			end
-			else begin
-				if(sck_rising)
-					state	<= STATE_WR_HI;
-			end
-
-		end
-
-		//Read path executes on SCK falling edge
-		if(sck_falling) begin
-			case(state)
-
-				STATE_RD_HI: begin
-					state		<= STATE_RD_LO;
-					dq_out		<= rd_data_next_fwd[7:4];
-				end	//end STATE_RD_HI
-
-				STATE_RD_LO: begin
-					state		<= STATE_RD_HI;
-					dq_out		<= rd_data_next_fwd[3:0];
-				end	//end STATE_RD_LO
-
-				default: begin
-				end
-
-			endcase
-		end
-
-		//Most stuff happens on SCK rising edge
+		//Write path stuff happens on SCK rising edge, nothing odd there.
+		//Read path executes on SCK rising edge too, but important to note that our view of the edge is delayed by two
+		//cycles due to synchronizer sampling latency. Driving on the delayed rising edge gives plenty of hold time for
+		//the receiver and maximizes our setup margin for the upcoming clock edge.
 		if(sck_rising) begin
 
 			dq_in_ff	<= dq_in_sync;
@@ -270,6 +230,17 @@ module QSPIDeviceInterface #(
 
 				//Bus turnaround
 				STATE_TURNAROUND: begin
+					if(rd_mode) begin
+
+						//Start driving outputs
+						dq_oe	<= 4'hf;
+
+						state	<= STATE_RD_LO;
+						dq_out	<= rd_data_next_fwd[7:4];
+
+					end
+					else
+						state	<= STATE_WR_HI;
 				end	//end STATE_TURNAROUND
 
 				//Write data path
@@ -282,6 +253,16 @@ module QSPIDeviceInterface #(
 					wr_data		<= { dq_in_ff, dq_in_sync };
 					state		<= STATE_WR_HI;
 				end	//end STATE_WR_LO
+
+				STATE_RD_HI: begin
+					state		<= STATE_RD_LO;
+					dq_out		<= rd_data_next_fwd[7:4];
+				end	//end STATE_RD_HI
+
+				STATE_RD_LO: begin
+					state		<= STATE_RD_HI;
+					dq_out		<= rd_data_next_fwd[3:0];
+				end	//end STATE_RD_LO
 
 				default: begin
 				end
