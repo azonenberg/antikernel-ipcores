@@ -679,31 +679,42 @@ module XGEthernetPCS(
 		CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE
 	};
 
-	wire[7:0]		tx_has_start =
-	{
-		xgmii_txc_x64[7] && (xgmii_txd_x64[63:56] == XGMII_CTL_START),
-		xgmii_txc_x64[6] && (xgmii_txd_x64[55:48] == XGMII_CTL_START),
-		xgmii_txc_x64[5] && (xgmii_txd_x64[47:40] == XGMII_CTL_START),
-		xgmii_txc_x64[4] && (xgmii_txd_x64[39:32] == XGMII_CTL_START),
-		xgmii_txc_x64[3] && (xgmii_txd_x64[31:24] == XGMII_CTL_START),
-		xgmii_txc_x64[2] && (xgmii_txd_x64[23:16] == XGMII_CTL_START),
-		xgmii_txc_x64[1] && (xgmii_txd_x64[15:8 ] == XGMII_CTL_START),
-		xgmii_txc_x64[0] && (xgmii_txd_x64[7:0  ] == XGMII_CTL_START)
-	};
+	//Pipeline XGMII status flags to improve timing
+	logic[7:0]		tx_has_start;
+	logic[7:0]		tx_has_end;
+	logic			tx_has_data;
+	logic			xgmii_x64_valid_ff;
+	logic[63:0]		xgmii_txd_x64_ff;
+	always_ff @(posedge tx_clk) begin
+		tx_has_start <=
+		{
+			xgmii_txc_x64[7] && (xgmii_txd_x64[63:56] == XGMII_CTL_START),
+			xgmii_txc_x64[6] && (xgmii_txd_x64[55:48] == XGMII_CTL_START),
+			xgmii_txc_x64[5] && (xgmii_txd_x64[47:40] == XGMII_CTL_START),
+			xgmii_txc_x64[4] && (xgmii_txd_x64[39:32] == XGMII_CTL_START),
+			xgmii_txc_x64[3] && (xgmii_txd_x64[31:24] == XGMII_CTL_START),
+			xgmii_txc_x64[2] && (xgmii_txd_x64[23:16] == XGMII_CTL_START),
+			xgmii_txc_x64[1] && (xgmii_txd_x64[15:8 ] == XGMII_CTL_START),
+			xgmii_txc_x64[0] && (xgmii_txd_x64[7:0  ] == XGMII_CTL_START)
+		};
 
-	wire[7:0]		tx_has_end =
-	{
-		xgmii_txc_x64[7] && (xgmii_txd_x64[63:56] == XGMII_CTL_END),
-		xgmii_txc_x64[6] && (xgmii_txd_x64[55:48] == XGMII_CTL_END),
-		xgmii_txc_x64[5] && (xgmii_txd_x64[47:40] == XGMII_CTL_END),
-		xgmii_txc_x64[4] && (xgmii_txd_x64[39:32] == XGMII_CTL_END),
-		xgmii_txc_x64[3] && (xgmii_txd_x64[31:24] == XGMII_CTL_END),
-		xgmii_txc_x64[2] && (xgmii_txd_x64[23:16] == XGMII_CTL_END),
-		xgmii_txc_x64[1] && (xgmii_txd_x64[15:8 ] == XGMII_CTL_END),
-		xgmii_txc_x64[0] && (xgmii_txd_x64[7:0  ] == XGMII_CTL_END)
-	};
+		tx_has_end =
+		{
+			xgmii_txc_x64[7] && (xgmii_txd_x64[63:56] == XGMII_CTL_END),
+			xgmii_txc_x64[6] && (xgmii_txd_x64[55:48] == XGMII_CTL_END),
+			xgmii_txc_x64[5] && (xgmii_txd_x64[47:40] == XGMII_CTL_END),
+			xgmii_txc_x64[4] && (xgmii_txd_x64[39:32] == XGMII_CTL_END),
+			xgmii_txc_x64[3] && (xgmii_txd_x64[31:24] == XGMII_CTL_END),
+			xgmii_txc_x64[2] && (xgmii_txd_x64[23:16] == XGMII_CTL_END),
+			xgmii_txc_x64[1] && (xgmii_txd_x64[15:8 ] == XGMII_CTL_END),
+			xgmii_txc_x64[0] && (xgmii_txd_x64[7:0  ] == XGMII_CTL_END)
+		};
 
-	wire			tx_has_data = (xgmii_txc_x64 == 8'h0);
+		tx_has_data	<= (xgmii_txc_x64 == 8'h0);
+
+		xgmii_x64_valid_ff	<= xgmii_x64_valid;
+		xgmii_txd_x64_ff	<= xgmii_txd_x64;
+	end
 
 	logic			tx_is_idle	= 0;
 
@@ -713,8 +724,8 @@ module XGEthernetPCS(
 		tx_64b_header_valid		<= 0;
 		tx_is_idle				<= 0;
 
-		if(xgmii_x64_valid) begin
-			tx_64b_header_valid		<= 1;
+		if(xgmii_x64_valid_ff) begin
+			tx_64b_header_valid	<= 1;
 
 			//Everything is control characters except packet data
 			//so default to that
@@ -723,17 +734,17 @@ module XGEthernetPCS(
 			//Start-of-frame in first block
 			//Assume everything after this is data octets (preamble) and send them
 			if(tx_has_start[7])
-				tx_64b_data		<= { CTL_D7_START, xgmii_txd_x64[55:0] };
+				tx_64b_data		<= { CTL_D7_START, xgmii_txd_x64_ff[55:0] };
 
 			//Start-of-frame in second block
 			//Send four idles, four padding bits, then the first three preamble octets
 			else if(tx_has_start[3])
-				tx_64b_data		<= { CTL_C4_D3, IDLE_X4, 4'b0, xgmii_txd_x64[23:0] };
+				tx_64b_data		<= { CTL_C4_D3, IDLE_X4, 4'b0, xgmii_txd_x64_ff[23:0] };
 
 			//Eight data octets - forward them along
 			else if(tx_has_data) begin
 				tx_64b_header	<= SYNC_DATA;
-				tx_64b_data		<= xgmii_txd_x64;
+				tx_64b_data		<= xgmii_txd_x64_ff;
 			end
 
 			//End of frame at any position in the block
@@ -742,24 +753,24 @@ module XGEthernetPCS(
 			else if(tx_has_end[7])
 				tx_64b_data		<= { CTL_C7, 7'h0, IDLE_X7 };
 			else if(tx_has_end[6])
-				tx_64b_data		<= { CTL_D1_C6, xgmii_txd_x64[63:56], 6'h0, IDLE_X6 };
+				tx_64b_data		<= { CTL_D1_C6, xgmii_txd_x64_ff[63:56], 6'h0, IDLE_X6 };
 			else if(tx_has_end[5])
-				tx_64b_data		<= { CTL_D2_C5, xgmii_txd_x64[63:48], 5'h0, IDLE_X5 };
+				tx_64b_data		<= { CTL_D2_C5, xgmii_txd_x64_ff[63:48], 5'h0, IDLE_X5 };
 			else if(tx_has_end[4])
-				tx_64b_data		<= { CTL_D3_C4, xgmii_txd_x64[63:40], 4'h0, IDLE_X4 };
+				tx_64b_data		<= { CTL_D3_C4, xgmii_txd_x64_ff[63:40], 4'h0, IDLE_X4 };
 			else if(tx_has_end[3])
-				tx_64b_data		<= { CTL_D4_C3, xgmii_txd_x64[63:32], 3'h0, IDLE_X3 };
+				tx_64b_data		<= { CTL_D4_C3, xgmii_txd_x64_ff[63:32], 3'h0, IDLE_X3 };
 			else if(tx_has_end[2])
-				tx_64b_data		<= { CTL_D5_C2, xgmii_txd_x64[63:24], 2'h0, IDLE_X2 };
+				tx_64b_data		<= { CTL_D5_C2, xgmii_txd_x64_ff[63:24], 2'h0, IDLE_X2 };
 			else if(tx_has_end[1])
-				tx_64b_data		<= { CTL_D6_C1, xgmii_txd_x64[63:16], 1'h0, CTL_IDLE };
+				tx_64b_data		<= { CTL_D6_C1, xgmii_txd_x64_ff[63:16], 1'h0, CTL_IDLE };
 			else if(tx_has_end[0])
-				tx_64b_data		<= { CTL_D7_END, xgmii_txd_x64[63:8]};
+				tx_64b_data		<= { CTL_D7_END, xgmii_txd_x64_ff[63:8]};
 
 			//Nothing to do, send idles
 			else begin
-				tx_is_idle			<= 1;
-				tx_64b_data			<=
+				tx_is_idle		<= 1;
+				tx_64b_data		<=
 				{
 					CTL_C8,
 					CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE, CTL_IDLE
