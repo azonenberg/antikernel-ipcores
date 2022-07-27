@@ -286,30 +286,4 @@ module QSPIDeviceInterface #(
 
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug logic analyzer
-
-	ila_2 ila(
-		.clk(clk),
-		.probe0(sck_sync),
-		.probe1(cs_n_sync),
-		.probe2(dq_in_sync),
-		.probe3(dq_oe),
-		.probe4(dq_out),
-
-		.probe5(start),
-		.probe6(insn),
-		.probe7(insn_valid),
-		.probe8(state),
-		.probe9(wr_valid),
-		.probe10(wr_data),
-		.probe11(rd_mode),
-		.probe12(rd_ready),
-		.probe13(rd_valid),
-		.probe14(rd_data),
-		.probe15(sck_rising),
-		.probe16(sck_falling),
-		.probe17(rd_data_next_fwd)
-	);
-
 endmodule
