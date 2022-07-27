@@ -70,7 +70,7 @@ module QSPIDeviceInterface #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// I/O buffers
 
-	logic[3:0]	dq_oe	= 4'b0;	//default all outputs to tristate
+	logic		dq_oe	= 1'b0;	//default all outputs to tristate
 
 	wire[3:0]	dq_in;
 	logic[3:0]	dq_out	= 0;
@@ -162,7 +162,6 @@ module QSPIDeviceInterface #(
 
 	logic[3:0]	insn_count = 0;
 	logic[3:0]	dq_in_ff	= 0;
-	logic		insn_valid_ff;
 
 	//Combinatorial forwarding of read data
 	//Register it so we have it ready for when it's needed
@@ -193,8 +192,6 @@ module QSPIDeviceInterface #(
 		wr_valid		<= 0;
 
 		rd_data_next	<= rd_data_next_fwd;
-
-		insn_valid_ff	<= insn_valid;
 
 		//Write path stuff happens on SCK rising edge, nothing odd there.
 		//Read path executes on SCK rising edge too, but important to note that our view of the edge is delayed by two
@@ -233,7 +230,7 @@ module QSPIDeviceInterface #(
 					if(rd_mode) begin
 
 						//Start driving outputs
-						dq_oe	<= 4'hf;
+						dq_oe	<= 1;
 
 						state	<= STATE_RD_LO;
 						dq_out	<= rd_data_next_fwd[7:4];
@@ -275,7 +272,7 @@ module QSPIDeviceInterface #(
 			state		<= STATE_DESELECTED;
 
 			//Immediately tristate output when deselected no matter what else was going on
-			dq_oe		<= 4'h0;
+			dq_oe		<= 0;
 		end
 
 		if(start) begin
