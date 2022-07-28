@@ -44,7 +44,8 @@ module EthernetTransmitElasticBuffer #(
 											//Default 8192 = 32768 bytes
 											//(21 standard frames, 3 jumbo frames, 512 min-sized frames)
 
-	parameter HEADER_DEPTH		= 512		//Depth of header FIFO, in packets
+	parameter HEADER_DEPTH		= 512,		//Depth of header FIFO, in packets
+	parameter HEADER_USE_BLOCK	= 1			//True to use block RAM for header FIFO, false to use LUT RAM
 ) (
 
 	input wire[47:0]			our_mac_address,
@@ -135,7 +136,8 @@ module EthernetTransmitElasticBuffer #(
 
 	CrossClockPacketFifo #(
 		.WIDTH(78),
-		.DEPTH(HEADER_DEPTH)
+		.DEPTH(HEADER_DEPTH),
+		.USE_BLOCK(HEADER_USE_BLOCK)
 	) header_fifo (
 		.wr_clk(tx_l2_clk),
 		.wr_en(header_wr_en),

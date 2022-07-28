@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -31,7 +31,7 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief A cross-clock block RAM based FIFO with registered outputs intended for storing packetized data.
+	@brief A cross-clock FIFO with registered outputs intended for storing packetized data.
 
 	Packets are pushed in one word at a time but can be read random-access at the other side and popped as a unit.
 
@@ -42,7 +42,9 @@ module CrossClockPacketFifo #(
 	parameter WIDTH 	= 32,
 	parameter DEPTH		= 11'd1024,
 
-	parameter ADDR_BITS = $clog2(DEPTH)
+	parameter ADDR_BITS = $clog2(DEPTH),
+
+	parameter USE_BLOCK	= 1
 )(
 	//WRITE port (all signals in wr_clk domain)
 	input wire					wr_clk,			//Clock for write port
@@ -80,7 +82,7 @@ module CrossClockPacketFifo #(
 	MemoryMacro #(
 		.WIDTH(WIDTH),
 		.DEPTH(DEPTH),
-		.USE_BLOCK(1),
+		.USE_BLOCK(USE_BLOCK),
 		.OUT_REG(1),
 		.DUAL_PORT(1),
 		.TRUE_DUAL(0),

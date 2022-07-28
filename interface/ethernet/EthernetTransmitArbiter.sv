@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -47,7 +47,9 @@ module EthernetTransmitArbiter #(
 
 	parameter HEADER_DEPTH			= 512,	//Depth of header FIFO, in packets
 	parameter ARP_HEADER_DEPTH		= 64,
-	parameter JUMBO_FRAME_SUPPORT	= 1
+	parameter ARP_HEADER_USE_BLOCK	= 1,	//true to use block RAM for ARP header FIFO
+	parameter JUMBO_FRAME_SUPPORT	= 1,
+	parameter HEADER_USE_BLOCK		= 1
 )(
 
 	//Clocks
@@ -213,7 +215,8 @@ module EthernetTransmitArbiter #(
 
 	CrossClockPacketFifo #(
 		.WIDTH(64),
-		.DEPTH(HEADER_DEPTH)
+		.DEPTH(HEADER_DEPTH),
+		.USE_BLOCK(HEADER_USE_BLOCK)
 	) ipv4_header_fifo (
 		.wr_clk(clk),
 		.wr_en(ipv4_tx_l2_bus.commit && ipv4_packet_active),
@@ -247,7 +250,8 @@ module EthernetTransmitArbiter #(
 
 	CrossClockPacketFifo #(
 		.WIDTH(64),
-		.DEPTH(ARP_HEADER_DEPTH)
+		.DEPTH(ARP_HEADER_DEPTH),
+		.USE_BLOCK(ARP_HEADER_USE_BLOCK)
 	) arp_header_fifo (
 		.wr_clk(clk),
 		.wr_en(arp_tx_l2_bus.commit && arp_packet_active),
