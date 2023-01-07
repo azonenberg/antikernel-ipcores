@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -33,18 +33,22 @@
 
 /**
 	@brief Bridge from SGMII to GMII
-
-	Initial "quick and dirty" implementation has no CDR and requires RX clock.
  */
-module SGMIIToGMIIBridge(
+module SGMIIToGMIIBridge #(
+	parameter RX_INVERT = 0
+)(
 
-	//SGMII interface (connect directly to top-level pads)
-	input wire			sgmii_rx_clk_p,		//625 MHz RX clock
-	input wire			sgmii_rx_clk_n,
+	//Main clock
+	input wire			clk_312p5mhz,
 
-	input wire			sgmii_rx_data_p,	//1250 Mbps DDR RX data, aligned to sgmii_rx_clk (8b10b coded)
+	//Oversampling clocks for receiver
+	input wire			clk_625mhz_fabric,
+	input wire			clk_625mhz_io_0,
+	input wire			clk_625mhz_io_90,
+
+	input wire			sgmii_rx_data_p,
 	input wire			sgmii_rx_data_n,
-
+	/*
 	output wire			sgmii_tx_data_p,
 	output wire			sgmii_tx_data_n,
 
@@ -52,41 +56,97 @@ module SGMIIToGMIIBridge(
 	output GmiiBus		gmii_rx_bus,
 
 	input wire			gmii_tx_clk,
-	input GmiiBus		gmii_tx_bus,
+	input GmiiBus		gmii_tx_bus,*/
 
 	output wire			link_up,
 	output lspeed_t		link_speed
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Oversampling clock/data recovery block
+
+	//This module converts the raw differential pair into a stream of 4 bits (average) per clock at 312.5 MHz.
+
+	wire[4:0]	rx_data;
+	wire[2:0]	rx_data_count;
+
+	OversamplingCDR #(
+		.INVERT(RX_INVERT)
+	) cdr (
+		.clk_625mhz_io_0(clk_625mhz_io_0),
+		.clk_625mhz_io_90(clk_625mhz_io_90),
+		.clk_625mhz_fabric(clk_625mhz_fabric),
+		.clk_312p5mhz(clk_312p5mhz),
+
+		.din_p(sgmii_rx_data_p),
+		.din_n(sgmii_rx_data_n),
+
+		.rx_data(rx_data),
+		.rx_data_count(rx_data_count)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Convert the CDR output to a stream of 8B/10B symbols
+
+	logic[14:0]	rx_symbol_buf = 0;
+	logic[3:0] rx_symbol_count = 0;
+	always_ff @(posedge clk_312p5mhz) begin
+
+		rx_symbol_valid <= 0;
+
+		//Extend the symbol buffer from the right (oldest bit at left)
+		case(rx_data_count)
+			3: rx_symbol_buf = { rx_symbol_buf[11:0], rx_data[2:0] };
+			4: rx_symbol_buf = { rx_symbol_buf[10:0], rx_data[3:0] };
+			5: rx_symbol_buf = { rx_symbol_buf[9:0], rx_data[4:0] };
+			default: begin
+			end
+		endcase
+		rx_symbol_count = rx_symbol_count + rx_data_count;
+
+		//Once we have at least 10 valid bits, output them and shift left
+		if(rx_symbol_count >= 10) begin
+			case(rx_symbol_count)
+
+				10: rx_symbol <= rx_symbol_buf[0 +: 10];
+				11: rx_symbol <= rx_symbol_buf[1 +: 10];
+				12: rx_symbol <= rx_symbol_buf[2 +: 10];
+				13: rx_symbol <= rx_symbol_buf[3 +: 10];
+				14: rx_symbol <= rx_symbol_buf[4 +: 10];
+				15: rx_symbol <= rx_symbol_buf[5 +: 10];	//shouldn't be possible, but just in case
+
+				//nothing left to do
+				default: begin
+				end
+			endcase
+
+			rx_symbol_count = rx_symbol_count - 10;;
+			rx_symbol_valid	<= 1;
+		end
+
+	end
+
+	//TODO: put this in its own module
+	logic[9:0]	rx_symbol = 0;
+	logic		rx_symbol_valid = 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Debug ILA
+
+	ila_0 ila(
+		.clk(clk_312p5mhz),
+		.probe0(rx_data),
+		.probe1(rx_data_count),
+		.probe2(rx_symbol_buf),
+		.probe3(rx_symbol_count),
+		.probe4(rx_symbol),
+		.probe5(rx_symbol_valid)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Differential I/O buffers
 
-	wire	rx_clk;
-
-	DifferentialInputBuffer #(
-		.WIDTH(1),
-		.IOSTANDARD("LVDS"),
-		.ODT(1),
-		.OPTIMIZE("SPEED")
-	) ibuf_clk (
-		.pad_in_p(sgmii_rx_clk_p),
-		.pad_in_n(sgmii_rx_clk_n),
-		.fabric_out(rx_clk)
-	);
-
-	wire	rx_data_serial;
-
-	DifferentialInputBuffer #(
-		.WIDTH(1),
-		.IOSTANDARD("LVDS"),
-		.ODT(1),
-		.OPTIMIZE("SPEED")
-	) ibuf_data (
-		.pad_in_p(sgmii_rx_data_p),
-		.pad_in_n(sgmii_rx_data_n),
-		.fabric_out(rx_data_serial)
-	);
-
+	/*
 	wire	tx_data_serial;
 
 	DifferentialOutputBuffer #(
@@ -97,121 +157,9 @@ module SGMIIToGMIIBridge(
 		.pad_out_n(sgmii_tx_data_n),
 		.fabric_in(tx_data_serial)
 	);
+	*/
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// RX PLL (locked to the RX clock)
-
-	wire 	pll_locked;
-
-	wire	serdes_clk_raw;
-	wire	gmii_rx_clk_raw;
-
-	//TODO: abstraction for this
-	wire clkfb;
-	MMCME4_BASE #(
-		.BANDWIDTH("OPTIMIZED"),
-
-		.CLKIN1_PERIOD(1.600),		//625 MHz Fin
-		.DIVCLK_DIVIDE(2),			//312.5 MHz to the PFD
-		.CLKFBOUT_MULT_F(4),		//1.25 GHz Fvco
-		.CLKFBOUT_PHASE(0),
-
-		.STARTUP_WAIT("FALSE"),		//Don't wait for PLL to lock at startup
-
-		.CLKOUT1_DIVIDE(2),			//625 MHz clock for SERDES
-		.CLKOUT2_DIVIDE(10),		//125 MHz clock for GMII subsystem
-		.CLKOUT3_DIVIDE(1),
-		.CLKOUT4_DIVIDE(1),
-		.CLKOUT5_DIVIDE(1),
-		.CLKOUT6_DIVIDE(1),
-
-		.CLKOUT1_DUTY_CYCLE(0.5),
-		.CLKOUT2_DUTY_CYCLE(0.5),
-		.CLKOUT3_DUTY_CYCLE(0.5),
-		.CLKOUT4_DUTY_CYCLE(0.5),
-		.CLKOUT5_DUTY_CYCLE(0.5),
-		.CLKOUT6_DUTY_CYCLE(0.5),
-
-		.CLKOUT1_PHASE(0),
-		.CLKOUT2_PHASE(0),
-		.CLKOUT3_PHASE(0),
-		.CLKOUT4_PHASE(0),
-		.CLKOUT5_PHASE(0),
-		.CLKOUT6_PHASE(0)
-
-	) pll (
-		.CLKFBIN(clkfb),
-		.CLKFBOUT(clkfb),
-
-		.CLKIN1(rx_clk),
-
-		.CLKOUT1(serdes_clk_raw),
-		.CLKOUT2(gmii_rx_clk_raw),
-		.CLKOUT3(),
-		.CLKOUT4(),
-		.CLKOUT5(),
-		.CLKOUT6(),
-
-		.LOCKED(pll_locked),
-
-		.PWRDWN(0),
-
-		.RST(0)
-	);
-
-	ClockBuffer #(
-		.TYPE("GLOBAL"),
-		.CE("YES")
-	) bufg_gmii_clk (
-		.clkin(gmii_rx_clk_raw),
-		.clkout(gmii_rx_clk),
-		.ce(pll_locked)
-	);
-
-	//156.25 MHz symbol clock
-	wire	symbol_clk;
-
-	BUFGCE_DIV #(
-		.BUFGCE_DIVIDE(4)
-	) bufg_symbol_clk(
-		.I(serdes_clk_raw),
-		.CLR(1'b0),
-		.CE(1'b1),
-		.O(symbol_clk)
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Deserialize the incoming RX data
-
-	//Raw 8b/10b symbols (need to be gearboxed) coming off the ISERDES
-	wire[7:0] rx_serdes_data;
-
-	logic	serdes_reset	= 1;
-	always_ff @(posedge symbol_clk) begin
-		serdes_reset	<= 0;
-	end
-
-	ISERDESE3 #(
-		.DATA_WIDTH(8),
-		.FIFO_ENABLE("FALSE"),
-		.FIFO_SYNC_MODE("FALSE"),
-		.IS_CLK_INVERTED(0),
-		.IS_CLK_B_INVERTED(1),
-		.IS_RST_INVERTED(0),
-		.SIM_DEVICE("ULTRASCALE_PLUS")
-	) rx_serdes (
-		.CLK(serdes_clk_raw),
-		.CLK_B(serdes_clk_raw),
-		.CLKDIV(symbol_clk),
-		.D(rx_data_serial),
-		.Q(rx_serdes_data),
-		.RST(serdes_reset),
-		.FIFO_RD_CLK(1'b0),
-		.FIFO_RD_EN(1'b0),
-		.FIFO_EMPTY(),
-		.INTERNAL_DIVCLK()
-	);
-
+	/*
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Gearbox the 8-bit SERDES data out to 10-bit symbols (need to bitslip to get alignment)
 
@@ -397,5 +345,6 @@ module SGMIIToGMIIBridge(
 		.tx_force_disparity_negative(tx_force_disparity_negative),
 		.tx_disparity_negative(tx_disparity_negative)
 	);
+	*/
 
 endmodule
