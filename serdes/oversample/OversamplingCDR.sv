@@ -43,8 +43,8 @@ module OversamplingCDR #(
 	input wire			din_p,
 	input wire			din_n,
 
-	output logic[4:0]	rx_data,
-	output logic[2:0]	rx_data_count
+	output wire[4:0]	rx_data,
+	output wire[2:0]	rx_data_count
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -300,218 +300,293 @@ module OversamplingCDR #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Pipeline stage 1: Find edges, then delay the data to match the edge signals
 
-	logic[3:0]	s0_last		= 0;
-
-	logic[15:0] s1_samples	= 0;
-	logic[18:0]	s1_edges	= 0;
+	logic[15:0] s1_samples		= 0;
+	logic[31:0]	s1_edges		= 0;
+	logic[4:0]	s1_first_edge	= 0;
+	logic[3:0]	s1_start		= 0;
+	logic		s1_found_edge	= 0;
 
 	//Detect edges in the incoming data stream
 	always_ff @(posedge clk_312p5mhz) begin
-		s1_edges[18] 	<= s0_last[2] ^ s0_last[3];
-		s1_edges[17] 	<= s0_last[1] ^ s0_last[2];
-		s1_edges[16] 	<= s0_last[0] ^ s0_last[1];
-		s1_edges[15] 	<= s0_samples[15] ^ s0_last[0];
 		s1_samples		<= s0_samples;
 
-		for(integer i=0; i<15; i=i+1)
-			s1_edges[i] <= s0_samples[i] ^ s0_samples[i+1];
+		s1_edges[31:16] = s1_edges[15:0];
+		s1_edges[15] 	= s0_samples[15] ^ s1_samples[0];
+		s1_edges[14:0]	= s0_samples[14:0] ^ s0_samples[15:1];
 
-		s0_last			<= s0_samples[3:0];
-	end
+		//Max allowed run length is 22 consecutive bits with the same value, so there's guaranteed to be an edge
+		//somewhere in the first 32 bits.
+		//Use a somewhat weird search pattern to try and get most accurate phase alignment.
+		s1_found_edge = 0;
+		s1_first_edge = 0;
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Pipeline stage 2: First data bit
+		//If there's an edge in the first 4 bits, use it
+		for(integer i=15; i>=12; i=i-1) begin
+			if(s1_edges[i] && !s1_found_edge) begin
+				s1_first_edge = i;
+				s1_found_edge = 1;
+				s1_start = i - 1;
 
-	logic[3:0]	s2_start = 0;
-	logic		s2_data = 0;
-	logic[15:0] s2_samples = 0;
-	logic[15:0] s2_edges = 0;
-	logic		s2_done;
-	always_ff @(posedge clk_312p5mhz) begin
+				//Edge cases around split: a run of 2+3 (5) or 6+3 (9) or 10+3 should be skipped, because the previous
+				//block already saw the edge. But a run of 3+3 (6) or 4+3 (7) should be rounded up to two bits, and a run
+				//of 1+3 should be rounded up to 1.
+				if(i == 12) begin
 
-		s2_samples	<= s1_samples;
-		s2_edges	<= s1_edges;
+					if(!s1_edges[20:15] && s1_edges[21]) begin
+					end
 
-		//Check how long it's been since the last edge in the previous block
-		s2_done = 0;
-		//if(!s1_edges[18:15]
+					else if(!s1_edges[24:15] && s1_edges[25]) begin
+					end
 
-		//We know we're oversampling by about 4x.
-		//So the first edge should be somewhere in the first 4 bits.
-		for(integer i=15; i>11; i=i-1) begin
-			if(s2_done) begin
-			end
+					else if(!s1_edges[17:15] || s1_edges[16])
+						s1_start = 15;
+				end
 
-			else if(s1_edges[i]) begin
-				s2_data 	<= s1_samples[i];
-				s2_done 	= 1;
-				s2_start	<= i-1;
-			end
-		end
+				//A run of 5+2 should decode to two bits, and 1+2 should decode to one.
+				//6+2 should decode to two.
+				if(i == 13) begin
+					if(!s1_edges[20:15] && s1_edges[21]) begin
+					end
 
-		//If we get here, all 4 of the first samples had the same value
-		//Use that as our sample value then continue searching at the 5th
-		if(!s2_done) begin
-			s2_data 	<= s1_samples[12];
-			s2_start	<= 11;
-		end
+					if(!s1_edges[19:14] || s1_edges[16])
+						s1_start = 15;
+				end
 
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Pipeline stage 3: Second data bit
-
-	//Similar to stage 2, but limits are now dynamic based on s2_start rather than hard coded.
-
-	logic[3:0]	s3_start = 0;
-	logic[1:0]	s3_data = 0;
-	logic[15:0] s3_samples = 0;
-	logic[15:0] s3_edges = 0;
-	logic		s3_done;
-	always_ff @(posedge clk_312p5mhz) begin
-
-		s3_samples	<= s2_samples;
-		s3_edges	<= s2_edges;
-
-		s3_done = 0;
-		for(integer i=0; i<4; i=i+1) begin
-			if(s3_done) begin
-			end
-
-			else if(s2_edges[s2_start - i]) begin
-				s3_data 	<= {s2_data, s2_samples[s2_start - i]};
-				s3_done 	= 1;
-				s3_start	<= s2_start - (i+1);
 			end
 		end
 
-		//If we get here, all 4 of the next samples had the same value
-		//Use that as our sample value then continue searching at the 5th
-		if(!s3_done) begin
-			s3_data 	<= {s2_data, s2_samples[s2_start - 3]};
-			s3_start	<= s2_start - 4;
+		if(!s1_found_edge) begin
+
+			//If not, look back into the previous block
+			for(integer i=16; i<31; i=i+1) begin
+				if(s1_edges[i] && !s1_found_edge) begin
+					s1_first_edge = i;
+					s1_found_edge = 1;
+				end
+			end
+
+			//If not found, search forwards
+			for(integer i = 11; i>=0; i=i-1) begin
+				if(s1_edges[i] && !s1_found_edge) begin
+					s1_first_edge = i;
+					s1_found_edge = 1;
+				end
+			end
+
+			//First sample point is one after the first edge (mod 4)
+			case(s1_first_edge[1:0])
+				0:	s1_start	<= 15;
+				1:	s1_start	<= 12;
+				2:	s1_start	<= 13;
+				3:	s1_start	<= 14;
+			endcase
+
 		end
 
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Pipeline stage 4: Third data bit
+	// First data bit
 
-	//Exactly the same as stage 3, just propagating one more upstream data bit
+	wire[3:0]	s2_start;
+	wire[2:0]	s2_count;
+	wire[4:0]	s2_data;
+	wire[15:0]	s2_samples;
+	wire[15:0]	s2_edges;
+	wire		s2_done;
 
-	logic[3:0]	s4_start = 0;
-	logic[2:0]	s4_data = 0;
-	logic[15:0] s4_samples = 0;
-	logic[15:0] s4_edges = 0;
-	logic		s4_done;
-	always_ff @(posedge clk_312p5mhz) begin
+	OversamplingCDRBitslice stage2(
+		.clk(clk_312p5mhz),
 
-		s4_samples	<= s3_samples;
-		s4_edges	<= s3_edges;
+		.samples(s1_samples),
+		.edges(s1_edges),
+		.start(s1_start),
+		.data(5'b0),
+		.count(3'b0),
+		.done(1'b0),
 
-		s4_done = 0;
-		for(integer i=0; i<4; i=i+1) begin
-			if(s4_done) begin
-			end
-
-			else if(s3_edges[s3_start - i]) begin
-				s4_data 	<= {s3_data, s3_samples[s3_start - i]};
-				s4_done 	= 1;
-				s4_start	<= s3_start - (i+1);
-			end
-		end
-
-		//If we get here, all 4 of the next samples had the same value
-		//Use that as our sample value then continue searching at the 5th
-		if(!s4_done) begin
-			s4_data 	<= {s3_data, s3_samples[s3_start - 3]};
-			s4_start	<= s3_start - 4;
-		end
-
-	end
+		.samples_next(s2_samples),
+		.edges_next(s2_edges),
+		.start_next(s2_start),
+		.data_next(s2_data),
+		.count_next(s2_count),
+		.done_next(s2_done)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Pipeline stage 5: Fourth data bit (not always present)
+	// Second data bit
 
-	//Same as stage 4, but need to bounds check since we can run off the end of the 16-bit block
+	wire[3:0]	s3_start;
+	wire[2:0]	s3_count;
+	wire[4:0]	s3_data;
+	wire[15:0]	s3_samples;
+	wire[15:0]	s3_edges;
+	wire		s3_done;
 
-	logic[3:0]	s5_start = 0;
-	logic[3:0]	s5_data = 0;
-	logic[2:0]	s5_data_valid = 0;
-	logic[15:0] s5_samples = 0;
-	logic[15:0] s5_edges = 0;
-	logic		s5_done;
-	always_ff @(posedge clk_312p5mhz) begin
+	OversamplingCDRBitslice stage3(
+		.clk(clk_312p5mhz),
 
-		s5_samples		<= s4_samples;
-		s5_edges		<= s4_edges;
-		s5_data_valid	<= 3;
-		s5_data			<= {1'b0, s4_data};
+		.samples(s2_samples),
+		.edges(s2_edges),
+		.start(s2_start),
+		.data(s2_data),
+		.count(s2_count),
+		.done(s2_done),
 
-		s5_done = 0;
-		for(integer i=0; i<4; i=i+1) begin
-			if(s5_done) begin
-			end
-
-			//off the end
-			else if(i > s4_start) begin
-				s4_done 		= 1;
-			end
-
-			else if(s4_edges[s4_start - i]) begin
-				s5_data 		<= {s4_data, s4_samples[s4_start - i]};
-				s5_done 		= 1;
-				s5_data_valid	<= 4;
-				s5_start		<= s4_start - (i+1);
-			end
-		end
-
-		//If we get here, all 4 of the samples had the same value
-		//Use that as our sample value then continue searching at the 5th
-		if(!s5_done) begin
-			s5_data 		<= {s4_data, s4_samples[s4_start - 3]};
-			s5_start		<= s4_start - 4;
-			s5_data_valid	<= 4;
-		end
-
-	end
+		.samples_next(s3_samples),
+		.edges_next(s3_edges),
+		.start_next(s3_start),
+		.data_next(s3_data),
+		.count_next(s3_count),
+		.done_next(s3_done)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Pipeline stage 6: Fifth data bit (rarely present)
+	// Third data bit
 
-	logic[4:0]	s6_data = 0;
-	logic[2:0]	s6_data_valid = 0;
-	logic		s6_done;
-	always_ff @(posedge clk_312p5mhz) begin
+	wire[3:0]	s4_start;
+	wire[2:0]	s4_count;
+	wire[4:0]	s4_data;
+	wire[15:0]	s4_samples;
+	wire[15:0]	s4_edges;
+	wire		s4_done;
 
-		s6_data_valid	<= s5_data_valid;
-		s6_data			<= {1'b0, s5_data};
+	OversamplingCDRBitslice stage4(
+		.clk(clk_312p5mhz),
 
-		s6_done = 0;
-		for(integer i=0; i<4; i=i+1) begin
-			if(s6_done) begin
-			end
+		.samples(s3_samples),
+		.edges(s3_edges),
+		.start(s3_start),
+		.data(s3_data),
+		.count(s3_count),
+		.done(s3_done),
 
-			//off the end, or underflowed
-			else if( (i > s5_start) || (s5_start > 6) ) begin
-				s6_done 		= 1;
-			end
-
-			else if(s5_edges[s5_start - i]) begin
-				s6_data 		<= {s5_data, s5_samples[s5_start - i]};
-				s6_done 		= 1;
-				s6_data_valid	<= 5;
-			end
-		end
-
-	end
+		.samples_next(s4_samples),
+		.edges_next(s4_edges),
+		.start_next(s4_start),
+		.data_next(s4_data),
+		.count_next(s4_count),
+		.done_next(s4_done)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Output
+	// Fourth (usually present) data bit
 
-	always_comb begin
-		rx_data = s6_data;
-		rx_data_count = s6_data_valid;
+	wire[3:0]	s5_start;
+	wire[2:0]	s5_count;
+	wire[4:0]	s5_data;
+	wire[15:0]	s5_samples;
+	wire[15:0]	s5_edges;
+	wire		s5_done;
+
+	OversamplingCDRBitslice stage5(
+		.clk(clk_312p5mhz),
+
+		.samples(s4_samples),
+		.edges(s4_edges),
+		.start(s4_start),
+		.data(s4_data),
+		.count(s4_count),
+		.done(s4_done),
+
+		.samples_next(s5_samples),
+		.edges_next(s5_edges),
+		.start_next(s5_start),
+		.data_next(s5_data),
+		.count_next(s5_count),
+		.done_next(s5_done)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Fifth (rarely present) data bit
+
+	OversamplingCDRBitslice stage6(
+		.clk(clk_312p5mhz),
+
+		.samples(s5_samples),
+		.edges(s5_edges),
+		.start(s5_start),
+		.data(s5_data),
+		.count(s5_count),
+		.done(s5_done),
+
+		.samples_next(),
+		.edges_next(),
+		.start_next(),
+		.data_next(rx_data),
+		.count_next(rx_data_count),
+		.done_next()
+	);
+
+endmodule
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// OversamplingCDRBitslice
+
+module OversamplingCDRBitslice(
+	input wire			clk,
+
+	input wire[15:0]	samples,
+	input wire[15:0]	edges,
+	input wire[3:0]		start,
+	input wire[4:0]		data,
+	input wire[2:0]		count,
+	input wire			done,
+
+	output logic[15:0]	samples_next = 0,
+	output logic[15:0]	edges_next = 0,
+	output logic[3:0]	start_next = 0,
+	output logic[4:0]	data_next = 0,
+	output logic[2:0]	count_next = 0,
+	output logic		done_next = 0
+);
+
+	always_ff @(posedge clk) begin
+
+		//Push down the pipeline
+		samples_next	<= samples;
+		edges_next		<= edges;
+		data_next		<= data;
+		count_next		<= count;
+		done_next		<= done;
+
+		//If we're done, nothing further to do
+		if(done) begin
+		end
+
+		//If this is the very first sample (count == 0),
+		//and there is an edge the cycle after our sample, do nothing
+		else if(edges[start-1] && !count) begin
+		end
+
+		else begin
+
+			//Take a data sample
+			count_next		<= count + 1;
+			data_next		<= { data[3:0], samples[start] };
+
+			//We expect an edge (or lack thereof) 3-5 samples after the previous edge
+			if(edges[start - 2]) begin
+				start_next	<= start - 3;
+				done_next	<= (start < 3);
+			end
+			else if(edges[start - 3]) begin
+				start_next	<= start - 4;
+				done_next	<= (start < 4);
+			end
+			else if(edges[start - 4]) begin
+				start_next	<= start - 5;
+				done_next	<= (start < 5);
+			end
+
+			//If we don't find one, next sample should be 4 later
+			else begin
+				start_next	<= start - 4;
+				done_next	<= (start < 4);
+			end
+
+		end
+
 	end
 
 endmodule

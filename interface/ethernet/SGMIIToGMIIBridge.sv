@@ -86,16 +86,30 @@ module SGMIIToGMIIBridge #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Convert the CDR output to a stream of 8B/10B symbols
+	// Convert the variable rate output to a stream of 10-bit line code symbols plus a clock enable
+
+	//TODO: put this in its own module
+	logic[9:0]	rx_symbol = 0;
+	logic		rx_symbol_valid = 0;
+
+	wire		rx_bitslip;
 
 	logic[14:0]	rx_symbol_buf = 0;
-	logic[3:0] rx_symbol_count = 0;
+	logic[3:0]	rx_symbol_count = 0;
+	logic[2:0]	rx_data_count_fwd;
 	always_ff @(posedge clk_312p5mhz) begin
 
 		rx_symbol_valid <= 0;
 
+		//Skip one bit if we're bitslipping
+		if(rx_bitslip)
+			rx_data_count_fwd = rx_data_count - 1;
+		else
+			rx_data_count_fwd = rx_data_count_fwd;
+
 		//Extend the symbol buffer from the right (oldest bit at left)
 		case(rx_data_count)
+			2: rx_symbol_buf = { rx_symbol_buf[12:0], rx_data[1:0] };
 			3: rx_symbol_buf = { rx_symbol_buf[11:0], rx_data[2:0] };
 			4: rx_symbol_buf = { rx_symbol_buf[10:0], rx_data[3:0] };
 			5: rx_symbol_buf = { rx_symbol_buf[9:0], rx_data[4:0] };
@@ -126,12 +140,38 @@ module SGMIIToGMIIBridge #(
 
 	end
 
-	//TODO: put this in its own module
-	logic[9:0]	rx_symbol = 0;
-	logic		rx_symbol_valid = 0;
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Decode the 8b/10b symbols
+
+	wire		rx_8b_data_valid;
+	wire[7:0]	rx_8b_data;
+	wire		rx_8b_data_is_ctl;
+
+	wire		rx_disparity_err;
+	wire		rx_symbol_err;
+	wire		rx_locked;
+
+	Decode8b10b rx_decoder(
+		.clk(clk_312p5mhz),
+
+		.codeword_valid(rx_symbol_valid),
+		.codeword_in(rx_symbol),
+
+		.data_valid(rx_8b_data_valid),
+		.data(rx_8b_data),
+		.data_is_ctl(rx_8b_data_is_ctl),
+
+		.disparity_err(rx_disparity_err),
+		.symbol_err(rx_symbol_err),
+		.bitslip(rx_bitslip),
+		.locked(rx_locked)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug ILA
+
+	wire	rx_fault;
+	assign rx_fault = rx_locked && (rx_symbol_err || rx_disparity_err);
 
 	ila_0 ila(
 		.clk(clk_312p5mhz),
@@ -140,7 +180,41 @@ module SGMIIToGMIIBridge #(
 		.probe2(rx_symbol_buf),
 		.probe3(rx_symbol_count),
 		.probe4(rx_symbol),
-		.probe5(rx_symbol_valid)
+		.probe5(rx_symbol_valid),
+		.probe6(rx_8b_data_valid),
+		.probe7(rx_8b_data),
+		.probe8(rx_8b_data_is_ctl),
+		.probe9(rx_disparity_err),
+		.probe10(rx_symbol_err),
+		.probe11(rx_bitslip),
+		.probe12(rx_locked),
+
+		.probe13(cdr.s1_samples),
+		.probe14(cdr.s1_edges),
+		.probe15(cdr.s1_first_edge),
+		.probe16(cdr.s1_start),
+		.probe17(cdr.s2_samples),
+		.probe18(cdr.s2_edges),
+		.probe19(cdr.s2_start),
+		.probe20(cdr.s2_data),
+		.probe21(cdr.s2_done),
+		.probe22(cdr.s3_samples),
+		.probe23(cdr.s3_edges),
+		.probe24(cdr.s3_start),
+		.probe25(cdr.s3_data),
+		.probe26(cdr.s3_done),
+		.probe27(cdr.s4_samples),
+		.probe28(cdr.s4_edges),
+		.probe29(cdr.s4_start),
+		.probe30(cdr.s4_data),
+		.probe31(cdr.s4_done),
+		.probe32(cdr.s5_samples),
+		.probe33(cdr.s5_edges),
+		.probe34(cdr.s5_start),
+		.probe35(cdr.s5_data),
+		.probe36(cdr.s5_done),
+
+		.probe37(rx_fault)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -160,63 +234,6 @@ module SGMIIToGMIIBridge #(
 	*/
 
 	/*
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Gearbox the 8-bit SERDES data out to 10-bit symbols (need to bitslip to get alignment)
-
-	//convert to "printer friendly" bit ordering for display
-	wire[7:0]	rx_serdes_data_mirrored =
-	{
-		rx_serdes_data[0],
-		rx_serdes_data[1],
-		rx_serdes_data[2],
-		rx_serdes_data[3],
-		rx_serdes_data[4],
-		rx_serdes_data[5],
-		rx_serdes_data[6],
-		rx_serdes_data[7]
-	};
-
-	wire		rx_symbol_valid;
-	wire[9:0]	rx_symbol;
-	wire		rx_bitslip;
-
-	Gearbox8To10 rx_gearbox(
-		.clk(symbol_clk),
-
-		.din_valid(1'b1),
-		.din(rx_serdes_data_mirrored),
-		.bitslip(rx_bitslip),
-
-		.dout_valid(rx_symbol_valid),
-		.dout(rx_symbol)
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Decode the 8b/10b symbols
-
-	wire		rx_data_valid;
-	wire[7:0]	rx_data;
-	wire		rx_data_is_ctl;
-
-	wire		rx_disparity_err;
-	wire		rx_symbol_err;
-	wire		rx_locked;
-
-	Decode8b10b rx_decoder(
-		.clk(symbol_clk),
-
-		.codeword_valid(rx_symbol_valid),
-		.codeword_in(rx_symbol),
-
-		.data_valid(rx_data_valid),
-		.data(rx_data),
-		.data_is_ctl(rx_data_is_ctl),
-
-		.disparity_err(rx_disparity_err),
-		.symbol_err(rx_symbol_err),
-		.bitslip(rx_bitslip),
-		.locked(rx_locked)
-	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transmit 8b/10b coder
