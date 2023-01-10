@@ -276,7 +276,7 @@ module OversamplingPhaseAlignment(
 			//Otherwise wait for external logic to trigger a reset
 			STATE_ALIGNED: begin
 
-				if(cur == MEASUREMENT_UNSTABLE) begin
+				if(cur_ff == MEASUREMENT_UNSTABLE) begin
 					state			<= STATE_MEASURE_FIRST;
 					found_unstable	<= 0;
 					phase_shift_inc	<= 1;

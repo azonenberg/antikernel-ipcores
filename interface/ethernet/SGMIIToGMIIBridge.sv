@@ -105,10 +105,10 @@ module SGMIIToGMIIBridge #(
 		if(rx_bitslip)
 			rx_data_count_fwd = rx_data_count - 1;
 		else
-			rx_data_count_fwd = rx_data_count_fwd;
+			rx_data_count_fwd = rx_data_count;
 
 		//Extend the symbol buffer from the right (oldest bit at left)
-		case(rx_data_count)
+		case(rx_data_count_fwd)
 			2: rx_symbol_buf = { rx_symbol_buf[12:0], rx_data[1:0] };
 			3: rx_symbol_buf = { rx_symbol_buf[11:0], rx_data[2:0] };
 			4: rx_symbol_buf = { rx_symbol_buf[10:0], rx_data[3:0] };
@@ -116,7 +116,7 @@ module SGMIIToGMIIBridge #(
 			default: begin
 			end
 		endcase
-		rx_symbol_count = rx_symbol_count + rx_data_count;
+		rx_symbol_count = rx_symbol_count + rx_data_count_fwd;
 
 		//Once we have at least 10 valid bits, output them and shift left
 		if(rx_symbol_count >= 10) begin
@@ -214,7 +214,8 @@ module SGMIIToGMIIBridge #(
 		.probe35(cdr.s5_data),
 		.probe36(cdr.s5_done),
 
-		.probe37(rx_fault)
+		.probe37(rx_fault),
+		.probe38(rx_data_count_fwd)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

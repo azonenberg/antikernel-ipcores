@@ -304,6 +304,7 @@ module OversamplingCDR #(
 	logic[31:0]	s1_edges		= 0;
 	logic[4:0]	s1_first_edge	= 0;
 	logic[3:0]	s1_start		= 0;
+	logic[3:0]	s1_start_old	= 0;
 	logic		s1_found_edge	= 0;
 
 	//Detect edges in the incoming data stream
@@ -317,6 +318,7 @@ module OversamplingCDR #(
 		//Max allowed run length is 22 consecutive bits with the same value, so there's guaranteed to be an edge
 		//somewhere in the first 32 bits.
 		//Use a somewhat weird search pattern to try and get most accurate phase alignment.
+		s1_start_old = s1_start;
 		s1_found_edge = 0;
 		s1_first_edge = 0;
 
@@ -332,7 +334,16 @@ module OversamplingCDR #(
 				//of 1+3 should be rounded up to 1.
 				if(i == 12) begin
 
-					if(!s1_edges[20:15] && s1_edges[21]) begin
+					//Even trickier edge case: if the entire previous block has no edges, and started sampling as N=12
+					//then its last sample will be at n=0
+					//so we're in a 2+3 case and should skip
+					if(!s1_edges[31:16] && (s1_start_old == 12) ) begin
+					end
+
+					else if(!s1_edges[28:15] && s1_edges[29]) begin
+					end
+
+					else if(!s1_edges[20:15] && s1_edges[21]) begin
 					end
 
 					else if(!s1_edges[24:15] && s1_edges[25]) begin
@@ -343,12 +354,41 @@ module OversamplingCDR #(
 				end
 
 				//A run of 5+2 should decode to two bits, and 1+2 should decode to one.
-				//6+2 should decode to two.
+				//6+2 should decode to two. 10+2 should decode to three in the previous block and none here.
+				//7+2 should decode to two in the previous and none here.
+				//11+2 should decode to three in the previous block and none here
+				//15+2 should decode to four plus none here, as should 14+3
 				if(i == 13) begin
-					if(!s1_edges[20:15] && s1_edges[21]) begin
+
+					//Even trickier edge case: if the entire previous block has no edges, and started sampling as N=12
+					//then its last sample will be at n=0
+					//so we're in a 2+16+2 case and should skip (total of 20).
+					//Same applies to 3+16+2, total 21
+					if(!s1_edges[31:16] && ( (s1_start_old == 12) || (s1_start_old == 13) ) ) begin
 					end
 
-					if(!s1_edges[19:14] || s1_edges[16])
+					else if(!s1_edges[30:15] && s1_edges[31]) begin
+					end
+
+					else if(!s1_edges[29:15] && s1_edges[30]) begin
+					end
+
+					else if(!s1_edges[28:15] && s1_edges[29]) begin
+					end
+
+					else if(!s1_edges[25:15] && s1_edges[26]) begin
+					end
+
+					else if(!s1_edges[24:15] && s1_edges[25]) begin
+					end
+
+					else if(!s1_edges[21:15] && s1_edges[22]) begin
+					end
+
+					else if(!s1_edges[20:15] && s1_edges[21]) begin
+					end
+
+					else if(!s1_edges[19:14] || s1_edges[16])
 						s1_start = 15;
 				end
 
@@ -375,10 +415,10 @@ module OversamplingCDR #(
 
 			//First sample point is one after the first edge (mod 4)
 			case(s1_first_edge[1:0])
-				0:	s1_start	<= 15;
-				1:	s1_start	<= 12;
-				2:	s1_start	<= 13;
-				3:	s1_start	<= 14;
+				0:	s1_start	= 15;
+				1:	s1_start	= 12;
+				2:	s1_start	= 13;
+				3:	s1_start	= 14;
 			endcase
 
 		end
@@ -399,7 +439,7 @@ module OversamplingCDR #(
 		.clk(clk_312p5mhz),
 
 		.samples(s1_samples),
-		.edges(s1_edges),
+		.edges(s1_edges[15:0]),
 		.start(s1_start),
 		.data(5'b0),
 		.count(3'b0),
