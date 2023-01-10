@@ -435,7 +435,9 @@ module OversamplingCDR #(
 	wire[15:0]	s2_edges;
 	wire		s2_done;
 
-	OversamplingCDRBitslice stage2(
+	OversamplingCDRBitslice #(
+		.OUT_REG(1)
+	) stage2 (
 		.clk(clk_312p5mhz),
 
 		.samples(s1_samples),
@@ -463,7 +465,9 @@ module OversamplingCDR #(
 	wire[15:0]	s3_edges;
 	wire		s3_done;
 
-	OversamplingCDRBitslice stage3(
+	OversamplingCDRBitslice #(
+		.OUT_REG(1)
+	) stage3 (
 		.clk(clk_312p5mhz),
 
 		.samples(s2_samples),
@@ -491,7 +495,9 @@ module OversamplingCDR #(
 	wire[15:0]	s4_edges;
 	wire		s4_done;
 
-	OversamplingCDRBitslice stage4(
+	OversamplingCDRBitslice #(
+		.OUT_REG(1)
+	) stage4 (
 		.clk(clk_312p5mhz),
 
 		.samples(s3_samples),
@@ -519,7 +525,9 @@ module OversamplingCDR #(
 	wire[15:0]	s5_edges;
 	wire		s5_done;
 
-	OversamplingCDRBitslice stage5(
+	OversamplingCDRBitslice #(
+		.OUT_REG(1)
+	) stage5 (
 		.clk(clk_312p5mhz),
 
 		.samples(s4_samples),
@@ -540,7 +548,9 @@ module OversamplingCDR #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Fifth (rarely present) data bit
 
-	OversamplingCDRBitslice stage6(
+	OversamplingCDRBitslice #(
+		.OUT_REG(1)
+	) stage6 (
 		.clk(clk_312p5mhz),
 
 		.samples(s5_samples),
@@ -563,7 +573,9 @@ endmodule
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 // OversamplingCDRBitslice
 
-module OversamplingCDRBitslice(
+module OversamplingCDRBitslice #(
+	parameter OUT_REG = 1
+)(
 	input wire			clk,
 
 	input wire[15:0]	samples,
@@ -581,14 +593,21 @@ module OversamplingCDRBitslice(
 	output logic		done_next = 0
 );
 
-	always_ff @(posedge clk) begin
+	logic[3:0]	start_comb;
+	logic[4:0]	data_comb;
+	logic[2:0]	count_comb;
+	logic		done_comb;
+
+	always_comb begin
 
 		//Push down the pipeline
-		samples_next	<= samples;
-		edges_next		<= edges;
-		data_next		<= data;
-		count_next		<= count;
-		done_next		<= done;
+		data_comb		= data;
+		count_comb		= count;
+		done_comb		= done;
+
+		//Default to not touching  start/done
+		start_comb		= start;
+		done_comb		= done;
 
 		//If we're done, nothing further to do
 		if(done) begin
@@ -602,31 +621,57 @@ module OversamplingCDRBitslice(
 		else begin
 
 			//Take a data sample
-			count_next		<= count + 1;
-			data_next		<= { data[3:0], samples[start] };
+			count_comb		= count + 1;
+			data_comb		= { data[3:0], samples[start] };
 
 			//We expect an edge (or lack thereof) 3-5 samples after the previous edge
 			if(edges[start - 2]) begin
-				start_next	<= start - 3;
-				done_next	<= (start < 3);
+				start_comb	= start - 3;
+				done_comb	= (start < 3);
 			end
 			else if(edges[start - 3]) begin
-				start_next	<= start - 4;
-				done_next	<= (start < 4);
+				start_comb	= start - 4;
+				done_comb	= (start < 4);
 			end
 			else if(edges[start - 4]) begin
-				start_next	<= start - 5;
-				done_next	<= (start < 5);
+				start_comb	= start - 5;
+				done_comb	= (start < 5);
 			end
 
 			//If we don't find one, next sample should be 4 later
 			else begin
-				start_next	<= start - 4;
-				done_next	<= (start < 4);
+				start_comb	= start - 4;
+				done_comb	= (start < 4);
 			end
 
 		end
 
+	end
+
+	//Registered output
+	if(OUT_REG) begin
+		always_ff @(posedge clk) begin
+			samples_next	<= samples;
+			edges_next		<= edges;
+
+			count_next		<= count_comb;
+			data_next		<= data_comb;
+			done_next		<= done_comb;
+			start_next		<= start_comb;
+		end
+	end
+
+	//Combinatorial passthrough
+	else begin
+		always_comb begin
+			samples_next	= samples;
+			edges_next		= edges;
+
+			count_next		= count_comb;
+			data_next		= data_comb;
+			done_next		= done_comb;
+			start_next		= start_comb;
+		end
 	end
 
 endmodule
