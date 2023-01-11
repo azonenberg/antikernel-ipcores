@@ -39,7 +39,6 @@ module SGMIIToGMIIBridge #(
 )(
 
 	//Main clocks
-	input wire			clk_156p25mhz,
 	input wire			clk_312p5mhz,
 
 	//Oversampling clocks for receiver
@@ -212,85 +211,29 @@ module SGMIIToGMIIBridge #(
 	wire		tx_force_disparity_negative;
 	wire		tx_disparity_negative;
 
-	//send K28.5 D21.5 in a loop
-	logic toggle = 0;
-	always_ff @(posedge tx_clk) begin
-		toggle <= !toggle;
-	end
-
 	Encode8b10b tx_encoder(
 		.clk(tx_clk),
 
-		.data_is_ctl(/*tx_data_is_ctl*/toggle),
-		.data(/*tx_data*/toggle ? 8'hbc : 8'hb5),
-		.force_disparity_negative(/*tx_force_disparity_negative*/1'b0),
+		.data_is_ctl(tx_data_is_ctl),
+		.data(tx_data),
+		.force_disparity_negative(tx_force_disparity_negative),
 
 		.codeword(tx_codeword),
 		.tx_disparity_negative(tx_disparity_negative)
 	);
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Transmit cross-clock FIFO
-
-	wire		tx_fifo_rd;
-	wire[9:0]	tx_fifo_symbol;
-	wire[5:0]	tx_fifo_rsize;
-
-	//Push at 125 MHz, pop at 156.25
-	CrossClockFifo #(
-		.WIDTH(10),
-		.DEPTH(32),
-		.USE_BLOCK(0),
-		.OUT_REG(1)
-	) tx_fifo (
-		.wr_clk(tx_clk),
-		.wr_en(1'b1),
-		.wr_data(tx_codeword),
-		.wr_size(),
-		.wr_full(),
-		.wr_overflow(),
-		.wr_reset(1'b0),
-
-		.rd_clk(clk_156p25mhz),
-		.rd_en(tx_fifo_rd),
-		.rd_data(tx_fifo_symbol),
-		.rd_size(tx_fifo_rsize),
-		.rd_empty(),
-		.rd_underflow(),
-		.rd_reset(1'b0)
-	);
-
-	ila_1 tx_ila(
-		.clk(clk_156p25mhz),
-		.probe0(tx_fifo_rd),
-		.probe1(tx_fifo_symbol),
-		.probe2(tx_fifo_rsize)
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Transmit gearbox
-
-	wire[7:0]	serdes_tx_data;
-
-	Gearbox10To8 tx_gearbox (
-		.clk(clk_156p25mhz),
-		.fifo_ready(tx_fifo_rsize > 8),
-		.fifo_rd_en(tx_fifo_rd),
-		.fifo_rd_data(tx_fifo_symbol),
-
-		.dout(serdes_tx_data)
-	);
-
-	wire[7:0] serdes_tx_data_mirrored =
+	wire[9:0] serdes_tx_data_mirrored =
 	{
-		serdes_tx_data[0],
-		serdes_tx_data[1],
-		serdes_tx_data[2],
-		serdes_tx_data[3],
-		serdes_tx_data[4],
-		serdes_tx_data[5],
-		serdes_tx_data[6],
-		serdes_tx_data[7]
+		tx_codeword[0],
+		tx_codeword[1],
+		tx_codeword[2],
+		tx_codeword[3],
+		tx_codeword[4],
+		tx_codeword[5],
+		tx_codeword[6],
+		tx_codeword[7],
+		tx_codeword[8],
+		tx_codeword[9]
 	};
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -298,22 +241,24 @@ module SGMIIToGMIIBridge #(
 
 	logic		serdes_reset = 1;
 	logic[7:0]	serdes_reset_count = 1;
-	always_ff @(posedge clk_156p25mhz) begin
+	always_ff @(posedge tx_clk) begin
 		if(serdes_reset_count == 0)
 			serdes_reset		<= 0;
 		else
 			serdes_reset_count <= serdes_reset_count + 1;
 	end
 
+	wire	serdes_cascade1;
+	wire	serdes_cascade2;
 	OSERDESE2 #(
 		.DATA_RATE_OQ("DDR"),
 		.DATA_RATE_TQ("BUF"),
-		.DATA_WIDTH(8),
+		.DATA_WIDTH(10),
 		.SERDES_MODE("MASTER"),
 		.TRISTATE_WIDTH(1),
 		.TBYTE_CTL("FALSE"),
 		.TBYTE_SRC("FALSE")
-	) tx_serdes (
+	) tx_serdes_master (
 		.OQ(tx_data_serial),
 		.OFB(),
 		.TQ(),
@@ -321,7 +266,7 @@ module SGMIIToGMIIBridge #(
 		.SHIFTOUT1(),
 		.SHIFTOUT2(),
 		.CLK(clk_625mhz_fabric),
-		.CLKDIV(clk_156p25mhz),
+		.CLKDIV(tx_clk),
 		.D1(serdes_tx_data_mirrored[0]),
 		.D2(serdes_tx_data_mirrored[1]),
 		.D3(serdes_tx_data_mirrored[2]),
@@ -330,6 +275,44 @@ module SGMIIToGMIIBridge #(
 		.D6(serdes_tx_data_mirrored[5]),
 		.D7(serdes_tx_data_mirrored[6]),
 		.D8(serdes_tx_data_mirrored[7]),
+		.TCE(1'b1),
+		.OCE(1'b1),
+		.TBYTEIN(1'b0),
+		.TBYTEOUT(),
+		.RST(serdes_reset),
+		.SHIFTIN1(serdes_cascade1),
+		.SHIFTIN2(serdes_cascade2),
+		.T1(1'b0),
+		.T2(1'b0),
+		.T3(1'b0),
+		.T4(1'b0)
+	);
+
+	OSERDESE2 #(
+		.DATA_RATE_OQ("DDR"),
+		.DATA_RATE_TQ("BUF"),
+		.DATA_WIDTH(10),
+		.SERDES_MODE("SLAVE"),
+		.TRISTATE_WIDTH(1),
+		.TBYTE_CTL("FALSE"),
+		.TBYTE_SRC("FALSE")
+	) tx_serdes_slave (
+		.OQ(),
+		.OFB(),
+		.TQ(),
+		.TFB(),
+		.SHIFTOUT1(serdes_cascade1),
+		.SHIFTOUT2(serdes_cascade2),
+		.CLK(clk_625mhz_fabric),
+		.CLKDIV(tx_clk),
+		.D1(1'b0),
+		.D2(1'b0),
+		.D3(serdes_tx_data_mirrored[8]),
+		.D4(serdes_tx_data_mirrored[9]),
+		.D5(1'b0),
+		.D6(1'b0),
+		.D7(serdes_tx_data_mirrored[8]),	//UG471 says to use D3/D4
+		.D8(serdes_tx_data_mirrored[9]),	//but it seems to only work if we use D7/D8??
 		.TCE(1'b1),
 		.OCE(1'b1),
 		.TBYTEIN(1'b0),
