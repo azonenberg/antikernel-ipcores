@@ -38,6 +38,7 @@ module OversamplingClocking(
 	input wire	clk_125mhz,
 
 	//Clock outputs
+	output wire clk_156p25mhz,		//only used for transmit, but convenient to get from same PLL
 	output wire	clk_312p5mhz,
 	output wire clk_625mhz_fabric,
 	output wire	clk_625mhz_io_0,
@@ -50,7 +51,7 @@ module OversamplingClocking(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main PLL
 
-	wire[1:0]	clk_unused;
+	wire	clk_unused;
 
 	wire	phase_shift_en;
 	wire	phase_shift_inc;
@@ -60,15 +61,15 @@ module OversamplingClocking(
 		.IN0_PERIOD(8),			//125 MHz input
 		.IN1_PERIOD(8),
 
-		.OUTPUT_BUF_GLOBAL( 6'b001100),
+		.OUTPUT_BUF_GLOBAL( 6'b011100),
 		.OUTPUT_BUF_IO(		6'b000011),
-		.OUTPUT_GATE(		6'b001100),
+		.OUTPUT_GATE(		6'b011100),
 
 		.OUT0_MIN_PERIOD(1.6),	//625 MHz output to IO clock network
 		.OUT1_MIN_PERIOD(1.6),	//625 MHz output to IO clock network
 		.OUT2_MIN_PERIOD(1.6),	//625 MHz output to fabric
 		.OUT3_MIN_PERIOD(3.2),	//312.5 MHz output to fabric
-		.OUT4_MIN_PERIOD(3.2),	//312.5 MHz output (unused)
+		.OUT4_MIN_PERIOD(6.4),	//156.25 MHz output to fabric (for transmit side coding)
 		.OUT5_MIN_PERIOD(3.2),	//312.5 MHz output (unused)
 
 		.OUT0_DEFAULT_PHASE(0),
@@ -85,7 +86,7 @@ module OversamplingClocking(
 		.clkin({clk_125mhz, clk_125mhz}),
 		.clksel(1'b0),
 
-		.clkout({clk_unused, clk_312p5mhz, clk_625mhz_fabric, clk_625mhz_io_90, clk_625mhz_io_0}),
+		.clkout({clk_unused, clk_156p25mhz, clk_312p5mhz, clk_625mhz_fabric, clk_625mhz_io_90, clk_625mhz_io_0}),
 
 		.reset(1'b0),
 		.locked(pll_lock),

@@ -38,7 +38,8 @@ module SGMIIToGMIIBridge #(
 	parameter RX_INVERT = 0
 )(
 
-	//Main clock
+	//Main clocks
+	input wire			clk_156p25mhz,
 	input wire			clk_312p5mhz,
 
 	//Oversampling clocks for receiver
@@ -48,15 +49,15 @@ module SGMIIToGMIIBridge #(
 
 	input wire			sgmii_rx_data_p,
 	input wire			sgmii_rx_data_n,
-	/*
+
 	output wire			sgmii_tx_data_p,
-	output wire			sgmii_tx_data_n,
+	output wire			sgmii_tx_data_n,/*
 
 	output wire			gmii_rx_clk,
 	output GmiiBus		gmii_rx_bus,
-
-	input wire			gmii_tx_clk,
-	input GmiiBus		gmii_tx_bus,*/
+	*/
+	input wire			gmii_tx_clk,	//must be 125 MHz
+	input GmiiBus		gmii_tx_bus,
 
 	output wire			link_up,
 	output lspeed_t		link_speed
@@ -173,7 +174,7 @@ module SGMIIToGMIIBridge #(
 	wire	rx_fault;
 	assign rx_fault = rx_locked && (rx_symbol_err || rx_disparity_err);
 
-	ila_0 ila(
+	ila_0 rx_ila(
 		.clk(clk_312p5mhz),
 		.probe0(rx_8b_data_valid),
 		.probe1(rx_8b_data),
@@ -186,9 +187,8 @@ module SGMIIToGMIIBridge #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Differential I/O buffers
+	// Output buffer for TX side
 
-	/*
 	wire	tx_data_serial;
 
 	DifferentialOutputBuffer #(
@@ -199,9 +199,6 @@ module SGMIIToGMIIBridge #(
 		.pad_out_n(sgmii_tx_data_n),
 		.fabric_in(tx_data_serial)
 	);
-	*/
-
-	/*
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transmit 8b/10b coder
@@ -215,12 +212,18 @@ module SGMIIToGMIIBridge #(
 	wire		tx_force_disparity_negative;
 	wire		tx_disparity_negative;
 
+	//send K28.5 D21.5 in a loop
+	logic toggle = 0;
+	always_ff @(posedge tx_clk) begin
+		toggle <= !toggle;
+	end
+
 	Encode8b10b tx_encoder(
 		.clk(tx_clk),
 
-		.data_is_ctl(tx_data_is_ctl),
-		.data(tx_data),
-		.force_disparity_negative(tx_force_disparity_negative),
+		.data_is_ctl(/*tx_data_is_ctl*/toggle),
+		.data(/*tx_data*/toggle ? 8'hbc : 8'hb5),
+		.force_disparity_negative(/*tx_force_disparity_negative*/1'b0),
 
 		.codeword(tx_codeword),
 		.tx_disparity_negative(tx_disparity_negative)
@@ -246,13 +249,22 @@ module SGMIIToGMIIBridge #(
 		.wr_size(),
 		.wr_full(),
 		.wr_overflow(),
+		.wr_reset(1'b0),
 
-		.rd_clk(symbol_clk),
+		.rd_clk(clk_156p25mhz),
 		.rd_en(tx_fifo_rd),
 		.rd_data(tx_fifo_symbol),
 		.rd_size(tx_fifo_rsize),
 		.rd_empty(),
-		.rd_underflow()
+		.rd_underflow(),
+		.rd_reset(1'b0)
+	);
+
+	ila_1 tx_ila(
+		.clk(clk_156p25mhz),
+		.probe0(tx_fifo_rd),
+		.probe1(tx_fifo_symbol),
+		.probe2(tx_fifo_rsize)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -261,7 +273,7 @@ module SGMIIToGMIIBridge #(
 	wire[7:0]	serdes_tx_data;
 
 	Gearbox10To8 tx_gearbox (
-		.clk(symbol_clk),
+		.clk(clk_156p25mhz),
 		.fifo_ready(tx_fifo_rsize > 8),
 		.fifo_rd_en(tx_fifo_rd),
 		.fifo_rd_data(tx_fifo_symbol),
@@ -284,43 +296,70 @@ module SGMIIToGMIIBridge #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Serialize the outbound TX data
 
-	OSERDESE3 #(
+	logic		serdes_reset = 1;
+	logic[7:0]	serdes_reset_count = 1;
+	always_ff @(posedge clk_156p25mhz) begin
+		if(serdes_reset_count == 0)
+			serdes_reset		<= 0;
+		else
+			serdes_reset_count <= serdes_reset_count + 1;
+	end
+
+	OSERDESE2 #(
+		.DATA_RATE_OQ("DDR"),
+		.DATA_RATE_TQ("BUF"),
 		.DATA_WIDTH(8),
-		.INIT(0),
-		.ODDR_MODE("FALSE"),
-		.OSERDES_D_BYPASS("FALSE"),
-		.OSERDES_T_BYPASS("FALSE"),
-		.IS_CLK_INVERTED(0),
-		.IS_CLKDIV_INVERTED(0),
-		.IS_RST_INVERTED(0),
-		.SIM_DEVICE("ULTRASCALE_PLUS")
+		.SERDES_MODE("MASTER"),
+		.TRISTATE_WIDTH(1),
+		.TBYTE_CTL("FALSE"),
+		.TBYTE_SRC("FALSE")
 	) tx_serdes (
-		.CLK(serdes_clk_raw),
-		.CLKDIV(symbol_clk),
-		.D(serdes_tx_data_mirrored),
 		.OQ(tx_data_serial),
+		.OFB(),
+		.TQ(),
+		.TFB(),
+		.SHIFTOUT1(),
+		.SHIFTOUT2(),
+		.CLK(clk_625mhz_fabric),
+		.CLKDIV(clk_156p25mhz),
+		.D1(serdes_tx_data_mirrored[0]),
+		.D2(serdes_tx_data_mirrored[1]),
+		.D3(serdes_tx_data_mirrored[2]),
+		.D4(serdes_tx_data_mirrored[3]),
+		.D5(serdes_tx_data_mirrored[4]),
+		.D6(serdes_tx_data_mirrored[5]),
+		.D7(serdes_tx_data_mirrored[6]),
+		.D8(serdes_tx_data_mirrored[7]),
+		.TCE(1'b1),
+		.OCE(1'b1),
+		.TBYTEIN(1'b0),
+		.TBYTEOUT(),
 		.RST(serdes_reset),
-		.T_OUT(),
-		.T(8'h0)
+		.SHIFTIN1(),
+		.SHIFTIN2(),
+		.T1(1'b0),
+		.T2(1'b0),
+		.T3(1'b0),
+		.T4(1'b0)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// 1000base-X / SGMII PCS
 
 	GigBaseXPCS pcs(
-		.clk_125mhz(gmii_rx_clk_raw),
+		.clk_125mhz(gmii_tx_clk),
 
 		.sgmii_mode(1'b1),
 
-		.rx_clk(symbol_clk),
-		.rx_data_valid(rx_data_valid),
-		.rx_data_is_ctl(rx_data_is_ctl),
-		.rx_data(rx_data),
+		.rx_clk(clk_312p5mhz),
+		.rx_data_valid(rx_8b_data_valid),
+		.rx_data_is_ctl(rx_8b_data_is_ctl),
+		.rx_data(rx_8b_data),
 
 		.link_up(link_up),
 		.link_speed(link_speed),
 
-		.gmii_rx_bus(gmii_rx_bus),
+		//.gmii_rx_bus(gmii_rx_bus),
 		.gmii_tx_clk(gmii_tx_clk),
 		.gmii_tx_bus(gmii_tx_bus),
 
@@ -330,6 +369,5 @@ module SGMIIToGMIIBridge #(
 		.tx_force_disparity_negative(tx_force_disparity_negative),
 		.tx_disparity_negative(tx_disparity_negative)
 	);
-	*/
 
 endmodule
