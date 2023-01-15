@@ -35,10 +35,12 @@
 	@brief Bridge from SGMII to GMII
  */
 module SGMIIToGMIIBridge #(
-	parameter RX_INVERT = 0
+	parameter RX_INVERT = 0,
+	parameter TX_INVERT = 0
 )(
 
 	//Main clocks
+	input wire			clk_125mhz,
 	input wire			clk_312p5mhz,
 
 	//Oversampling clocks for receiver
@@ -50,12 +52,10 @@ module SGMIIToGMIIBridge #(
 	input wire			sgmii_rx_data_n,
 
 	output wire			sgmii_tx_data_p,
-	output wire			sgmii_tx_data_n,/*
+	output wire			sgmii_tx_data_n,
 
-	output wire			gmii_rx_clk,
+	//clk_125mhz domain
 	output GmiiBus		gmii_rx_bus,
-	*/
-	input wire			gmii_tx_clk,	//must be 125 MHz
 	input GmiiBus		gmii_tx_bus,
 
 	output wire			link_up,
@@ -222,18 +222,21 @@ module SGMIIToGMIIBridge #(
 		.tx_disparity_negative(tx_disparity_negative)
 	);
 
+	wire[9:0] serdes_tx_data;
+	assign serdes_tx_data = TX_INVERT ? ~tx_codeword : tx_codeword;
+
 	wire[9:0] serdes_tx_data_mirrored =
 	{
-		tx_codeword[0],
-		tx_codeword[1],
-		tx_codeword[2],
-		tx_codeword[3],
-		tx_codeword[4],
-		tx_codeword[5],
-		tx_codeword[6],
-		tx_codeword[7],
-		tx_codeword[8],
-		tx_codeword[9]
+		serdes_tx_data[0],
+		serdes_tx_data[1],
+		serdes_tx_data[2],
+		serdes_tx_data[3],
+		serdes_tx_data[4],
+		serdes_tx_data[5],
+		serdes_tx_data[6],
+		serdes_tx_data[7],
+		serdes_tx_data[8],
+		serdes_tx_data[9]
 	};
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -330,7 +333,7 @@ module SGMIIToGMIIBridge #(
 	// 1000base-X / SGMII PCS
 
 	GigBaseXPCS pcs(
-		.clk_125mhz(gmii_tx_clk),
+		.clk_125mhz(clk_125mhz),
 
 		.sgmii_mode(1'b1),
 
@@ -338,12 +341,14 @@ module SGMIIToGMIIBridge #(
 		.rx_data_valid(rx_8b_data_valid),
 		.rx_data_is_ctl(rx_8b_data_is_ctl),
 		.rx_data(rx_8b_data),
+		.rx_disparity_err(rx_disparity_err),
+		.rx_symbol_err(rx_symbol_err),
 
 		.link_up(link_up),
 		.link_speed(link_speed),
 
-		//.gmii_rx_bus(gmii_rx_bus),
-		.gmii_tx_clk(gmii_tx_clk),
+		.gmii_rx_bus(gmii_rx_bus),
+		.gmii_tx_clk(clk_125mhz),
 		.gmii_tx_bus(gmii_tx_bus),
 
 		.tx_clk(tx_clk),
