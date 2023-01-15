@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -44,7 +44,12 @@
 		Wait for mgmt_busy_fwd to be cleared
 		Read phy_rd_data;
  */
-module EthernetMDIOTransceiver (
+module EthernetMDIOTransceiver #(
+
+	//125 / 2.5 MHz = 50x slower (400 ns, minimum allowed period)
+	//Slow down by 60x instead (30 cycles between rising/falling edges) just to be safe
+	parameter CLK_DIV = 60
+)(
 	input	wire		clk_125mhz,
 
 	input	wire[4:0]	phy_md_addr,
@@ -66,19 +71,19 @@ module EthernetMDIOTransceiver (
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Slow clock generation for MDC
 
-	//125 / 2.5 MHz = 50x slower (400 ns, minimum allowed period)
-	//Slow down by 60x instead (30 cycles between rising/falling edges) just to be safe
-	logic[5:0] 	mdc_count 		 	= 0;
-	logic 		mdc_rising_edge		= 0;
-	logic 		mdc_falling_edge	= 0;
+	localparam CLK_DIV_2 = CLK_DIV / 2;
+
+	logic[15:0] 	mdc_count 		 	= 0;
+	logic 			mdc_rising_edge		= 0;
+	logic 			mdc_falling_edge	= 0;
 
 	always_ff @(posedge clk_125mhz) begin
 		mdc_rising_edge		<= 0;
 		mdc_falling_edge	<= 0;
 
 		//Bump count, add an edge when it wraps
-		mdc_count			<= mdc_count + 6'd1;
-		if(mdc_count == 6'd29) begin
+		mdc_count			<= mdc_count + 16'd1;
+		if(mdc_count == (CLK_DIV_2 - 1) ) begin
 			mdc_count		<= 0;
 
 			if(mdc)
