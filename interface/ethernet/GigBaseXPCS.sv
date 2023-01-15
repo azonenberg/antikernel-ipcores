@@ -1,11 +1,10 @@
 `default_nettype none
 `timescale 1ns/1ps
-
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -48,12 +47,13 @@ module GigBaseXPCS(
 	input wire			sgmii_mode,
 
 	//RX SERDES interface.
-	//Typical usage: 156.25 MHz clock, but average of 125 MHz valid data rate.
-	//May also be 125 MHz with rx_data_valid tied high.
+	//125Mbaud average symbol rate, but often a higher clock rate with a valid strobe due to gearboxing.
 	input wire			rx_clk,
 	input wire			rx_data_valid,
 	input wire			rx_data_is_ctl,
 	input wire[7:0]		rx_data,
+	input wire			rx_disparity_err,
+	input wire			rx_symbol_err,
 
 	//RX status signals
 	output logic		link_up		= 0,
@@ -85,6 +85,8 @@ module GigBaseXPCS(
 	//TODO: buffer 4 code groups at a time, drop an idle set if the fifo is too full
 
 	wire		rx_fifo_empty;
+	wire		rx_fault;
+	assign rx_fault = (rx_disparity_err || rx_symbol_err);
 
 	//Let the FIFO fill up a bit before we start reading
 	wire[5:0]	rx_fifo_rsize;
@@ -107,26 +109,29 @@ module GigBaseXPCS(
 
 	wire		rx_fdata_is_ctl;
 	wire[7:0]	rx_fdata;
+	wire		rx_ffault;
 
 	CrossClockFifo #(
-		.WIDTH(9),
+		.WIDTH(10),
 		.DEPTH(32),
 		.USE_BLOCK(0),
 		.OUT_REG(1)
 	) rx_fifo (
 		.wr_clk(rx_clk),
 		.wr_en(rx_data_valid),
-		.wr_data({rx_data_is_ctl, rx_data}),
+		.wr_data({rx_data_is_ctl, rx_data, rx_fault}),
 		.wr_size(),
 		.wr_full(),
 		.wr_overflow(),
+		.wr_reset(1'b0),
 
 		.rd_clk(clk_125mhz),
 		.rd_en(rx_fifo_rd),
-		.rd_data({rx_fdata_is_ctl, rx_fdata}),
+		.rd_data({rx_fdata_is_ctl, rx_fdata, rx_ffault}),
 		.rd_size(rx_fifo_rsize),
 		.rd_empty(rx_fifo_empty),
-		.rd_underflow()
+		.rd_underflow(),
+		.rd_reset(1'b0)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -235,8 +240,8 @@ module GigBaseXPCS(
 
 	logic[15:0]	tx_config_reg	= 0;
 
-	//10 ms in 1000base-X mode. 2 us in SGMII mode (default for DP83867)
-	wire[31:0]	link_timer_target = sgmii_mode ? 249 : 1249999;
+	//10 ms in 1000base-X mode. 1.6 ms in SGMII mode
+	wire[31:0]	link_timer_target = sgmii_mode ? 199999 : 1249999;
 	wire		link_timer_done = (link_timer == link_timer_target);
 
 	logic[15:0]	rx_aneg_cfg_ff		= 0;
@@ -246,6 +251,10 @@ module GigBaseXPCS(
 	logic		idle_match			= 0;
 	logic[1:0]	idle_count			= 0;
 	logic		last_was_k285		= 0;
+
+	logic[7:0]	errors_found		= 0;
+	logic[15:0]	error_window		= 0;
+	logic		too_many_errs		= 0;
 
 	always_ff @(posedge clk_125mhz) begin
 
@@ -257,6 +266,16 @@ module GigBaseXPCS(
 		//1000base-X mode is always gigabit
 		if(!sgmii_mode)
 			link_speed	<= LINK_SPEED_1000M;
+
+		//Detect significant error bursts (more than 128 bad codewords in 64K = 1.9e-4 BER, completely unusable)
+		//TODO: larger window so we don't drop on a single burst?
+		error_window	<= error_window + 1;
+		if(error_window == 0) begin
+			too_many_errs	<= (errors_found >= 128);
+			errors_found	<= 0;
+		end
+		if(rx_ffault && (errors_found != 8'hff) )
+			errors_found	<= errors_found + 1;
 
 		//Detect config matches
 		if(rx_aneg_cfg_valid) begin
@@ -307,7 +326,8 @@ module GigBaseXPCS(
 						2'b0,			//No pause supported
 						1'b0,			//No half duplex supported
 						!sgmii_mode,	//Full duplex supported in 1000base-X mode, reserved in SGMII mode
-						5'b0			//Reserved
+						4'b0,			//Reserved
+						sgmii_mode		//Reserved in 1000base-X mode, constant 1 in SGMII mode
 					};
 				end
 			end	//end ANEG_RESTART
@@ -425,6 +445,12 @@ module GigBaseXPCS(
 			end	//end ANEG_LINK_OK
 
 		endcase
+
+		//Fall back to ENABLE state at any time if the link drops due to excessive errors
+		if(too_many_errs) begin
+			aneg_state <= ANEG_ENABLE;
+			link_up		<= 0;
+		end
 
 	end
 
@@ -568,6 +594,9 @@ module GigBaseXPCS(
 	// TX autonegotiation transmit logic
 
 	logic[2:0] tx_aneg_count = 0;
+
+	logic aneg_tx_mux	= 0;
+
 	always_ff @(posedge tx_clk) begin
 
 		tx_aneg_count						<= tx_aneg_count + 1'h1;
@@ -575,16 +604,24 @@ module GigBaseXPCS(
 		tx_aneg_data_is_ctl					<= 0;
 		tx_aneg_force_disparity_negative	<= 0;
 
-		if(aneg_state == ANEG_IDLE_DETECT) begin
+		if(aneg_tx_mux == 1) begin
 
 			//I2 ordered set: K28.5 D16.2
-			if(tx_aneg_count[0]) begin
+			if(!tx_aneg_count[0]) begin
 				tx_aneg_data						<= 8'hbc;
 				tx_aneg_data_is_ctl					<= 1;
 				tx_aneg_force_disparity_negative	<= 1;
 			end
-			else
+			else begin
 				tx_aneg_data						<= 8'h50;
+
+				//Exit IDLE_DETECT state
+				if(aneg_state != ANEG_IDLE_DETECT) begin
+					tx_aneg_count					<= 0;
+					aneg_tx_mux						<= 0;
+				end
+
+			end
 
 		end
 
@@ -608,7 +645,13 @@ module GigBaseXPCS(
 				end
 				5: 	tx_aneg_data		<= 8'h42;
 				6:	tx_aneg_data		<= tx_config_reg[7:0];
-				7:	tx_aneg_data		<= tx_config_reg[15:8];
+				7: begin
+					tx_aneg_data		<= tx_config_reg[15:8];
+
+					//Enter IDLE_DETECT state
+					if(aneg_state == ANEG_IDLE_DETECT)
+						aneg_tx_mux		<= 1;
+				end
 
 			endcase
 
