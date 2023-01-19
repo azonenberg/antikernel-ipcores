@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2021 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -40,9 +40,11 @@
 module EthernetCrossoverClockCrossing_x8(
 
 	input wire					rx_clk,
+	input wire					rx_rst,
 	input wire EthernetRxBus	rx_bus,
 
 	input wire					tx_clk,
+	input wire					tx_rst,
 	input wire					tx_ready,
 	output EthernetTxBus		tx_bus
 );
@@ -79,6 +81,10 @@ module EthernetCrossoverClockCrossing_x8(
 		if(rx_bus.data_valid)
 			rx_wr_frame_len	<= rx_wr_frame_len + rx_bus.bytes_valid;
 
+		//sync reset
+		if(rx_rst)
+			rx_wr_frame_len	<= 0;
+
 	end
 
 	wire[6:0] rx_header_wr_size;
@@ -98,7 +104,7 @@ module EthernetCrossoverClockCrossing_x8(
 		.wr_size(rx_header_wr_size),	//debug
 		.wr_full(rx_header_full),
 		.wr_overflow(),
-		.wr_reset(1'b0),
+		.wr_reset(rx_rst),
 
 		.rd_clk(tx_clk),
 		.rd_en(rx_header_rd_en),
@@ -106,7 +112,7 @@ module EthernetCrossoverClockCrossing_x8(
 		.rd_size(rx_header_rd_size),
 		.rd_empty(rx_header_rd_empty),
 		.rd_underflow(),
-		.rd_reset(1'b0)
+		.rd_reset(tx_rst)
 	);
 
 	//32 bits * 1024 rows = 4 kB.
@@ -119,7 +125,7 @@ module EthernetCrossoverClockCrossing_x8(
 		.wr_clk(rx_clk),
 		.wr_en(rx_bus.data_valid && !rx_dropping),
 		.wr_data(rx_bus.data),
-		.wr_reset(1'b0),
+		.wr_reset(rx_rst),
 		.wr_size(rx_fifo_wr_size),
 		.wr_commit(rx_fifo_commit),
 		.wr_rollback(rx_bus.drop),
@@ -132,7 +138,7 @@ module EthernetCrossoverClockCrossing_x8(
 		.rd_data(rx_fifo_rd_data),
 		.rd_packet_size(rx_fifo_rd_packet_size),
 		.rd_size(rx_data_fifo_rd_size),
-		.rd_reset()
+		.rd_reset(tx_rst)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -159,9 +165,9 @@ module EthernetCrossoverClockCrossing_x8(
 		rx_fifo_rd_pop_single		<= 0;
 		rx_fifo_rd_pop_packet		<= 0;
 
-		tx_bus.start		<= 0;
-		tx_bus.data_valid	<= 0;
-		tx_bus.bytes_valid	<= 0;
+		tx_bus.start				<= 0;
+		tx_bus.data_valid			<= 0;
+		tx_bus.bytes_valid			<= 0;
 
 		case(state)
 
@@ -266,6 +272,23 @@ module EthernetCrossoverClockCrossing_x8(
 			end	//end STATE_POP
 
 		endcase
+
+		if(tx_rst) begin
+			state						<= STATE_IDLE;
+			rx_header_rd_en				<= 0;
+			rx_fifo_rd_en				<= 0;
+			rx_fifo_rd_pop_single		<= 0;
+			rx_fifo_rd_pop_packet		<= 0;
+			rx_fifo_rd_packet_size		<= 0;
+
+			tx_bus.start				<= 0;
+			tx_bus.data_valid			<= 0;
+			tx_bus.bytes_valid			<= 0;
+
+			current_bytes				<= 0;
+			rx_count					<= 0;
+			rx_bytes_read				<= 0;
+		end
 
 	end
 
