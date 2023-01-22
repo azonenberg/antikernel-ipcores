@@ -91,7 +91,7 @@ module EthernetCrossoverClockCrossing_x8(
 
 	wire[6:0] rx_header_rd_size;
 
-	//Header FIFO (big enough to hold a full rx_header_fifo worth of minimum sized frames)
+	//Header FIFO (big enough to hold a full rx_data_fifo worth of minimum sized frames)
 	CrossClockFifo #(
 		.WIDTH(11),
 		.DEPTH(64),
@@ -155,7 +155,7 @@ module EthernetCrossoverClockCrossing_x8(
 	} state = STATE_IDLE;
 
 	logic[1:0] rx_count			= 0;
-	logic[9:0] rx_bytes_read	= 0;
+	logic[10:0] rx_bytes_read	= 0;
 	logic[2:0] current_bytes	= 0;
 
 	always_ff @(posedge tx_clk) begin
