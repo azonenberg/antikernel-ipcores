@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -47,7 +47,9 @@ module TCPIPStack #(
 	parameter TX_PACKET_DEPTH			= 4096,
 	parameter TX_HEADER_DEPTH			= 256,
 	parameter TCP_RAM_DEPTH				= 8192,
-	localparam TCP_ADDR_BITS			= $clog2(TCP_RAM_DEPTH)
+	localparam TCP_ADDR_BITS			= $clog2(TCP_RAM_DEPTH),
+	parameter TCP_ENABLE				= 1,
+	parameter UDP_ENABLE				= 1
 ) (
 
 	//Core clock
@@ -286,15 +288,23 @@ module TCPIPStack #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Layer 4 UDP (for IPv4)
 
-	UDPProtocol udp_ipv4(
-		.clk(clk_ipstack),
+	if(UDP_ENABLE) begin
 
-		.rx_l3_bus(ipv4_rx_l3_bus),
-		.rx_l4_bus(udpv4_rx_bus),
+		UDPProtocol udp_ipv4(
+			.clk(clk_ipstack),
 
-		.tx_l3_bus(udp_ipv4_tx_l3_bus),
-		.tx_l4_bus(udpv4_tx_bus)
-	);
+			.rx_l3_bus(ipv4_rx_l3_bus),
+			.rx_l4_bus(udpv4_rx_bus),
+
+			.tx_l3_bus(udp_ipv4_tx_l3_bus),
+			.tx_l4_bus(udpv4_tx_bus)
+		);
+	end
+
+	else begin
+		assign udpv4_rx_bus = 0;
+		assign udp_ipv4_tx_l3_bus = 0;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Layer 4 ICMP (for IPv4)
@@ -311,37 +321,44 @@ module TCPIPStack #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Layer 4 TCP (for IPv4)
 
-	TCPProtocol #(
-		.AGE_INTERVAL(CLK_IPSTACK_HZ)
-	) tcp_ipv4 (
-		.clk(clk_ipstack),
+	if(TCP_ENABLE) begin
+		TCPProtocol #(
+			.AGE_INTERVAL(CLK_IPSTACK_HZ)
+		) tcp_ipv4 (
+			.clk(clk_ipstack),
 
-		.ip_config(ip_config),
+			.ip_config(ip_config),
 
-		.rx_l3_bus(ipv4_rx_l3_bus),
-		.rx_l4_bus(tcpv4_rx_bus),
+			.rx_l3_bus(ipv4_rx_l3_bus),
+			.rx_l4_bus(tcpv4_rx_bus),
 
-		.tx_l3_bus(tcp_ipv4_tx_l3_bus),
-		.tx_l4_bus(tcpv4_tx_bus),
+			.tx_l3_bus(tcp_ipv4_tx_l3_bus),
+			.tx_l4_bus(tcpv4_tx_bus),
 
-		.port_open_en(tcp_port_open_en),
-		.port_close_en(tcp_port_close_en),
-		.port_num(tcp_port_num)
-	);
+			.port_open_en(tcp_port_open_en),
+			.port_close_en(tcp_port_close_en),
+			.port_num(tcp_port_num)
+		);
 
-	TCPTransmitBufferManager #(
-		.RAM_DEPTH(TCP_RAM_DEPTH)
-	) tcp_bufmgr (
-		.clk(clk_ipstack),
+		TCPTransmitBufferManager #(
+			.RAM_DEPTH(TCP_RAM_DEPTH)
+		) tcp_bufmgr (
+			.clk(clk_ipstack),
 
-		.ram_ready(ram_ready),
-		.ram_wr_en(ram_wr_en),
-		.ram_wr_addr(ram_wr_addr),
-		.ram_wr_data(ram_wr_data),
-		.ram_rd_en(ram_rd_en),
-		.ram_rd_addr(ram_rd_addr),
-		.ram_rd_data(ram_rd_data),
-		.ram_rd_valid(ram_rd_valid)
-	);
+			.ram_ready(ram_ready),
+			.ram_wr_en(ram_wr_en),
+			.ram_wr_addr(ram_wr_addr),
+			.ram_wr_data(ram_wr_data),
+			.ram_rd_en(ram_rd_en),
+			.ram_rd_addr(ram_rd_addr),
+			.ram_rd_data(ram_rd_data),
+			.ram_rd_valid(ram_rd_valid)
+		);
+	end
+
+	else begin
+		assign tcpv4_rx_bus = 0;
+		assign tcp_ipv4_tx_l3_bus = 0;
+	end
 
 endmodule
