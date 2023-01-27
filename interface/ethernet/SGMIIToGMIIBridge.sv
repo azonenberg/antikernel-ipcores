@@ -168,24 +168,6 @@ module SGMIIToGMIIBridge #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
-
-	wire	rx_fault;
-	assign rx_fault = rx_locked && (rx_symbol_err || rx_disparity_err);
-
-	ila_0 rx_ila(
-		.clk(clk_312p5mhz),
-		.probe0(rx_8b_data_valid),
-		.probe1(rx_8b_data),
-		.probe2(rx_8b_data_is_ctl),
-		.probe3(rx_disparity_err),
-		.probe4(rx_symbol_err),
-		.probe5(rx_bitslip),
-		.probe6(rx_locked),
-		.probe7(rx_fault)
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Output buffer for TX side
 
 	wire	tx_data_serial;
