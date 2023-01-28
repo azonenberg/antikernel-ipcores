@@ -31,13 +31,14 @@
 
 /**
 	@brief Clock/data recovery block for 1.25 Gbps data (SGMII / 1000baseX) oversampled with a 7 series LVDS input
+
+	Loosely based on XAPP523 but completely different data recovery state machine and simpler clocking architecture
  */
 module OversamplingCDR #(
 	parameter INVERT = 0
 ) (
-	input wire			clk_625mhz_io_0,
-	input wire			clk_625mhz_io_90,
-	input wire			clk_625mhz_fabric,
+	input wire			clk_625mhz_0,
+	input wire			clk_625mhz_90,
 	input wire			clk_312p5mhz,
 
 	input wire			din_p,
@@ -132,15 +133,15 @@ module OversamplingCDR #(
 		.SHIFTOUT2(),
 		.D(),
 		.DDLY(data_p_delayed),
-		.CLK(clk_625mhz_io_0),
-		.CLKB(!clk_625mhz_io_0),
+		.CLK(clk_625mhz_0),
+		.CLKB(!clk_625mhz_0),
 		.CE1(1'b1),
 		.CE2(1'b1),
 		.RST(serdes_rst),
 		.CLKDIV(),
 		.CLKDIVP(1'b0),
-		.OCLK(clk_625mhz_io_90),
-		.OCLKB(!clk_625mhz_io_90),
+		.OCLK(clk_625mhz_90),
+		.OCLKB(!clk_625mhz_90),
 		.BITSLIP(1'b0),
 		.SHIFTIN1(),
 		.SHIFTIN2(),
@@ -173,15 +174,15 @@ module OversamplingCDR #(
 		.SHIFTOUT2(),
 		.D(),
 		.DDLY(data_n_delayed),
-		.CLK(clk_625mhz_io_0),
-		.CLKB(!clk_625mhz_io_0),
+		.CLK(clk_625mhz_0),
+		.CLKB(!clk_625mhz_0),
 		.CE1(1'b1),
 		.CE2(1'b1),
 		.RST(serdes_rst),
 		.CLKDIV(),
 		.CLKDIVP(1'b0),
-		.OCLK(clk_625mhz_io_90),
-		.OCLKB(!clk_625mhz_io_90),
+		.OCLK(clk_625mhz_90),
+		.OCLKB(!clk_625mhz_90),
 		.BITSLIP(1'b0),
 		.SHIFTIN1(),
 		.SHIFTIN2(),
@@ -207,13 +208,12 @@ module OversamplingCDR #(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// ISERDES output is in the 625 MHz I/O clock domain
-	// Capture into the fabric domain
+	// Register ISERDES output and merge the P/N outputs into a single 8 bit data stream
 
 	logic[3:0] deser_p_ff = 0;
 	logic[3:0] deser_n_ff = 0;
 
-	always_ff @(posedge clk_625mhz_fabric) begin
+	always_ff @(posedge clk_625mhz_0) begin
 		deser_p_ff <= deser_p;
 		deser_n_ff <= deser_n;
 	end
@@ -237,7 +237,7 @@ module OversamplingCDR #(
 	logic[7:0] samples_hi = 0;
 	logic[7:0] samples_lo = 0;
 
-	always_ff @(posedge clk_625mhz_fabric) begin
+	always_ff @(posedge clk_625mhz_0) begin
 		samples_hi	<= samples_lo;
 		samples_lo	<= deser_merged;
 	end
@@ -253,7 +253,7 @@ module OversamplingCDR #(
 
 	logic toggle = 0;
 
-	always_ff @(posedge clk_625mhz_fabric) begin
+	always_ff @(posedge clk_625mhz_0) begin
 		toggle <= !toggle;
 
 		if(toggle) begin

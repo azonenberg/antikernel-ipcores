@@ -2,7 +2,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -145,7 +145,7 @@ typedef struct packed
 	logic[63:0]	arp_dropped;
 } EthernetArbiterPerformanceCounters;
 
-//Performance counters for Ethernet2TypdeDecoder
+//Performance counters for Ethernet2TypeDecoder
 typedef struct packed
 {
 	logic[63:0]	rx_total;

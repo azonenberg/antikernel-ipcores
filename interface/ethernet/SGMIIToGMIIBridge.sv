@@ -30,6 +30,7 @@
 ***********************************************************************************************************************/
 
 `include "GmiiBus.svh"
+`include "SGMIIToGMIIBridge.svh"
 
 /**
 	@brief Bridge from SGMII to GMII
@@ -44,9 +45,8 @@ module SGMIIToGMIIBridge #(
 	input wire			clk_312p5mhz,
 
 	//Oversampling clocks for receiver
-	input wire			clk_625mhz_fabric,
-	input wire			clk_625mhz_io_0,
-	input wire			clk_625mhz_io_90,
+	input wire			clk_625mhz_0,
+	input wire			clk_625mhz_90,
 
 	input wire			sgmii_rx_data_p,
 	input wire			sgmii_rx_data_n,
@@ -59,7 +59,9 @@ module SGMIIToGMIIBridge #(
 	input GmiiBus		gmii_tx_bus,
 
 	output wire			link_up,
-	output lspeed_t		link_speed
+	output lspeed_t		link_speed,
+
+	output SGMIIPerformanceCounters	perf
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -73,9 +75,8 @@ module SGMIIToGMIIBridge #(
 	OversamplingCDR #(
 		.INVERT(RX_INVERT)
 	) cdr (
-		.clk_625mhz_io_0(clk_625mhz_io_0),
-		.clk_625mhz_io_90(clk_625mhz_io_90),
-		.clk_625mhz_fabric(clk_625mhz_fabric),
+		.clk_625mhz_0(clk_625mhz_0),
+		.clk_625mhz_90(clk_625mhz_90),
 		.clk_312p5mhz(clk_312p5mhz),
 
 		.din_p(sgmii_rx_data_p),
@@ -250,7 +251,7 @@ module SGMIIToGMIIBridge #(
 		.TFB(),
 		.SHIFTOUT1(),
 		.SHIFTOUT2(),
-		.CLK(clk_625mhz_fabric),
+		.CLK(clk_625mhz_0),
 		.CLKDIV(tx_clk),
 		.D1(serdes_tx_data_mirrored[0]),
 		.D2(serdes_tx_data_mirrored[1]),
@@ -288,7 +289,7 @@ module SGMIIToGMIIBridge #(
 		.TFB(),
 		.SHIFTOUT1(serdes_cascade1),
 		.SHIFTOUT2(serdes_cascade2),
-		.CLK(clk_625mhz_fabric),
+		.CLK(clk_625mhz_0),
 		.CLKDIV(tx_clk),
 		.D1(1'b0),
 		.D2(1'b0),
@@ -338,6 +339,43 @@ module SGMIIToGMIIBridge #(
 		.tx_data(tx_data),
 		.tx_force_disparity_negative(tx_force_disparity_negative),
 		.tx_disparity_negative(tx_disparity_negative)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Performance counters in fast clock domain
+
+	SGMIIPerformanceCounters	fastperf	= {$bits(SGMIIPerformanceCounters){1'b0}};
+
+	logic	first 	= 1;
+
+	always_ff @(posedge clk_312p5mhz) begin
+		if(rx_disparity_err)
+			fastperf.rx_disparity_errs	<= fastperf.rx_disparity_errs + 1'h1;
+		if(rx_symbol_err)
+			fastperf.rx_symbol_errs		<= fastperf.rx_symbol_errs + 1'h1;
+		if(rx_bitslip)
+			fastperf.rx_bitslips		<= fastperf.rx_bitslips + 1'h1;
+
+		first	<= 0;
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Synchronize counters into slow clock domain
+
+	wire	sync_ack;
+	RegisterSynchronizer #(
+		.WIDTH($bits(SGMIIPerformanceCounters)),
+		.INIT(0)
+	) sync_perf (
+		.clk_a(clk_312p5mhz),
+		.en_a(first || sync_ack),
+		.ack_a(sync_ack),
+		.reg_a(fastperf),
+
+		.clk_b(clk_125mhz),
+		.updated_b(),
+		.reset_b(1'b0),
+		.reg_b(perf)
 	);
 
 endmodule

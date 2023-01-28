@@ -1,5 +1,3 @@
-`default_nettype none
-`timescale 1ns/1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
@@ -30,80 +28,19 @@
 ***********************************************************************************************************************/
 
 /**
-	@brief Generate clocks for use by the oversampling module
+	@file TCPIPPerformanceCounters.svh
+	@author Andrew D. Zonenberg
+	@brief TCP/IP stack performance counters
  */
-module OversamplingClocking(
 
-	//Inputs from global clock tree
-	input wire	clk_125mhz,
+`ifndef TCPIPPerformanceCounters_h
+`define TCPIPPerformanceCounters_h
 
-	//Clock outputs
-	output wire	clk_312p5mhz,
-	output wire	clk_625mhz_0,
-	output wire	clk_625mhz_90,
+typedef struct packed
+{
+	logic[63:0]	rx_cdc_frames;						//Number of frames received (counted at the output of the CDC FIFO)
+	EthernetDecoderPerformanceCounters rx_decoder;	//Number of frames of various ethertypes seen
+	EthernetArbiterPerformanceCounters tx_arbiter;	//Number of frames of various ethertypes sent
+} TCPIPPerformanceCounters;
 
-	output wire	pll_lock
-);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Main PLL
-
-	wire[2:0]	clk_unused;
-
-	ReconfigurablePLL #(
-		.IN0_PERIOD(8),			//125 MHz input
-		.IN1_PERIOD(8),
-
-		.OUTPUT_BUF_GLOBAL( 6'b000111),
-		.OUTPUT_BUF_IO(		6'b000000),
-		.OUTPUT_GATE(		6'b000111),
-
-		.OUT0_MIN_PERIOD(1.6),	//625 MHz output at 0 phase shift
-		.OUT1_MIN_PERIOD(1.6),	//625 MHz output at 90 degree phase shift
-		.OUT2_MIN_PERIOD(3.2),	//312.5 MHz output to fabric
-		.OUT3_MIN_PERIOD(3.2),	//312.5 MHz output (unused)
-		.OUT4_MIN_PERIOD(3.2),	//312.5 MHz output (unused)
-		.OUT5_MIN_PERIOD(3.2),	//312.5 MHz output (unused)
-
-		.OUT0_DEFAULT_PHASE(0),
-		.OUT1_DEFAULT_PHASE(90),
-		.OUT2_DEFAULT_PHASE(0),
-		.OUT3_DEFAULT_PHASE(0),
-		.OUT4_DEFAULT_PHASE(0),
-		.OUT5_DEFAULT_PHASE(0),
-
-		.FINE_PHASE_SHIFT(6'b000000),
-
-		.ACTIVE_ON_START(1)		//Start PLL on power up
-	) pll (
-		.clkin({clk_125mhz, clk_125mhz}),
-		.clksel(1'b0),
-
-		.clkout({clk_unused, clk_312p5mhz, clk_625mhz_90, clk_625mhz_0}),
-
-		.reset(1'b0),
-		.locked(pll_lock),
-
-		.busy(),
-		.reconfig_clk(clk_125mhz),
-		.reconfig_start(1'b0),
-		.reconfig_finish(1'b0),
-		.reconfig_cmd_done(),
-
-		.reconfig_vco_en(1'b0),
-		.reconfig_vco_mult(7'b0),
-		.reconfig_vco_indiv(7'b0),
-		.reconfig_vco_bandwidth(1'b0),
-
-		.reconfig_output_en(1'b0),
-		.reconfig_output_idx(3'b0),
-		.reconfig_output_div(8'b0),
-		.reconfig_output_phase(9'b0),
-
-		.phase_shift_clk(clk_125mhz),
-		.phase_shift_en(1'b0),
-		.phase_shift_inc(1'b0),
-		.phase_shift_done()
-	);
-
-endmodule
+`endif

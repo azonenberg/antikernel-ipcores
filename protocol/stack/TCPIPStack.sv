@@ -33,6 +33,7 @@
 `include "IPv4Bus.svh"
 `include "UDPv4Bus.svh"
 `include "TCPv4Bus.svh"
+`include "TCPIPPerformanceCounters.svh"
 
 /**
 	@file
@@ -88,9 +89,10 @@ module TCPIPStack #(
 	input wire						ram_rd_en,
 	input wire[TCP_ADDR_BITS-1:0]	ram_rd_addr,
 	input wire[511:0]				ram_rd_data,
-	input wire						ram_rd_valid
+	input wire						ram_rd_valid,
 
-	//TODO: performance counters
+	//Performance counters
+	output TCPIPPerformanceCounters	perf
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -135,7 +137,7 @@ module TCPIPStack #(
 		.mac_rx_bus(mac_rx_bus),
 		.cdc_rx_bus(cdc_rx_bus),
 
-		.perf_rx_cdc_frames()
+		.perf_rx_cdc_frames(perf.rx_cdc_frames)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -152,7 +154,7 @@ module TCPIPStack #(
 		.mac_rx_bus(cdc_rx_bus),
 		.rx_l2_bus(rx_l2_bus),
 
-		.perf()
+		.perf(perf.rx_decoder)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -189,7 +191,7 @@ module TCPIPStack #(
 
 		.tx_l2_bus(tx_l2_bus),
 
-		.perf()
+		.perf(perf.tx_arbiter)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -360,5 +362,8 @@ module TCPIPStack #(
 		assign tcpv4_rx_bus = 0;
 		assign tcp_ipv4_tx_l3_bus = 0;
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Performance counters
 
 endmodule
