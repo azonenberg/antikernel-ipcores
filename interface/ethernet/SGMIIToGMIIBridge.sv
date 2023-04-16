@@ -61,7 +61,10 @@ module SGMIIToGMIIBridge #(
 	output wire			link_up,
 	output lspeed_t		link_speed,
 
-	output SGMIIPerformanceCounters	perf
+	input wire			rst_stat,
+	output SGMIIPerformanceCounters	perf,
+
+	output wire			rx_error
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -167,6 +170,8 @@ module SGMIIToGMIIBridge #(
 		.bitslip(rx_bitslip),
 		.locked(rx_locked)
 	);
+
+	assign rx_error = rx_disparity_err | rx_symbol_err;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Output buffer for TX side
@@ -348,6 +353,14 @@ module SGMIIToGMIIBridge #(
 
 	logic	first 	= 1;
 
+	wire	rst_stat_sync;
+	ThreeStageSynchronizer sync_rst_stat(
+		.clk_in(clk_125mhz),
+		.din(rst_stat),
+		.clk_out(clk_312p5mhz),
+		.dout(rst_stat_sync)
+	);
+
 	always_ff @(posedge clk_312p5mhz) begin
 		if(rx_disparity_err)
 			fastperf.rx_disparity_errs	<= fastperf.rx_disparity_errs + 1'h1;
@@ -355,6 +368,11 @@ module SGMIIToGMIIBridge #(
 			fastperf.rx_symbol_errs		<= fastperf.rx_symbol_errs + 1'h1;
 		if(rx_bitslip)
 			fastperf.rx_bitslips		<= fastperf.rx_bitslips + 1'h1;
+		if(rx_8b_data_valid)
+			fastperf.rx_symbols			<= fastperf.rx_symbols + 1'h1;
+
+		if(rst_stat_sync)
+			fastperf					<= {$bits(SGMIIPerformanceCounters){1'b0}};
 
 		first	<= 0;
 	end

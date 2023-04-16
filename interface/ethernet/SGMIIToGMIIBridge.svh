@@ -41,6 +41,7 @@ typedef struct packed
 	logic[63:0] rx_disparity_errs;
 	logic[63:0] rx_symbol_errs;
 	logic[63:0] rx_bitslips;
+	logic[63:0] rx_symbols;
 } SGMIIPerformanceCounters;
 
 `endif
