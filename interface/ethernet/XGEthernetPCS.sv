@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -848,7 +848,8 @@ module XGEthernetPCS(
 		.dout({tx_elastic_rd_header, tx_elastic_rd_data}),
 		.rsize(tx_elastic_rsize),
 		.wsize(tx_elastic_wsize),
-		.reset(1'b0)
+		.reset(1'b0),
+		.overflow()
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -856,6 +857,8 @@ module XGEthernetPCS(
 
 	wire	tx_elastic_header_valid;
 	assign	tx_elastic_header_valid = seq_div;
+
+	logic[1:0]		tx_elastic_rd_header_ff	= 0;
 
 	//Pull out the right 32-bit word and twiddle bit odering
 	//We have two cycle latency through the line coding block right now, so send the leftmost block
@@ -886,7 +889,6 @@ module XGEthernetPCS(
 
 	logic[57:0] 	tx_scramble = 0;
 	logic			tx_scramble_temp;
-	logic[1:0]		tx_elastic_rd_header_ff;
 
 	always_ff @(posedge tx_clk) begin
 
