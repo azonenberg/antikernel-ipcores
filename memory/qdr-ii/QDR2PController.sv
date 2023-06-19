@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -37,6 +37,7 @@
 module QDR2PController #(
 	parameter RAM_WIDTH		= 36,
 	parameter ADDR_BITS		= 18,
+	parameter CLK_PERIOD	= 2.666,
 
 	localparam CTRL_WIDTH	= RAM_WIDTH * 4
 ) (
@@ -48,7 +49,6 @@ module QDR2PController #(
 	//RAM clock (1/2 bit rate, 2x clk_ctl rate)
 	//All RAM signals are synchronous to this clock.
 	input wire						clk_ram,
-
 	input wire						clk_ram_90,
 
 	//Interface to the FPGA side RAM controller
@@ -59,6 +59,7 @@ module QDR2PController #(
 	input wire						wr_en,
 	input wire[ADDR_BITS-1:0]		wr_addr,
 	input wire[CTRL_WIDTH-1:0]		wr_data,
+	output wire						pll_lock,
 
 	//Interface to the RAM itself
 	output wire[RAM_WIDTH-1:0]		qdr_d,
@@ -103,433 +104,287 @@ module QDR2PController #(
 		.I(clk_ram_ddr)
 	);
 
-	//Receive and buffer the echoed clock
-	wire	qclk_p;
-	wire	qclk_n;
-	IBUFDS_DIFF_OUT #(
-		.DIFF_TERM("TRUE")
-	) qclk_ibuf(
+	//Inut buffer for echoed clock
+	wire	qclk;
+	IBUFDS qclk_ibuf(
 		.I(qdr_qclk_p),
 		.IB(qdr_qclk_n),
-		.O(qclk_p),
-		.OB(qclk_n)
+		.O(qclk)
 	);
 
-	wire	qclk_div2;
-	BUFR #(
-		.BUFR_DIVIDE("2")
-	) qclk_bufr (
-		.CE(1),
-		.CLR(fifo_rst),
-		.I(qclk_p),
-		.O(qclk_div2)
+	//TODO: We might be able to save some power (and avoid burning a PLL)
+	//if we were to use an IODELAY instead of phase shifting the clock?
+	//Need to see if this will be good enough in terms of jitter etc
+
+	wire	fbclk;
+
+	wire	clk_qcapture_raw;
+	wire	clk_qcapture_div2_raw;
+
+	wire	clk_qcapture;
+	wire	clk_qcapture_div2;
+
+	PLLE2_BASE #(
+		.BANDWIDTH("OPTIMIZED"),
+		.CLKOUT0_DIVIDE(4),			//VCO/4 = original RAM clock frequency again
+		.CLKOUT1_DIVIDE(10),
+		.CLKOUT2_DIVIDE(10),
+		.CLKOUT3_DIVIDE(10),		//unused
+		.CLKOUT4_DIVIDE(10),		//unused
+		.CLKOUT5_DIVIDE(10),		//unused
+
+		.CLKOUT0_PHASE(90),
+		.CLKOUT1_PHASE(0),
+		.CLKOUT2_PHASE(0),
+		.CLKOUT3_PHASE(0),
+		.CLKOUT4_PHASE(0),
+		.CLKOUT5_PHASE(0),
+
+		.CLKOUT0_DUTY_CYCLE(0.5),
+		.CLKOUT1_DUTY_CYCLE(0.5),
+		.CLKOUT2_DUTY_CYCLE(0.5),
+		.CLKOUT3_DUTY_CYCLE(0.5),
+		.CLKOUT4_DUTY_CYCLE(0.5),
+		.CLKOUT5_DUTY_CYCLE(0.5),
+
+		.CLKFBOUT_MULT(4),			//RAM clock * 4 should be in our VCO range
+		.DIVCLK_DIVIDE(1),
+		.CLKFBOUT_PHASE(0),
+
+		.CLKIN1_PERIOD(CLK_PERIOD),
+		.STARTUP_WAIT("FALSE")
+
+	) ram_pll (
+		.CLKIN1(qclk),
+		.CLKFBIN(fbclk),
+		.RST(1'b0),
+		.PWRDWN(1'b0),
+		.CLKOUT0(clk_qcapture_raw),
+		.CLKOUT1(),
+		.CLKOUT2(),
+		.CLKOUT3(),
+		.CLKOUT4(),
+		.CLKOUT5(),
+		.CLKFBOUT(fbclk),
+		.LOCKED(pll_lock)
 	);
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Reset
-
-	logic[7:0]	rst_count 	= 1;
-	logic		serdes_rst	= 1;
-	logic		fifo_rst	= 1;
-
-	always_ff @(posedge clk_ctl) begin
-		if(rst_count)
-			rst_count	<= rst_count + 1;
-		if(rst_count == 240)
-			serdes_rst	<= 0;
-		if(rst_count == 0)
-			fifo_rst	<= 0;
-	end
+	//Need to handle three clock regions wide
+	//TODO: is BUFMR + BUFR usable here?
+	//For now, use global buffers unless we run out
+	BUFGCE buf_qcapture(
+		.I(clk_qcapture_raw),
+		.O(clk_qcapture),
+		.CE(pll_lock));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register output data
 
-	logic[RAM_WIDTH*2-1:0]	wr_data_ff	= 0;
-	logic					wr_en_ff	= 0;
+	logic[CTRL_WIDTH-1:0]	wr_data_ff		= 0;
+	logic[CTRL_WIDTH-1:0]	wr_data_ff2		= 0;
+	logic					wr_en_ff		= 0;
+	logic					wr_en_ff_ctl	= 0;
+	logic					wr_phase		= 0;
 
 	always_ff @(posedge clk_ctl) begin
-		wr_data_ff	<= wr_data[RAM_WIDTH*2-1:0];	//low half only
-		wr_en_ff	<= wr_en;
+		wr_en_ff_ctl	<= wr_en;
+	end
+
+	always_ff @(posedge clk_ram) begin
+
+		//Mux low or high half of the 2-cycle burst
+		if(wr_en && !wr_phase) begin
+			wr_data_ff	<= wr_data;
+			wr_phase	<= 1;
+		end
+		else if(wr_en) begin
+			wr_data_ff	<= { wr_data_ff[RAM_WIDTH*2-1:0], {RAM_WIDTH*2{1'b0}} };
+			wr_phase	<= 0;
+		end
+		else begin
+			wr_phase	<= 0;
+
+			//Avoid excess toggling and power consumption by turning both bus halves to the same value
+			//during idle periods
+			wr_data_ff	<= 0;
+		end
+
+		//Pipeline delays
+		wr_data_ff2		<= wr_data_ff;
+		wr_en_ff		<= wr_en;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Output drivers
+	// C/A bus output drivers
+
+	//TODO: is this the best way to match things vs using fabric muxes + IOB DFFs in the double rate domain?
 
 	//Select signals are on alternating edges of the controller clock
-	OSERDESE2 #(
-		.DATA_RATE_OQ("SDR"),
-		.DATA_RATE_TQ("BUF"),
-		.DATA_WIDTH(2),
-		.SERDES_MODE("MASTER"),
-		.TRISTATE_WIDTH(1)
-	) wps_oserdes (
-		.OQ(qdr_wps_n),
-		.OFB(),
-		.TQ(),
-		.TFB(),
-		.SHIFTOUT1(),
-		.SHIFTOUT2(),
-		.CLK(clk_ram),
-		.CLKDIV(clk_ctl),
-		.D1(!wr_en),
-		.D2(1'b1),
-		.TCE(1'b1),
-		.OCE(1'b1),
-		.TBYTEIN(),
-		.TBYTEOUT(),
-		.RST(serdes_rst),
-		.SHIFTIN1(),
-		.SHIFTIN2(),
-		.T1(1'b0)
+	DDROutputBuffer #(
+		.WIDTH(1),
+		.INIT(1)
+	) wps_oddr (
+		.clk_p(clk_ctl),
+		.clk_n(!clk_ctl),
+		.dout(qdr_wps_n),
+		.din0(!wr_en),
+		.din1(1'b1)
 	);
 
-	OSERDESE2 #(
-		.DATA_RATE_OQ("SDR"),
-		.DATA_RATE_TQ("BUF"),
-		.DATA_WIDTH(2),
-		.SERDES_MODE("MASTER"),
-		.TRISTATE_WIDTH(1)
-	) rps_oserdes (
-		.OQ(qdr_rps_n),
-		.OFB(),
-		.TQ(),
-		.TFB(),
-		.SHIFTOUT1(),
-		.SHIFTOUT2(),
-		.CLK(clk_ram),
-		.CLKDIV(clk_ctl),
-		.D1(1'b1),
-		.D2(!rd_en),
-		.TCE(1'b1),
-		.OCE(1'b1),
-		.TBYTEIN(),
-		.TBYTEOUT(),
-		.RST(serdes_rst),
-		.SHIFTIN1(),
-		.SHIFTIN2(),
-		.T1(1'b0)
+	DDROutputBuffer #(
+		.WIDTH(1),
+		.INIT(1)
+	) rps_oddr (
+		.clk_p(clk_ctl),
+		.clk_n(!clk_ctl),
+		.dout(qdr_rps_n),
+		.din0(1'b1),
+		.din1(!rd_en)
 	);
 
 	//Address bus takes turns between the two ports
-	for(genvar i=0; i<ADDR_BITS; i++) begin
-		OSERDESE2 #(
-			.DATA_RATE_OQ("SDR"),
-			.DATA_RATE_TQ("BUF"),
-			.DATA_WIDTH(2),
-			.SERDES_MODE("MASTER"),
-			.TRISTATE_WIDTH(1)
-		) addr_oserdes (
-			.OQ(qdr_a[i]),
-			.OFB(),
-			.TQ(),
-			.TFB(),
-			.SHIFTOUT1(),
-			.SHIFTOUT2(),
-			.CLK(clk_ram),
-			.CLKDIV(clk_ctl),
-			.D1(wr_addr[i]),
-			.D2(rd_addr[i]),
-			.TCE(1'b1),
-			.OCE(1'b1),
-			.TBYTEIN(),
-			.TBYTEOUT(),
-			.RST(serdes_rst),
-			.SHIFTIN1(),
-			.SHIFTIN2(),
-			.T1(1'b0)
-		);
-	end
+	DDROutputBuffer #(
+		.WIDTH(ADDR_BITS)
+	) addr_oddr (
+		.clk_p(clk_ctl),
+		.clk_n(!clk_ctl),
+		.dout(qdr_a),
+		.din0(wr_addr),
+		.din1(rd_addr)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// D bus output drivers
 
 	//Byte write enables are active any time we're writing
-	for(genvar i=0; i<4; i++) begin
-		OSERDESE2 #(
-			.DATA_RATE_OQ("DDR"),
-			.DATA_RATE_TQ("BUF"),
-			.DATA_WIDTH(2),
-			.SERDES_MODE("MASTER"),
-			.TRISTATE_WIDTH(1)
-		) bws_oserdes (
-			.OQ(qdr_bws_n[i]),
-			.OFB(),
-			.TQ(),
-			.TFB(),
-			.SHIFTOUT1(),
-			.SHIFTOUT2(),
-			.CLK(clk_ram),
-			.CLKDIV(clk_ctl),
-			.D1(!wr_en_ff),
-			.D2(!wr_en_ff),
-			.D3(!wr_en),
-			.D4(!wr_en),
-			.TCE(1'b1),
-			.OCE(1'b1),
-			.TBYTEIN(),
-			.TBYTEOUT(),
-			.RST(serdes_rst),
-			.SHIFTIN1(),
-			.SHIFTIN2(),
-			.T1(1'b0)
-		);
-	end
+	//Note that there's a delay of one DCLK cycle between WPS# assertion and BWS# assertion
+	DDROutputBuffer #(
+		.WIDTH(4)
+	) bws_oddr (
+		.clk_p(clk_ctl),
+		.clk_n(!clk_ctl),
+		.dout(qdr_bws_n),
+		.din0({4{!wr_en_ff_ctl}}),
+		.din1({4{!wr_en}})
+	);
 
 	//Data bus is double-rate
 	//Need to rearrange things a bit to correct for phasing of clocks
-	for(genvar i=0; i<RAM_WIDTH; i++) begin
-		OSERDESE2 #(
-			.DATA_RATE_OQ("DDR"),
-			.DATA_RATE_TQ("BUF"),
-			.DATA_WIDTH(4),
-			.SERDES_MODE("MASTER"),
-			.TRISTATE_WIDTH(1)
-		) d_oserdes (
-			.OQ(qdr_d[i]),
-			.OFB(),
-			.TQ(),
-			.TFB(),
-			.SHIFTOUT1(),
-			.SHIFTOUT2(),
-			.CLK(clk_ram),
-			.CLKDIV(clk_ctl),
-			.D1(wr_data_ff[RAM_WIDTH*1 + i]),
-			.D2(wr_data_ff[RAM_WIDTH*0 + i]),
-			.D3(wr_data[RAM_WIDTH*3 + i]),
-			.D4(wr_data[RAM_WIDTH*2 + i]),
-			.TCE(1'b1),
-			.OCE(1'b1),
-			.TBYTEIN(),
-			.TBYTEOUT(),
-			.RST(serdes_rst),
-			.SHIFTIN1(),
-			.SHIFTIN2(),
-			.T1(1'b0)
-		);
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Synchronize resets into the echo clock domain
-
-	wire	serdes_rst_sync;
-	ResetSynchronizer sync_rst(
-		.rst_in_n(serdes_rst),
-		.clk(qclk_div2),
-		.rst_out_n(serdes_rst_sync)
+	DDROutputBuffer #(
+		.WIDTH(RAM_WIDTH)
+	) data_oddr (
+		.clk_p(clk_ram),
+		.clk_n(!clk_ram),
+		.dout(qdr_d),
+		.din0(wr_data_ff2[RAM_WIDTH*3 +: RAM_WIDTH]),
+		.din1(wr_data_ff2[RAM_WIDTH*2 +: RAM_WIDTH])
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Input capture
 
-	//Deserialize the input
-	wire[RAM_WIDTH-1:0]	qdr_q_delay;
-	wire[3:0]	qdr_q_deserialized[RAM_WIDTH-1:0];
-	for(genvar i=0; i<RAM_WIDTH; i++) begin
+	wire[1:0]			qvld_capture;
 
-		IDELAYE2 #(
-			.IDELAY_TYPE("FIXED"),
-			.DELAY_SRC("IDATAIN"),
-			.IDELAY_VALUE(16),				//1250 ps @ 200 MHz refclk
-			.HIGH_PERFORMANCE_MODE("TRUE"),
-			.SIGNAL_PATTERN("DATA"),
-			.REFCLK_FREQUENCY(200),
-			.CINVCTRL_SEL("FALSE"),
-			.PIPE_SEL("FALSE")
-		) idelayblock (
-			.C(),
-			.REGRST(1'b0),
-			.LD(1'b0),
-			.CE(1'b0),
-			.INC(1'b0),
-			.CINVCTRL(1'b0),
-			.CNTVALUEIN(5'b0),
-			.IDATAIN(qdr_q[i]),
-			.DATAIN(1'b0),
-			.LDPIPEEN(1'b0),
-			.DATAOUT(qdr_q_delay[i]),
-			.CNTVALUEOUT()
-		);
+	wire[RAM_WIDTH-1:0]	qcapture_0;
+	wire[RAM_WIDTH-1:0]	qcapture_1;
 
-		ISERDESE2 #(
-			.DATA_RATE("DDR"),
-			.DATA_WIDTH(4),
-			.DYN_CLKDIV_INV_EN("FALSE"),
-			.DYN_CLK_INV_EN("FALSE"),
-			.INTERFACE_TYPE("MEMORY_QDR"),
-			.NUM_CE(1),
-			.OFB_USED("FALSE"),
-			.SERDES_MODE("MASTER"),
-			.IOBDELAY("BOTH")
-		) q_iserdes (
-			.Q1(qdr_q_deserialized[i][0]),
-			.Q2(qdr_q_deserialized[i][1]),
-			.Q3(qdr_q_deserialized[i][2]),
-			.Q4(qdr_q_deserialized[i][3]),
-			.O(),
-			.SHIFTOUT1(),
-			.SHIFTOUT2(),
-			.D(),
-			.DDLY(qdr_q_delay[i]),
-			.CLK(qclk_p),
-			.CLKB(qclk_n),
-			.CE1(1'b1),
-			.CE2(1'b1),
-			.RST(serdes_rst_sync),
-			.CLKDIV(qclk_div2),
-			.CLKDIVP(1'b0),
-			.OCLK(),
-			.OCLKB(),
-			.BITSLIP(1'b0),
-			.SHIFTIN1(1'b0),
-			.SHIFTIN2(1'b0),
-			.OFB(1'b0),
-			.DYNCLKDIVSEL(1'b0),
-			.DYNCLKSEL(1'b0)
-		);
+	DDRInputBuffer #(
+		.WIDTH(RAM_WIDTH)
+	) data_iddr (
+		.clk_p(clk_qcapture),
+		.clk_n(!clk_qcapture),
+		.din(qdr_q),
+		.dout0(qcapture_0),
+		.dout1(qcapture_1)
+	);
+
+	DDRInputBuffer #(
+		.WIDTH(1)
+	) qvld_iddr (
+		.clk_p(clk_qcapture),
+		.clk_n(!clk_qcapture),
+		.din(qdr_qvld),
+		.dout0(qvld_capture[0]),
+		.dout1(qvld_capture[1])
+	);
+
+	//Pipeline delay for QVLD to match data
+	logic				qvld_ff	= 0;
+	logic[1:0]			qvld_pipe = 0;
+
+	always_ff @(posedge clk_qcapture) begin
+		qvld_ff			<= qvld_capture[1];
 	end
 
-	wire	qdr_qvld_delay;
-	IDELAYE2 #(
-		.IDELAY_TYPE("FIXED"),
-		.DELAY_SRC("IDATAIN"),
-		.IDELAY_VALUE(24),				//1875 ps @ 200 MHz refclk
-		.HIGH_PERFORMANCE_MODE("TRUE"),
-		.SIGNAL_PATTERN("DATA"),
-		.REFCLK_FREQUENCY(200),
-		.CINVCTRL_SEL("FALSE"),
-		.PIPE_SEL("FALSE")
-	) idelay_valid (
-		.C(),
-		.REGRST(1'b0),
-		.LD(1'b0),
-		.CE(1'b0),
-		.INC(1'b0),
-		.CINVCTRL(1'b0),
-		.CNTVALUEIN(5'b0),
-		.IDATAIN(qdr_qvld),
-		.DATAIN(1'b0),
-		.LDPIPEEN(1'b0),
-		.DATAOUT(qdr_qvld_delay),
-		.CNTVALUEOUT()
-	);
+	always_comb begin
+		qvld_pipe		= { qvld_capture[0], qvld_ff };
+	end
 
-	wire[3:0] qdr_qvld_delay_deser;
-	ISERDESE2 #(
-		.DATA_RATE("DDR"),
-		.DATA_WIDTH(4),
-		.DYN_CLKDIV_INV_EN("FALSE"),
-		.DYN_CLK_INV_EN("FALSE"),
-		.INTERFACE_TYPE("MEMORY_QDR"),
-		.NUM_CE(1),
-		.OFB_USED("FALSE"),
-		.SERDES_MODE("MASTER"),
-		.IOBDELAY("BOTH")
-	) qvld_iserdes (
-		.Q1(qdr_qvld_delay_deser[0]),
-		.Q2(qdr_qvld_delay_deser[1]),
-		.Q3(qdr_qvld_delay_deser[2]),
-		.Q4(qdr_qvld_delay_deser[3]),
-		.O(),
-		.SHIFTOUT1(),
-		.SHIFTOUT2(),
-		.D(),
-		.DDLY(qdr_qvld_delay),
-		.CLK(qclk_p),
-		.CLKB(qclk_n),
-		.CE1(1'b1),
-		.CE2(1'b1),
-		.RST(serdes_rst_sync),
-		.CLKDIV(qclk_div2),
-		.CLKDIVP(1'b0),
-		.OCLK(),
-		.OCLKB(),
-		.BITSLIP(1'b0),
-		.SHIFTIN1(1'b0),
-		.SHIFTIN2(1'b0),
-		.OFB(1'b0),
-		.DYNCLKDIVSEL(1'b0),
-		.DYNCLKSEL(1'b0)
-	);
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Width expansion for inbound data
+
+	logic[RAM_WIDTH-1:0]	qcapture_0_ff = 0;
+	logic[RAM_WIDTH-1:0]	qcapture_1_ff = 0;
+
+	logic[1:0]				qvld_pipe_ff = 0;
+
+	logic[CTRL_WIDTH-1:0] 	qcapture_cdc_in	= 0;
+	logic					qcapture_cdc_en	= 0;
+
+	always_ff @(posedge clk_qcapture) begin
+		qcapture_0_ff		<= qcapture_0;
+		qcapture_1_ff		<= qcapture_1;
+
+		qvld_pipe_ff		<= qvld_pipe;
+
+		qcapture_cdc_in		<= { qcapture_0_ff, qcapture_1_ff, qcapture_0, qcapture_1 };
+
+		//Write to CDC FIFO if we have valid data and didn't write last cycle
+		//(since bursts are two clocks long)
+		qcapture_cdc_en		<= (qvld_pipe_ff == 2'b11) && (qvld_pipe == 2'b11) && !qcapture_cdc_en;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Clock domain crossing for inbound data
 
-	localparam NUM_BYTE_GROUPS = RAM_WIDTH / 9;
-	wire[3:0]	qdr_q_deserialized_fifo[RAM_WIDTH-1:0];
-	logic		fifo_rd_en	= 0;
-	wire[NUM_BYTE_GROUPS-1:0]	fifo_empty;
-	wire[NUM_BYTE_GROUPS-1:0]	fifo_almost_empty;
-	for(genvar i=0; i<NUM_BYTE_GROUPS; i++) begin
-		IN_FIFO #(
-			.SYNCHRONOUS_MODE("FALSE"),
-			.ARRAY_MODE("ARRAY_MODE_4_X_4")
-		) ififo (
-			.ALMOSTEMPTY(fifo_almost_empty[i]),
-			.ALMOSTFULL(),
-			.EMPTY(fifo_empty[i]),
-			.FULL(),
+	logic					fifo_rd_en	= 0;
+	wire[5:0]				fifo_rd_size;
+	wire					fifo_rd_empty;
 
-			.D0(qdr_q_deserialized[i*9 + 0]),
-			.D1(qdr_q_deserialized[i*9 + 1]),
-			.D2(qdr_q_deserialized[i*9 + 2]),
-			.D3(qdr_q_deserialized[i*9 + 3]),
-			.D4(qdr_q_deserialized[i*9 + 4]),
-			.D5(qdr_q_deserialized[i*9 + 5]),
-			.D6(qdr_q_deserialized[i*9 + 6]),
-			.D7(qdr_q_deserialized[i*9 + 7]),
-			.D8(qdr_q_deserialized[i*9 + 8]),
-			.D9(4'h0),
+	//Use LUTRAM since we're wide but don't need much depth
+	//Ignore write-side size signals because we pop basically every cycle so it can't overflow
+	CrossClockFifo #(
+		.WIDTH(CTRL_WIDTH),
+		.DEPTH(32),
+		.USE_BLOCK(0),
+		.OUT_REG(1)
+	) fifo (
+		.wr_clk(clk_qcapture),
+		.wr_en(qcapture_cdc_en),
+		.wr_data(qcapture_cdc_in),
+		.wr_size(),
+		.wr_full(),
+		.wr_overflow(),
+		.wr_reset(1'b0),
 
-			.Q0(qdr_q_deserialized_fifo[i*9 + 0]),
-			.Q1(qdr_q_deserialized_fifo[i*9 + 1]),
-			.Q2(qdr_q_deserialized_fifo[i*9 + 2]),
-			.Q3(qdr_q_deserialized_fifo[i*9 + 3]),
-			.Q4(qdr_q_deserialized_fifo[i*9 + 4]),
-			.Q5(qdr_q_deserialized_fifo[i*9 + 5]),
-			.Q6(qdr_q_deserialized_fifo[i*9 + 6]),
-			.Q7(qdr_q_deserialized_fifo[i*9 + 7]),
-			.Q8(qdr_q_deserialized_fifo[i*9 + 8]),
-			.Q9(),
-
-			.RDCLK(clk_ctl),
-			.RDEN(fifo_rd_en),
-			.RESET(fifo_rst),
-			.WRCLK(qclk_div2),
-			.WREN(qdr_qvld_delay_deser[0])
-		);
-	end
+		.rd_clk(clk_ctl),
+		.rd_en(fifo_rd_en),
+		.rd_data(rd_data),
+		.rd_size(fifo_rd_size),
+		.rd_empty(fifo_rd_empty),
+		.rd_underflow(),
+		.rd_reset(1'b0)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Pop inbound data out of the FIFO and send to the host
 
-	wire	any_fifo_empty 			= &fifo_empty;
-	wire	any_fifo_almost_empty 	= &fifo_almost_empty;
+	always_comb begin
+		fifo_rd_en = !fifo_rd_empty;
+	end
 
 	always_ff @(posedge clk_ctl) begin
-		fifo_rd_en	<= 0;
-		rd_valid	<= 0;
-
-		//If all FIFOs have something in them, pop.
-		if(!any_fifo_empty) begin
-
-			//If we just popped, but are almost out, don't pop again
-			if(fifo_rd_en && any_fifo_almost_empty) begin
-			end
-
-			//All good, pop it and copy to the output
-			else begin
-				fifo_rd_en	<= 1;
-
-				rd_valid	<= 1;
-
-				//Shuffle the read data around to match the original data ordering
-				for(integer i=0; i<4; i++) begin
-					for(integer j=0; j<RAM_WIDTH; j++) begin
-						rd_data[i*RAM_WIDTH + j]	<= qdr_q_deserialized_fifo[j][i];
-					end
-				end
-
-			end
-
-		end
-
+		rd_valid	<= fifo_rd_en;
 	end
 
 endmodule
