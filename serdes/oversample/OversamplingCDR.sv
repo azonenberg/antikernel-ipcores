@@ -252,7 +252,7 @@ module OversamplingCDR #(
 	logic[7:0] samples_hi_2x = 0;
 	logic[7:0] samples_lo_2x = 0;
 
-	logic toggle = 0;
+	logic toggle = 1;
 
 	always_ff @(posedge clk_625mhz_0) begin
 		toggle <= !toggle;
