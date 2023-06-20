@@ -55,7 +55,7 @@ module QDR2PController #(
 	input wire						rd_en,
 	input wire[ADDR_BITS-1:0]		rd_addr,
 	output logic					rd_valid	= 0,
-	output logic[CTRL_WIDTH-1:0]	rd_data		= 0,
+	output wire[CTRL_WIDTH-1:0]		rd_data,
 	input wire						wr_en,
 	input wire[ADDR_BITS-1:0]		wr_addr,
 	input wire[CTRL_WIDTH-1:0]		wr_data,

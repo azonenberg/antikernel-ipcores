@@ -336,7 +336,6 @@ module SGMIIToGMIIBridge #(
 		.link_speed(link_speed),
 
 		.gmii_rx_bus(gmii_rx_bus),
-		.gmii_tx_clk(clk_125mhz),
 		.gmii_tx_bus(gmii_tx_bus),
 
 		.tx_clk(tx_clk),
