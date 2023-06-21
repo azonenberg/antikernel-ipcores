@@ -59,7 +59,7 @@ module QSGMIIMACWrapper(
 	output lspeed_t[3:0]						link_speed,
 	output GigabitMacPerformanceCounters[3:0]	mac_perf,
 
-	input wire EthernetRxBus[3:0]				mac_tx_bus,
+	input wire EthernetTxBus[3:0]				mac_tx_bus,
 	output wire[3:0]							mac_tx_ready
 );
 

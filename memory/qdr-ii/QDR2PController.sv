@@ -222,7 +222,7 @@ module QDR2PController #(
 	//Select signals are on alternating edges of the controller clock
 	DDROutputBuffer #(
 		.WIDTH(1),
-		.INIT(1)
+		.INIT(1'b1)
 	) wps_oddr (
 		.clk_p(clk_ctl),
 		.clk_n(!clk_ctl),
@@ -233,7 +233,7 @@ module QDR2PController #(
 
 	DDROutputBuffer #(
 		.WIDTH(1),
-		.INIT(1)
+		.INIT(1'b1)
 	) rps_oddr (
 		.clk_p(clk_ctl),
 		.clk_n(!clk_ctl),
@@ -244,7 +244,8 @@ module QDR2PController #(
 
 	//Address bus takes turns between the two ports
 	DDROutputBuffer #(
-		.WIDTH(ADDR_BITS)
+		.WIDTH(ADDR_BITS),
+		.INIT({ADDR_BITS{1'b0}})
 	) addr_oddr (
 		.clk_p(clk_ctl),
 		.clk_n(!clk_ctl),
@@ -259,7 +260,8 @@ module QDR2PController #(
 	//Byte write enables are active any time we're writing
 	//Note that there's a delay of one DCLK cycle between WPS# assertion and BWS# assertion
 	DDROutputBuffer #(
-		.WIDTH(4)
+		.WIDTH(4),
+		.INIT(4'b0)
 	) bws_oddr (
 		.clk_p(clk_ctl),
 		.clk_n(!clk_ctl),
@@ -271,7 +273,8 @@ module QDR2PController #(
 	//Data bus is double-rate
 	//Need to rearrange things a bit to correct for phasing of clocks
 	DDROutputBuffer #(
-		.WIDTH(RAM_WIDTH)
+		.WIDTH(RAM_WIDTH),
+		.INIT({RAM_WIDTH{1'b0}})
 	) data_oddr (
 		.clk_p(clk_ram),
 		.clk_n(!clk_ram),

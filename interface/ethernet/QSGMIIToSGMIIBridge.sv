@@ -80,7 +80,7 @@ module QSGMIIToSGMIIBridge(
 			//We're not actually doing fabric encoding, just tracking disparity
 			.codeword(),
 
-			.tx_disparity_negative(sgmii_tx_disparity_negative)
+			.tx_disparity_negative(sgmii_tx_disparity_negative[g])
 		);
 	end
 
@@ -107,7 +107,7 @@ module QSGMIIToSGMIIBridge(
 			//Look for K28.1. If found, we are lane zero (and this is actually a K28.5)
 			if(rx_data_is_ctl[isrc] && (rx_data[isrc*8 +: 8] == 8'h3c) ) begin
 				baseLane <= isrc;
-				sgmii_rx_data[isrc*8 +: 8] = 8'hbc;
+				sgmii_rx_data[isrc*8 +: 8] <= 8'hbc;
 			end
 
 		end
