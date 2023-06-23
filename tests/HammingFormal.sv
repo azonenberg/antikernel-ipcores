@@ -76,7 +76,7 @@ module HammingFormal(
 
 		//Can corrupt 0-2 bits, but not more than that as this is a SEC-DED code
 		//and more than two errors might go undetected
-		assume(numbits != 2);
+		assume(numbits != 3);
 
 		//If we're corrupting two bits, they can't be at the same place
 		if(numbits == 2)
