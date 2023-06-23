@@ -1,0 +1,21 @@
+[tasks]
+prove: default
+
+[options]
+prove: mode prove
+depth 5
+
+[engines]
+prove: smtbmc z3
+
+[script]
+read -sv -formal HammingEncoder.sv
+read -sv -formal HammingDecoder.sv
+read -sv -formal HammingFormal.sv
+hierarchy -check -top HammingFormal
+prep -top HammingFormal
+
+[files]
+HammingFormal.sv
+../fec/HammingEncoder.sv
+../fec/HammingDecoder.sv
