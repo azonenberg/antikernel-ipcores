@@ -6,7 +6,7 @@ prove: mode prove
 depth 5
 
 [engines]
-prove: smtbmc z3
+prove: smtbmc boolector
 
 [script]
 read -sv -formal HammingEncoder.sv
