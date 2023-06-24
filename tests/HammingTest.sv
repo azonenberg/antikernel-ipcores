@@ -51,7 +51,7 @@ module HammingTest();
 		//No check for duplication so it's possible a "double bit" error may result in a single bit error instead
 		//TODO: is it worth working around this?
 		for(integer i=0; i<numbits; i=i+1) begin
-			bitpos = $urandom_range(0, 31);
+			bitpos = $urandom_range(0, 71);
 			corrupted[bitpos] <= !codeword[bitpos];
 		end
 
