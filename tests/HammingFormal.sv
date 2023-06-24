@@ -135,10 +135,10 @@ module HammingFormal(
 			//Should not have both correctable and uncorrectable errors simultaneously
 			assert(!(correctable_err && uncorrectable_err));
 
-			//Make sure we detected at least one each of the three possible states
+			//Make sure we test each of the three possible states
 			//(correctable, uncorrectable, and no error)
 			cover(correctable_err);
-			//cover(uncorrectable_err);
+			cover(uncorrectable_err);
 			cover(!correctable_err && !uncorrectable_err);
 
 		end
