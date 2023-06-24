@@ -103,9 +103,14 @@ module HammingDecoder #(
 		parity_err		= parity_expected ^ parity_actual;
 
 		//If syndrome is zero but we have a global parity error,
-		//or syndrome is nonzero but we do not have a global parity error, we have multiple bit flips
+		//we flipped the global parity bit. That's correctable since it didn't touch data.
+		//(Any single- or double-bit error in the data area will result in a nonzero syndrome)
+		if(!check_err && parity_err)
+			correctable_err		<= 1;
+
+		//If syndrome is nonzero but we do not have a global parity error, we have multiple bit flips
 		//(uncorrectable error)
-		if( (check_err && !parity_err) || (!check_err && parity_err) )
+		else if(check_err && !parity_err)
 			uncorrectable_err	<= 1;
 
 		//If syndrome is nonzero and we have a global parity error, we have a single bit flip
