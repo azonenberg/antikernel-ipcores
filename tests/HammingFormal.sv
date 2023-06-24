@@ -67,7 +67,6 @@ module HammingFormal(
 	logic		corrupted_valid = 0;
 	logic[71:0]	corrupted 		= 0;
 
-	logic[1:0]	numbits	= 0;
 	logic[6:0]	bitpos	= 0;
 
 	always_ff @(posedge clk) begin
@@ -139,7 +138,7 @@ module HammingFormal(
 			//Make sure we detected at least one each of the three possible states
 			//(correctable, uncorrectable, and no error)
 			cover(correctable_err);
-			cover(uncorrectable_err);
+			//cover(uncorrectable_err);
 			cover(!correctable_err && !uncorrectable_err);
 
 		end

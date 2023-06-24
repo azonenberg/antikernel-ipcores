@@ -1,12 +1,16 @@
 [tasks]
-prove: default
+cover prove: default
+cover
+prove
 
 [options]
 prove: mode prove
+cover: mode cover
 depth 5
 
 [engines]
 prove: smtbmc boolector
+cover: smtbmc boolector
 
 [script]
 read -sv -formal HammingEncoder.sv
