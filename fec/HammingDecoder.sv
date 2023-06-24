@@ -88,7 +88,7 @@ module HammingDecoder #(
 			check_expected[i] = 0;
 
 			//XOR together all message bits with a 1 in this position
-			for(integer j = 2**i + 1; j<DATA_BITS; j=j+1) begin
+			for(integer j = 2**i + 1; j<BLOCK_BITS; j=j+1) begin
 				if(j & 2**i)
 					check_expected[i] = check_expected[i] ^ data_in[j];
 			end

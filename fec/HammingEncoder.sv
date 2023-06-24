@@ -94,7 +94,7 @@ module HammingEncoder #(
 			check = 0;
 
 			//XOR together all message bits with a 1 in this position
-			for(integer j = 2**i + 1; j<DATA_BITS; j=j+1) begin
+			for(integer j = 2**i + 1; j<BLOCK_BITS; j=j+1) begin
 				if(j & 2**i)
 					check = check ^ data_out[j];
 			end
