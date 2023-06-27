@@ -48,15 +48,17 @@ module PcapPacketGenerator #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Read the packet data
+	// Read the pcap header
 
 	integer hfile;
 
 	logic[31:0]	blocktype;
+	logic[31:0]	blockstart;
 	logic[31:0]	blocklen;
+	logic[31:0]	rblocklen;
 
 	initial begin
-		$display("[%m] Opening pcap file %s", FILENAME);
+		$display("[%m] Opening pcapng file %s", FILENAME);
 
 		hfile = $fopen(FILENAME, "rb");
 
@@ -74,13 +76,18 @@ module PcapPacketGenerator #(
 		//Process it
 		ReadSHB(hfile);
 
-		//Read and ignore trailing block length
-		blocklen = ReadNative32(hfile);
+		//Verify trailing redundant block length
+		rblocklen = ReadNative32(hfile);
+		if(rblocklen != blocklen) begin
+			$display("Invalid redundant block length (malformed file or parser bug)");
+			$finish;
+		end
 
 		//Read and process blocks until we get to packet data
 		while(1) begin
 
 			//Read type and length of next block
+			blockstart = $ftell(hfile);
 			blocktype = ReadNative32(hfile);
 			blocklen = ReadNative32(hfile);
 
@@ -88,21 +95,376 @@ module PcapPacketGenerator #(
 
 				//Interface Definition Block
 				1: begin
+					$display("[%m]     IDB is %0d bytes long", blocklen);
+					ReadIDB(hfile);
+				end
+
+				//Enhanced Packet Block
+				6: begin
 				end
 
 				default: begin
-					$display("Unknown block type %d\n", blocktype);
+					$display("Unknown block type %d", blocktype);
+					$finish;
 				end
 
 			endcase
 
-			//for now, stop after first one
-			break;
+			//If we got to an EPB, stop - we're ready to read the packet
+			if(blocktype == 6)
+				break;
+
+			//Verify trailing redundant block length
+			rblocklen = ReadNative32(hfile);
+			if(rblocklen != blocklen) begin
+				$display("Invalid redundant block length (malformed file or parser bug)");
+				$finish;
+			end
+
 		end
 
 	end
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Main packet generation state machine
+
+	enum logic[2:0]
+	{
+		STATE_FIRST,
+		STATE_IDLE,
+		STATE_DATA,
+		STATE_FINISH,
+		STATE_EOF
+	} state = STATE_FIRST;
+
+	logic[31:0]	iid 			= 0;
+	logic[31:0]	ts_hi 			= 0;
+	logic[31:0]	ts_lo 			= 0;
+	logic[31:0]	pack_len 		= 0;
+	logic[31:0] original_len 	= 0;
+	logic[31:0]	count			= 0;
+	logic[31:0] rdbuf			= 0;
+
+	logic[31:0] epbstart		= 0;
+	logic[31:0]	epblen			= 0;
+	logic[31:0]	epbrlen			= 0;
+	logic[31:0]	epbtype			= 0;
+
+	logic[15:0]	optname			= 0;
+	logic[15:0] optlen			= 0;
+
+	always_ff @(posedge clk) begin
+
+		bus	<= 0;
+
+		case(state)
+
+			STATE_FIRST: begin
+				epbstart			= blockstart;
+				epblen				= blocklen;
+				state				<= STATE_IDLE;
+			end
+
+			STATE_IDLE: begin
+
+				//Ready to start a new packet!
+				//Read EPB headers
+				if(next) begin
+
+					//Start the frame
+					bus.start		<= 1;
+
+					//Interface ID (ignored for now since we only have one output interface)
+					iid				= ReadNative32(hfile);
+
+					//Timestamp (ignored since we replay packets on cue rather than real time)
+					ts_hi			= ReadNative32(hfile);
+					ts_lo			= ReadNative32(hfile);
+
+					//Packet length in the file (this is what we're replaying)
+					pack_len		= ReadNative32(hfile);
+
+					//Original packet length (same unless truncated by short snap len)
+					//If these mismatch, print a warning since we're replaying an incomplete packet
+					original_len	= ReadNative32(hfile);
+					if(pack_len != original_len) begin
+						$display("[%m] WARNING: replaying truncated packet (%0d bytes captured, %0d bytes on wire)",
+						pack_len, original_len);
+					end
+
+					//Starting a new packet
+					count			<= 0;
+
+					//Reading frame data next cycle
+					state			<= STATE_DATA;
+
+				end
+
+			end	//STATE_IDLE
+
+			STATE_DATA: begin
+
+				//Do we have a full 32 bits of data to send? If so, output it all
+				if( (count + 4) <= pack_len) begin
+
+					bus.data_valid	<= 1;
+					bus.bytes_valid	<= 4;
+					if(4 != $fread(rdbuf, hfile)) begin
+						$display("[%m] unexpected EOF");
+						state		<= STATE_EOF;
+					end
+					bus.data		<= rdbuf;
+
+					count			<= count + 4;
+				end
+
+				//No, send whatever is left
+				else if(count < pack_len) begin
+
+					bus.data_valid	<= 1;
+					bus.bytes_valid	<= (pack_len - count);
+
+					case(pack_len - count)
+
+						1: begin
+							if(1 != $fread(rdbuf[7:0], hfile)) begin
+								$display("[%m] unexpected EOF");
+								state		<= STATE_EOF;
+							end
+							bus.data		<= {rdbuf[7:0], 24'h0};
+						end
+
+						2: begin
+							if(2 != $fread(rdbuf[15:0], hfile)) begin
+								$display("[%m] unexpected EOF");
+								state		<= STATE_EOF;
+							end
+							bus.data		<= {rdbuf[15:0], 16'h0};
+						end
+
+						3: begin
+							if(3 != $fread(rdbuf[23:0], hfile)) begin
+								$display("[%m] unexpected EOF");
+								state		<= STATE_EOF;
+							end
+							bus.data		<= {rdbuf[23:0], 8'h0};
+						end
+
+					endcase
+
+					state			<= STATE_FINISH;
+
+				end
+
+				//Last byte
+				else
+					state			<= STATE_FINISH;
+
+			end	//STATE_DATA
+
+			STATE_FINISH: begin
+				bus.commit			<= 1;
+
+				//read padding until we're 32-bit aligned
+				while($ftell(hfile) & 3) begin
+					if(!$fread(rdbuf[7:0], hfile))
+						break;
+				end
+
+				//Read options if we had space for any
+				if( ($ftell(hfile) + 4) < (epbstart + epblen) ) begin
+
+					while(1) begin
+
+						if($feof(hfile)) begin
+							state	<= STATE_EOF;
+							break;
+						end
+
+						optname = ReadNative16(hfile);
+						$display("got EPB option %0d", optname);
+
+						if(optname != 0) begin
+							optlen = ReadNative16(hfile);
+							$display("length is %0d", optlen);
+						end
+
+						//discard block content
+						for(integer i=0; i<optlen; i=i+1) begin
+							if(!$fread(rdbuf[7:0], hfile))
+								break;
+						end
+
+						//read padding until we're 32-bit aligned
+						while($ftell(hfile) & 3) begin
+							if(!$fread(rdbuf[7:0], hfile))
+								break;
+						end
+
+						if(optname == 0)
+							break;
+					end
+
+				end
+
+				//Verify trailing redundant block length
+				epbrlen = ReadNative32(hfile);
+				if(epbrlen != epblen) begin
+					$display("Invalid redundant EPB length (malformed file or parser bug)");
+					$finish;
+				end
+
+				//Read the next EPB header
+				epbstart = $ftell(hfile);
+				epbtype = ReadNative32(hfile);
+				epblen = ReadNative32(hfile);
+				if(epbtype != 6) begin
+					$display("[%m] Unrecognized block type %d, stopping packet generation", epbtype);
+					state	<= STATE_EOF;
+				end
+
+				state	<= STATE_IDLE;
+
+			end	//STATE_FINISH
+
+			STATE_EOF: begin
+			end	//STATE_EOF
+
+		endcase
+
+	end
+
 endmodule
+
+/**
+	@brief Read and process an interface definition block
+ */
+function ReadIDB(integer hfile);
+
+	logic[15:0] linktype;
+	logic[15:0] reserved;
+	logic[31:0] snaplen;
+
+	logic[15:0]	optid;
+
+	//Read link type
+	linktype = ReadNative16(hfile);
+	if(linktype == 16'h0001)
+		$display("[ReadIDB]     Link type is Ethernet");
+	else begin
+		$display("[ReadIDB] Link type is not Ethernet, cannot replay this pcapng");
+		$finish;
+	end
+
+	//Skip two reserved bytes
+	reserved = ReadNative16(hfile);
+
+	//Snap length
+	snaplen = ReadNative32(hfile);
+	$display("[ReadIDB]     Snap length is %d bytes", snaplen);
+
+	//Read IDB options
+	while(1) begin
+
+		//Get option type and print it
+		optid = ReadNative16(hfile);
+		ReadIDBOption(hfile, optid);
+
+		//Stop when we get an opt_endopt
+		if(optid == 0)
+			break;
+
+	end
+
+endfunction
+
+/**
+	@brief Process a single IDB option
+ */
+function ReadIDBOption(integer hfile, logic[15:0] optid);
+
+	logic[15:0] optlen;
+	logic[7:0] tmp;
+
+
+	case(optid)
+
+		//opt_endopt
+		0: begin
+			//$display("[ReadIDBOption]         opt_endopt");
+		end
+
+		//if_name
+		2: begin
+			optlen = ReadNative16(hfile);
+
+			$write("[ReadIDBOption]         if_name = ");
+			for(integer i=0; i<optlen; i=i+1) begin
+				if(!$fread(tmp, hfile))
+					break;
+
+				$write("%c", tmp);
+			end
+			$write("\n");
+
+		end
+
+		//if_description
+		3: begin
+			optlen = ReadNative16(hfile);
+
+			$write("[ReadIDBOption]         if_description = ");
+			for(integer i=0; i<optlen; i=i+1) begin
+				if(!$fread(tmp, hfile))
+					break;
+				$write("%c", tmp);
+			end
+			$write("\n");
+
+		end
+
+		//if_tsresol
+		9: begin
+			optlen = ReadNative16(hfile);
+
+			if(!$fread(tmp, hfile)) begin
+				$display("[ReadIDBOption] unexpected eof");
+				$finish;
+			end
+
+			$display("[ReadIDBOption]         if_tsresol = %d", tmp);
+
+		end
+
+		//if_os
+		16'h0c: begin
+			optlen = ReadNative16(hfile);
+
+			$write("[ReadIDBOption]         if_os = ");
+			for(integer i=0; i<optlen; i=i+1) begin
+				if(!$fread(tmp, hfile))
+					break;
+				$write("%c", tmp);
+			end
+			$write("\n");
+
+		end
+
+		//TODO: probably shouldn't be fatal
+		default: begin
+			$display("[ReadIDBOption]     Unknown IDB option %0d\n", optid);
+			$finish;
+		end
+
+	endcase
+
+	//read padding until we're 32-bit aligned
+	while($ftell(hfile) & 3) begin
+		if(!$fread(tmp, hfile))
+			break;
+	end
+
+endfunction
 
 /**
 	@brief Read and process a section header block
@@ -143,7 +505,7 @@ function ReadSHB(integer hfile);
 		if(optid == 0)
 			break;
 
-	end	//end SHB option loop
+	end
 
 endfunction
 
@@ -159,7 +521,7 @@ function ReadSHBOption(integer hfile, logic[15:0] optid);
 
 		//opt_endopt
 		0: begin
-			$display("[ReadSHBOption]         opt_endopt");
+			//$display("[ReadSHBOption]         opt_endopt");
 		end
 
 		//shb_hardware
