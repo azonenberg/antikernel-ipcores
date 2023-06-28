@@ -314,16 +314,40 @@ module PcapPacketGenerator #(
 					$finish;
 				end
 
-				//Read the next EPB header
-				epbstart = $ftell(hfile);
-				epbtype = ReadNative32(hfile);
-				epblen = ReadNative32(hfile);
-				if(epbtype != 6) begin
-					$display("[%m] Unrecognized block type %d, stopping packet generation", epbtype);
-					state	<= STATE_EOF;
+				//read padding until we're 32-bit aligned
+				while($ftell(hfile) & 3) begin
+					if(!$fread(rdbuf[7:0], hfile))
+						break;
 				end
 
-				state	<= STATE_IDLE;
+				if($feof(hfile)) begin
+					$display("[%m] Normal end of pcap file");
+					state		<= STATE_EOF;
+				end
+
+				else begin
+
+					//Read the next EPB header
+					epbstart = $ftell(hfile);
+					epbtype = ReadNative32NoEOFAbort(hfile);
+
+					if($feof(hfile)) begin
+						$display("[%m] Normal end of pcap file");
+						state		<= STATE_EOF;
+					end
+
+					else begin
+						epblen = ReadNative32(hfile);
+						if(epbtype != 6) begin
+							$display("[%m] Unrecognized block type %d, stopping packet generation", epbtype);
+							state	<= STATE_EOF;
+						end
+
+						else
+							state	<= STATE_IDLE;
+					end
+
+				end
 
 			end	//STATE_FINISH
 
@@ -595,6 +619,20 @@ function[31:0] ReadNative32(integer hfile);
 	end
 
 	ReadNative32 = EndianSwap32(tmp);
+
+endfunction
+
+/**
+	@brief Reads a 32-bit native-endian value but don't abort if we hit end of file
+ */
+function[31:0] ReadNative32NoEOFAbort(integer hfile);
+
+	logic[31:0] tmp;
+	if(4 != $fread(tmp, hfile)) begin
+		ReadNative32NoEOFAbort = 0;
+	end
+	else
+		ReadNative32NoEOFAbort = EndianSwap32(tmp);
 
 endfunction
 

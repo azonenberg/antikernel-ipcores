@@ -43,6 +43,9 @@
 
 `include "Ethertypes.svh"
 
+typedef logic[11:0]	vlan_t;
+typedef logic[47:0] macaddr_t;
+
 //Inbound packet data bus
 typedef struct packed
 {
@@ -93,7 +96,7 @@ typedef struct packed
 								//Valid bits are left aligned in data
 								//1 = 31:24, 2 = 31:16, 3 = 31:8, 4 = 31:0
 	logic[31:0]	data;			//actual packet content
-	logic[47:0]	dst_mac;		//destination MAC address (source implicit)
+	macaddr_t	dst_mac;		//destination MAC address (source implicit)
 	ethertype_t	ethertype;
 
 	logic		commit;			//asserted for one cycle at end of packet if checksum was good
@@ -114,15 +117,15 @@ typedef struct packed
 	logic		commit;				//asserted for one cycle at end of packet if checksum was good
 	logic		drop;				//asserted for one cycle to indicate packet is invalid and should be discarded
 
-	logic[47:0]	dst_mac;
-	logic[47:0]	src_mac;
+	macaddr_t	dst_mac;
+	macaddr_t	src_mac;
 	ethertype_t	ethertype;
 	logic		ethertype_is_ipv4;
 	logic		ethertype_is_ipv6;
 	logic		ethertype_is_arp;
 
 	logic		has_vlan_tag;
-	logic[11:0]	vlan_id;			//802.1q header fields
+	vlan_t		vlan_id;			//802.1q header fields
 	logic[2:0]	qos_pri;
 	logic		drop_eligible;
 
