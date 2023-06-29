@@ -57,7 +57,7 @@ module GigBaseXPCS(
 
 	//RX status signals
 	output logic		link_up		= 0,
-	output lspeed_t		link_speed	= LINK_SPEED_1000M,
+	output lspeed_t		link_speed,
 
 	//RX GMII interface. Clock is always 125 MHz regardless of link speed.
 	output GmiiBus		gmii_rx_bus	= {$bits(GmiiBus){1'b0}},
