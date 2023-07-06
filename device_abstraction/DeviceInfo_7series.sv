@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -33,7 +33,9 @@
 	@author Andrew D. Zonenberg
 	@brief Query information about the device
  */
-module DeviceInfo_7series(
+module DeviceInfo_7series #(
+	parameter SIM_FAST_INIT = 1
+)(
 
 	//max 100 MHz except in -2LE where max is 75
 	input wire			clk,
@@ -50,7 +52,14 @@ module DeviceInfo_7series(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Wait a while after boot before doing anything
 
-	logic[23:0] boot_count	= 1;
+	//SIM_FAST_INIT assumes 50 MHz for now
+	`ifdef SIMULATION
+		localparam BOOT_INIT_VAL = SIM_FAST_INIT ? 24'hffff00 : 24'h1;
+	`else
+		localparam BOOT_INIT_VAL =  1;
+	`endif
+
+	logic[23:0] boot_count	= BOOT_INIT_VAL;
 	logic		boot_done	= 0;
 
 	always_ff @(posedge clk) begin
@@ -68,7 +77,9 @@ module DeviceInfo_7series(
 	wire	dna_out;
 	logic	dna_shift = 0;
 	logic	dna_read = 0;
-	DNA_PORT dna_port(
+	DNA_PORT #(
+		.SIM_DNA_VALUE(57'h0eadbeef_c0def00d)
+	) dna_port (
 		.DOUT(dna_out),
 		.DIN(dna_out),
 		.READ(dna_read),
@@ -105,7 +116,7 @@ module DeviceInfo_7series(
 				dna_shift <= 1;
 
 				dna_read_count		<= dna_read_count + 7'h1;
-				die_serial			<= {dna_out, die_serial[63:9], 8'h0};	//low bits always 0 b/c truncated
+				die_serial			<= {8'h0, die_serial[55:0], dna_out};	//now shift LSB first
 
 				//Done?
 				if(dna_read_count == 57) begin
@@ -143,7 +154,8 @@ module DeviceInfo_7series(
 
 	(* LOC = "ICAP_X0Y1" *)
 	ICAPE2 #(
-		.ICAP_WIDTH("X32")
+		.ICAP_WIDTH("X32"),
+		.DEVICE_ID(32'h364C093)
 	) icap(
 		.CLK(clk),
 		.I(icap_din_bswap),
