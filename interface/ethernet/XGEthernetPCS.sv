@@ -64,7 +64,7 @@ module XGEthernetPCS(
 	output wire			xgmii_tx_clk,
 	input wire XgmiiBus	xgmii_tx_bus,
 
-	//Link state etc signals
+	//Link state etc signals (RX clock domain)
 	input wire			sfp_los,
 	output logic		block_sync_good,	//indicates valid 64/66b synchronization
 	output wire			link_up,
