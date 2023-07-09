@@ -96,8 +96,8 @@ module QSGMIIMACWrapper(
 		.sgmii_rx_disparity_err(sgmii_rx_disparity_err),
 		.sgmii_rx_symbol_err(sgmii_rx_symbol_err),
 
-		.sgmii_tx_data_is_ctl(tx_data_is_ctl),
-		.sgmii_tx_data(tx_data),
+		.sgmii_tx_data_is_ctl(sgmii_tx_data_is_ctl),
+		.sgmii_tx_data(sgmii_tx_data),
 		.sgmii_tx_force_disparity_negative(sgmii_tx_force_disparity_negative),
 		.sgmii_tx_disparity_negative(sgmii_tx_disparity_negative)
 	);
@@ -136,7 +136,7 @@ module QSGMIIMACWrapper(
 		);
 
 		//MAC
-		//(note that we cross to tx_clk domain in the PCS)
+		//(note that we cross to tx_clk domain in the PCS so everything is in that domain here)
 		TriSpeedEthernetMAC mac(
 			.gmii_rx_clk(tx_clk),
 			.gmii_rx_bus(gmii_rx_bus),

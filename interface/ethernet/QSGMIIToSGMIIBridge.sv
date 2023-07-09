@@ -73,7 +73,7 @@ module QSGMIIToSGMIIBridge(
 			.clk(tx_clk),
 
 			.data_is_ctl(sgmii_tx_data_is_ctl[g]),
-			.data(sgmii_tx_data[g]),
+			.data(sgmii_tx_data[g*8 +: 8]),
 			.force_disparity_negative(sgmii_tx_force_disparity_negative[g]),
 
 			//Don't connect output codeword
