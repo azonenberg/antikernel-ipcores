@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -38,7 +38,8 @@
 	@brief 10/100/1000 Mbps Ethernet MAC
  */
 module TriSpeedEthernetMAC #(
-	parameter RX_CRC_DISABLE	= 0
+	parameter RX_CRC_DISABLE	= 0,
+	parameter TX_FIFO_USE_BLOCK	= 1
 )(
 
 	//GMII bus
@@ -319,7 +320,7 @@ module TriSpeedEthernetMAC #(
 	SingleClockFifo #(
 		.WIDTH(8),
 		.DEPTH(2048),
-		.USE_BLOCK(0)
+		.USE_BLOCK(TX_FIFO_USE_BLOCK)
 	) tx_fifo (
 		.clk(gmii_tx_clk),
 
