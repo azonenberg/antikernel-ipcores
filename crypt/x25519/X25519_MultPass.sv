@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -134,7 +134,8 @@ endmodule
 /**
 	@brief Helper for X25519_MultPass
  */
-(* USE_DSP="yes" *) module X25519_MultPass_stage1(
+(* USE_DSP="yes" *)
+module X25519_MultPass_stage1(
 	input wire			clk,
 	input wire			en,
 	input wire[4:0]		i,
@@ -169,6 +170,7 @@ endmodule
 /**
 	@brief Helper for X25519_MultPass
  */
+(* USE_DSP="no" *)
 module X25519_MultPass_stage2(
 	input wire				clk,
 
