@@ -86,6 +86,7 @@ module CrossClockPacketFifo #(
 		.OUT_REG(1),
 		.DUAL_PORT(1),
 		.TRUE_DUAL(0),
+		.PORTA_WRONLY(1),	//remove read logic on port A
 		.INIT_VALUE({WIDTH{1'h0}})
 	) data_mem (
 		.porta_clk(wr_clk),
