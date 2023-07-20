@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -70,7 +70,7 @@ module PRBS31 #(
 			state	<= seed;
 
 		//Save configuration
-		else if(update) begin
+		if(update) begin
 			dout	<= dout_comb;
 			state	<= state_comb;
 		end
@@ -80,7 +80,11 @@ module PRBS31 #(
 	always_comb begin
 
 		//Run the LFSR by N cycles every time we update
-		state_comb = state;
+		if(init)
+			state_comb = seed;
+		else
+			state_comb = state;
+
 		dout_comb = dout;
 
 		for(integer i=0; i<WIDTH; i=i+1) begin
