@@ -849,7 +849,10 @@ module XGEthernetPCS(
 		.rsize(tx_elastic_rsize),
 		.wsize(tx_elastic_wsize),
 		.reset(1'b0),
-		.overflow()
+		.overflow(),
+		.underflow(),
+		.empty(),
+		.full()
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
