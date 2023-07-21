@@ -50,7 +50,7 @@ module EthernetMDIOTransceiver #(
 	//Slow down by 60x instead (30 cycles between rising/falling edges) just to be safe
 	parameter CLK_DIV = 60
 )(
-	input	wire		clk_125mhz,
+	input	wire		clk,
 
 	input	wire[4:0]	phy_md_addr,
 
@@ -77,7 +77,7 @@ module EthernetMDIOTransceiver #(
 	logic 			mdc_rising_edge		= 0;
 	logic 			mdc_falling_edge	= 0;
 
-	always_ff @(posedge clk_125mhz) begin
+	always_ff @(posedge clk) begin
 		mdc_rising_edge		<= 0;
 		mdc_falling_edge	<= 0;
 
@@ -131,7 +131,7 @@ module EthernetMDIOTransceiver #(
 	//Internal read data buffer
 	logic[15:0]	phy_rd_data_raw		= 0;
 
-	always_ff @(posedge clk_125mhz) begin
+	always_ff @(posedge clk) begin
 		case(mgmt_state)
 
 			//////////////////////////////////////////////////////////////////////////////////////////
