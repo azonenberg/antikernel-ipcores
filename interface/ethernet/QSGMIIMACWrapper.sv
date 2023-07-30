@@ -111,7 +111,9 @@ module QSGMIIMACWrapper(
 		GmiiBus gmii_tx_bus;
 
 		//Line coding
-		GigBaseXPCS pcs(
+		GigBaseXPCS #(
+			.ADVERTISE_SGMII_FDX(0)
+		) pcs (
 			.clk_125mhz(tx_clk),
 			.sgmii_mode(1'b1),
 

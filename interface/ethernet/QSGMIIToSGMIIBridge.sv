@@ -100,14 +100,14 @@ module QSGMIIToSGMIIBridge(
 
 			//Pass data along
 			sgmii_rx_data_is_ctl[i]		<= rx_data_is_ctl[isrc];
-			sgmii_rx_data[i]			<= rx_data[isrc*8 +: 8];
+			sgmii_rx_data[i*8 +: 8]		<= rx_data[isrc*8 +: 8];
 			sgmii_rx_disparity_err[i]	<= rx_disparity_err[isrc];
 			sgmii_rx_symbol_err[i]		<= rx_symbol_err[i];
 
 			//Look for K28.1. If found, we are lane zero (and this is actually a K28.5)
 			if(rx_data_is_ctl[isrc] && (rx_data[isrc*8 +: 8] == 8'h3c) ) begin
-				baseLane <= isrc;
-				sgmii_rx_data[isrc*8 +: 8] <= 8'hbc;
+				baseLane 				<= isrc;
+				sgmii_rx_data[i*8 +: 8] <= 8'hbc;
 			end
 
 		end
@@ -121,10 +121,10 @@ module QSGMIIToSGMIIBridge(
 
 		tx_data_is_ctl				<= sgmii_tx_data_is_ctl;
 		tx_data						<= sgmii_tx_data;
-		tx_force_disparity_negative	<= sgmii_tx_force_disparity_negative;
+		tx_force_disparity_negative	<= 0;//sgmii_tx_force_disparity_negative;
 
 		//Convert K28.5 in lane 0 to K28.1
-		if(tx_data_is_ctl[0] && (tx_data[7:0] == 8'hbc) )
+		if(sgmii_tx_data_is_ctl[0] && (sgmii_tx_data[7:0] == 8'hbc) )
 			tx_data[7:0]			<= 8'h3c;
 
 	end

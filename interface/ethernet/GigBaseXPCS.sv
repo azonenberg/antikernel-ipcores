@@ -39,7 +39,12 @@
 	No rate matching for now.
 	The TX GMII interface must run in the clk_125mhz domain.
  */
-module GigBaseXPCS(
+module GigBaseXPCS #(
+	parameter ADVERTISE_SGMII_FDX		= 0		//advertise 1000base-X full duplex capability even in SGMII mode
+												//(AN register bit 5)
+												//This is supposed to be "reserved, must be zero"
+												//but this parameter allows sending it anyway for working w/ buggy PHYs
+)(
 
 	input wire			clk_125mhz,
 
@@ -79,22 +84,64 @@ module GigBaseXPCS(
 	assign	tx_clk = clk_125mhz;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Shift the RX data into the 125 MHz clock domain
+	// Forward incoming data to the RX FIFO
 
-	//TODO: buffer 4 code groups at a time, drop an idle set if the fifo is too full
+	// If FIFO is too full, drop complete /C/, /I/, or /LI/ ordered sets (K28.5 to next K28.5)
 
-	wire		rx_fifo_empty;
+	logic		wr_data_is_ctl		= 0;
+	logic		wr_fault			= 0;
+	logic[7:0]	wr_data				= 0;
+	logic		wr_data_valid		= 0;
+
+	wire[6:0]	rx_fifo_wsize;
+
+	logic	wr_dropping_set		= 0;
+
 	wire		rx_fault;
 	assign rx_fault = (rx_disparity_err || rx_symbol_err);
 
+	always_ff @(posedge rx_clk) begin
+
+		//Default to pipeline delay
+		wr_data_is_ctl		<= rx_data_is_ctl;
+		wr_fault			<= rx_fault;
+		wr_data				<= rx_data;
+		wr_data_valid		<= rx_data_valid;
+
+		//Currently dropping a set? See if it's over
+		if(wr_dropping_set) begin
+
+			//Next K28.5? Resume processing
+			if(rx_data_valid && rx_data_is_ctl && (rx_data == 8'hbc))
+				wr_dropping_set	<= 0;
+
+			//Same set, drop it
+			else
+				wr_data_valid	<= 0;
+
+		end
+
+		//If FIFO is almost full and we're about to start a new ordered set (K28.5), drop it
+		else if( (rx_fifo_wsize > 56) && (rx_data_valid && rx_data_is_ctl && (rx_data == 8'hbc)) ) begin
+			wr_data_valid	<= 0;
+			wr_dropping_set	<= 1;
+		end
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Shift the RX data into the 125 MHz clock domain
+
+	wire		rx_fifo_empty;
+
 	//Let the FIFO fill up a bit before we start reading
-	wire[5:0]	rx_fifo_rsize;
+	wire[6:0]	rx_fifo_rsize;
 	logic		rx_fifo_rd			= 0;
 	logic		fifo_initial_fill	= 0;
 	always_ff @(posedge clk_125mhz) begin
 		if(rx_fifo_empty)
 			fifo_initial_fill	<= 0;
-		if(rx_fifo_rsize > 16)
+		if(rx_fifo_rsize > 32)
 			fifo_initial_fill	<= 1;
 	end
 	always_comb begin
@@ -112,14 +159,14 @@ module GigBaseXPCS(
 
 	CrossClockFifo #(
 		.WIDTH(10),
-		.DEPTH(32),
+		.DEPTH(64),
 		.USE_BLOCK(0),
 		.OUT_REG(1)
 	) rx_fifo (
 		.wr_clk(rx_clk),
-		.wr_en(rx_data_valid),
-		.wr_data({rx_data_is_ctl, rx_data, rx_fault}),
-		.wr_size(),
+		.wr_en(wr_data_valid),
+		.wr_data({wr_data_is_ctl, wr_data, wr_fault}),
+		.wr_size(rx_fifo_wsize),
 		.wr_full(),
 		.wr_overflow(),
 		.wr_reset(1'b0),
@@ -324,7 +371,7 @@ module GigBaseXPCS(
 						3'b0,			//Reserved
 						2'b0,			//No pause supported
 						1'b0,			//No half duplex supported
-						!sgmii_mode,	//Full duplex supported in 1000base-X mode, reserved in SGMII mode
+						ADVERTISE_SGMII_FDX ? 1'b1 : !sgmii_mode,	//Full duplex supported in 1000base-X mode, reserved in SGMII mode
 						4'b0,			//Reserved
 						sgmii_mode		//Reserved in 1000base-X mode, constant 1 in SGMII mode
 					};
