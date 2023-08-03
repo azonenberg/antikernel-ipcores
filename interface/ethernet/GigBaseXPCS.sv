@@ -134,18 +134,10 @@ module GigBaseXPCS #(
 
 	wire		rx_fifo_empty;
 
-	//Let the FIFO fill up a bit before we start reading
 	wire[6:0]	rx_fifo_rsize;
 	logic		rx_fifo_rd			= 0;
-	logic		fifo_initial_fill	= 0;
-	always_ff @(posedge clk_125mhz) begin
-		if(rx_fifo_empty)
-			fifo_initial_fill	<= 0;
-		if(rx_fifo_rsize > 32)
-			fifo_initial_fill	<= 1;
-	end
 	always_comb begin
-		rx_fifo_rd	<= fifo_initial_fill && !rx_fifo_empty;
+		rx_fifo_rd	= !rx_fifo_empty;
 	end
 
 	logic		rx_fifo_rd_valid	= 0;
@@ -710,7 +702,7 @@ module GigBaseXPCS #(
 
 	always_ff @(posedge clk_125mhz) begin
 
-		gmii_rx_bus.dvalid	<= 1;	//TODO: handle 10/100 mode
+		gmii_rx_bus.dvalid	<= rx_fifo_rd_valid;	//TODO: handle 10/100 mode
 		gmii_rx_bus.er		<= 0;
 
 		//Wait for start-of-frame character K27.7
