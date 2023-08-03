@@ -460,6 +460,19 @@ function ReadIDBOption(integer hfile, logic[15:0] optid);
 
 		end
 
+		//if_filter
+		16'h0b: begin
+			optlen = ReadNative16(hfile);
+
+			$write("[ReadIDBOption]         if_filter = ");
+			for(integer i=0; i<optlen; i=i+1) begin
+				if(!$fread(tmp, hfile))
+					break;
+				$write("%c", tmp);
+			end
+			$write("\n");
+		end
+
 		//if_os
 		16'h0c: begin
 			optlen = ReadNative16(hfile);
