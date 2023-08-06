@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -37,6 +37,8 @@
 
 	Note that the FIFO does not actually store any metadata about how large the packets are. This information must be
 	transmitted in-band or using a separate FIFO.
+
+	Committing the same cycle as the final write of a packet is legal.
  */
 module CrossClockPacketFifo #(
 	parameter WIDTH 	= 32,
@@ -112,17 +114,17 @@ module CrossClockPacketFifo #(
 	always_ff @(posedge wr_clk) begin
 
 		if(wr_en)
-			data_wptr 			<= data_wptr + 1'h1;
+			data_wptr 			= data_wptr + 1'h1;
 
 		//commit/rollback have higher precedence than writes
 		//but lower than resets
 		if(wr_commit)
 			data_wptr_committed	<= data_wptr;
 		if(wr_rollback)
-			data_wptr			<= data_wptr_committed;
+			data_wptr			= data_wptr_committed;
 
 		if(wr_reset)
-			data_wptr <= 0;
+			data_wptr 			= 0;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
