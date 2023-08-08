@@ -119,10 +119,7 @@ module QDR2PController #(
 	wire	fbclk;
 
 	wire	clk_qcapture_raw;
-	wire	clk_qcapture_div2_raw;
-
 	wire	clk_qcapture;
-	wire	clk_qcapture_div2;
 
 	PLLE2_BASE #(
 		.BANDWIDTH("OPTIMIZED"),
@@ -351,21 +348,15 @@ module QDR2PController #(
 	// Clock domain crossing for inbound data
 
 	logic					fifo_rd_en	= 0;
-	wire[5:0]				fifo_rd_size;
 	wire					fifo_rd_empty;
 
-	//Use LUTRAM since we're wide but don't need much depth
-	//Ignore write-side size signals because we pop basically every cycle so it can't overflow
-	CrossClockFifo #(
+	CrossClockHardFifo #(
 		.WIDTH(CTRL_WIDTH),
-		.DEPTH(32),
-		.USE_BLOCK(0),
-		.OUT_REG(1)
+		.DEPTH(32)
 	) fifo (
 		.wr_clk(clk_qcapture),
 		.wr_en(qcapture_cdc_en),
 		.wr_data(qcapture_cdc_in),
-		.wr_size(),
 		.wr_full(),
 		.wr_overflow(),
 		.wr_reset(1'b0),
@@ -373,10 +364,8 @@ module QDR2PController #(
 		.rd_clk(clk_ctl),
 		.rd_en(fifo_rd_en),
 		.rd_data(rd_data),
-		.rd_size(fifo_rd_size),
 		.rd_empty(fifo_rd_empty),
-		.rd_underflow(),
-		.rd_reset(1'b0)
+		.rd_underflow()
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
