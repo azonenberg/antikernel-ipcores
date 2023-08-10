@@ -111,8 +111,9 @@ module GigBaseXPCS #(
 		//Currently dropping a set? See if it's over
 		if(wr_dropping_set) begin
 
-			//Next K28.5? Resume processing
-			if(rx_data_valid && rx_data_is_ctl && (rx_data == 8'hbc))
+			//Resume processing on any subsequent control character
+			//This means either start of a new ordered set, or start of frame or something we actually care about
+			if(rx_data_valid && rx_data_is_ctl)
 				wr_dropping_set	<= 0;
 
 			//Same set, drop it
@@ -122,7 +123,7 @@ module GigBaseXPCS #(
 		end
 
 		//If FIFO is almost full and we're about to start a new ordered set (K28.5), drop it
-		else if( (rx_fifo_wsize > 56) && (rx_data_valid && rx_data_is_ctl && (rx_data == 8'hbc)) ) begin
+		else if( (rx_fifo_wsize < 32) && (rx_data_valid && rx_data_is_ctl && (rx_data == 8'hbc)) ) begin
 			wr_data_valid	<= 0;
 			wr_dropping_set	<= 1;
 		end
