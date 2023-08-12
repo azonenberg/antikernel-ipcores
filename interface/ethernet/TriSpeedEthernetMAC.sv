@@ -73,11 +73,15 @@ module TriSpeedEthernetMAC #(
 			perf.rx_frames	<= perf.rx_frames + 1'h1;
 		if(rx_bus.drop)
 			perf.rx_crc_err	<= perf.rx_crc_err + 1'h1;
+		if(rx_bus.data_valid)
+			perf.rx_bytes	<= perf.rx_bytes + rx_bus.bytes_valid;
 	end
 
 	always_ff @(posedge gmii_tx_clk) begin
 		if(tx_bus.start)
 			perf.tx_frames	<= perf.tx_frames + 1'h1;
+		if(tx_bus.data_valid)
+			perf.tx_bytes	<= perf.tx_bytes + tx_bus.bytes_valid;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

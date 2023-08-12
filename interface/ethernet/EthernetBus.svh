@@ -134,9 +134,14 @@ typedef struct packed
 //Performance counters for TriSpeedEthernetMAC
 typedef struct packed
 {
+	//gmii_tx_clk domain
 	logic[63:0]	tx_frames;		//Number of frames sent
+	logic[63:0]	tx_bytes;		//Number of bytes sent
+
+	//gmii_rx_clk domain
 	logic[63:0]	rx_frames;		//Number of frames successfully received
 	logic[63:0]	rx_crc_err;		//Number of frames dropped due to CRC or other errors
+	logic[63:0]	rx_bytes;		//Number of bytes received
 } GigabitMacPerformanceCounters;
 
 //Performance counters for EthernetTransmitArbiter
