@@ -129,7 +129,11 @@ module CrossClockHardFifo #(
 			.EMPTY(rd_empty_int[g]),
 			.ALMOSTEMPTY(),
 			.RDCOUNT(),
-			.RDERR(rd_underflow_int[g])
+			.RDERR(rd_underflow_int[g]),
+
+			.ECCPARITY(),
+			.SBITERR(),
+			.DBITERR()
 		);
 
 	end

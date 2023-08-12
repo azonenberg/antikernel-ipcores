@@ -77,8 +77,8 @@ module SingleClockMultiplexedFifo #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Pointers
 
-	logic[ADDR_BITS:0] rpos[CHANNELS-1:0];
-	logic[ADDR_BITS:0] wpos[CHANNELS-1:0];
+	logic[CHANNELS-1:0][ADDR_BITS:0] rpos;
+	logic[CHANNELS-1:0][ADDR_BITS:0] wpos;
 
 	initial begin
 		for(integer i=0; i<CHANNELS; i=i+1) begin
@@ -117,15 +117,15 @@ module SingleClockMultiplexedFifo #(
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Control logic
 
-	logic[ADDR_BITS:0] irpos[CHANNELS-1:0];
-	logic[ADDR_BITS:0] iwpos[CHANNELS-1:0];
+	logic[CHANNELS-1:0][ADDR_BITS:0] irpos;
+	logic[CHANNELS-1:0][ADDR_BITS:0] iwpos;
 
 	always_comb begin
 		for(integer i=0; i<CHANNELS; i=i+1) begin
 			irpos[i]	= rpos[i] + 1'd1;
 			iwpos[i]	= wpos[i] + 1'd1;
 
-			empty[i]	= (rpos == wpos);	//if write pointer is at read pointer we're empty
+			empty[i]	= (rpos[i] == wpos[i]);	//if write pointer is at read pointer we're empty
 
 			//If write pointer is at far end of buffer, we're full.
 			//Overlapping pointers are easily detected: they're equal mod DEPTH, but not equal
