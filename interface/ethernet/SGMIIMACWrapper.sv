@@ -69,7 +69,6 @@ module SGMIIMACWrapper #(
 
 	input wire								rst_stat,
 	output SGMIIPerformanceCounters			sgmii_perf,
-	output GigabitMacPerformanceCounters	mac_perf,
 
 	output wire								rx_error
 	);
@@ -128,9 +127,7 @@ module SGMIIMACWrapper #(
 
 		.rx_bus(mac_rx_bus),
 		.tx_bus(mac_tx_bus),
-		.tx_ready(mac_tx_ready),
-
-		.perf(mac_perf)
+		.tx_ready(mac_tx_ready)
 		);
 
 

@@ -1,10 +1,10 @@
+`timescale 1ns / 1ps
 `default_nettype none
-`timescale 1ns/1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -29,120 +29,105 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "EthernetBus.svh"
+`include "GmiiBus.svh"
+
 /**
-	@file
-	@author	Andrew D. Zonenberg
-	@brief	FIFO buffer using hard FIFO IP in Xilinx 7 series
-
-	This module supports ganging multiple hard FIFO IPs and will report empty if any are empty, or full if any are full.
-
-	Depth expansion is not yet supported.
-
-	Generally drop in equivalent for CrossClockFifo with USE_BLOCK=1, OUT_REG=1
-
-	For now, always uses 512x72 configuration in hardware
+	@brief A counter that has some internal pipelining (parameterizable) to improve performance
  */
-module CrossClockHardFifo #(
-	parameter WIDTH			= 16,
-	parameter DEPTH			= 16	//,
+module OptionallyPipelinedCounter #(
+	parameter PIPELINED_INCREMENT = 0
+)(
+	input wire			clk,
+	input wire			en,
+	input wire[2:0]		delta,
 
-	//localparam ADDR_BITS	= $clog2(DEPTH)
-) (
-	input wire					wr_clk,
-	input wire					wr_en,
-	input wire[WIDTH-1:0]		wr_data,
-	//output wire[ADDR_BITS:0]	wr_size,
-	output wire					wr_full,
-	output wire					wr_overflow,
-	input wire					wr_reset,
-
-	input wire					rd_clk,
-	input wire					rd_en,
-	output wire[WIDTH-1:0]		rd_data,
-	//output wire[ADDR_BITS:0]	rd_size,
-	output wire					rd_empty,
-	output wire					rd_underflow
+	output logic[63:0]	count = 0
 );
 
-	(* keep = "yes" *)
-	logic[7:0]	rst_shreg	= 8'hff;
-	logic		rst			= 1;
-	always_ff @(posedge wr_clk) begin
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Non pipelined case
 
-		if(rst)
-			rst_shreg	<= {rst_shreg[6:0], 1'b0};
+	if(!PIPELINED_INCREMENT) begin
 
-		if(wr_reset)
-			rst_shreg	<= 8'hff;
+		always_ff @(posedge clk) begin
+			if(en)
+				count	<= count + delta;
+		end
 
-		rst				<= rst_shreg[7];
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// FIFO primitive instances
+	// Pipelined case
 
-	localparam BLOCK_WIDTH = 72;
-	localparam BLOCK_DATA = 64;
-	localparam BLOCK_PARITY = 8;
-	localparam NUM_BLOCKS = int'($ceil(1.0 * WIDTH / BLOCK_WIDTH));
+	else begin
 
-	wire[NUM_BLOCKS-1:0]	wr_full_int;
-	wire[NUM_BLOCKS-1:0]	wr_overflow_int;
+		logic[31:0] low			= 0;
+		logic[31:0] high		= 0;
+		logic		msb_ff		= 0;
+		logic		en_ff		= 0;
+		logic[2:0]	delta_ff	= 0;
 
-	wire[NUM_BLOCKS-1:0]	rd_empty_int;
-	wire[NUM_BLOCKS-1:0]	rd_underflow_int;
+		always_ff @(posedge clk) begin
 
-	initial begin
-		if(DEPTH > 512)
-			$fatal(1, "CrossClockHardFifo currently assumes 512x72 configuration");
-	end
+			en_ff		<= en;
+			delta_ff	<= delta;
 
-	for(genvar g=0; g<NUM_BLOCKS; g=g+1) begin
+			//Increment low part
+			if(en_ff) begin
+				msb_ff	<= low[31];
+				low		<= low + delta_ff;
+			end
 
-		FIFO36E1 #(
-			.ALMOST_FULL_OFFSET(8'h5),
-			.ALMOST_EMPTY_OFFSET(8'h5),
-			.FIRST_WORD_FALL_THROUGH("FALSE"),
-			.DO_REG(1'b1),
-			.DATA_WIDTH(BLOCK_WIDTH),
-			.FIFO_MODE("FIFO36_72"),
-			.EN_SYN("FALSE"),
-			.SRVAL(72'h0),
-			.INIT(72'h0)
-		) fifo (
-			.DI(wr_data[g*BLOCK_WIDTH +: BLOCK_DATA]),
-			.DIP(wr_data[g*BLOCK_WIDTH + BLOCK_DATA +: BLOCK_PARITY]),
-			.WREN(wr_en && !rst),
-			.WRCLK(wr_clk),
-			.FULL(wr_full_int[g]),
-			.ALMOSTFULL(),
-			.WRCOUNT(),
-			.WRERR(wr_overflow_int[g]),
+			//Handle carries
+			if(msb_ff && !low[31])
+				high	<= high + 1;
 
-			.RDEN(rd_en && !rst),
-			.RDCLK(rd_clk),
-			.RST(rst),
-			.RSTREG(1'b0),
-			.REGCE(1'b1),
-			.DO(rd_data[g*BLOCK_WIDTH +: BLOCK_DATA]),
-			.DOP(rd_data[g*BLOCK_WIDTH + BLOCK_DATA +: BLOCK_PARITY]),
-			.EMPTY(rd_empty_int[g]),
-			.ALMOSTEMPTY(),
-			.RDCOUNT(),
-			.RDERR(rd_underflow_int[g]),
+			//No carry
+			else
+				count	<= {high, low};
 
-			.ECCPARITY(),
-			.SBITERR(),
-			.DBITERR(),
-			.INJECTDBITERR(1'b0),
-			.INJECTSBITERR(1'b0)
-		);
+		end
 
 	end
 
-	assign wr_full 		= |wr_full_int;
-	assign wr_overflow	= |wr_overflow_int;
-	assign rd_empty		= |rd_empty_int;
-	assign rd_underflow	= |rd_underflow_int;
+endmodule
+
+/**
+	@brief Performance counters for an EthernetBus
+ */
+module EthernetPerformanceCounters #(
+	parameter PIPELINED_INCREMENT = 0
+)(
+	input wire							rx_clk,
+	input wire EthernetRxBus			rx_bus,
+
+	input wire							tx_clk,
+	input wire EthernetTxBus			tx_bus,
+
+	output EthernetMacPerformanceData	counters
+);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// RX side
+
+	OptionallyPipelinedCounter #(.PIPELINED_INCREMENT(PIPELINED_INCREMENT)) count_rx_frames(
+		.clk(rx_clk), .en(rx_bus.commit), .delta(1), .count(counters.rx_frames));
+
+	OptionallyPipelinedCounter #(.PIPELINED_INCREMENT(PIPELINED_INCREMENT)) count_rx_crc_err(
+		.clk(rx_clk), .en(rx_bus.drop), .delta(1), .count(counters.rx_crc_err));
+
+	OptionallyPipelinedCounter #(.PIPELINED_INCREMENT(PIPELINED_INCREMENT)) count_rx_bytes(
+		.clk(rx_clk), .en(rx_bus.data_valid), .delta(rx_bus.bytes_valid), .count(counters.rx_bytes));
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX side
+
+	OptionallyPipelinedCounter #(.PIPELINED_INCREMENT(PIPELINED_INCREMENT)) count_tx_frames(
+		.clk(tx_clk), .en(tx_bus.start), .delta(1), .count(counters.tx_frames));
+
+	OptionallyPipelinedCounter #(.PIPELINED_INCREMENT(PIPELINED_INCREMENT)) count_tx_bytes(
+		.clk(tx_clk), .en(tx_bus.data_valid), .delta(tx_bus.bytes_valid), .count(counters.tx_bytes));
+
 
 endmodule

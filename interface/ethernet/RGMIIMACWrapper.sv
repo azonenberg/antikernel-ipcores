@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -109,9 +109,7 @@ module RGMIIMACWrapper(
 
 		.rx_bus(mac_rx_bus),
 		.tx_bus(mac_tx_bus),
-		.tx_ready(mac_tx_ready),
-
-		.perf()
+		.tx_ready(mac_tx_ready)
 		);
 
 

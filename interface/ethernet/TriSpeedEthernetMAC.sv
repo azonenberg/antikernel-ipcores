@@ -59,30 +59,8 @@ module TriSpeedEthernetMAC #(
 	input wire EthernetTxBus	tx_bus,
 
 	//Flow control - set false during a frame or IFG, true when ready for the next frame
-	output logic				tx_ready			= 1,
-
-	//Performance counters (sync to tx or rx clock, as appropriate)
-	output GigabitMacPerformanceCounters	perf	= {$bits(GigabitMacPerformanceCounters){1'b0}}
+	output logic				tx_ready			= 1
 	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Performance counters
-
-	always_ff @(posedge gmii_rx_clk) begin
-		if(rx_bus.commit)
-			perf.rx_frames	<= perf.rx_frames + 1'h1;
-		if(rx_bus.drop)
-			perf.rx_crc_err	<= perf.rx_crc_err + 1'h1;
-		if(rx_bus.data_valid)
-			perf.rx_bytes	<= perf.rx_bytes + rx_bus.bytes_valid;
-	end
-
-	always_ff @(posedge gmii_tx_clk) begin
-		if(tx_bus.start)
-			perf.tx_frames	<= perf.tx_frames + 1'h1;
-		if(tx_bus.data_valid)
-			perf.tx_bytes	<= perf.tx_bytes + tx_bus.bytes_valid;
-	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX CRC calculation
