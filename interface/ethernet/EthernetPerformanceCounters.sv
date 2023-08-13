@@ -42,6 +42,8 @@ module OptionallyPipelinedCounter #(
 	input wire			en,
 	input wire[2:0]		delta,
 
+	input wire			rst,
+
 	output logic[63:0]	count = 0
 );
 
@@ -53,6 +55,8 @@ module OptionallyPipelinedCounter #(
 		always_ff @(posedge clk) begin
 			if(en)
 				count	<= count + delta;
+			if(rst)
+				count	<= 0;
 		end
 
 	end
@@ -87,6 +91,14 @@ module OptionallyPipelinedCounter #(
 			else
 				count	<= {high, low};
 
+			if(rst) begin
+				msb_ff		<= 0;
+				en_ff		<= 0;
+				delta_ff	<= 0;
+				low			<= 0;
+				high		<= 0;
+			end
+
 		end
 
 	end
@@ -105,6 +117,9 @@ module EthernetPerformanceCounters #(
 	input wire							tx_clk,
 	input wire EthernetTxBus			tx_bus,
 
+	input wire							rst_rx,
+	input wire							rst_tx,
+
 	output EthernetMacPerformanceData	counters
 );
 
@@ -112,22 +127,22 @@ module EthernetPerformanceCounters #(
 	// RX side
 
 	OptionallyPipelinedCounter #(.PIPELINED_INCREMENT(PIPELINED_INCREMENT)) count_rx_frames(
-		.clk(rx_clk), .en(rx_bus.commit), .delta(1), .count(counters.rx_frames));
+		.clk(rx_clk), .rst(rst_rx), .en(rx_bus.commit), .delta(1), .count(counters.rx_frames));
 
 	OptionallyPipelinedCounter #(.PIPELINED_INCREMENT(PIPELINED_INCREMENT)) count_rx_crc_err(
-		.clk(rx_clk), .en(rx_bus.drop), .delta(1), .count(counters.rx_crc_err));
+		.clk(rx_clk), .rst(rst_rx), .en(rx_bus.drop), .delta(1), .count(counters.rx_crc_err));
 
 	OptionallyPipelinedCounter #(.PIPELINED_INCREMENT(PIPELINED_INCREMENT)) count_rx_bytes(
-		.clk(rx_clk), .en(rx_bus.data_valid), .delta(rx_bus.bytes_valid), .count(counters.rx_bytes));
+		.clk(rx_clk), .rst(rst_rx), .en(rx_bus.data_valid), .delta(rx_bus.bytes_valid), .count(counters.rx_bytes));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX side
 
 	OptionallyPipelinedCounter #(.PIPELINED_INCREMENT(PIPELINED_INCREMENT)) count_tx_frames(
-		.clk(tx_clk), .en(tx_bus.start), .delta(1), .count(counters.tx_frames));
+		.clk(tx_clk), .rst(rst_tx), .en(tx_bus.start), .delta(1), .count(counters.tx_frames));
 
 	OptionallyPipelinedCounter #(.PIPELINED_INCREMENT(PIPELINED_INCREMENT)) count_tx_bytes(
-		.clk(tx_clk), .en(tx_bus.data_valid), .delta(tx_bus.bytes_valid), .count(counters.tx_bytes));
+		.clk(tx_clk), .rst(rst_tx), .en(tx_bus.data_valid), .delta(tx_bus.bytes_valid), .count(counters.tx_bytes));
 
 
 endmodule
