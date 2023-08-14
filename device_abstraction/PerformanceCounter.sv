@@ -29,47 +29,117 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "EthernetBus.svh"
-`include "GmiiBus.svh"
-
 /**
-	@brief Performance counters for an EthernetBus
+	@brief A DSP48 based 48-bit performance counter
+
+	TODO: offer non-DSP version too
  */
-module EthernetPerformanceCounters #(
-	parameter PIPELINED_INCREMENT = 0
-)(
-	input wire							rx_clk,
-	input wire EthernetRxBus			rx_bus,
+module PerformanceCounter(
+	input wire			clk,
+	input wire			en,
+	input wire[2:0]		delta,
 
-	input wire							tx_clk,
-	input wire EthernetTxBus			tx_bus,
+	input wire			rst,
 
-	input wire							rst_rx,
-	input wire							rst_tx,
-
-	output EthernetMacPerformanceData	counters
-);
+	output wire[47:0]	count);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// RX side
 
-	PerformanceCounter count_rx_frames(
-		.clk(rx_clk), .rst(rst_rx), .en(rx_bus.commit), .delta(1), .count(counters.rx_frames));
+	//we want Y mux to select C
+	//and Z mux to select P
 
-	PerformanceCounter count_rx_crc_err(
-		.clk(rx_clk), .rst(rst_rx), .en(rx_bus.drop), .delta(1), .count(counters.rx_crc_err));
+	logic	en_ff = 0;
+	always_ff @(posedge clk) begin
+		en_ff	<= en;
+	end
 
-	PerformanceCounter count_rx_bytes(
-		.clk(rx_clk), .rst(rst_rx), .en(rx_bus.data_valid), .delta(rx_bus.bytes_valid), .count(counters.rx_bytes));
+	DSP48E1 #(
+		.ACASCREG(1),
+		.ADREG(1),
+		.ALUMODEREG(0),
+		.AREG(1),
+		.BCASCREG(1),
+		.BREG(1),
+		.CARRYINREG(1),
+		.CARRYINSELREG(1),
+		.CREG(1),
+		.DREG(1),
+		.INMODEREG(0),
+		.MREG(0),
+		.OPMODEREG(1),
+		.PREG(1),
+		.A_INPUT("DIRECT"),
+		.B_INPUT("DIRECT"),
+		.USE_DPORT("FALSE"),
+		.USE_MULT("NONE"),
+		.USE_SIMD("ONE48"),
+		.AUTORESET_PATDET("NO_RESET"),
+		.MASK(48'h0),
+		.PATTERN(48'h0),
+		.SEL_MASK("MASK"),
+		.SEL_PATTERN("PATTERN"),
+		.USE_PATTERN_DETECT("NO_PATDET")
+	) slice (
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TX side
+		.CLK(clk),
 
-	PerformanceCounter count_tx_frames(
-		.clk(tx_clk), .rst(rst_tx), .en(tx_bus.start), .delta(1), .count(counters.tx_frames));
+		//zillions of resets
+		.RSTA(rst),
+		.RSTALLCARRYIN(rst),
+		.RSTALUMODE(rst),
+		.RSTB(rst),
+		.RSTC(rst),
+		.RSTCTRL(rst),
+		.RSTD(rst),
+		.RSTINMODE(rst),
+		.RSTM(rst),
+		.RSTP(rst),
 
-	PerformanceCounter count_tx_bytes(
-		.clk(tx_clk), .rst(rst_tx), .en(tx_bus.data_valid), .delta(tx_bus.bytes_valid), .count(counters.tx_bytes));
+		.ALUMODE(4'h0),					//Z+X+Y+CIN, CIN=0, X=P, Y=delta, Z=0, X=0
+		.CEALUMODE(1'b0),
+		.CEINMODE(1'b0),
+		.CEC(en),
+		.CEP(en_ff),
+		.CECTRL(en),
+		.INMODE(5'h0a),					//not using A so anything goes
+		.OPMODE({7'b000_11_10}),		//zmux=0, ymux=c, xmux=p
 
+		.C({45'h0, delta}),
+		.P(count),
+
+		//multiplier and pre-adder not used
+		.A(30'h3fffffff),
+		.B(18'h3ffff),
+		.CEA1(1'b0),
+		.CEA2(1'b0),
+		.CEAD(1'b0),
+		.CEB1(1'b0),
+		.CEB2(1'b0),
+		.CED(1'b0),
+		.CEM(1'b0),
+		.D(25'h0),
+
+		//Cascade ports (not used)
+		.ACIN(30'h0),
+		.ACOUT(),
+		.BCIN(18'h0),
+		.BCOUT(),
+		.CARRYCASCIN(1'h0),
+		.CARRYCASCOUT(),
+		.CARRYIN(1'b0),
+		.CARRYINSEL(3'b0),
+		.CARRYOUT(),
+		.CECARRYIN(1'b0),
+		.MULTSIGNIN(1'b0),
+		.MULTSIGNOUT(),
+		.OVERFLOW(),
+		.PCIN(48'h0),
+		.PCOUT(),
+		.UNDERFLOW(),
+
+		//Pattern detect (not used)
+		.PATTERNBDETECT(),
+		.PATTERNDETECT()
+	);
 
 endmodule
