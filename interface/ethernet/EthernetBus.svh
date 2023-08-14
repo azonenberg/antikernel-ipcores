@@ -156,10 +156,10 @@ typedef struct packed
 //Performance counters for Ethernet2TypeDecoder
 typedef struct packed
 {
-	logic[63:0]	rx_total;
-	logic[63:0]	rx_ipv4;
-	logic[63:0]	rx_ipv6;
-	logic[63:0]	rx_arp;
+	logic[47:0]	rx_total;
+	logic[47:0]	rx_ipv4;
+	logic[47:0]	rx_ipv6;
+	logic[47:0]	rx_arp;
 } EthernetDecoderPerformanceCounters;
 
 `endif

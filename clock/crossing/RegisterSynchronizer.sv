@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL v0.1                                                                                                      *
 *                                                                                                                      *
-* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -33,10 +33,16 @@
 	@author Andrew D. Zonenberg
 	@brief Wrapper around PulseSynchronizer for synchronizing a register from a management/JTAG domain to
 	a SoC internal domain.
+
+	If IN_REG is set to 1, the input is registered prior to the clock domain crossing.
+
+	If IN_REG is set to 0, the A domain logic must not change reg_a's value between assertion of en_a and receipt of
+	ack_a.
  */
 module RegisterSynchronizer #(
-	parameter WIDTH = 16,
-	parameter INIT = 0
+	parameter WIDTH 	= 16,
+	parameter INIT		= 0,
+	parameter IN_REG	= 1
 ) (
 	input wire				clk_a,
 	input wire				en_a,
@@ -56,11 +62,25 @@ module RegisterSynchronizer #(
 
 	wire				update_b;
 
-	logic[WIDTH-1:0]	reg_a_ff = 0;
+	logic[WIDTH-1:0]	reg_a_ff;
 
-	always_ff @(posedge clk_a) begin
-		reg_a_ff		<= reg_a;
+	if(IN_REG) begin
+		initial begin
+			reg_a_ff = 0;
+		end
+
+		always_ff @(posedge clk_a) begin
+			reg_a_ff		<= reg_a;
+		end
+
 	end
+
+	else begin
+		always_comb begin
+			reg_a_ff = reg_a;
+		end
+	end
+
 
 	PulseSynchronizer sync_en(
 		.clk_a(clk_a),
