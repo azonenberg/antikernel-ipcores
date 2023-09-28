@@ -135,13 +135,13 @@ typedef struct packed
 typedef struct packed
 {
 	//tx_bus domain
-	logic[63:0]	tx_frames;		//Number of frames sent
-	logic[63:0]	tx_bytes;		//Number of bytes sent
+	logic[47:0]	tx_frames;		//Number of frames sent
+	logic[47:0]	tx_bytes;		//Number of bytes sent
 
 	//rx_bus domain
-	logic[63:0]	rx_frames;		//Number of frames successfully received
-	logic[63:0]	rx_crc_err;		//Number of frames dropped due to CRC or other errors
-	logic[63:0]	rx_bytes;		//Number of bytes received
+	logic[47:0]	rx_frames;		//Number of frames successfully received
+	logic[47:0]	rx_crc_err;		//Number of frames dropped due to CRC or other errors
+	logic[47:0]	rx_bytes;		//Number of bytes received
 } EthernetMacPerformanceData;
 
 //Performance counters for EthernetTransmitArbiter
