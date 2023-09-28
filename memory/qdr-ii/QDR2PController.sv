@@ -60,6 +60,7 @@ module QDR2PController #(
 	input wire[ADDR_BITS-1:0]		wr_addr,
 	input wire[CTRL_WIDTH-1:0]		wr_data,
 	output wire						pll_lock,
+	output wire						rst_done,
 
 	//Interface to the RAM itself
 	output wire[RAM_WIDTH-1:0]		qdr_d,
@@ -365,7 +366,8 @@ module QDR2PController #(
 		.rd_en(fifo_rd_en),
 		.rd_data(rd_data),
 		.rd_empty(fifo_rd_empty),
-		.rd_underflow()
+		.rd_underflow(),
+		.rst_done(rst_done)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
