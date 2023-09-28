@@ -61,22 +61,37 @@ module CrossClockHardFifo #(
 	output wire[WIDTH-1:0]		rd_data,
 	//output wire[ADDR_BITS:0]	rd_size,
 	output wire					rd_empty,
-	output wire					rd_underflow
+	output wire					rd_underflow,
+	output logic				rd_valid = 0,
+	output logic				rst_done	= 0
 );
 
+	//TODO: improve this to work for arbitrary ratios of clocks
+
 	(* keep = "yes" *)
-	logic[7:0]	rst_shreg	= 8'hff;
-	logic		rst			= 1;
+	logic[11:0]	rst_shreg	= 12'h7ff;
+
+	(* keep = "yes" *)
+	logic		rst			= 0;
 	always_ff @(posedge wr_clk) begin
 
-		if(rst)
-			rst_shreg	<= {rst_shreg[6:0], 1'b0};
+		rst_done		<= (rst_shreg == 0);
+
+		if(rst_shreg)
+			rst_shreg	<= {rst_shreg[11:0], 1'b0};
 
 		if(wr_reset)
-			rst_shreg	<= 8'hff;
+			rst_shreg	<= 9'hff;
 
-		rst				<= rst_shreg[7];
+		rst				<= rst_shreg[11];
 	end
+
+	//Synchronize reset state into read clock domain
+	wire rst_read_n;
+	ResetSynchronizer sync_rst_read(
+		.rst_in_n(!rst),
+		.clk(rd_clk),
+		.rst_out_n(rst_read_n));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// FIFO primitive instances
@@ -96,6 +111,9 @@ module CrossClockHardFifo #(
 		if(DEPTH > 512)
 			$fatal(1, "CrossClockHardFifo currently assumes 512x72 configuration");
 	end
+
+	wire rd_en_gated;
+	assign rd_en_gated = rd_en && rst_read_n;
 
 	for(genvar g=0; g<NUM_BLOCKS; g=g+1) begin
 
@@ -119,7 +137,7 @@ module CrossClockHardFifo #(
 			.WRCOUNT(),
 			.WRERR(wr_overflow_int[g]),
 
-			.RDEN(rd_en && !rst),
+			.RDEN(rd_en_gated),
 			.RDCLK(rd_clk),
 			.RST(rst),
 			.RSTREG(1'b0),
@@ -144,5 +162,11 @@ module CrossClockHardFifo #(
 	assign wr_overflow	= |wr_overflow_int;
 	assign rd_empty		= |rd_empty_int;
 	assign rd_underflow	= |rd_underflow_int;
+
+	always_ff @(posedge rd_clk) begin
+		rd_valid		<= rd_en_gated;
+		if(rst_read_n)
+			rd_valid	<= 0;
+	end
 
 endmodule
