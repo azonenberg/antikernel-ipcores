@@ -2,9 +2,9 @@
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -92,6 +92,7 @@ module QSPIDeviceInterface #(
 
 	wire[3:0]	dq_in_sync;
 
+	(* keep_hierarchy = "yes" *)
 	ThreeStageSynchronizer #(
 		.INIT(0),
 		.IN_REG(0)
@@ -102,6 +103,7 @@ module QSPIDeviceInterface #(
 		.dout(sck_sync)
 	);
 
+	(* keep_hierarchy = "yes" *)
 	ThreeStageSynchronizer #(
 		.INIT(1),
 		.IN_REG(0)
@@ -113,6 +115,7 @@ module QSPIDeviceInterface #(
 	);
 
 	for(genvar g=0; g<4; g=g+1) begin
+		(* keep_hierarchy = "yes" *)
 		ThreeStageSynchronizer #(
 			.INIT(0),
 			.IN_REG(0)

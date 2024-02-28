@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -36,8 +36,11 @@
 	@brief GMII to [R]GMII converter. Note that the GMII bus isn't quite standard GMII in 10/100 mode!
  */
 module RGMIIToGMIIBridge #(
-	parameter PHY_INTERNAL_DELAY_RX = 1		//when enabled, the PHY provides internal delays and we don't have to
+	parameter PHY_INTERNAL_DELAY_RX = 1,	//when enabled, the PHY provides internal delays and we don't have to
 											//do any phase shifting on the input
+
+	parameter CLK_BUF_TYPE = "GLOBAL",		//clock buffer type (default GLOBAL)
+	parameter USE_BUFIO = 1					//true to use a dedicated BUFIO for the IDDR stage
 )(
 
 	//RGMII signals to off-chip device
@@ -67,161 +70,174 @@ module RGMIIToGMIIBridge #(
 	// RX side
 
 	wire	gmii_rxc_raw;
-	generate
-		if(PHY_INTERNAL_DELAY_RX) begin
-			assign gmii_rxc_raw = rgmii_rxc;
-		end
-		else begin
-			//Delay the GMII clock to add additional skew as required by RGMII
-			//UI is 4000 ps (250 MT/s).
-			//Skew at the sender is +/- 500 ps so our valid eye ignoring rise time is from +500 to +3500 ps
-			//We need at least 10 ps setup and 340ps hold for Kintex-7, sampling eye is now now +510 to +3160 ps
-			//Assuming equal rise/fall time we want to center in this window so use phase offset of 1835 ps.
-			//We want the clock moved forward by +1835 ps, which is the same as moving it back by (8000 - 1835) = 2165 ps and
-			//inverting it.
-			//Rather than inverting the clock, we instead just switch the phases off the DDR buffers.
-			IODelayBlock #(
-				.WIDTH(1),
-				.INPUT_DELAY(2165),
-				.OUTPUT_DELAY(0),
-				.DIRECTION("IN"),
-				.IS_CLOCK(1)
-			) rgmii_rxc_idelay (
-				.i_pad(rgmii_rxc),
-				.i_fabric(gmii_rxc_raw),
-				.i_fabric_serdes(),
-				.o_pad(),								//not using output datapath
-				.o_fabric(1'h0),
-				.input_en(1'b1)
-			);
-		end
 
+	if(PHY_INTERNAL_DELAY_RX) begin
+		assign gmii_rxc_raw = rgmii_rxc;
+	end
+	else begin
+		//Delay the GMII clock to add additional skew as required by RGMII
+		//UI is 4000 ps (250 MT/s).
+		//Skew at the sender is +/- 500 ps so our valid eye ignoring rise time is from +500 to +3500 ps
+		//We need at least 10 ps setup and 340ps hold for Kintex-7, sampling eye is now now +510 to +3160 ps
+		//Assuming equal rise/fall time we want to center in this window so use phase offset of 1835 ps.
+		//We want the clock moved forward by +1835 ps, which is the same as moving it back by (8000 - 1835) = 2165 ps and
+		//inverting it.
+		//Rather than inverting the clock, we instead just switch the phases off the DDR buffers.
+		IODelayBlock #(
+			.WIDTH(1),
+			.INPUT_DELAY(2165),
+			.OUTPUT_DELAY(0),
+			.DIRECTION("IN"),
+			.IS_CLOCK(1)
+		) rgmii_rxc_idelay (
+			.i_pad(rgmii_rxc),
+			.i_fabric(gmii_rxc_raw),
+			.i_fabric_serdes(),
+			.o_pad(),								//not using output datapath
+			.o_fabric(1'h0),
+			.input_en(1'b1)
+		);
+	end
+
+	ClockBuffer #(
+		.CE("NO"),
+		.TYPE(CLK_BUF_TYPE)
+	) rxc_buf (
+		.clkin(gmii_rxc_raw),
+		.ce(1'b1),
+		.clkout(gmii_rxc)
+	);
+
+	//Select the correct clock for the input buffer, using a BUFIO if requested
+	wire	gmii_rxc_ddrclk;
+	if(USE_BUFIO) begin
 		ClockBuffer #(
 			.CE("NO"),
-			.TYPE("GLOBAL")
-		) rxc_buf (
+			.TYPE("IO")
+		) ioclk_buf (
 			.clkin(gmii_rxc_raw),
 			.ce(1'b1),
-			.clkout(gmii_rxc)
+			.clkout(gmii_rxc_ddrclk)
 		);
+	end
+	else
+		assign gmii_rxc_ddrclk = gmii_rxc;
 
-		wire[7:0]	gmii_rx_data_parallel;
-		wire[1:0]	gmii_rxc_parallel;
-		logic[7:0]	gmii_rx_data_parallel_ff	= 0;
-		logic[1:0]	gmii_rxc_parallel_ff		= 0;
+	wire[7:0]	gmii_rx_data_parallel;
+	wire[1:0]	gmii_rxc_parallel;
+	logic[7:0]	gmii_rx_data_parallel_ff	= 0;
+	logic[1:0]	gmii_rxc_parallel_ff		= 0;
 
-		logic[7:0]	rx_parallel_data;
+	logic[7:0]	rx_parallel_data;
 
-		//Convert DDR to SDR signals
-		if(PHY_INTERNAL_DELAY_RX) begin
-			DDRInputBuffer #(.WIDTH(4)) rgmii_rxd_iddr2(
-				.clk_p(gmii_rxc),
-				.clk_n(~gmii_rxc),
-				.din(rgmii_rxd),
-				.dout0(gmii_rx_data_parallel[3:0]),
-				.dout1(gmii_rx_data_parallel[7:4])
-				);
-			DDRInputBuffer #(.WIDTH(1)) rgmii_rxe_iddr2(
-				.clk_p(gmii_rxc),
-				.clk_n(~gmii_rxc),
-				.din(rgmii_rx_ctl),
-				.dout0(gmii_rxc_parallel[0]),
-				.dout1(gmii_rxc_parallel[1])
-				);
+	//Convert DDR to SDR signals
+	if(PHY_INTERNAL_DELAY_RX) begin
+		DDRInputBuffer #(.WIDTH(4)) rgmii_rxd_iddr2(
+			.clk_p(gmii_rxc_ddrclk),
+			.clk_n(~gmii_rxc_ddrclk),
+			.din(rgmii_rxd),
+			.dout0(gmii_rx_data_parallel[3:0]),
+			.dout1(gmii_rx_data_parallel[7:4])
+			);
+		DDRInputBuffer #(.WIDTH(1)) rgmii_rxe_iddr2(
+			.clk_p(gmii_rxc_ddrclk),
+			.clk_n(~gmii_rxc_ddrclk),
+			.din(rgmii_rx_ctl),
+			.dout0(gmii_rxc_parallel[0]),
+			.dout1(gmii_rxc_parallel[1])
+			);
 
-			//Register the signals by one cycle
-			always_ff @(posedge gmii_rxc) begin
-				gmii_rx_data_parallel_ff	<= gmii_rx_data_parallel;
-				gmii_rxc_parallel_ff		<= gmii_rxc_parallel;
-			end
-
-			//Shuffle the nibbles data back to where they should be.
-			always_comb begin
-				if(link_speed == LINK_SPEED_1000M)
-					rx_parallel_data <= gmii_rx_data_parallel_ff;
-				else
-					rx_parallel_data <= { gmii_rx_data_parallel[7:4], gmii_rx_data_parallel_ff[3:0] };
-			end
-
-		end
-		else begin
-			DDRInputBuffer #(.WIDTH(4)) rgmii_rxd_iddr2(
-				.clk_p(gmii_rxc),
-				.clk_n(~gmii_rxc),
-				.din(rgmii_rxd),
-				.dout0(gmii_rx_data_parallel[7:4]),
-				.dout1(gmii_rx_data_parallel[3:0])
-				);
-			DDRInputBuffer #(.WIDTH(1)) rgmii_rxe_iddr2(
-				.clk_p(gmii_rxc),
-				.clk_n(~gmii_rxc),
-				.din(rgmii_rx_ctl),
-				.dout0(gmii_rxc_parallel[1]),
-				.dout1(gmii_rxc_parallel[0])
-				);
-
-			//Register the signals by one cycle so we can compensate for the clock inversion
-			always_ff @(posedge gmii_rxc) begin
-				gmii_rx_data_parallel_ff	<= gmii_rx_data_parallel;
-				gmii_rxc_parallel_ff		<= gmii_rxc_parallel;
-			end
-
-			//Shuffle the nibbles data back to where they should be.
-			assign rx_parallel_data	= { gmii_rx_data_parallel[7:4], gmii_rx_data_parallel_ff[3:0] };
-		end
-
-		//10/100 un-DDR-ing
-		logic		gmii_rx_bus_en_ff	= 0;
-		logic		dvalid_raw			= 0;
-		logic[7:0]	rx_parallel_data_ff	= 0;
+		//Register the signals by one cycle
 		always_ff @(posedge gmii_rxc) begin
-			gmii_rx_bus_en_ff	<= gmii_rx_bus.en;
-			rx_parallel_data_ff	<= rx_parallel_data;
-
-			//Sync on start of packet
-			if(gmii_rx_bus.en && !gmii_rx_bus_en_ff)
-				dvalid_raw		<= 1;
-
-			//Toggle the rest of the time
-			else
-				dvalid_raw		<= !dvalid_raw;
-
+			gmii_rx_data_parallel_ff	<= gmii_rx_data_parallel;
+			gmii_rxc_parallel_ff		<= gmii_rxc_parallel;
 		end
 
+		//Shuffle the nibbles data back to where they should be.
 		always_comb begin
-			gmii_rx_bus.data	<= rx_parallel_data;
-
 			if(link_speed == LINK_SPEED_1000M)
-				gmii_rx_bus.dvalid	<= 1;
-
-			//special lock for start of packet
-			else if(gmii_rx_bus.en && !gmii_rx_bus_en_ff)
-				gmii_rx_bus.dvalid	<= 0;
-
-			else if(dvalid_raw) begin
-				gmii_rx_bus.data	<= rx_parallel_data_ff;
-				gmii_rx_bus.dvalid	<= 1;
-			end
-
+				rx_parallel_data <= gmii_rx_data_parallel_ff;
 			else
-				gmii_rx_bus.dvalid	<= 0;
-
-
+				rx_parallel_data <= { gmii_rx_data_parallel[7:4], gmii_rx_data_parallel_ff[3:0] };
 		end
 
-		//rx_er flag is encoded specially to reduce transitions (see RGMII spec section 3.4)
-		assign gmii_rx_bus.en = gmii_rxc_parallel_ff[0];
-		wire gmii_rx_er_int = gmii_rxc_parallel_ff[0] ^ gmii_rxc_parallel_ff[1];
+	end
+	else begin
+		DDRInputBuffer #(.WIDTH(4)) rgmii_rxd_iddr2(
+			.clk_p(gmii_rxc_ddrclk),
+			.clk_n(~gmii_rxc_ddrclk),
+			.din(rgmii_rxd),
+			.dout0(gmii_rx_data_parallel[7:4]),
+			.dout1(gmii_rx_data_parallel[3:0])
+			);
+		DDRInputBuffer #(.WIDTH(1)) rgmii_rxe_iddr2(
+			.clk_p(gmii_rxc_ddrclk),
+			.clk_n(~gmii_rxc_ddrclk),
+			.din(rgmii_rx_ctl),
+			.dout0(gmii_rxc_parallel[1]),
+			.dout1(gmii_rxc_parallel[0])
+			);
 
-		assign gmii_rx_bus.er = gmii_rx_er_int && gmii_rx_bus.en;
+		//Register the signals by one cycle so we can compensate for the clock inversion
+		always_ff @(posedge gmii_rxc) begin
+			gmii_rx_data_parallel_ff	<= gmii_rx_data_parallel;
+			gmii_rxc_parallel_ff		<= gmii_rxc_parallel;
+		end
 
-		/*
-			If gmii_rx_er_int is set without gmii_rx_bus.en, that's a special symbol of some sort
-			For now, we just ignore them
-			0xFF = carrier sense (not meaningful in full duplex)
-		 */
+		//Shuffle the nibbles data back to where they should be.
+		assign rx_parallel_data	= { gmii_rx_data_parallel[7:4], gmii_rx_data_parallel_ff[3:0] };
+	end
 
-	endgenerate
+	//10/100 un-DDR-ing
+	logic		gmii_rx_bus_en_ff	= 0;
+	logic		dvalid_raw			= 0;
+	logic[7:0]	rx_parallel_data_ff	= 0;
+	always_ff @(posedge gmii_rxc) begin
+		gmii_rx_bus_en_ff	<= gmii_rx_bus.en;
+		rx_parallel_data_ff	<= rx_parallel_data;
+
+		//Sync on start of packet
+		if(gmii_rx_bus.en && !gmii_rx_bus_en_ff)
+			dvalid_raw		<= 1;
+
+		//Toggle the rest of the time
+		else
+			dvalid_raw		<= !dvalid_raw;
+
+	end
+
+	always_comb begin
+		gmii_rx_bus.data	<= rx_parallel_data;
+
+		if(link_speed == LINK_SPEED_1000M)
+			gmii_rx_bus.dvalid	<= 1;
+
+		//special lock for start of packet
+		else if(gmii_rx_bus.en && !gmii_rx_bus_en_ff)
+			gmii_rx_bus.dvalid	<= 0;
+
+		else if(dvalid_raw) begin
+			gmii_rx_bus.data	<= rx_parallel_data_ff;
+			gmii_rx_bus.dvalid	<= 1;
+		end
+
+		else
+			gmii_rx_bus.dvalid	<= 0;
+
+
+	end
+
+	//rx_er flag is encoded specially to reduce transitions (see RGMII spec section 3.4)
+	assign gmii_rx_bus.en = gmii_rxc_parallel_ff[0];
+	wire gmii_rx_er_int = gmii_rxc_parallel_ff[0] ^ gmii_rxc_parallel_ff[1];
+
+	assign gmii_rx_bus.er = gmii_rx_er_int && gmii_rx_bus.en;
+
+	/*
+		If gmii_rx_er_int is set without gmii_rx_bus.en, that's a special symbol of some sort
+		For now, we just ignore them
+		0xFF = carrier sense (not meaningful in full duplex)
+	 */
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Synchronize link speed into TX clock domain
