@@ -371,16 +371,18 @@ module XGEthernetMAC(
 					//If we have less than a 64-byte packet including the current block,
 					//always process a full 4 bytes (padding if needed, but leaving room for CRC)
 					else if(running_frame_len <= 56) begin
-						running_frame_len	<= running_frame_len + 3'd4;
-						tx_crc_bytes_valid	<= 4;
+						running_frame_len			<= running_frame_len + 3'd4;
+						tx_crc_bytes_valid			<= 4;
+						tx_frame_bytes_valid_ff		<= 0;
+						tx_frame_bytes_valid_ff2	<= 0;
 					end
 
 					//Packet ended at an unaligned boundary, but we're above the minimum packet size.
 					//Just crunch this data by itself, then finish
 					else begin
-						running_frame_len	<= running_frame_len + tx_bus.bytes_valid;
-						tx_crc_bytes_valid	<= tx_bus.bytes_valid;
-						tx_state			<= TX_STATE_FCS_0;
+							running_frame_len		<= running_frame_len + tx_bus.bytes_valid;
+						tx_crc_bytes_valid			<= tx_bus.bytes_valid;
+						tx_state					<= TX_STATE_FCS_0;
 					end
 
 				end
@@ -388,14 +390,23 @@ module XGEthernetMAC(
 				//Packet ended at a 4-byte aligned boundary.
 				//CRC a block of zeroes if we need to pad.
 				else begin
+					tx_crc_din						<= 32'h0;
+
 					if(running_frame_len <= 56) begin
-						tx_crc_din			<= 32'h0;
-						tx_crc_bytes_valid	<= 4;
-						running_frame_len	<= running_frame_len + 3'd4;
+						tx_crc_bytes_valid			<= 4;
+						tx_frame_bytes_valid_ff		<= 0;
+						tx_frame_bytes_valid_ff2	<= 0;
+						running_frame_len			<= running_frame_len + 3'd4;
 					end
 
-					else
-						tx_state			<= TX_STATE_FCS_0;
+					else begin
+						//end of padding
+						tx_frame_bytes_valid_ff		<= 0;
+						tx_frame_bytes_valid_ff2	<= 0;
+
+						tx_state					<= TX_STATE_FCS_0;
+					end
+
 				end
 
 			end	//end TX_STATE_BODY
