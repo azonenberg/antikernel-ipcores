@@ -31,6 +31,10 @@
 
 `include "X25519_Types.svh"
 
+//enable this to turn on KEEP_HIERARCHY for better area feedback during optimization
+//turn off to enable flattening and improve performance/area
+//`define FORCE_HIERARCHY
+
 /**
 	@file
 	@author Andrew D. Zonenberg
@@ -67,7 +71,9 @@ module X25519_Mult(
 	wire[31:0]	pass_out;
 	bignum_t	b_rotated;
 
+	`ifdef FORCE_HIERARCHY
 	(* keep_hierarchy = "yes" *)
+	`endif
 	X25519_MultMuxing mux(
 		.clk(clk),
 		.en(en),
@@ -79,7 +85,9 @@ module X25519_Mult(
 		.b_rotated(b_rotated)
 	);
 
+	`ifdef FORCE_HIERARCHY
 	(* keep_hierarchy = "yes" *)
+	`endif
 	X25519_MultPass pass(
 		.clk(clk),
 		.en(stage1_en),
@@ -93,7 +101,9 @@ module X25519_Mult(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Step 2: reduce the multiplier output
 
+	`ifdef FORCE_HIERARCHY
 	(* keep_hierarchy = "yes" *)
+	`endif
 	X25519_StreamingSqueeze squeeze(
 		.clk(clk),
 		.en(en),

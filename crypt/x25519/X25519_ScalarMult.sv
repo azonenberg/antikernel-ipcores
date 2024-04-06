@@ -39,6 +39,35 @@
 	Typical area (Kintex-7)_
 		9315 LUT, 8559 FF, 32 DSP
 
+		Refactored for hierarchy and separate muxes
+			9415 LUT, 8775 FF, 32 DSP
+			of which
+				MultPass_stage1 = 2713 LUT
+				MultPass_stage2 = 256 LUT
+				MultMuxing = 520 LUT
+
+		Full keep hierarchy
+			9420 LUT, 8813 FF, 32 DSP
+			of which
+				Top level = 3233 LUT, 4460 FF
+				Add = 275 LUT, 531 FF
+				Mult = 5385 LUT, 2781 FF
+					MultPass_stage1 = 18 LUT
+					MultPass_stage2 = 2697 LUT
+					MultMuxing = 520 LUT, 518 FF
+					ReductionAdder stage3 512 LUT
+					ReductionAdder stage4 128 LUT
+					ReductionAdder stage5 32 LUT
+					StreamingSqueeze 146 LUT, 846 FF
+
+		Optimized mult muxing
+			9158 LUT, 8816 FF
+			of which
+				MultMuxing = 261 LUT, 518 FF
+
+			With flattened hierarchy
+				9060 LUT, 8542 FF, 32 DSP
+
 	Run time performance:
 		crypto_scalarmult (ECDH): 563438 clocks
 

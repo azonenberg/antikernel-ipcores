@@ -31,6 +31,14 @@
 
 `include "X25519_Types.svh"
 
+`ifdef XILINX_7SERIES
+`define HAVE_DSP48
+`endif
+
+//enable this to turn on KEEP_HIERARCHY for better area feedback during optimization
+//turn off to enable flattening and improve performance/area
+//`define FORCE_HIERARCHY
+
 /**
 	@file
 	@author Andrew D. Zonenberg
@@ -55,6 +63,9 @@ module X25519_MultPass(
 	wire[31:0]			stage2_do38;
 	bignum32_t			stage2_tmp;
 
+	`ifdef FORCE_HIERARCHY
+	(* keep_hierarchy = "yes" *)
+	`endif
 	X25519_MultPass_stage1 stage1(
 		.clk(clk),
 		.en(en),
@@ -72,6 +83,9 @@ module X25519_MultPass(
 	wire				stage3_en;
 	bignum32_t			stage3_tmp;
 
+	`ifdef FORCE_HIERARCHY
+	(* keep_hierarchy = "yes" *)
+	`endif
 	X25519_MultPass_stage2 stage2(
 		.clk(clk),
 		.stage2_en(stage2_en),
@@ -87,6 +101,9 @@ module X25519_MultPass(
 	wire		stage4_en;
 	wire[255:0]	stage4_tmp;
 
+	`ifdef FORCE_HIERARCHY
+	(* keep_hierarchy = "yes" *)
+	`endif
 	ReductionAdder #(
 		.IN_WORD_WIDTH(32),
 		.OUT_WORD_WIDTH(32),
@@ -103,6 +120,9 @@ module X25519_MultPass(
 	wire		stage5_en;
 	wire[63:0]	stage5_tmp;
 
+	`ifdef FORCE_HIERARCHY
+	(* keep_hierarchy = "yes" *)
+	`endif
 	ReductionAdder #(
 		.IN_WORD_WIDTH(32),
 		.OUT_WORD_WIDTH(32),
@@ -116,6 +136,9 @@ module X25519_MultPass(
 		.dout(stage5_tmp)
 	);
 
+	`ifdef FORCE_HIERARCHY
+	(* keep_hierarchy = "yes" *)
+	`endif
 	ReductionAdder #(
 		.IN_WORD_WIDTH(32),
 		.OUT_WORD_WIDTH(32),
@@ -145,7 +168,7 @@ module X25519_MultPass_stage1(
 	output logic		stage2_en	= 0,
 	output logic[31:0]	stage2_do38	= 0,
 
-	output bignum32_t	stage2_tmp	= 0
+	output bignum32_t	stage2_tmp
 	);
 
 
@@ -157,12 +180,20 @@ module X25519_MultPass_stage1(
 		stage2_en	<= en;
 
 		if(en) begin
-			for(integer j=0; j<32; j=j+1) begin
+			for(integer j=0; j<32; j=j+1)
 				stage2_do38[j]			<= (j > i);
-				stage2_tmp.blocks[j]	<= a.blocks[j] * b.blocks[j];
-			end
 		end
 
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The actual multipliers
+
+	for(genvar g=0; g<32; g=g+1) begin
+		always_ff @(posedge clk) begin
+			if(en)
+				stage2_tmp.blocks[g]	<= a.blocks[g] * b.blocks[g];
+		end
 	end
 
 endmodule
