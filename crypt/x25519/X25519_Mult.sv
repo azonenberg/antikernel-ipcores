@@ -61,14 +61,25 @@ module X25519_Mult(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Step 1: run multpass to iteratively calculate one block of the output at a time
 
-	logic		stage1_en	= 0;
-	logic[4:0]	stage1_i	= 0;
+	wire		stage1_en;
+	wire[4:0]	stage1_i;
 	wire		pass_out_valid;
 	wire[31:0]	pass_out;
+	bignum_t	b_rotated;
 
-	//We need to rotate B by 8 bits to the left each iteration
-	bignum_t	b_rotated	= 0;
+	(* keep_hierarchy = "yes" *)
+	X25519_MultMuxing mux(
+		.clk(clk),
+		.en(en),
+		.pass_out_valid(pass_out_valid),
+		.b_bignum(b_bignum),
 
+		.stage1_en(stage1_en),
+		.stage1_i(stage1_i),
+		.b_rotated(b_rotated)
+	);
+
+	(* keep_hierarchy = "yes" *)
 	X25519_MultPass pass(
 		.clk(clk),
 		.en(stage1_en),
@@ -79,38 +90,10 @@ module X25519_Mult(
 		.out(pass_out)
 	);
 
-	always_ff @(posedge clk) begin
-
-		stage1_en	<= 0;
-
-		//Start the first pass when we're ready
-		if(en) begin
-			stage1_en	<= 1;
-			stage1_i	<= 0;
-
-			for(integer i=0; i<31; i=i+1)
-				b_rotated.blocks[i+1]		<= b_bignum.blocks[31-i];
-			b_rotated.blocks[0] 			<= b_bignum.blocks[0];
-		end
-
-		//Start the next pass when the current one finishes
-		if(pass_out_valid) begin
-			stage1_i		<= stage1_i + 1'h1;
-			if(stage1_i != 31) begin
-				stage1_en	<= 1;
-
-				b_rotated.blocks[0]			<= b_rotated.blocks[31];
-				for(integer i=0; i<31; i=i+1)
-					b_rotated.blocks[i+1]	<= b_rotated.blocks[i];
-			end
-
-		end
-
-	end
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Step 2: reduce the multiplier output
 
+	(* keep_hierarchy = "yes" *)
 	X25519_StreamingSqueeze squeeze(
 		.clk(clk),
 		.en(en),
@@ -119,5 +102,60 @@ module X25519_Mult(
 		.out_valid(out_valid),
 		.out(out)
 	);
+
+endmodule
+
+//TODO move to separate file?
+module X25519_MultMuxing(
+	input wire			clk,
+	input wire			en,
+	input wire			pass_out_valid,
+	input bignum_t		b_bignum,
+
+	output logic		stage1_en	= 0,
+	output logic[4:0]	stage1_i	= 0,
+	output bignum_t		b_rotated	= 0
+);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// We need to rotate B by one block to the left each iteration
+
+	always_ff @(posedge clk) begin
+
+		stage1_en	= 0;
+
+		//Start the first pass when we're ready
+		if(en) begin
+			stage1_en	= 1;
+			stage1_i	<= 0;
+		end
+
+		//Start the next pass when the current one finishes
+		if(pass_out_valid) begin
+			stage1_i		<= stage1_i + 1'h1;
+			if(stage1_i != 31)
+				stage1_en	= 1;
+		end
+
+		//Input muxing
+		if(stage1_en) begin
+
+			//Least significant block
+			if(en)
+				b_rotated.blocks[0] 		<= b_bignum.blocks[0];
+			else
+				b_rotated.blocks[0]			<= b_rotated.blocks[31];
+
+			//Other blocks
+			for(integer i=0; i<31; i=i+1) begin
+				if(en)
+					b_rotated.blocks[i+1]	<= b_bignum.blocks[31-i];
+				else
+					b_rotated.blocks[i+1]	<= b_rotated.blocks[i];
+			end
+
+		end
+
+	end
 
 endmodule
