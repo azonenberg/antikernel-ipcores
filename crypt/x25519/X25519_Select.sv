@@ -2,9 +2,9 @@
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -40,10 +40,10 @@ module X25519_Select(
 	input wire			clk,
 	input wire			en,
 	input wire			b,
-	input wire[511:0]	r,
-	input wire[511:0]	s,
-	output logic[511:0]	p			= 0,
-	output logic[511:0]	q			= 0,
+	input wire[255:0]	r,
+	input wire[255:0]	s,
+	output logic[255:0]	p			= 0,
+	output logic[255:0]	q			= 0,
 	output logic		out_valid	= 0
 	);
 

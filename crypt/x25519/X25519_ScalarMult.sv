@@ -2,9 +2,9 @@
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -35,12 +35,31 @@
 	@brief X25519 multiplication
 
 	Derived from mainloop() and crypto_scalarmult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
+
+	Typical area (Kintex-7)_
+		9315 LUT, 8559 FF, 32 DSP
+
+	Run time performance:
+		crypto_scalarmult (ECDH): 563438 clocks
+
+	Typical achievable performance:
+		250 MHz in Kintex-7, -2 speed
+			crypto_scalarmult (ECDH):	2.24 ms / 2.25 ms after
+			scalarmult (ECDSA):			xx
  */
 module X25519_ScalarMult(
 	input wire			clk,
-	input wire			en,
+
+	//Common inputs
+	input wire[255:0]	e,				//outer loop variable
+
+	//ECDH interface
+	input wire			dh_en,
 	input wire[255:0]	work_in,
-	input wire[255:0]	e,
+
+	//ECDSA interface
+
+	//Common outputs
 	output wire			out_valid,
 	output wire[255:0]	work_out
 );
@@ -48,9 +67,9 @@ module X25519_ScalarMult(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Loop contents
 
-	logic			iter_en		= 0;
-	logic			iter_first	= 0;
-	logic			b			= 0;
+	logic			dh_iter_en		= 0;
+	logic			iter_first		= 0;
+	logic			b				= 0;
 
 	logic			iter_out_valid	= 0;
 
@@ -60,7 +79,7 @@ module X25519_ScalarMult(
 	logic[7:0] 		round = 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Apply bit twiddling to "e"
+	// Apply bit twiddling to "e" for ECDH
 
 	logic[255:0]	e_fixed;
 	always_comb begin
@@ -107,10 +126,10 @@ module X25519_ScalarMult(
 	);
 
 	logic			share_select_en	= 0;
-	logic[511:0]	share_select_r	= 0;
-	logic[511:0]	share_select_s	= 0;
-	wire[511:0]		share_select_p;
-	wire[511:0]		share_select_q;
+	logic[255:0]	share_select_r	= 0;
+	logic[255:0]	share_select_s	= 0;
+	wire[255:0]		share_select_p;
+	wire[255:0]		share_select_q;
 	wire			share_select_valid;
 
 	X25519_Select share_select(
@@ -146,77 +165,85 @@ module X25519_ScalarMult(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main loop
 
-	typedef enum logic[5:0]
+	//going to have to bump this up to one more address bit
+	typedef enum logic[6:0]
 	{
-		//mainloop()
-		STATE_IDLE			= 6'h00,
-		STATE_SELECT_DONE	= 6'h01,
-		STATE_A0			= 6'h02,
-		STATE_B0_LOW		= 6'h03,
-		STATE_B0_HIGH		= 6'h04,
-		STATE_B1_LOW		= 6'h05,
-		STATE_B1_HIGH		= 6'h06,
-		STATE_C1			= 6'h07,
-		STATE_R				= 6'h08,
-		STATE_T				= 6'h09,
-		STATE_XB_LOW		= 6'h0a,
-		STATE_XB_HIGH		= 6'h0b,
-		STATE_XN_LOW		= 6'h0c,
-		STATE_XN_HIGH		= 6'h0d,
+		//mainloop(): 18 lines
+		STATE_ECDH_START_FIRST,
+		STATE_ECDH_SELECT_FIRST,
+		STATE_ECDH_START,
+		STATE_ECDH_SELECT,
+		STATE_SELECT_DONE,
+		STATE_A0,
+		STATE_B0_LOW,
+		STATE_B0_HIGH,
+		STATE_B1_LOW,
+		STATE_B1_HIGH,
+		STATE_C1,
+		STATE_R,
+		STATE_T,
+		STATE_XB_LOW,
+		STATE_XB_HIGH,
+		STATE_XN_LOW,
+		STATE_XN_HIGH,
+		STATE_XN_HIGH2,
 
-		//recip()
-		STATE_RECIP			= 6'h0e,
-		STATE_R4			= 6'h0f,
-		STATE_R8			= 6'h10,
-		STATE_R9			= 6'h11,
-		STATE_R11			= 6'h12,
-		STATE_R22			= 6'h13,
-		STATE_R31			= 6'h14,
-		STATE_R61			= 6'h15,
-		STATE_R72			= 6'h16,
-		STATE_R83			= 6'h17,
-		STATE_R94			= 6'h18,
-		STATE_R105			= 6'h19,
-		STATE_R100			= 6'h1a,
-		STATE_R111			= 6'h1b,
-		STATE_R122			= 6'h1c,
-		STATE_R2010_LOOP	= 6'h1d,
-		STATE_R2010			= 6'h1e,
-		STATE_R200			= 6'h1f,
-		STATE_R211			= 6'h20,
-		STATE_R4020_LOOP	= 6'h21,
-		STATE_R4020			= 6'h22,
-		STATE_R400			= 6'h23,
-		STATE_R411			= 6'h24,
-		STATE_R5010_LOOP	= 6'h25,
-		STATE_R5010			= 6'h26,
-		STATE_R500			= 6'h27,
-		STATE_R522			= 6'h28,
-		STATE_R10050_LOOP	= 6'h29,
-		STATE_R10050		= 6'h2a,
-		STATE_R1000			= 6'h2b,
-		STATE_R1011			= 6'h2c,
-		STATE_R200100_LOOP	= 6'h2d,
-		STATE_R200100		= 6'h2e,
-		STATE_R2000			= 6'h2f,
-		STATE_R2011			= 6'h30,
-		STATE_R25050_LOOP	= 6'h31,
-		STATE_R25050		= 6'h32,
-		STATE_R2500			= 6'h33,
-		STATE_R2511			= 6'h34,
-		STATE_R2522			= 6'h35,
-		STATE_R2533			= 6'h36,
-		STATE_R2544			= 6'h37,
-		STATE_R2555			= 6'h38,
+		//recip(): 43 lines
+		STATE_RECIP,
+		STATE_R4,
+		STATE_R8,
+		STATE_R9,
+		STATE_R11,
+		STATE_R22,
+		STATE_R31,
+		STATE_R61,
+		STATE_R72,
+		STATE_R83,
+		STATE_R94,
+		STATE_R105,
+		STATE_R100,
+		STATE_R111,
+		STATE_R122,
+		STATE_R2010_LOOP,
+		STATE_R2010,
+		STATE_R200,
+		STATE_R211,
+		STATE_R4020_LOOP,
+		STATE_R4020,
+		STATE_R400,
+		STATE_R411,
+		STATE_R5010_LOOP,
+		STATE_R5010,
+		STATE_R500,
+		STATE_R522,
+		STATE_R10050_LOOP,
+		STATE_R10050,
+		STATE_R1000,
+		STATE_R1011,
+		STATE_R200100_LOOP,
+		STATE_R200100,
+		STATE_R2000,
+		STATE_R2011,
+		STATE_R25050_LOOP,
+		STATE_R25050,
+		STATE_R2500,
+		STATE_R2511,
+		STATE_R2522,
+		STATE_R2533,
+		STATE_R2544,
+		STATE_R2555,
 
-		//crypto_scalarmult()
-		STATE_FINAL_MULT	= 6'h39,
-		STATE_DONE			= 6'h3a,
+		//crypto_scalarmult(): 1 line
+		STATE_FINAL_MULT,
+
+		//completion: 2 lines
+		STATE_ITER_DONE,
+		STATE_DONE,
 
 		STATE_MAX
 	} state_t;
 
-	state_t state = STATE_IDLE;
+	state_t state = STATE_DONE;
 
 	//Memory for temporary variables
 	typedef enum logic[3:0]
@@ -228,23 +255,24 @@ module X25519_ScalarMult(
 		REG_TEMP_3		= 4'h03,
 		REG_TEMP_4		= 4'h04,
 		REG_TEMP_5		= 4'h05,
+		REG_TEMP_6		= 4'h06,
+		REG_TEMP_7		= 4'h07,
+		REG_TEMP_8		= 4'h08,
+		REG_TEMP_9		= 4'h09,
 
 		//Special registers (named, but not always usable in every operation)
-		REG_SELP_LO		= 4'h06,	//4x select outputs
-		REG_SELP_HI		= 4'h07,
-		REG_SELQ_LO		= 4'h08,
-		REG_SELQ_HI		= 4'h09,
 		REG_121665		= 4'h0a,	//always 121665
 		REG_ZERO		= 4'h0b,	//throw away unused values
-		REG_WORK_LOW	= 4'h0c,
-		REG_WORK_HI		= 4'h0d		//must be last
+		REG_ONE			= 4'h0c,
+		REG_WORK_LOW	= 4'h0d,
+		REG_WORK_HI		= 4'h0e		//must be last
 	} regid_t;
-	logic[263:0]	temp_regs[REG_TEMP_5:0];
+	logic[263:0]	temp_regs[REG_TEMP_9:0];
 
 	//Initialize registers, including constants
 	initial begin
 
-		for(integer i=0; i<=REG_TEMP_5; i++)
+		for(integer i=0; i<=REG_TEMP_9; i++)
 			temp_regs[i]		<= 0;
 
 	end
@@ -252,6 +280,7 @@ module X25519_ScalarMult(
 	//Microcode definitions
 	typedef struct packed
 	{
+		//inputs
 		logic		select_en;
 		logic		addsub_en;
 		logic		mult_en;
@@ -262,10 +291,20 @@ module X25519_ScalarMult(
 
 		/////
 
+		//new block for selection
+		regid_t		select_r;	//inputs
+		regid_t		select_s;
+		regid_t		select_p;	//outputs
+		regid_t		select_q;
+
+		/////
+
+		//outputs
 		regid_t		add_out;
 		regid_t		sub_out;
 		regid_t		mult_out;
 
+		//control flow
 		logic		next_on_add;
 		logic		next_on_mult;
 		logic		next_on_select;
@@ -284,255 +323,344 @@ module X25519_ScalarMult(
 			ucode[i] = {$bits(microcode_t){1'b0}};
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		// MAINLOOP
+		// crypto_scalarmult MAINLOOP ENTRY
 
-		//Idle
-		ucode[STATE_IDLE] = { 3'b000, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+		//First iteration
+		ucode[STATE_ECDH_START_FIRST] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_ONE, REG_WORK_LOW, REG_TEMP_6, REG_TEMP_7,	// p/q low
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_ECDH_SELECT_FIRST, 1'b0, 7'd0 };
+
+		ucode[STATE_ECDH_SELECT_FIRST] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_ZERO, REG_ONE, REG_TEMP_8, REG_TEMP_9,	// p/q high
 			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_SELECT_DONE, 1'b0, 7'd0 };
+
+		//Subsequent iterations
+		ucode[STATE_ECDH_START] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_6, REG_TEMP_7, REG_TEMP_6, REG_TEMP_7,	// p/q low
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_ECDH_SELECT, 1'b0, 7'd0 };
+
+		ucode[STATE_ECDH_SELECT] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_8, REG_TEMP_9, REG_TEMP_8, REG_TEMP_9,	// p/q high
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_SELECT_DONE, 1'b0, 7'd0 };
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// crypto_scalarmult MAINLOOP
 
 		//add(a0,xzmb,xzmb + 32);
 		//sub(a0 + 32,xzmb,xzmb + 32);
-		ucode[STATE_SELECT_DONE] = { 3'b010, REG_SELP_LO, REG_SELP_HI, REG_ZERO, REG_ZERO,	//TEMP_0 is now A0_LO
+		ucode[STATE_SELECT_DONE] = { 3'b010, REG_TEMP_6, REG_TEMP_8, REG_ZERO, REG_ZERO, 	//TEMP_0 is now A0_LO
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_TEMP_0, REG_TEMP_1, REG_ZERO, 3'b100, STATE_A0, 1'b0, 7'd0 };				//TEMP_1 is now A0_HI
 
 		//add(a1,xzm1b,xzm1b + 32);
 		//sub(a1 + 32,xzm1b,xzm1b + 32);
 		//square(b0,a0);
-		ucode[STATE_A0] = {3'b011, REG_SELQ_LO, REG_SELQ_HI, REG_TEMP_0, REG_TEMP_0,		//TEMP_2 is now A1_LO
+		ucode[STATE_A0] = { 3'b011, REG_TEMP_7, REG_TEMP_9, REG_TEMP_0, REG_TEMP_0,		//TEMP_2 is now A1_LO
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_TEMP_2, REG_TEMP_3, REG_TEMP_4, 3'b010, STATE_B0_LOW, 1'b0, 7'd0 };			//TEMP_3 is now A1_HI
 																							//TEMP_4 is now B0_LO
 
 		//square(b0 + 32,a0 + 32);
-		ucode[STATE_B0_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,			//TEMP_5 is now B0_HI
+		ucode[STATE_B0_LOW] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,			//TEMP_5 is now B0_HI
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_5, 3'b010, STATE_B0_HIGH, 1'b0, 7'd0 };
 
 		//mult(b1,a1,a0 + 32);
-		ucode[STATE_B0_HIGH] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_1,	//last use of TEMP_1 as A0_HI
+		ucode[STATE_B0_HIGH] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_1,	//last use of TEMP_1 as A0_HI
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_B1_LOW, 1'b0, 7'd0 };		//TEMP_1 is now B1_LO
 
 		//mult(b1 + 32,a1 + 32,a0);
-		ucode[STATE_B1_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_3, REG_TEMP_0,
+		ucode[STATE_B1_LOW] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_3, REG_TEMP_0,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_B1_HIGH, 1'b0, 7'd0 };	//TEMP_0 is now B1_HI
 
 		//add(c1,b1,b1 + 32);
 		//sub(c1 + 32,b1,b1 + 32);
-		ucode[STATE_B1_HIGH] = {3'b010, REG_TEMP_1, REG_TEMP_0, REG_ZERO, REG_ZERO, //TEMP_0 is now C1_LO
+		ucode[STATE_B1_HIGH] = { 3'b010, REG_TEMP_1, REG_TEMP_0, REG_ZERO, REG_ZERO, //TEMP_0 is now C1_LO
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_TEMP_0, REG_TEMP_1, REG_ZERO, 3'b100, STATE_C1, 1'b0, 7'd0 };		//TEMP_1 is now C1_HI
 
 		//sub(s,b0,b0 + 32);
 		//square(r,c1 + 32);
-		ucode[STATE_C1] = {3'b011, REG_TEMP_4, REG_TEMP_5, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is now S
+		ucode[STATE_C1] = { 3'b011, REG_TEMP_4, REG_TEMP_5, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is now S
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_TEMP_1, REG_TEMP_2, 3'b010, STATE_R, 1'b0, 7'd0 };		//TEMP_2 is now R
 
 		//mult121665(t,s);
-		ucode[STATE_R] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_121665,
+		ucode[STATE_R] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_121665,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_3, 3'b010, STATE_T, 1'b0, 7'd0 };			//TEMP_3 is now T
 
 		//add(u,t,b0);
 		//mult(xznb,b0,b0 + 32);
-		ucode[STATE_T] = {3'b011, REG_TEMP_3, REG_TEMP_4, REG_TEMP_4, REG_TEMP_5,	//TEMP_3 is now XZNB_LO
+		ucode[STATE_T] = { 3'b011, REG_TEMP_3, REG_TEMP_4, REG_TEMP_4, REG_TEMP_5,	//TEMP_3 is now XZNB_LO
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_TEMP_4, REG_ZERO, REG_TEMP_3, 3'b010, STATE_XB_LOW, 1'b0, 7'd0 };	//TEMP_4 is now U
 
 		//mult(xznb + 32,s,u);
-		ucode[STATE_XB_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_4,	//TEMP_1 is now XZNB_HI
+		ucode[STATE_XB_LOW] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_4,	//TEMP_1 is now XZNB_HI
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_XB_HIGH, 1'b0, 7'd0 };
 
 		//square(xzn1b,c1);
-		ucode[STATE_XB_HIGH] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_0, REG_TEMP_0, //TEMP_0 is now XZN1B_LO
+		ucode[STATE_XB_HIGH] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_0, REG_TEMP_0, //TEMP_0 is now XZN1B_LO
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_XN_LOW, 1'b0, 7'd0 };
 
 		//mult(xzn1b + 32,r,work);
-		ucode[STATE_XN_LOW] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_WORK_LOW,//TEMP_2 is now XZN1B_HI
+		ucode[STATE_XN_LOW] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_WORK_LOW,//TEMP_2 is now XZN1B_HI
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_XN_HIGH, 1'b0, 7'd0 };
 
 		//select(xzm,xzm1,xznb,xzn1b,b);
-		ucode[STATE_XN_HIGH] = {3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
-			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_IDLE, 1'b0, 7'd0 };
+		ucode[STATE_XN_HIGH] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_3, REG_TEMP_0, REG_TEMP_6, REG_TEMP_7,	// p/q low
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_XN_HIGH2, 1'b0, 7'd0 };
+
+		ucode[STATE_XN_HIGH2] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_1, REG_TEMP_2, REG_TEMP_8, REG_TEMP_9,	// p/q high
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_ITER_DONE, 1'b0, 7'd0 };
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		// RECIP
+		// crypto_scalarmult RECIP
 
 		//2: square(z2,z);
 		ucode[STATE_RECIP] = { 3'b001, REG_ZERO, REG_ZERO, REG_WORK_HI, REG_WORK_HI,	//TEMP_0 is now z2
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_R4, 1'b0, 7'd0 };
 
 		//4: square(t1,z2);
-		ucode[STATE_R4] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_0, REG_TEMP_0,			//TEMP_1 is now t1
+		ucode[STATE_R4] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_0, REG_TEMP_0,			//TEMP_1 is now t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R8, 1'b0, 7'd0 };
 
 		//8: square(t0,t1);
-		ucode[STATE_R8] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,			//TEMP_2 is now t0
+		ucode[STATE_R8] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,			//TEMP_2 is now t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R9, 1'b0, 7'd0 };
 
 		//9: mult(z9,t0,z);
-		ucode[STATE_R9] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_WORK_HI,			//TEMP_3 is now z9
+		ucode[STATE_R9] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_WORK_HI,			//TEMP_3 is now z9
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_3, 3'b010, STATE_R11, 1'b0, 7'd0 };
 
 		//11: mult(z11,z9,z2);
-		ucode[STATE_R11] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_3, REG_TEMP_0,			//TEMP_0 is now z11
+		ucode[STATE_R11] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_3, REG_TEMP_0,			//TEMP_0 is now z11
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_R22, 1'b0, 7'd0 };
 
 		//22: square(t0,z11);
-		ucode[STATE_R22] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_0, REG_TEMP_0,			//TEMP_2 is still t0
+		ucode[STATE_R22] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_0, REG_TEMP_0,			//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R31, 1'b0, 7'd0 };
 
 		//31: mult(z2_5_0,t0,z9);
-		ucode[STATE_R31] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_3,			//TEMP_3 is now z2_5_0
+		ucode[STATE_R31] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_3,			//TEMP_3 is now z2_5_0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_3, 3'b010, STATE_R61, 1'b0, 7'd0 };
 
 		//2^6 - 2^1: square(t0,z2_5_0);
-		ucode[STATE_R61] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_3, REG_TEMP_3,			//TEMP_2 is still t0
+		ucode[STATE_R61] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_3, REG_TEMP_3,			//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R72, 1'b0, 7'd0 };
 
 		//2^7 - 2^2: square(t1,t0);
-		ucode[STATE_R72] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,			//TEMP_1 is still t1
+		ucode[STATE_R72] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,			//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R83, 1'b0, 7'd0 };
 
 		//2^8 - 2^3: square(t0,t1);
-		ucode[STATE_R83] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,			//TEMP_2 is still t0
+		ucode[STATE_R83] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,			//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R94, 1'b0, 7'd0 };
 
 		//2^9 - 2^4: square(t1,t0);
-		ucode[STATE_R94] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,			//TEMP_1 is still t1
+		ucode[STATE_R94] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,			//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R105, 1'b0, 7'd0 };
 
 		//2^10 - 2^5: square(t0,t1);
-		ucode[STATE_R105] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+		ucode[STATE_R105] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R100, 1'b0, 7'd0 };
 
 		//2^10 - 2^0: mult(z2_10_0,t0,z2_5_0);
-		ucode[STATE_R100] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_3,		//TEMP_3 is now z2_10_0
+		ucode[STATE_R100] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_3,		//TEMP_3 is now z2_10_0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_3, 3'b010, STATE_R111, 1'b0, 7'd0 };
 
 		//2^11 - 2^1: square(t0,z2_10_0);
-		ucode[STATE_R111] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_3, REG_TEMP_3,		//TEMP_2 is still t0
+		ucode[STATE_R111] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_3, REG_TEMP_3,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R122, 1'b0, 7'd0 };
 
 		//2^12 - 2^2: square(t1,t0);
-		ucode[STATE_R122] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+		ucode[STATE_R122] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2010_LOOP, 1'b0, 7'd0 };
 
 		//2^12 - 2^2: for (i = 2;i < 10;i += 2) { square(t0,t1); square(t1,t0); }
 		//We change this around a bit and square into t1 each iteration, and count by 1
 		//since our loop algorithm doesn't allow multi-line loop bodies
-		ucode[STATE_R2010_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
+		ucode[STATE_R2010_LOOP] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2010, 1'b1, 7'd10 };
 
 		//2^20 - 2^0: mult(z2_20_0,t1,z2_10_0);
-		ucode[STATE_R2010] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_3,		//TEMP_4 is now z2_20_0
+		ucode[STATE_R2010] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_3,		//TEMP_4 is now z2_20_0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_4, 3'b010, STATE_R200, 1'b0, 7'd0 };
 
 		//2^21 - 2^1: square(t0,z2_20_0);
-		ucode[STATE_R200] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_4, REG_TEMP_4,		//TEMP_2 is still t0
+		ucode[STATE_R200] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_4, REG_TEMP_4,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R211, 1'b0, 7'd0 };
 
 		//2^22 - 2^2: square(t1,t0);
-		ucode[STATE_R211] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+		ucode[STATE_R211] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R4020_LOOP, 1'b0, 7'd0 };
 
 		//2^40 - 2^20: for (i = 2;i < 20;i += 2) { square(t0,t1); square(t1,t0); }
 		//Same as before, we do single multiplies instead of t1-t0-t1 pingponging
-		ucode[STATE_R4020_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
+		ucode[STATE_R4020_LOOP] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R4020, 1'b1, 7'd20 };
 
 		//2^40 - 2^0: mult(t0,t1,z2_20_0);
-		ucode[STATE_R4020] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_4,		//TEMP_2 is still t0
+		ucode[STATE_R4020] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_4,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R400, 1'b0, 7'd0 };
 
 		//2^41 - 2^1: square(t1,t0);
-		ucode[STATE_R400] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+		ucode[STATE_R400] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R411, 1'b0, 7'd0 };
 
 		//2^42 - 2^2: square(t0,t1);
-		ucode[STATE_R411] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+		ucode[STATE_R411] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R5010_LOOP, 1'b0, 7'd0 };
 
 		//2^50 - 2^10: for (i = 2;i < 10;i += 2) { square(t1,t0); square(t0,t1); }
-		ucode[STATE_R5010_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,	//TEMP_2 is still t0
+		ucode[STATE_R5010_LOOP] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,	//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R5010, 1'b1, 7'd10 };
 
 		//2^50 - 2^0: mult(z2_50_0,t0,z2_10_0);
-		ucode[STATE_R5010] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_3,		//TEMP_3 is now z2_50_0
+		ucode[STATE_R5010] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_3,		//TEMP_3 is now z2_50_0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_3, 3'b010, STATE_R500, 1'b0, 7'd0 };
 
 		//2^51 - 2^1: square(t0,z2_50_0);
-		ucode[STATE_R500] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_3, REG_TEMP_3,		//TEMP_2 is still t0
+		ucode[STATE_R500] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_3, REG_TEMP_3,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R522, 1'b0, 7'd0 };
 
 		//2^52 - 2^2: square(t1,t0);
-		ucode[STATE_R522] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+		ucode[STATE_R522] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R10050_LOOP, 1'b0, 7'd0 };
 
 		//2^100 - 2^50: for (i = 2;i < 50;i += 2) { square(t0,t1); square(t1,t0); }
-		ucode[STATE_R10050_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
+		ucode[STATE_R10050_LOOP] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R10050, 1'b1, 7'd50 };
 
 		//2^100 - 2^0: mult(z2_100_0,t1,z2_50_0);
-		ucode[STATE_R10050] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_3,		//TEMP_4 is now z2_100_0
+		ucode[STATE_R10050] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_3,		//TEMP_4 is now z2_100_0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_4, 3'b010, STATE_R1000, 1'b0, 7'd0 };
 
 		//2^101 - 2^1: square(t1,z2_100_0);
-		ucode[STATE_R1000] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_4, REG_TEMP_4,		//TEMP_1 is still t1
+		ucode[STATE_R1000] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_4, REG_TEMP_4,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R1011, 1'b0, 7'd0 };
 
 		//2^102 - 2^2: square(t0,t1);
-		ucode[STATE_R1011] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+		ucode[STATE_R1011] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R200100_LOOP, 1'b0, 7'd0 };
 
 		//2^200 - 2^100: for (i = 2;i < 100;i += 2) { square(t1,t0); square(t0,t1); }
-		ucode[STATE_R200100_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,//TEMP_2 is still t0
+		ucode[STATE_R200100_LOOP] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R200100, 1'b1, 7'd100 };
 
 		//2^200 - 2^0: mult(t1,t0,z2_100_0);
-		ucode[STATE_R200100] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_4,		//TEMP_1 is still t1
+		ucode[STATE_R200100] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_4,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2000, 1'b0, 7'd0 };
 
 		//2^201 - 2^1: square(t0,t1);
-		ucode[STATE_R2000] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+		ucode[STATE_R2000] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R2011, 1'b0, 7'd0 };
 
 		//2^202 - 2^2: square(t1,t0);
-		ucode[STATE_R2011] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+		ucode[STATE_R2011] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R25050_LOOP, 1'b0, 7'd0 };
 
 		//2^250 - 2^50: for (i = 2;i < 50;i += 2) { square(t0,t1); square(t1,t0); }
-		ucode[STATE_R25050_LOOP] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
+		ucode[STATE_R25050_LOOP] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,	//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R25050, 1'b1, 7'd50 };
 
 		//2^250 - 2^0: mult(t0,t1,z2_50_0);
-		ucode[STATE_R25050] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_3,		//TEMP_2 is still t0
+		ucode[STATE_R25050] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_3,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R2500, 1'b0, 7'd0 };
 
 		//2^251 - 2^1: square(t1,t0);
-		ucode[STATE_R2500] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+		ucode[STATE_R2500] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2511, 1'b0, 7'd0 };
 
 		//2^252 - 2^2: square(t0,t1);
-		ucode[STATE_R2511] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+		ucode[STATE_R2511] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R2522, 1'b0, 7'd0 };
 
 		//2^253 - 2^3: square(t1,t0);
-		ucode[STATE_R2522] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+		ucode[STATE_R2522] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2533, 1'b0, 7'd0 };
 
 		//2^254 - 2^4: square(t0,t1);
-		ucode[STATE_R2533] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+		ucode[STATE_R2533] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_1,		//TEMP_2 is still t0
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R2544, 1'b0, 7'd0 };
 
 		//2^255 - 2^5: square(t1,t0);
-		ucode[STATE_R2544] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+		ucode[STATE_R2544] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_2,		//TEMP_1 is still t1
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_R2555, 1'b0, 7'd0 };
 
 		//2^255 - 21: mult(out,t1,z11);
-		ucode[STATE_R2555] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_0,		//TEMP_0 is now out
+		ucode[STATE_R2555] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_0,		//TEMP_0 is now out
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_FINAL_MULT, 1'b0, 7'd0 };
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-		// crypto_scalarmult
+		// crypto_scalarmult top
 
 		//mult(work + 64,work,work + 32);
-		ucode[STATE_FINAL_MULT] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_0, REG_SELP_LO,	//TEMP_0 is now work+64
+		ucode[STATE_FINAL_MULT] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_0, REG_TEMP_6,	//TEMP_0 is now work+64
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_DONE, 1'b0, 7'd0 };
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		/// end
+
+		ucode[STATE_DONE] = { 3'b000, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b000, STATE_DONE, 1'b0, 7'd0 };
+
+		ucode[STATE_ITER_DONE] = { 3'b000, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b000, STATE_ITER_DONE, 1'b0, 7'd0 };
 
 	end
 
@@ -565,17 +693,18 @@ module X25519_ScalarMult(
 
 		//Save output
 		if(share_add_valid && (line.add_out <= REG_TEMP_5))
-			temp_regs[line.add_out[2:0]]	<= share_add_out;
+			temp_regs[line.add_out]		<= share_add_out;
 		if(share_sub_valid && (line.sub_out <= REG_TEMP_5))
-			temp_regs[line.sub_out[2:0]]	<= share_sub_out;
+			temp_regs[line.sub_out]		<= share_sub_out;
 		if(share_mult_valid && (line.mult_out <= REG_TEMP_5))
-			temp_regs[line.mult_out[2:0]]	<= share_mult_out;
-		if(share_select_valid && state == STATE_XN_HIGH)
-			iter_out_valid	<= 1;
+			temp_regs[line.mult_out]	<= share_mult_out;
+		if(share_select_valid) begin
+			temp_regs[line.select_p]	<= share_select_p;
+			temp_regs[line.select_q]	<= share_select_q;
+		end
 
-		//Reset on completion
-		if(out_valid)
-			state			<= STATE_IDLE;
+		if(share_select_valid && state == STATE_XN_HIGH2)
+			iter_out_valid	<= 1;
 
 		//Move on to the next state
 		if(advancing) begin
@@ -613,10 +742,6 @@ module X25519_ScalarMult(
 			share_addsub_en		<= line.addsub_en;
 			share_mult_en		<= line.mult_en;
 
-			//Selection always uses the same inputs
-			share_select_r		<= {temp_regs[REG_TEMP_1][255:0], temp_regs[REG_TEMP_3][255:0]};
-			share_select_s		<= {temp_regs[REG_TEMP_2][255:0], temp_regs[REG_TEMP_0][255:0]};
-
 			//Special case freeze() since it's only used for the output
 			share_freeze_en		<= (state == STATE_DONE);
 
@@ -630,9 +755,8 @@ module X25519_ScalarMult(
 				REG_TEMP_3:		share_addsub_a	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_4:		share_addsub_a	<= temp_regs[REG_TEMP_4];
 				//REG_TEMP_5:		share_addsub_a	<= temp_regs[REG_TEMP_5];
-
-				REG_SELP_LO:	share_addsub_a	<= {8'h0, share_select_p[255:0]};
-				REG_SELQ_LO:	share_addsub_a	<= {8'h0, share_select_q[255:0]};
+				REG_TEMP_6:		share_addsub_a	<= temp_regs[REG_TEMP_6];
+				REG_TEMP_7:		share_addsub_a	<= temp_regs[REG_TEMP_7];
 			endcase
 
 			case(line.addsub_b)
@@ -642,9 +766,8 @@ module X25519_ScalarMult(
 				//REG_TEMP_3:		share_addsub_b	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_4:		share_addsub_b	<= temp_regs[REG_TEMP_4];
 				REG_TEMP_5:		share_addsub_b	<= temp_regs[REG_TEMP_5];
-
-				REG_SELP_HI:	share_addsub_b	<= {8'h0, share_select_p[511:256]};
-				REG_SELQ_HI:	share_addsub_b	<= {8'h0, share_select_q[511:256]};
+				REG_TEMP_8:		share_addsub_b	<= temp_regs[REG_TEMP_8];
+				REG_TEMP_9:		share_addsub_b	<= temp_regs[REG_TEMP_9];
 			endcase
 
 			case(line.mult_a)
@@ -667,10 +790,28 @@ module X25519_ScalarMult(
 				REG_121665:		share_mult_b	<= 264'd121665;
 				REG_WORK_LOW:	share_mult_b	<= {8'h0, work_in};
 				REG_WORK_HI:	share_mult_b	<= {8'h0, ml_work_out[511:256]};
-				REG_SELP_LO:	share_mult_b	<= {8'h0, share_select_p[255:0]};
+				REG_TEMP_6:		share_mult_b	<= temp_regs[REG_TEMP_6];
 			endcase
 
-			if(line.addsub_en && (round < 5) ) begin
+			case(line.select_r)
+				REG_ZERO:		share_select_r	<= 256'h0;
+				REG_ONE:		share_select_r	<= 256'h1;
+				REG_TEMP_1:		share_select_r	<= temp_regs[REG_TEMP_1];
+				REG_TEMP_3:		share_select_r	<= temp_regs[REG_TEMP_3];
+				REG_TEMP_6:		share_select_r	<= temp_regs[REG_TEMP_6];
+				REG_TEMP_8:		share_select_r	<= temp_regs[REG_TEMP_8];
+			endcase
+
+			case(line.select_s)
+				REG_WORK_LOW:	share_select_s	<= {8'h0, work_in};
+				REG_ONE:		share_select_s	<= 256'h1;
+				REG_TEMP_0:		share_select_s	<= temp_regs[REG_TEMP_0];
+				REG_TEMP_2:		share_select_s	<= temp_regs[REG_TEMP_2];
+				REG_TEMP_7:		share_select_s	<= temp_regs[REG_TEMP_7];
+				REG_TEMP_9:		share_select_s	<= temp_regs[REG_TEMP_9];
+			endcase
+
+			if(line.addsub_en && (round == 'hfe) ) begin
 				$display("Starting add/sub (state %d)", state);
 				if(!line.mult_en) begin
 					$display("    r0 = %x", temp_regs[REG_TEMP_0]);
@@ -679,10 +820,14 @@ module X25519_ScalarMult(
 					$display("    r3 = %x", temp_regs[REG_TEMP_3]);
 					$display("    r4 = %x", temp_regs[REG_TEMP_4]);
 					$display("    r5 = %x", temp_regs[REG_TEMP_5]);
+					$display("    r6 = %x", temp_regs[REG_TEMP_6]);
+					$display("    r7 = %x", temp_regs[REG_TEMP_7]);
+					$display("    r8 = %x", temp_regs[REG_TEMP_8]);
+					$display("    r9 = %x", temp_regs[REG_TEMP_9]);
 				end
 			end
 
-			if(line.mult_en && (round < 5) ) begin
+			if(line.mult_en && (round == 'hfe) ) begin
 				$display("Starting multiply (state %d)", state);
 				$display("    r0 = %x", temp_regs[REG_TEMP_0]);
 				$display("    r1 = %x", temp_regs[REG_TEMP_1]);
@@ -690,22 +835,22 @@ module X25519_ScalarMult(
 				$display("    r3 = %x", temp_regs[REG_TEMP_3]);
 				$display("    r4 = %x", temp_regs[REG_TEMP_4]);
 				$display("    r5 = %x", temp_regs[REG_TEMP_5]);
+				$display("    r6 = %x", temp_regs[REG_TEMP_6]);
+				$display("    r7 = %x", temp_regs[REG_TEMP_7]);
+				$display("    r8 = %x", temp_regs[REG_TEMP_8]);
+				$display("    r9 = %x", temp_regs[REG_TEMP_9]);
 			end
 
 		end
 
 		//Special case initialization
 		//select(xzmb,xzm1b,xzm,xzm1,b);
-		if(iter_en) begin
-			share_select_en				<= 1;
-			if(iter_first) begin
-				share_select_r			<= 512'h1;
-				share_select_s			<= {256'h1, work_in};
-			end
-			else begin
-				share_select_r			<= share_select_p;
-				share_select_s			<= share_select_q;
-			end
+		if(dh_iter_en) begin
+			advancing_ff	<= 1;
+			if(iter_first)
+				state		<= STATE_ECDH_START_FIRST;
+			else
+				state 		<= STATE_ECDH_START;
 		end
 
 	end
@@ -723,7 +868,7 @@ module X25519_ScalarMult(
 
 	always_ff @(posedge clk) begin
 
-		iter_en			<= 0;
+		dh_iter_en		<= 0;
 		iter_first		<= 0;
 		ml_out_valid	<= 0;
 
@@ -736,14 +881,11 @@ module X25519_ScalarMult(
 
 		case(loopstate)
 
-			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// mainloop()
-
 			LSTATE_IDLE: begin
 
-				//When starting a new multiply, go from the highest bit
-				if(en) begin
-					iter_en			<= 1;
+				//When starting a new crypto_scalarmult(), go from the highest bit
+				if(dh_en) begin
+					dh_iter_en		<= 1;
 					iter_first		<= 1;
 					round			<= 254;
 					b				<= e_fixed[254];
@@ -752,9 +894,12 @@ module X25519_ScalarMult(
 
 			end	//end STATE_IDLE
 
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// mainloop()
+
 			LSTATE_MLSTART: begin
 				b					<= e_fixed[round];
-				iter_en				<= 1;
+				dh_iter_en			<= 1;
 				loopstate			<= LSTATE_MLWAIT;
 			end	//end LSTATE_MLSTART
 
@@ -772,7 +917,7 @@ module X25519_ScalarMult(
 
 			LSTATE_MLDONE: begin
 				ml_out_valid	<= 1;
-				ml_work_out		<= share_select_p;
+				ml_work_out		<= {temp_regs[REG_TEMP_8][255:0], temp_regs[REG_TEMP_6][255:0]};
 				loopstate		<= LSTATE_IDLE;
 			end	//end STATE_MLDONE
 
