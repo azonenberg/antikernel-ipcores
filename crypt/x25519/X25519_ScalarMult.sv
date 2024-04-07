@@ -324,15 +324,13 @@ module X25519_ScalarMult(
 		REG_TEMP_10		= 4'h0a,
 
 		//Special registers (named, but not always usable in every operation)
-		REG_121665		= 4'h0b,	//always 121665
-		REG_ZERO		= 4'h0c,	//throw away unused values
-		REG_ONE			= 4'h0d,
-		REG_WORK_LOW	= 4'h0e,
+		REG_121665		= 4'h0b,	//constant 121665
+		REG_ZERO		= 4'h0c,	//constant 0, writes ignored
+		REG_ONE			= 4'h0d,	//constant 1
+		REG_D2			= 4'h0e,	//constant 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159
 		REG_WORK_HI		= 4'h0f		//must be last
 	} regid_t;
 	logic[263:0]	temp_regs[REG_TEMP_10:0];
-
-	//D2 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159
 
 	//Initialize registers, including constants
 	initial begin
@@ -392,7 +390,7 @@ module X25519_ScalarMult(
 
 		//First iteration
 		ucode[STATE_ECDH_START_FIRST] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
-			REG_ONE, REG_WORK_LOW, REG_TEMP_6, REG_TEMP_7,	// p/q low
+			REG_ONE, REG_TEMP_10, REG_TEMP_6, REG_TEMP_7,	// p/q low
 			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_ECDH_SELECT_FIRST, 1'b0, 7'd0 };
 
 		ucode[STATE_ECDH_SELECT_FIRST] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
@@ -474,7 +472,7 @@ module X25519_ScalarMult(
 			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_XN_LOW, 1'b0, 7'd0 };
 
 		//mult(xzn1b + 32,r,work);
-		ucode[STATE_XN_LOW] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_WORK_LOW,//TEMP_2 is now XZN1B_HI
+		ucode[STATE_XN_LOW] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_10,//TEMP_2 is now XZN1B_HI
 			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_XN_HIGH, 1'b0, 7'd0 };
 
@@ -860,6 +858,9 @@ module X25519_ScalarMult(
 		if(dsa_load)
 			temp_regs[dsa_addr]			<= work_in;
 
+		if(dh_en)
+			temp_regs[REG_TEMP_10]		<= work_in;
+
 		if(share_select_valid && state == STATE_XN_HIGH2)
 			iter_out_valid	<= 1;
 
@@ -947,8 +948,8 @@ module X25519_ScalarMult(
 				REG_TEMP_5:		share_mult_b	<= temp_regs[REG_TEMP_5];
 				REG_TEMP_6:		share_mult_b	<= temp_regs[REG_TEMP_6];
 				REG_TEMP_8:		share_mult_b	<= temp_regs[REG_TEMP_8];
+				REG_TEMP_10:	share_mult_b	<= temp_regs[REG_TEMP_10];
 				REG_121665:		share_mult_b	<= 264'd121665;
-				REG_WORK_LOW:	share_mult_b	<= {8'h0, work_in};
 				REG_WORK_HI:	share_mult_b	<= {8'h0, ml_work_out[511:256]};
 			endcase
 
@@ -964,7 +965,6 @@ module X25519_ScalarMult(
 			endcase
 
 			case(line.select_s)
-				REG_WORK_LOW:	share_select_s	<= {8'h0, work_in};
 				REG_ONE:		share_select_s	<= 256'h1;
 				REG_TEMP_0:		share_select_s	<= temp_regs[REG_TEMP_0];
 				REG_TEMP_2:		share_select_s	<= temp_regs[REG_TEMP_2];
@@ -973,6 +973,7 @@ module X25519_ScalarMult(
 				REG_TEMP_6:		share_select_s	<= temp_regs[REG_TEMP_6];
 				REG_TEMP_7:		share_select_s	<= temp_regs[REG_TEMP_7];
 				REG_TEMP_9:		share_select_s	<= temp_regs[REG_TEMP_9];
+				REG_TEMP_10:	share_select_s	<= temp_regs[REG_TEMP_10];
 			endcase
 
 			if(line.addsub_en && (round == 'hfe) ) begin
