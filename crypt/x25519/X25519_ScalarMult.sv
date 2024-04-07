@@ -75,18 +75,33 @@
 		250 MHz in Kintex-7, -2 speed
 			crypto_scalarmult (ECDH):	2.24 ms / 2.25 ms after
 			scalarmult (ECDSA):			xx
+
+	To do a crypto_scalarmult():
+		assert dh_en with e/work_in valid
+
+	To do a scalarmult():
+		Load q0...q3
+			Assert dsa_load with dsa_addr set to index of q and work_in set to the input data
+		Start the operation
+			assert dsa_en
+
  */
 module X25519_ScalarMult(
 	input wire			clk,
 
 	//Common inputs
-	input wire[255:0]	e,				//outer loop variable
+	input wire[255:0]	e,				//outer loop variable (e for crypto_scalarmult, s for scalarmult)
+	input wire[255:0]	work_in,		//Input data bus
+										//work for crypto_scalarmult
+										//q[] for scalarmult
 
 	//ECDH interface
 	input wire			dh_en,
-	input wire[255:0]	work_in,
 
 	//ECDSA interface
+	input wire			dsa_en,
+	input wire			dsa_load,
+	input wire[1:0]		dsa_addr,
 
 	//Common outputs
 	output wire			out_valid,
@@ -97,6 +112,7 @@ module X25519_ScalarMult(
 	// Loop contents
 
 	logic			dh_iter_en		= 0;
+	logic			dsa_iter_en		= 0;
 	logic			iter_first		= 0;
 	logic			b				= 0;
 
@@ -265,6 +281,23 @@ module X25519_ScalarMult(
 		//crypto_scalarmult(): 1 line
 		STATE_FINAL_MULT,
 
+		//scalarmult(): 6 lines
+		STATE_DSA_INIT1,
+		STATE_DSA_INIT2,
+		STATE_SCALARMULT_FIRST_SEL1,
+		STATE_SCALARMULT_FIRST_SEL2,
+		STATE_SCALARMULT_FIRST_SEL3,
+		STATE_SCALARMULT_FIRST_SEL4,
+
+		//add(): xx lines
+		STATE_ADD_FIRST_1,
+		STATE_ADD_FIRST_2,
+		STATE_ADD_FIRST_3,
+		STATE_ADD_FIRST_4,
+		STATE_ADD_FIRST_5,
+		STATE_ADD_FIRST_6,
+		STATE_ADD_FIRST_7,
+
 		//completion: 2 lines
 		STATE_ITER_DONE,
 		STATE_DONE,
@@ -288,20 +321,23 @@ module X25519_ScalarMult(
 		REG_TEMP_7		= 4'h07,
 		REG_TEMP_8		= 4'h08,
 		REG_TEMP_9		= 4'h09,
+		REG_TEMP_10		= 4'h0a,
 
 		//Special registers (named, but not always usable in every operation)
-		REG_121665		= 4'h0a,	//always 121665
-		REG_ZERO		= 4'h0b,	//throw away unused values
-		REG_ONE			= 4'h0c,
-		REG_WORK_LOW	= 4'h0d,
-		REG_WORK_HI		= 4'h0e		//must be last
+		REG_121665		= 4'h0b,	//always 121665
+		REG_ZERO		= 4'h0c,	//throw away unused values
+		REG_ONE			= 4'h0d,
+		REG_WORK_LOW	= 4'h0e,
+		REG_WORK_HI		= 4'h0f		//must be last
 	} regid_t;
-	logic[263:0]	temp_regs[REG_TEMP_9:0];
+	logic[263:0]	temp_regs[REG_TEMP_10:0];
+
+	//D2 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159
 
 	//Initialize registers, including constants
 	initial begin
 
-		for(integer i=0; i<=REG_TEMP_9; i++)
+		for(integer i=0; i<=REG_TEMP_10; i++)
 			temp_regs[i]		<= 0;
 
 	end
@@ -681,6 +717,92 @@ module X25519_ScalarMult(
 			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_DONE, 1'b0, 7'd0 };
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// scalarmult one-time init (first iteration)
+
+		//At entry: temp[3:0] are q[3:0]
+
+		//set25519(out[0], gf0)
+		//set25519(out[1], gf1)
+		ucode[STATE_DSA_INIT1] = { 3'b110, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,		//TEMP_4 is out[0] = 0
+			REG_ONE, REG_ONE, REG_TEMP_5, REG_ZERO,										//TEMP_5 is out[1] = 1
+			REG_TEMP_4, REG_ZERO, REG_ZERO, 3'b100, STATE_DSA_INIT2, 1'b0, 7'd0 };
+
+		//set25519(out[2],gf1);
+		//set25519(out[3],gf0);
+		ucode[STATE_DSA_INIT2] = { 3'b110, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,		//TEMP_6 is out[2] = 1
+			REG_ONE, REG_ONE, REG_TEMP_6, REG_ZERO,										//TEMP_7 is out[3] = 0
+			REG_TEMP_7, REG_ZERO, REG_ZERO, 3'b100, STATE_SCALARMULT_FIRST_SEL1, 1'b0, 7'd0 };
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// scalarmult selection before add()
+
+		/*
+			q[3:0]   = TEMP_3:0
+			out[3:0] = TEMP_7:4
+		 */
+
+		//sel25519(out[0], q[0], b);
+		ucode[STATE_SCALARMULT_FIRST_SEL1] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_0, REG_TEMP_4, REG_TEMP_0, REG_TEMP_4,
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_SCALARMULT_FIRST_SEL2, 1'b0, 7'd0 };
+
+		//sel25519(out[1], q[1], b);
+		ucode[STATE_SCALARMULT_FIRST_SEL2] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_1, REG_TEMP_5, REG_TEMP_1, REG_TEMP_5,
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_SCALARMULT_FIRST_SEL3, 1'b0, 7'd0 };
+
+		//sel25519(out[2], q[2], b);
+		ucode[STATE_SCALARMULT_FIRST_SEL3] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_2, REG_TEMP_6, REG_TEMP_2, REG_TEMP_6,
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_SCALARMULT_FIRST_SEL4, 1'b0, 7'd0 };
+
+		//sel25519(out[3], q[3], b);
+		ucode[STATE_SCALARMULT_FIRST_SEL4] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_3, REG_TEMP_7, REG_TEMP_3, REG_TEMP_7,
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_ADD_FIRST_1, 1'b0, 7'd0 };
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// scalarmult add() when called with p=q[], q=out[], pout=q[]
+
+		/*
+			Register assignments
+			p[3:0]   = TEMP_3:0
+			q[3:0]   = TEMP_7:4
+			out[3:0] = TEMP_3:0
+			a = TEMP_8
+			b = TEMP_9
+			c = TEMP_10
+		 */
+
+		//bignumAddSub(b, a, p1, p0);
+		//bignumMult(pout[3], p3, q3);
+		ucode[STATE_ADD_FIRST_1] = {3'b011, REG_TEMP_1, REG_TEMP_0, REG_TEMP_3, REG_TEMP_7,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_9, REG_TEMP_8, REG_TEMP_3, 3'b010, STATE_ADD_FIRST_2, 1'b0, 7'd0 };
+
+		//verified to here
+
+		//bignumAddSub(pout[1], pout[0], q1, q0);
+		//bignumMult(pout[2], p2, q2);
+		ucode[STATE_ADD_FIRST_2] = {3'b011, REG_TEMP_5, REG_TEMP_4, REG_TEMP_2, REG_TEMP_6,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_1, REG_TEMP_0, REG_TEMP_2, 3'b010, STATE_ADD_FIRST_3, 1'b0, 7'd0 };
+
+		//verified to here
+
+		//bignumAdd(c, pout[2], pout[2]);
+		//bignumMult(pout[3], pout[3], D2);
+		/*
+		ucode[STATE_ADD_FIRST_3] = {3'b011, REG_TEMP_2, REG_TEMP_2, REG_TEMP_3, xxxxx,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_10, REG_ZERO, REG_TEMP_3, 3'b010, STATE_ADD_FIRST_4, 1'b0, 7'd0 };*/
+
+
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// scalarmult selection after add()
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		/// end
 
 		ucode[STATE_DONE] = { 3'b000, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
@@ -721,16 +843,22 @@ module X25519_ScalarMult(
 		advancing_ff	<= advancing;
 
 		//Save output
-		if(share_add_valid && (line.add_out <= REG_TEMP_5))
+		if(share_add_valid && (line.add_out <= REG_TEMP_10))
 			temp_regs[line.add_out]		<= share_add_out;
-		if(share_sub_valid && (line.sub_out <= REG_TEMP_5))
+		if(share_sub_valid && (line.sub_out <= REG_TEMP_10))
 			temp_regs[line.sub_out]		<= share_sub_out;
-		if(share_mult_valid && (line.mult_out <= REG_TEMP_5))
+		if(share_mult_valid && (line.mult_out <= REG_TEMP_10))
 			temp_regs[line.mult_out]	<= share_mult_out;
 		if(share_select_valid) begin
-			temp_regs[line.select_p]	<= share_select_p;
-			temp_regs[line.select_q]	<= share_select_q;
+			if(line.select_p <= REG_TEMP_10)
+				temp_regs[line.select_p]	<= share_select_p;
+			if(line.select_q <= REG_TEMP_10)
+				temp_regs[line.select_q]	<= share_select_q;
 		end
+
+		//Write ECDSA Q inputs to temp0...3
+		if(dsa_load)
+			temp_regs[dsa_addr]			<= work_in;
 
 		if(share_select_valid && state == STATE_XN_HIGH2)
 			iter_out_valid	<= 1;
@@ -783,9 +911,10 @@ module X25519_ScalarMult(
 				//REG_TEMP_2:		share_addsub_a	<= temp_regs[REG_TEMP_2];
 				REG_TEMP_3:		share_addsub_a	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_4:		share_addsub_a	<= temp_regs[REG_TEMP_4];
-				//REG_TEMP_5:		share_addsub_a	<= temp_regs[REG_TEMP_5];
+				REG_TEMP_5:		share_addsub_a	<= temp_regs[REG_TEMP_5];
 				REG_TEMP_6:		share_addsub_a	<= temp_regs[REG_TEMP_6];
 				REG_TEMP_7:		share_addsub_a	<= temp_regs[REG_TEMP_7];
+				REG_ZERO:		share_addsub_a	<= 264'h0;
 			endcase
 
 			case(line.addsub_b)
@@ -816,16 +945,19 @@ module X25519_ScalarMult(
 				REG_TEMP_3:		share_mult_b	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_4:		share_mult_b	<= temp_regs[REG_TEMP_4];
 				REG_TEMP_5:		share_mult_b	<= temp_regs[REG_TEMP_5];
+				REG_TEMP_6:		share_mult_b	<= temp_regs[REG_TEMP_6];
+				REG_TEMP_8:		share_mult_b	<= temp_regs[REG_TEMP_8];
 				REG_121665:		share_mult_b	<= 264'd121665;
 				REG_WORK_LOW:	share_mult_b	<= {8'h0, work_in};
 				REG_WORK_HI:	share_mult_b	<= {8'h0, ml_work_out[511:256]};
-				REG_TEMP_6:		share_mult_b	<= temp_regs[REG_TEMP_6];
 			endcase
 
 			case(line.select_r)
 				REG_ZERO:		share_select_r	<= 256'h0;
 				REG_ONE:		share_select_r	<= 256'h1;
+				REG_TEMP_0:		share_select_r	<= temp_regs[REG_TEMP_0];
 				REG_TEMP_1:		share_select_r	<= temp_regs[REG_TEMP_1];
+				REG_TEMP_2:		share_select_r	<= temp_regs[REG_TEMP_2];
 				REG_TEMP_3:		share_select_r	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_6:		share_select_r	<= temp_regs[REG_TEMP_6];
 				REG_TEMP_8:		share_select_r	<= temp_regs[REG_TEMP_8];
@@ -836,6 +968,9 @@ module X25519_ScalarMult(
 				REG_ONE:		share_select_s	<= 256'h1;
 				REG_TEMP_0:		share_select_s	<= temp_regs[REG_TEMP_0];
 				REG_TEMP_2:		share_select_s	<= temp_regs[REG_TEMP_2];
+				REG_TEMP_4:		share_select_s	<= temp_regs[REG_TEMP_4];
+				REG_TEMP_5:		share_select_s	<= temp_regs[REG_TEMP_5];
+				REG_TEMP_6:		share_select_s	<= temp_regs[REG_TEMP_6];
 				REG_TEMP_7:		share_select_s	<= temp_regs[REG_TEMP_7];
 				REG_TEMP_9:		share_select_s	<= temp_regs[REG_TEMP_9];
 			endcase
@@ -882,6 +1017,16 @@ module X25519_ScalarMult(
 				state 		<= STATE_ECDH_START;
 		end
 
+		if(dsa_iter_en) begin
+			advancing_ff	<= 1;
+			if(iter_first)
+				state		<= STATE_DSA_INIT1;
+
+			//TODO
+			else
+				state 		<= STATE_DONE;
+		end
+
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -890,14 +1035,20 @@ module X25519_ScalarMult(
 	enum logic[2:0]
 	{
 		LSTATE_IDLE,
+
+		//crypto_scalarmult
 		LSTATE_MLSTART,
 		LSTATE_MLWAIT,
-		LSTATE_MLDONE
+		LSTATE_MLDONE,
+
+		//scalarmult
+		LSTATE_SCALARMULT
 	} loopstate = LSTATE_IDLE;
 
 	always_ff @(posedge clk) begin
 
 		dh_iter_en		<= 0;
+		dsa_iter_en		<= 0;
 		iter_first		<= 0;
 		ml_out_valid	<= 0;
 
@@ -919,6 +1070,16 @@ module X25519_ScalarMult(
 					round			<= 254;
 					b				<= e_fixed[254];
 					loopstate		<= LSTATE_MLWAIT;
+				end
+
+				//When starting a new scalarmult(), go from the highest bit
+				//but don't twiddle bits like crypto_scalarmult() needs
+				if(dsa_en) begin
+					dsa_iter_en		<= 1;
+					iter_first		<= 1;
+					round			<= 254;
+					b				<= e[254];
+					loopstate		<= LSTATE_SCALARMULT;
 				end
 
 			end	//end STATE_IDLE
@@ -949,6 +1110,13 @@ module X25519_ScalarMult(
 				ml_work_out		<= {temp_regs[REG_TEMP_8][255:0], temp_regs[REG_TEMP_6][255:0]};
 				loopstate		<= LSTATE_IDLE;
 			end	//end STATE_MLDONE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// scalarmult()
+
+			LSTATE_SCALARMULT: begin
+
+			end
 
 		endcase
 
