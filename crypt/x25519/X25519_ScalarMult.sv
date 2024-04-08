@@ -93,6 +93,10 @@
 			10507 LUT / 4983 FF
 			14889 / 9402 total
 
+		Condense regfile to four read ports, but not explicit lutram yet
+			11482 LUT / 5271 FF
+			16300 / 9694 total
+
 	Run time performance:
 		crypto_scalarmult (ECDH): 563438 clocks
 
@@ -1332,30 +1336,88 @@ module X25519_Regfile(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Read logic (combinatorial, registers are separate)
+
+	regid_t		p0_rd_addr;
+	regid_t		p1_rd_addr;
+	regid_t		p2_rd_addr;
+	regid_t		p3_rd_addr;
+
+	regval_t	p0_rd_data;
+	regval_t	p1_rd_data;
+	regval_t	p2_rd_data;
+	regval_t	p3_rd_data;
+
+	always_comb begin
+		p0_rd_data	= temp_regs[p0_rd_addr];
+		p1_rd_data	= temp_regs[p1_rd_addr];
+		p2_rd_data	= temp_regs[p2_rd_addr];
+		p3_rd_data	= temp_regs[p3_rd_addr];
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Read port muxing
 
 	/*
-		We have a total of 8 read ports: freeze, ml_work, addsub_a/b, mult_a/b, select_r/s
+		We have a total of 7 logical read ports: freeze, addsub_a/b, mult_a/b, select_r/s
 
-		freeze and ml_work are exclusive with the others
+		freeze is exclusive with the others so can use any port
+
+		add/sub and mult can execute concurrently so we need at least 4 ports for them
+		select can execute concurrently with add/sub but is never issued concurrently with multiply
 	 */
+
+	always_comb begin
+
+		//default to reading nothing
+		p0_rd_addr		= REG_ZERO;
+		p1_rd_addr		= REG_ZERO;
+		p2_rd_addr		= REG_ZERO;
+		p3_rd_addr		= REG_ZERO;
+
+		//Freeze: port 0
+		if(share_freeze_en)
+			p0_rd_addr	= REG_TEMP_0;
+
+		//Add/sub: ports 0/1
+		if(rd_en) begin
+			p0_rd_addr	= addsub_a_regid;
+			p1_rd_addr	= addsub_b_regid;
+		end
+
+		//Multiply or select: ports 2/3
+		if(rd_en) begin
+
+			//TODO: maybe we can shorten critical path here by passing multiply enable line?
+			if(mult_a_regid != REG_ZERO) begin
+				p2_rd_addr	= mult_a_regid;
+				p3_rd_addr	= mult_b_regid;
+			end
+
+			else begin
+				p2_rd_addr	= select_r_regid;
+				p3_rd_addr	= select_s_regid;
+			end
+
+		end
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Read logic: full crossbar for now, no per-port depopulation
 
 	always_ff @(posedge clk) begin
 
-		//TODO: make this a dedicated read port or something
 		if(share_freeze_en)
-			share_freeze_a	<= temp_regs[REG_TEMP_0];
+			share_freeze_a	<= p0_rd_data;
 
 		if(rd_en) begin
-			share_addsub_a	<= temp_regs[addsub_a_regid];
-			share_addsub_b	<= temp_regs[addsub_b_regid];
-			share_mult_a	<= temp_regs[mult_a_regid];
-			share_mult_b	<= temp_regs[mult_b_regid];
-			share_select_r	<= temp_regs[select_r_regid][255:0];
-			share_select_s	<= temp_regs[select_s_regid][255:0];
+			share_addsub_a	<= p0_rd_data;
+			share_addsub_b	<= p1_rd_data;
+			share_mult_a	<= p2_rd_data;
+			share_mult_b	<= p3_rd_data;
+			share_select_r	<= p2_rd_data[255:0];
+			share_select_s	<= p3_rd_data[255:0];
 		end
 
 	end
