@@ -127,8 +127,7 @@ typedef enum logic[3:0]
 	REG_121665		= 4'h0b,	//constant 121665
 	REG_ZERO		= 4'h0c,	//constant 0, writes ignored
 	REG_ONE			= 4'h0d,	//constant 1
-	REG_D2			= 4'h0e,	//constant 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159
-	REG_WORK_HI		= 4'h0f		//must be last
+	REG_D2			= 4'h0e		//constant 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159
 } regid_t;
 
 typedef logic[263:0] regval_t;
@@ -510,8 +509,10 @@ module X25519_ScalarMult(
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// crypto_scalarmult RECIP
 
+		//TEMP_8 is arbitrarily work_high
+
 		//2: square(z2,z);
-		ucode[STATE_RECIP] = { 3'b001, REG_ZERO, REG_ZERO, REG_WORK_HI, REG_WORK_HI,	//TEMP_0 is now z2
+		ucode[STATE_RECIP] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_8, REG_TEMP_8,	//TEMP_0 is now z2
 			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_R4, 1'b0, 7'd0 };
 
@@ -526,7 +527,7 @@ module X25519_ScalarMult(
 			REG_ZERO, REG_ZERO, REG_TEMP_2, 3'b010, STATE_R9, 1'b0, 7'd0 };
 
 		//9: mult(z9,t0,z);
-		ucode[STATE_R9] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_WORK_HI,			//TEMP_3 is now z9
+		ucode[STATE_R9] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_2, REG_TEMP_8,			//TEMP_3 is now z9
 			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO, //no select
 			REG_ZERO, REG_ZERO, REG_TEMP_3, 3'b010, STATE_R11, 1'b0, 7'd0 };
 
@@ -1240,11 +1241,6 @@ module X25519_Regfile(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Special temporary register outside the normal register file (can we find a way to shortcut this??)
-
-	logic[255:0]	ml_work_out = 0;
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Actual write logic
 
 	logic		p0_wr_en;
@@ -1325,6 +1321,12 @@ module X25519_Regfile(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Read port muxing
 
+	/*
+		We have a total of 8 read ports: freeze, ml_work, addsub_a/b, mult_a/b, select_r/s
+
+		freeze and ml_work are exclusive with the others
+	 */
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Read logic: full crossbar for now, no per-port depopulation
 
@@ -1334,9 +1336,6 @@ module X25519_Regfile(
 		if(share_freeze_en)
 			share_freeze_a	<= temp_regs[REG_TEMP_0];
 
-		if(ml_rd_en)
-			ml_work_out		<= temp_regs[REG_TEMP_8][255:0];
-
 		if(rd_en) begin
 
 			case(addsub_a_regid)
@@ -1344,7 +1343,6 @@ module X25519_Regfile(
 				REG_ZERO:		share_addsub_a	<= 264'h0;
 				REG_121665:		share_addsub_a	<= 264'd121665;
 				REG_D2:			share_addsub_a	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				REG_WORK_HI:	share_addsub_a	<= {8'h0, ml_work_out};
 				default:		share_addsub_a	<= temp_regs[addsub_a_regid];
 			endcase
 
@@ -1353,7 +1351,6 @@ module X25519_Regfile(
 				REG_ZERO:		share_addsub_b	<= 264'h0;
 				REG_121665:		share_addsub_b	<= 264'd121665;
 				REG_D2:			share_addsub_b	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				REG_WORK_HI:	share_addsub_b	<= {8'h0, ml_work_out};
 				default:		share_addsub_b	<= temp_regs[addsub_b_regid];
 			endcase
 
@@ -1362,7 +1359,6 @@ module X25519_Regfile(
 				REG_ZERO:		share_mult_a	<= 264'h0;
 				REG_121665:		share_mult_a	<= 264'd121665;
 				REG_D2:			share_mult_a	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				REG_WORK_HI:	share_mult_a	<= {8'h0, ml_work_out};
 				default:		share_mult_a	<= temp_regs[mult_a_regid];
 			endcase
 
@@ -1371,7 +1367,6 @@ module X25519_Regfile(
 				REG_ZERO:		share_mult_b	<= 264'h0;
 				REG_121665:		share_mult_b	<= 264'd121665;
 				REG_D2:			share_mult_b	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				REG_WORK_HI:	share_mult_b	<= {8'h0, ml_work_out};
 				default:		share_mult_b	<= temp_regs[mult_b_regid];
 			endcase
 
@@ -1380,7 +1375,6 @@ module X25519_Regfile(
 				REG_ZERO:		share_select_r	<= 256'h0;
 				REG_121665:		share_select_r	<= 256'd121665;
 				REG_D2:			share_select_r	<= 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				REG_WORK_HI:	share_select_r	<= ml_work_out;
 				default:		share_select_r	<= temp_regs[select_r_regid][255:0];
 			endcase
 
@@ -1389,7 +1383,6 @@ module X25519_Regfile(
 				REG_ZERO:		share_select_s	<= 256'h0;
 				REG_121665:		share_select_s	<= 256'd121665;
 				REG_D2:			share_select_s	<= 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				REG_WORK_HI:	share_select_s	<= ml_work_out;
 				default:		share_select_s	<= temp_regs[select_s_regid][255:0];
 			endcase
 
