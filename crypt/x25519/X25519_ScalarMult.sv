@@ -89,6 +89,10 @@
 			10933 LUT / 4983 FF in regfile
 			15760 / 9412 total
 
+		Moved constants to register file, eliminated ugly case block
+			10507 LUT / 4983 FF
+			14889 / 9402 total
+
 	Run time performance:
 		crypto_scalarmult (ECDH): 563438 clocks
 
@@ -127,7 +131,9 @@ typedef enum logic[3:0]
 	REG_121665		= 4'h0b,	//constant 121665
 	REG_ZERO		= 4'h0c,	//constant 0, writes ignored
 	REG_ONE			= 4'h0d,	//constant 1
-	REG_D2			= 4'h0e		//constant 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159
+	REG_D2			= 4'h0e,	//constant 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159
+
+	REG_COUNT		= 4'h0f
 } regid_t;
 
 typedef logic[263:0] regval_t;
@@ -1230,13 +1236,20 @@ module X25519_Regfile(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual memory
 
-	regval_t		temp_regs[REG_TEMP_10:0];
+	regval_t		temp_regs[REG_COUNT-1:0];
 
 	//Clear all registers to zero on reset
 	initial begin
 
+		//Normal GPRs
 		for(integer i=0; i<=REG_TEMP_10; i++)
 			temp_regs[i]		<= 0;
+
+		//Special registers for constants (read only)
+		temp_regs[REG_ONE]		<= 264'h1;
+		temp_regs[REG_ZERO]		<= 264'h0;
+		temp_regs[REG_121665]	<= 264'd121665;
+		temp_regs[REG_D2]		<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
 
 	end
 
@@ -1337,55 +1350,12 @@ module X25519_Regfile(
 			share_freeze_a	<= temp_regs[REG_TEMP_0];
 
 		if(rd_en) begin
-
-			case(addsub_a_regid)
-				REG_ONE:		share_addsub_a	<= 264'h1;
-				REG_ZERO:		share_addsub_a	<= 264'h0;
-				REG_121665:		share_addsub_a	<= 264'd121665;
-				REG_D2:			share_addsub_a	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				default:		share_addsub_a	<= temp_regs[addsub_a_regid];
-			endcase
-
-			case(addsub_b_regid)
-				REG_ONE:		share_addsub_b	<= 264'h1;
-				REG_ZERO:		share_addsub_b	<= 264'h0;
-				REG_121665:		share_addsub_b	<= 264'd121665;
-				REG_D2:			share_addsub_b	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				default:		share_addsub_b	<= temp_regs[addsub_b_regid];
-			endcase
-
-			case(mult_a_regid)
-				REG_ONE:		share_mult_a	<= 264'h1;
-				REG_ZERO:		share_mult_a	<= 264'h0;
-				REG_121665:		share_mult_a	<= 264'd121665;
-				REG_D2:			share_mult_a	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				default:		share_mult_a	<= temp_regs[mult_a_regid];
-			endcase
-
-			case(mult_b_regid)
-				REG_ONE:		share_mult_b	<= 264'h1;
-				REG_ZERO:		share_mult_b	<= 264'h0;
-				REG_121665:		share_mult_b	<= 264'd121665;
-				REG_D2:			share_mult_b	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				default:		share_mult_b	<= temp_regs[mult_b_regid];
-			endcase
-
-			case(select_r_regid)
-				REG_ONE:		share_select_r	<= 256'h1;
-				REG_ZERO:		share_select_r	<= 256'h0;
-				REG_121665:		share_select_r	<= 256'd121665;
-				REG_D2:			share_select_r	<= 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				default:		share_select_r	<= temp_regs[select_r_regid][255:0];
-			endcase
-
-			case(select_s_regid)
-				REG_ONE:		share_select_s	<= 256'h1;
-				REG_ZERO:		share_select_s	<= 256'h0;
-				REG_121665:		share_select_s	<= 256'd121665;
-				REG_D2:			share_select_s	<= 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				default:		share_select_s	<= temp_regs[select_s_regid][255:0];
-			endcase
-
+			share_addsub_a	<= temp_regs[addsub_a_regid];
+			share_addsub_b	<= temp_regs[addsub_b_regid];
+			share_mult_a	<= temp_regs[mult_a_regid];
+			share_mult_b	<= temp_regs[mult_b_regid];
+			share_select_r	<= temp_regs[select_r_regid][255:0];
+			share_select_s	<= temp_regs[select_s_regid][255:0];
 		end
 
 	end
