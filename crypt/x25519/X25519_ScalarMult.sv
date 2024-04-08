@@ -46,20 +46,6 @@
 				MultPass_stage2 = 256 LUT
 				MultMuxing = 520 LUT
 
-		Full keep hierarchy
-			9420 LUT, 8813 FF, 32 DSP
-			of which
-				Top level = 3233 LUT, 4460 FF
-				Add = 275 LUT, 531 FF
-				Mult = 5385 LUT, 2781 FF
-					MultPass_stage1 = 18 LUT
-					MultPass_stage2 = 2697 LUT
-					MultMuxing = 520 LUT, 518 FF
-					ReductionAdder stage3 512 LUT
-					ReductionAdder stage4 128 LUT
-					ReductionAdder stage5 32 LUT
-					StreamingSqueeze 146 LUT, 846 FF
-
 		Optimized mult muxing
 			9158 LUT, 8816 FF
 			of which
@@ -68,34 +54,31 @@
 			With flattened hierarchy
 				9060 LUT, 8542 FF, 32 DSP
 
-		WIP refactoring for signature (flattened)
-			11638 LUT, 8895 FF
-
-		Continued signature work
-			15243 LUT / 9079 FF
-
-		Discrete muxes and register file
-			18304 LUT / 9145 FF
-			of which
-				9034 LUT / 2904 FF in regfile
-
-		Unified muxes + regfile (regfile only)
-			16158 LUT / 4472 FF
-
-		Condense regfile to four read ports, but not explicit lutram yet
-			11482 LUT / 5271 FF
-			16300 / 9694 total
-
-		LVT based lutram regfile
-			3279 LUT / 1327 FF for regfile!! Massive reduction...
+		LVT based lutram regfile and signature WIP
 			8164 LUT / 5750 FF total
+			3279 LUT / 1327 FF for regfile!! Massive reduction...
+
+		Flattened and some other optimizations
+			7476 LUT / 5736 FF / 1408 LUTRAM
+			regfile
+				2829 LUT / 1327 FF / 1408 LUTRAM
+			add
+				265 LUT / 529 FF
+			mult
+				3707 LUT / 2741 FF
+			select
+				258 LUT / 513 FF
+			sub
+				268 LUT / 531 FF
+			squeeze
+				128 LUT / 846 FF
 
 	Run time performance:
 		crypto_scalarmult (ECDH): 563438 clocks / 567786 after regid pipelining
 
 	Typical achievable performance:
 		250 MHz in Kintex-7, -2 speed
-			crypto_scalarmult (ECDH):	2.24 ms / 2.25 ms after / 2.27 with regid pipelining
+			crypto_scalarmult (ECDH):	2.24 ms / 2.27 with regid pipelining etc
 			scalarmult (ECDSA):			xx
 
 	To do a crypto_scalarmult():
