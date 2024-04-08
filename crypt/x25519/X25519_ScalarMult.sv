@@ -68,6 +68,12 @@
 			With flattened hierarchy
 				9060 LUT, 8542 FF, 32 DSP
 
+		WIP refactoring for signature (flattened)
+			11638 LUT, 8895 FF
+
+		Continued signature work
+			15243 LUT / 9079 FF
+
 	Run time performance:
 		crypto_scalarmult (ECDH): 563438 clocks
 
@@ -281,15 +287,17 @@ module X25519_ScalarMult(
 		//crypto_scalarmult(): 1 line
 		STATE_FINAL_MULT,
 
-		//scalarmult(): 6 lines
+		//scalarmult() entry: 2 lines
 		STATE_DSA_INIT1,
 		STATE_DSA_INIT2,
+
+		//scalarmult() loop part 1: 4 lines
 		STATE_SCALARMULT_FIRST_SEL1,
 		STATE_SCALARMULT_FIRST_SEL2,
 		STATE_SCALARMULT_FIRST_SEL3,
 		STATE_SCALARMULT_FIRST_SEL4,
 
-		//add(): xx lines
+		//add(): 9 lines
 		STATE_ADD_FIRST_1,
 		STATE_ADD_FIRST_2,
 		STATE_ADD_FIRST_3,
@@ -297,6 +305,14 @@ module X25519_ScalarMult(
 		STATE_ADD_FIRST_5,
 		STATE_ADD_FIRST_6,
 		STATE_ADD_FIRST_7,
+		STATE_ADD_FIRST_8,
+		STATE_ADD_FIRST_9,
+
+		//scalarmult() loop part 2:
+		STATE_SCALARMULT_SECOND_SEL1,
+		STATE_SCALARMULT_SECOND_SEL2,
+		STATE_SCALARMULT_SECOND_SEL3,
+		STATE_SCALARMULT_SECOND_SEL4,
 
 		//completion: 2 lines
 		STATE_ITER_DONE,
@@ -778,27 +794,84 @@ module X25519_ScalarMult(
 			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
 			REG_TEMP_9, REG_TEMP_8, REG_TEMP_3, 3'b010, STATE_ADD_FIRST_2, 1'b0, 7'd0 };
 
-		//verified to here
-
 		//bignumAddSub(pout[1], pout[0], q1, q0);
 		//bignumMult(pout[2], p2, q2);
 		ucode[STATE_ADD_FIRST_2] = {3'b011, REG_TEMP_5, REG_TEMP_4, REG_TEMP_2, REG_TEMP_6,
 			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
 			REG_TEMP_1, REG_TEMP_0, REG_TEMP_2, 3'b010, STATE_ADD_FIRST_3, 1'b0, 7'd0 };
 
-		//verified to here
-
 		//bignumAdd(c, pout[2], pout[2]);
 		//bignumMult(pout[3], pout[3], D2);
-		/*
-		ucode[STATE_ADD_FIRST_3] = {3'b011, REG_TEMP_2, REG_TEMP_2, REG_TEMP_3, xxxxx,
+		ucode[STATE_ADD_FIRST_3] = {3'b011, REG_TEMP_2, REG_TEMP_2, REG_TEMP_3, REG_D2,
 			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
-			REG_TEMP_10, REG_ZERO, REG_TEMP_3, 3'b010, STATE_ADD_FIRST_4, 1'b0, 7'd0 };*/
+			REG_TEMP_10, REG_ZERO, REG_TEMP_3, 3'b010, STATE_ADD_FIRST_4, 1'b0, 7'd0 };
 
+		//bignumAddSub(c, pout[3], c, pout[3]);
+		//bignumMult(pout[1], b, pout[1]);
+		ucode[STATE_ADD_FIRST_4] = {3'b011, REG_TEMP_10, REG_TEMP_3, REG_TEMP_9, REG_TEMP_1,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_10, REG_TEMP_3, REG_TEMP_1, 3'b010, STATE_ADD_FIRST_5, 1'b0, 7'd0 };
 
+		//bignumMult(pout[0], a, pout[0]);
+		ucode[STATE_ADD_FIRST_5] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_8, REG_TEMP_0,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_ADD_FIRST_6, 1'b0, 7'd0 };
+
+		//bignumAddSub(b, pout[1], pout[1], pout[0]);
+		//bignumMult(pout[2], c, pout[3]);
+		ucode[STATE_ADD_FIRST_6] = {3'b011, REG_TEMP_1, REG_TEMP_0, REG_TEMP_3, REG_TEMP_10,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_9, REG_TEMP_1, REG_TEMP_2, 3'b010, STATE_ADD_FIRST_7, 1'b0, 7'd0 };
+
+		//bignumMult(pout[0], pout[1], pout[3]);
+		ucode[STATE_ADD_FIRST_7] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_3,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_ZERO, REG_ZERO, REG_TEMP_0, 3'b010, STATE_ADD_FIRST_8, 1'b0, 7'd0 };
+
+		//bignumMult(pout[3], pout[1], b);
+		ucode[STATE_ADD_FIRST_8] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_1, REG_TEMP_9,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_ZERO, REG_ZERO, REG_TEMP_3, 3'b010, STATE_ADD_FIRST_9, 1'b0, 7'd0 };
+
+		//bignumMult(pout[1], b, c);
+		ucode[STATE_ADD_FIRST_9] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_9, REG_TEMP_10,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_SCALARMULT_SECOND_SEL1, 1'b0, 7'd0 };
+
+		/*
+			After first add, in the top level scalarmult() loop
+			q is TEMP[3:0]
+			out is TEMP[7:4]
+		 */
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// scalarmult selection after add()
+
+		/*
+			q[3:0]   = TEMP_3:0
+			out[3:0] = TEMP_7:4
+		 */
+		/*
+		//sel25519(out[0], q[0], b);
+		ucode[STATE_SCALARMULT_SECOND_SEL1] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_0, REG_TEMP_4, REG_TEMP_0, REG_TEMP_4,
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_SCALARMULT_SECOND_SEL2, 1'b0, 7'd0 };
+
+		//sel25519(out[1], q[1], b);
+		ucode[STATE_SCALARMULT_SECOND_SEL2] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_1, REG_TEMP_5, REG_TEMP_1, REG_TEMP_5,
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_SCALARMULT_SECOND_SEL3, 1'b0, 7'd0 };
+
+		//sel25519(out[2], q[2], b);
+		ucode[STATE_SCALARMULT_SECOND_SEL3] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_2, REG_TEMP_6, REG_TEMP_2, REG_TEMP_6,
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_SCALARMULT_SECOND_SEL4, 1'b0, 7'd0 };
+
+		//sel25519(out[3], q[3], b);
+		ucode[STATE_SCALARMULT_SECOND_SEL4] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_3, REG_TEMP_7, REG_TEMP_3, REG_TEMP_7,
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_ADD_SECOND_1, 1'b0, 7'd0 };
+		*/
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		/// end
@@ -830,6 +903,17 @@ module X25519_ScalarMult(
 		share_freeze_a	= temp_regs[REG_TEMP_0];
 	end
 
+	logic	want_add_result = 0;
+	logic	want_sub_result = 0;
+	logic	want_mult_result = 0;
+	logic	want_select_result = 0;
+
+	regid_t	add_rd_ff = REG_TEMP_0;
+	regid_t sub_rd_ff = REG_TEMP_0;
+	regid_t mult_rd_ff = REG_TEMP_0;
+	regid_t select_p_rd_ff = REG_TEMP_0;
+	regid_t select_q_rd_ff = REG_TEMP_0;
+
 	always_ff @(posedge clk) begin
 		share_addsub_en	<= 0;
 		share_select_en	<= 0;
@@ -840,18 +924,29 @@ module X25519_ScalarMult(
 
 		advancing_ff	<= advancing;
 
+		//Save flags indicating whether output should be processed
+		want_add_result		<= (line.add_out <= REG_TEMP_10);
+		want_sub_result		<= (line.sub_out <= REG_TEMP_10);
+		want_mult_result	<= (line.mult_out <= REG_TEMP_10);
+		want_select_result	<= (line.select_p <= REG_TEMP_10);
+
+		//Pipeline indexes for output registers
+		add_rd_ff			<= line.add_out;
+		sub_rd_ff			<= line.sub_out;
+		mult_rd_ff			<= line.mult_out;
+		select_p_rd_ff		<= line.select_p;
+		select_q_rd_ff		<= line.select_q;
+
 		//Save output
-		if(share_add_valid && (line.add_out <= REG_TEMP_10))
-			temp_regs[line.add_out]		<= share_add_out;
-		if(share_sub_valid && (line.sub_out <= REG_TEMP_10))
-			temp_regs[line.sub_out]		<= share_sub_out;
-		if(share_mult_valid && (line.mult_out <= REG_TEMP_10))
-			temp_regs[line.mult_out]	<= share_mult_out;
-		if(share_select_valid) begin
-			if(line.select_p <= REG_TEMP_10)
-				temp_regs[line.select_p]	<= share_select_p;
-			if(line.select_q <= REG_TEMP_10)
-				temp_regs[line.select_q]	<= share_select_q;
+		if(share_add_valid && want_add_result)
+			temp_regs[add_rd_ff]		<= share_add_out;
+		if(share_sub_valid && want_sub_result)
+			temp_regs[sub_rd_ff]		<= share_sub_out;
+		if(share_mult_valid && want_mult_result)
+			temp_regs[mult_rd_ff]		<= share_mult_out;
+		if(share_select_valid && want_select_result) begin
+			temp_regs[select_p_rd_ff]	<= share_select_p;
+			temp_regs[select_q_rd_ff]	<= share_select_q;
 		end
 
 		//Write ECDSA Q inputs to temp0...3
@@ -909,20 +1004,21 @@ module X25519_ScalarMult(
 			case(line.addsub_a)
 				//REG_TEMP_0:		share_addsub_a	<= temp_regs[REG_TEMP_0];
 				REG_TEMP_1:		share_addsub_a	<= temp_regs[REG_TEMP_1];
-				//REG_TEMP_2:		share_addsub_a	<= temp_regs[REG_TEMP_2];
+				REG_TEMP_2:		share_addsub_a	<= temp_regs[REG_TEMP_2];
 				REG_TEMP_3:		share_addsub_a	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_4:		share_addsub_a	<= temp_regs[REG_TEMP_4];
 				REG_TEMP_5:		share_addsub_a	<= temp_regs[REG_TEMP_5];
 				REG_TEMP_6:		share_addsub_a	<= temp_regs[REG_TEMP_6];
 				REG_TEMP_7:		share_addsub_a	<= temp_regs[REG_TEMP_7];
+				REG_TEMP_10:	share_addsub_a	<= temp_regs[REG_TEMP_10];
 				REG_ZERO:		share_addsub_a	<= 264'h0;
 			endcase
 
 			case(line.addsub_b)
 				REG_TEMP_0:		share_addsub_b	<= temp_regs[REG_TEMP_0];
 				//REG_TEMP_1:		share_addsub_b	<= temp_regs[REG_TEMP_1];
-				//REG_TEMP_2:		share_addsub_b	<= temp_regs[REG_TEMP_2];
-				//REG_TEMP_3:		share_addsub_b	<= temp_regs[REG_TEMP_3];
+				REG_TEMP_2:		share_addsub_b	<= temp_regs[REG_TEMP_2];
+				REG_TEMP_3:		share_addsub_b	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_4:		share_addsub_b	<= temp_regs[REG_TEMP_4];
 				REG_TEMP_5:		share_addsub_b	<= temp_regs[REG_TEMP_5];
 				REG_TEMP_8:		share_addsub_b	<= temp_regs[REG_TEMP_8];
@@ -935,7 +1031,8 @@ module X25519_ScalarMult(
 				REG_TEMP_2:		share_mult_a	<= temp_regs[REG_TEMP_2];
 				REG_TEMP_3:		share_mult_a	<= temp_regs[REG_TEMP_3];
 				REG_TEMP_4:		share_mult_a	<= temp_regs[REG_TEMP_4];
-				//REG_TEMP_5:		share_mult_a	<= temp_regs[REG_TEMP_5];
+				REG_TEMP_8:		share_mult_a	<= temp_regs[REG_TEMP_8];
+				REG_TEMP_9:		share_mult_a	<= temp_regs[REG_TEMP_9];
 				REG_WORK_HI:	share_mult_a	<= {8'h0, ml_work_out[511:256]};
 			endcase
 
@@ -948,8 +1045,10 @@ module X25519_ScalarMult(
 				REG_TEMP_5:		share_mult_b	<= temp_regs[REG_TEMP_5];
 				REG_TEMP_6:		share_mult_b	<= temp_regs[REG_TEMP_6];
 				REG_TEMP_8:		share_mult_b	<= temp_regs[REG_TEMP_8];
+				REG_TEMP_9:		share_mult_b	<= temp_regs[REG_TEMP_9];
 				REG_TEMP_10:	share_mult_b	<= temp_regs[REG_TEMP_10];
 				REG_121665:		share_mult_b	<= 264'd121665;
+				REG_D2:			share_mult_b	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
 				REG_WORK_HI:	share_mult_b	<= {8'h0, ml_work_out[511:256]};
 			endcase
 
@@ -1124,3 +1223,5 @@ module X25519_ScalarMult(
 	end
 
 endmodule
+
+//TODO: refactor muxing into separate modules
