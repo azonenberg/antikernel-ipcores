@@ -91,11 +91,11 @@
 			8164 LUT / 5750 FF total
 
 	Run time performance:
-		crypto_scalarmult (ECDH): 563438 clocks
+		crypto_scalarmult (ECDH): 563438 clocks / 567786 after regid pipelining
 
 	Typical achievable performance:
 		250 MHz in Kintex-7, -2 speed
-			crypto_scalarmult (ECDH):	2.24 ms / 2.25 ms after
+			crypto_scalarmult (ECDH):	2.24 ms / 2.25 ms after / 2.27 with regid pipelining
 			scalarmult (ECDSA):			xx
 
 	To do a crypto_scalarmult():
@@ -904,15 +904,44 @@ module X25519_ScalarMult(
 
 	logic	ml_rd_en = 0;
 
+	(* KEEP = "true" *)
 	regid_t	add_rd_ff = REG_TEMP_0;
+
+	(* KEEP = "true" *)
 	regid_t sub_rd_ff = REG_TEMP_0;
+
+	(* KEEP = "true" *)
 	regid_t mult_rd_ff = REG_TEMP_0;
+
+	(* KEEP = "true" *)
 	regid_t select_p_rd_ff = REG_TEMP_0;
+
+	(* KEEP = "true" *)
 	regid_t select_q_rd_ff = REG_TEMP_0;
 
-	microcode_t line;
+	regid_t	addsub_a_ff	= REG_TEMP_0;
+	regid_t	addsub_b_ff	= REG_TEMP_0;
+	regid_t	mult_a_ff	= REG_TEMP_0;
+	regid_t	mult_b_ff	= REG_TEMP_0;
+	regid_t	select_r_ff	= REG_TEMP_0;
+	regid_t	select_s_ff	= REG_TEMP_0;
+
 	logic		advancing;
 	logic		advancing_ff	= 0;
+	logic		advancing_ff2	= 0;
+
+	always_ff @(posedge clk) begin
+		if(advancing_ff) begin
+			addsub_a_ff	<= line.addsub_a;
+			addsub_b_ff	<= line.addsub_b;
+			mult_a_ff	<= line.mult_a;
+			mult_b_ff	<= line.mult_b;
+			select_r_ff	<= line.select_r;
+			select_s_ff	<= line.select_s;
+		end
+	end
+
+	microcode_t line;
 
 	(* keep_hierarchy = "yes" *)
 	X25519_Regfile regfile(
@@ -951,16 +980,16 @@ module X25519_ScalarMult(
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// Reads
 
-		.rd_en(advancing_ff),
+		.rd_en(advancing_ff2),
 		.ml_rd_en(ml_rd_en),
 		.share_freeze_en(share_freeze_en),
 
-		.addsub_a_regid(line.addsub_a),
-		.addsub_b_regid(line.addsub_b),
-		.mult_a_regid(line.mult_a),
-		.mult_b_regid(line.mult_b),
-		.select_r_regid(line.select_r),
-		.select_s_regid(line.select_s),
+		.addsub_a_regid(addsub_a_ff),
+		.addsub_b_regid(addsub_b_ff),
+		.mult_a_regid(mult_a_ff),
+		.mult_b_regid(mult_b_ff),
+		.select_r_regid(select_r_ff),
+		.select_s_regid(select_s_ff),
 
 		.share_addsub_a(share_addsub_a),
 		.share_addsub_b(share_addsub_b),
@@ -994,6 +1023,7 @@ module X25519_ScalarMult(
 		out_valid 		<= share_freeze_en;
 
 		advancing_ff	<= advancing;
+		advancing_ff2	<= advancing_ff;
 
 		//Save flags indicating whether output should be processed
 		want_add_result		<= (line.add_out <= REG_TEMP_10);
@@ -1040,7 +1070,7 @@ module X25519_ScalarMult(
 
 			end
 		end
-		if(advancing_ff) begin
+		if(advancing_ff2) begin
 
 			//Enable blocks as needed
 			share_select_en		<= line.select_en;
