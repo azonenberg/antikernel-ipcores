@@ -79,6 +79,8 @@
 			of which
 				9034 LUT / 2904 FF in regfile
 
+		Unified muxes + regfile
+
 	Run time performance:
 		crypto_scalarmult (ECDH): 563438 clocks
 
@@ -901,10 +903,17 @@ module X25519_ScalarMult(
 	regid_t select_p_rd_ff = REG_TEMP_0;
 	regid_t select_q_rd_ff = REG_TEMP_0;
 
+	microcode_t line;
+	logic		advancing;
+	logic		advancing_ff	= 0;
+
 	(* keep_hierarchy = "yes" *)
 	X25519_Regfile regfile(
 		.clk(clk),
 		.temp_regs(temp_regs),
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// Writes
 
 		.share_add_valid(share_add_valid),
 		.share_sub_valid(share_sub_valid),
@@ -931,49 +940,28 @@ module X25519_ScalarMult(
 		.sub_rd_ff(sub_rd_ff),
 		.mult_rd_ff(mult_rd_ff),
 		.select_p_rd_ff(select_p_rd_ff),
-		.select_q_rd_ff(select_q_rd_ff)
+		.select_q_rd_ff(select_q_rd_ff),
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// Reads
+
+		.rd_en(advancing_ff),
+		.ml_work_out(ml_work_out),
+
+		.addsub_a_regid(line.addsub_a),
+		.addsub_b_regid(line.addsub_b),
+		.mult_a_regid(line.mult_a),
+		.mult_b_regid(line.mult_b),
+		.select_r_regid(line.select_r),
+		.select_s_regid(line.select_s),
+
+		.share_addsub_a(share_addsub_a),
+		.share_addsub_b(share_addsub_b),
+		.share_mult_a(share_mult_a),
+		.share_mult_b(share_mult_b),
+		.share_select_r(share_select_r),
+		.share_select_s(share_select_s)
 	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Input muxing for execution units
-
-	microcode_t line;
-	logic		advancing;
-	logic		advancing_ff	= 0;
-
-	(* keep_hierarchy = "yes" *)
-	X25519_Addsub_AMux addsub_amux(
-		.clk(clk),
-		.regs(temp_regs),
-		.ce(advancing_ff),
-		.muxsel(line.addsub_a),
-		.muxout(share_addsub_a));
-
-	(* keep_hierarchy = "yes" *)
-	X25519_Addsub_BMux addsub_bmux(
-		.clk(clk),
-		.regs(temp_regs),
-		.ce(advancing_ff),
-		.muxsel(line.addsub_b),
-		.muxout(share_addsub_b));
-
-	(* keep_hierarchy = "yes" *)
-	X25519_Mult_AMux mult_amux(
-		.clk(clk),
-		.regs(temp_regs),
-		.ml_work_out(ml_work_out),
-		.ce(advancing_ff),
-		.muxsel(line.mult_a),
-		.muxout(share_mult_a));
-
-	(* keep_hierarchy = "yes" *)
-	X25519_Mult_BMux mult_bmux(
-		.clk(clk),
-		.regs(temp_regs),
-		.ml_work_out(ml_work_out),
-		.ce(advancing_ff),
-		.muxsel(line.mult_b),
-		.muxout(share_mult_b));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Top level control
@@ -1055,29 +1043,6 @@ module X25519_ScalarMult(
 
 			//Special case freeze() since it's only used for the output
 			share_freeze_en		<= (state == STATE_DONE);
-
-			case(line.select_r)
-				REG_ZERO:		share_select_r	<= 256'h0;
-				REG_ONE:		share_select_r	<= 256'h1;
-				REG_TEMP_0:		share_select_r	<= temp_regs[REG_TEMP_0];
-				REG_TEMP_1:		share_select_r	<= temp_regs[REG_TEMP_1];
-				REG_TEMP_2:		share_select_r	<= temp_regs[REG_TEMP_2];
-				REG_TEMP_3:		share_select_r	<= temp_regs[REG_TEMP_3];
-				REG_TEMP_6:		share_select_r	<= temp_regs[REG_TEMP_6];
-				REG_TEMP_8:		share_select_r	<= temp_regs[REG_TEMP_8];
-			endcase
-
-			case(line.select_s)
-				REG_ONE:		share_select_s	<= 256'h1;
-				REG_TEMP_0:		share_select_s	<= temp_regs[REG_TEMP_0];
-				REG_TEMP_2:		share_select_s	<= temp_regs[REG_TEMP_2];
-				REG_TEMP_4:		share_select_s	<= temp_regs[REG_TEMP_4];
-				REG_TEMP_5:		share_select_s	<= temp_regs[REG_TEMP_5];
-				REG_TEMP_6:		share_select_s	<= temp_regs[REG_TEMP_6];
-				REG_TEMP_7:		share_select_s	<= temp_regs[REG_TEMP_7];
-				REG_TEMP_9:		share_select_s	<= temp_regs[REG_TEMP_9];
-				REG_TEMP_10:	share_select_s	<= temp_regs[REG_TEMP_10];
-			endcase
 
 			if(line.addsub_en && (round == 'hfe) ) begin
 				$display("Starting add/sub (state %d)", state);
@@ -1229,135 +1194,6 @@ module X25519_ScalarMult(
 endmodule
 
 /**
-	@brief Mux for A input of add/sub functional unit
- */
-module X25519_Addsub_AMux(
-	input wire			clk,
-	input wire regval_t regs[10:0],
-	input wire			ce,
-	input wire regid_t	muxsel,
-
-	output regval_t		muxout = 0);
-
-	always_ff @(posedge clk) begin
-
-		if(ce) begin
-			case(muxsel)
-				//REG_TEMP_0:		muxout	<= regs[REG_TEMP_0];
-				REG_TEMP_1:		muxout	<= regs[REG_TEMP_1];
-				REG_TEMP_2:		muxout	<= regs[REG_TEMP_2];
-				REG_TEMP_3:		muxout	<= regs[REG_TEMP_3];
-				REG_TEMP_4:		muxout	<= regs[REG_TEMP_4];
-				REG_TEMP_5:		muxout	<= regs[REG_TEMP_5];
-				REG_TEMP_6:		muxout	<= regs[REG_TEMP_6];
-				REG_TEMP_7:		muxout	<= regs[REG_TEMP_7];
-				REG_TEMP_10:	muxout	<= regs[REG_TEMP_10];
-				REG_ZERO:		muxout	<= 264'h0;
-			endcase
-		end
-
-	end
-
-endmodule
-
-/**
-	@brief Mux for B input of add/sub functional unit
- */
-module X25519_Addsub_BMux(
-	input wire			clk,
-	input wire regval_t regs[10:0],
-	input wire			ce,
-	input wire regid_t	muxsel,
-
-	output regval_t		muxout = 0);
-
-	always_ff @(posedge clk) begin
-
-		if(ce) begin
-			case(muxsel)
-				REG_TEMP_0:		muxout	<= regs[REG_TEMP_0];
-				//REG_TEMP_1:		muxout	<= regs[REG_TEMP_1];
-				REG_TEMP_2:		muxout	<= regs[REG_TEMP_2];
-				REG_TEMP_3:		muxout	<= regs[REG_TEMP_3];
-				REG_TEMP_4:		muxout	<= regs[REG_TEMP_4];
-				REG_TEMP_5:		muxout	<= regs[REG_TEMP_5];
-				REG_TEMP_8:		muxout	<= regs[REG_TEMP_8];
-				REG_TEMP_9:		muxout	<= regs[REG_TEMP_9];
-			endcase
-		end
-
-	end
-
-endmodule
-
-/**
-	@brief Mux for A input of multiply functional unit
- */
-module X25519_Mult_AMux(
-	input wire			clk,
-	input wire regval_t regs[10:0],
-	input wire			ce,
-	input wire regid_t	muxsel,
-	input wire[511:0]	ml_work_out,
-
-	output regval_t		muxout = 0);
-
-	always_ff @(posedge clk) begin
-
-		if(ce) begin
-			case(muxsel)
-				REG_TEMP_0:		muxout	<= regs[REG_TEMP_0];
-				REG_TEMP_1:		muxout	<= regs[REG_TEMP_1];
-				REG_TEMP_2:		muxout	<= regs[REG_TEMP_2];
-				REG_TEMP_3:		muxout	<= regs[REG_TEMP_3];
-				REG_TEMP_4:		muxout	<= regs[REG_TEMP_4];
-				REG_TEMP_8:		muxout	<= regs[REG_TEMP_8];
-				REG_TEMP_9:		muxout	<= regs[REG_TEMP_9];
-				REG_WORK_HI:	muxout	<= {8'h0, ml_work_out[511:256]};
-			endcase
-		end
-
-	end
-
-endmodule
-
-/**
-	@brief Mux for B input of multiply functional unit
- */
-module X25519_Mult_BMux(
-	input wire			clk,
-	input wire regval_t regs[10:0],
-	input wire			ce,
-	input wire regid_t	muxsel,
-	input wire[511:0]	ml_work_out,
-
-	output regval_t		muxout = 0);
-
-	always_ff @(posedge clk) begin
-
-		if(ce) begin
-			case(muxsel)
-				REG_TEMP_0:		muxout	<= regs[REG_TEMP_0];
-				REG_TEMP_1:		muxout	<= regs[REG_TEMP_1];
-				REG_TEMP_2:		muxout	<= regs[REG_TEMP_2];
-				REG_TEMP_3:		muxout	<= regs[REG_TEMP_3];
-				REG_TEMP_4:		muxout	<= regs[REG_TEMP_4];
-				REG_TEMP_5:		muxout	<= regs[REG_TEMP_5];
-				REG_TEMP_6:		muxout	<= regs[REG_TEMP_6];
-				REG_TEMP_8:		muxout	<= regs[REG_TEMP_8];
-				REG_TEMP_9:		muxout	<= regs[REG_TEMP_9];
-				REG_TEMP_10:	muxout	<= regs[REG_TEMP_10];
-				REG_121665:		muxout	<= 264'd121665;
-				REG_D2:			muxout	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				REG_WORK_HI:	muxout	<= {8'h0, ml_work_out[511:256]};
-			endcase
-		end
-
-	end
-
-endmodule
-
-/**
 	@brief Register file
  */
 module X25519_Regfile(
@@ -1392,6 +1228,23 @@ module X25519_Regfile(
 	input wire regval_t	work_in,
 
 	//Read stuff
+	input wire			rd_en,
+	input wire[511:0]	ml_work_out,
+	input wire regid_t	addsub_a_regid,
+	input wire regid_t	addsub_b_regid,
+	input wire regid_t	mult_a_regid,
+	input wire regid_t	mult_b_regid,
+	input wire regid_t	select_r_regid,
+	input wire regid_t	select_s_regid,
+
+	output regval_t		share_addsub_a,
+	output regval_t		share_addsub_b,
+	output regval_t		share_mult_a,
+	output regval_t		share_mult_b,
+	output regval_t		share_select_r,
+	output regval_t		share_select_s,
+
+	//Temp
 	output regval_t		temp_regs[REG_TEMP_10:0]
 	);
 
@@ -1432,6 +1285,68 @@ module X25519_Regfile(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Write logic
+	// Read logic: full crossbar for now, no per-port depopulation
+
+	always_ff @(posedge clk) begin
+
+		if(rd_en) begin
+
+			case(addsub_a_regid)
+				REG_ONE:		share_addsub_a	<= 264'h1;
+				REG_ZERO:		share_addsub_a	<= 264'h0;
+				REG_121665:		share_addsub_a	<= 264'd121665;
+				REG_D2:			share_addsub_a	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
+				REG_WORK_HI:	share_addsub_a	<= {8'h0, ml_work_out[511:256]};
+				default:		share_addsub_a	<= temp_regs[addsub_a_regid];
+			endcase
+
+			case(addsub_b_regid)
+				REG_ONE:		share_addsub_b	<= 264'h1;
+				REG_ZERO:		share_addsub_b	<= 264'h0;
+				REG_121665:		share_addsub_b	<= 264'd121665;
+				REG_D2:			share_addsub_b	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
+				REG_WORK_HI:	share_addsub_b	<= {8'h0, ml_work_out[511:256]};
+				default:		share_addsub_b	<= temp_regs[addsub_b_regid];
+			endcase
+
+			case(mult_a_regid)
+				REG_ONE:		share_mult_a	<= 264'h1;
+				REG_ZERO:		share_mult_a	<= 264'h0;
+				REG_121665:		share_mult_a	<= 264'd121665;
+				REG_D2:			share_mult_a	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
+				REG_WORK_HI:	share_mult_a	<= {8'h0, ml_work_out[511:256]};
+				default:		share_mult_a	<= temp_regs[mult_a_regid];
+			endcase
+
+			case(mult_b_regid)
+				REG_ONE:		share_mult_b	<= 264'h1;
+				REG_ZERO:		share_mult_b	<= 264'h0;
+				REG_121665:		share_mult_b	<= 264'd121665;
+				REG_D2:			share_mult_b	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
+				REG_WORK_HI:	share_mult_b	<= {8'h0, ml_work_out[511:256]};
+				default:		share_mult_b	<= temp_regs[mult_b_regid];
+			endcase
+
+			case(select_r_regid)
+				REG_ONE:		share_select_r	<= 264'h1;
+				REG_ZERO:		share_select_r	<= 264'h0;
+				REG_121665:		share_select_r	<= 264'd121665;
+				REG_D2:			share_select_r	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
+				REG_WORK_HI:	share_select_r	<= {8'h0, ml_work_out[511:256]};
+				default:		share_select_r	<= temp_regs[select_r_regid];
+			endcase
+
+			case(select_s_regid)
+				REG_ONE:		share_select_s	<= 264'h1;
+				REG_ZERO:		share_select_s	<= 264'h0;
+				REG_121665:		share_select_s	<= 264'd121665;
+				REG_D2:			share_select_s	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
+				REG_WORK_HI:	share_select_s	<= {8'h0, ml_work_out[511:256]};
+				default:		share_select_s	<= temp_regs[select_s_regid];
+			endcase
+
+		end
+
+	end
 
 endmodule
