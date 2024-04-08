@@ -219,8 +219,6 @@ module X25519_ScalarMult(
 	);
 
 	logic		share_select_en	= 0;
-	wire[255:0]	share_select_r;
-	wire[255:0]	share_select_s;
 	wire[255:0]	share_select_p;
 	wire[255:0]	share_select_q;
 	wire		share_select_valid;
@@ -230,8 +228,8 @@ module X25519_ScalarMult(
 		.en(share_select_en),
 		.p(share_select_p),
 		.q(share_select_q),
-		.r(share_select_r),
-		.s(share_select_s),
+		.r(share_mult_a[255:0]),
+		.s(share_mult_b[255:0]),
 		.b(b),
 		.out_valid(share_select_valid));
 
@@ -968,8 +966,6 @@ module X25519_ScalarMult(
 		.share_addsub_b(share_addsub_b),
 		.share_mult_a(share_mult_a),
 		.share_mult_b(share_mult_b),
-		.share_select_r(share_select_r),
-		.share_select_s(share_select_s),
 		.share_freeze_a(share_freeze_a)
 	);
 
@@ -1298,8 +1294,6 @@ module X25519_Regfile(
 	output regval_t		share_addsub_b,
 	output regval_t		share_mult_a,
 	output regval_t		share_mult_b,
-	output logic[255:0]	share_select_r,
-	output logic[255:0]	share_select_s,
 	output regval_t		share_freeze_a
 	);
 
@@ -1528,8 +1522,6 @@ module X25519_Regfile(
 			share_addsub_b	<= p1_rd_data;
 			share_mult_a	<= p2_rd_data;
 			share_mult_b	<= p3_rd_data;
-			share_select_r	<= p2_rd_data[255:0];
-			share_select_s	<= p3_rd_data[255:0];
 		end
 
 	end
