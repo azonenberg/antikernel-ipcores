@@ -79,7 +79,11 @@
 			of which
 				9034 LUT / 2904 FF in regfile
 
-		Unified muxes + regfile
+		Unified muxes + regfile (regfile only)
+			16158 LUT / 4472 FF
+
+		Refactored regfile with only two write ports (regfile only)
+			10522 LUT / 4472 FF
 
 	Run time performance:
 		crypto_scalarmult (ECDH): 563438 clocks
@@ -143,7 +147,7 @@ module X25519_ScalarMult(
 	input wire[1:0]		dsa_addr,
 
 	//Common outputs
-	output wire			out_valid,
+	output logic		out_valid = 0,
 	output wire[255:0]	work_out
 );
 
@@ -157,7 +161,6 @@ module X25519_ScalarMult(
 
 	logic			iter_out_valid	= 0;
 
-	logic[511:0]	ml_work_out		= 0;
 	logic			ml_out_valid	= 0;
 
 	logic[7:0] 		round = 0;
@@ -216,13 +219,15 @@ module X25519_ScalarMult(
 	wire[255:0]	share_select_q;
 	wire		share_select_valid;
 
+	assign share_select_r[263:256] = 0;
+	assign share_select_s[263:256] = 0;
 	X25519_Select share_select(
 		.clk(clk),
 		.en(share_select_en),
 		.p(share_select_p[255:0]),
 		.q(share_select_q[255:0]),
-		.r(share_select_r),
-		.s(share_select_s),
+		.r(share_select_r[255:0]),
+		.s(share_select_s[255:0]),
 		.b(b),
 		.out_valid(share_select_valid));
 
@@ -242,8 +247,7 @@ module X25519_ScalarMult(
 
 	//freeze is a no-op with our representation
 	logic			share_freeze_en	= 0;
-	logic[263:0]	share_freeze_a;
-	assign out_valid = share_freeze_en;
+	regval_t		share_freeze_a;
 	assign work_out = {1'b0, share_freeze_a[254:0]};
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -355,9 +359,6 @@ module X25519_ScalarMult(
 	} state_t;
 
 	state_t state = STATE_DONE;
-
-	//Memory for temporary variables
-	regval_t	temp_regs[REG_TEMP_10:0];
 
 	//Microcode definitions
 	typedef struct packed
@@ -897,6 +898,8 @@ module X25519_ScalarMult(
 	logic	want_mult_result = 0;
 	logic	want_select_result = 0;
 
+	logic	ml_rd_en = 0;
+
 	regid_t	add_rd_ff = REG_TEMP_0;
 	regid_t sub_rd_ff = REG_TEMP_0;
 	regid_t mult_rd_ff = REG_TEMP_0;
@@ -910,7 +913,6 @@ module X25519_ScalarMult(
 	(* keep_hierarchy = "yes" *)
 	X25519_Regfile regfile(
 		.clk(clk),
-		.temp_regs(temp_regs),
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// Writes
@@ -946,7 +948,8 @@ module X25519_ScalarMult(
 		// Reads
 
 		.rd_en(advancing_ff),
-		.ml_work_out(ml_work_out),
+		.ml_rd_en(ml_rd_en),
+		.share_freeze_en(share_freeze_en),
 
 		.addsub_a_regid(line.addsub_a),
 		.addsub_b_regid(line.addsub_b),
@@ -960,7 +963,8 @@ module X25519_ScalarMult(
 		.share_mult_a(share_mult_a),
 		.share_mult_b(share_mult_b),
 		.share_select_r(share_select_r),
-		.share_select_s(share_select_s)
+		.share_select_s(share_select_s),
+		.share_freeze_a(share_freeze_a)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -975,8 +979,6 @@ module X25519_ScalarMult(
 						(share_mult_valid && line.next_on_mult) ||
 						(share_select_valid && line.next_on_select) ||
 						ml_out_valid;	//jump to STATE_RECIP
-
-		share_freeze_a	= temp_regs[REG_TEMP_0];
 	end
 
 	always_ff @(posedge clk) begin
@@ -986,6 +988,8 @@ module X25519_ScalarMult(
 		share_freeze_en	<= 0;
 
 		iter_out_valid	<= 0;
+
+		out_valid 		<= share_freeze_en;
 
 		advancing_ff	<= advancing;
 
@@ -1044,36 +1048,6 @@ module X25519_ScalarMult(
 			//Special case freeze() since it's only used for the output
 			share_freeze_en		<= (state == STATE_DONE);
 
-			if(line.addsub_en && (round == 'hfe) ) begin
-				$display("Starting add/sub (state %d)", state);
-				if(!line.mult_en) begin
-					$display("    r0 = %x", temp_regs[REG_TEMP_0]);
-					$display("    r1 = %x", temp_regs[REG_TEMP_1]);
-					$display("    r2 = %x", temp_regs[REG_TEMP_2]);
-					$display("    r3 = %x", temp_regs[REG_TEMP_3]);
-					$display("    r4 = %x", temp_regs[REG_TEMP_4]);
-					$display("    r5 = %x", temp_regs[REG_TEMP_5]);
-					$display("    r6 = %x", temp_regs[REG_TEMP_6]);
-					$display("    r7 = %x", temp_regs[REG_TEMP_7]);
-					$display("    r8 = %x", temp_regs[REG_TEMP_8]);
-					$display("    r9 = %x", temp_regs[REG_TEMP_9]);
-				end
-			end
-
-			if(line.mult_en && (round == 'hfe) ) begin
-				$display("Starting multiply (state %d)", state);
-				$display("    r0 = %x", temp_regs[REG_TEMP_0]);
-				$display("    r1 = %x", temp_regs[REG_TEMP_1]);
-				$display("    r2 = %x", temp_regs[REG_TEMP_2]);
-				$display("    r3 = %x", temp_regs[REG_TEMP_3]);
-				$display("    r4 = %x", temp_regs[REG_TEMP_4]);
-				$display("    r5 = %x", temp_regs[REG_TEMP_5]);
-				$display("    r6 = %x", temp_regs[REG_TEMP_6]);
-				$display("    r7 = %x", temp_regs[REG_TEMP_7]);
-				$display("    r8 = %x", temp_regs[REG_TEMP_8]);
-				$display("    r9 = %x", temp_regs[REG_TEMP_9]);
-			end
-
 		end
 
 		//Special case initialization
@@ -1120,6 +1094,7 @@ module X25519_ScalarMult(
 		dsa_iter_en		<= 0;
 		iter_first		<= 0;
 		ml_out_valid	<= 0;
+		ml_rd_en		<= 0;
 
 		if(share_mult_valid && (round < 5))
 			$display("Multiply complete: %x", share_mult_out);
@@ -1166,8 +1141,10 @@ module X25519_ScalarMult(
 				if(iter_out_valid) begin
 					round			<= round - 1;
 
-					if(round == 0)
+					if(round == 0) begin
 						loopstate	<= LSTATE_MLDONE;
+						ml_rd_en	<= 1;
+					end
 					else
 						loopstate	<= LSTATE_MLSTART;
 
@@ -1176,7 +1153,7 @@ module X25519_ScalarMult(
 
 			LSTATE_MLDONE: begin
 				ml_out_valid	<= 1;
-				ml_work_out		<= {temp_regs[REG_TEMP_8][255:0], temp_regs[REG_TEMP_6][255:0]};
+
 				loopstate		<= LSTATE_IDLE;
 			end	//end STATE_MLDONE
 
@@ -1229,7 +1206,8 @@ module X25519_Regfile(
 
 	//Read stuff
 	input wire			rd_en,
-	input wire[511:0]	ml_work_out,
+	input wire			share_freeze_en,
+	input wire			ml_rd_en,
 	input wire regid_t	addsub_a_regid,
 	input wire regid_t	addsub_b_regid,
 	input wire regid_t	mult_a_regid,
@@ -1243,10 +1221,13 @@ module X25519_Regfile(
 	output regval_t		share_mult_b,
 	output regval_t		share_select_r,
 	output regval_t		share_select_s,
-
-	//Temp
-	output regval_t		temp_regs[REG_TEMP_10:0]
+	output regval_t		share_freeze_a
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The actual memory
+
+	regval_t		temp_regs[REG_TEMP_10:0];
 
 	//Clear all registers to zero on reset
 	initial begin
@@ -1257,37 +1238,102 @@ module X25519_Regfile(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Write logic
+	// Special temporary register outside the normal register file (can we find a way to shortcut this??)
+
+	logic[511:0]	ml_work_out = 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Actual write logic
+
+	logic		p0_wr_en;
+	logic		p1_wr_en;
+
+	regid_t		p0_wr_addr;
+	regid_t		p1_wr_addr;
+
+	regval_t	p0_wr_data;
+	regval_t	p1_wr_data;
 
 	always_ff @(posedge clk) begin
+		if(p0_wr_en)
+			temp_regs[p0_wr_addr]	<= p0_wr_data;
 
-		//Initial naive implementation has 7 write ports, we should be able to simplify this a lot
+		if(p1_wr_en)
+			temp_regs[p1_wr_addr]	<= p1_wr_data;
+	end
 
-		//Save output
-		if(share_add_valid && want_add_result)
-			temp_regs[add_rd_ff]		<= share_add_out;
-		if(share_sub_valid && want_sub_result)
-			temp_regs[sub_rd_ff]		<= share_sub_out;
-		if(share_mult_valid && want_mult_result)
-			temp_regs[mult_rd_ff]		<= share_mult_out;
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Write port address muxing and arbitration
+
+	always_comb begin
+
+		p0_wr_en	= 0;
+		p1_wr_en	= 0;
+		p0_wr_addr	= REG_ZERO;
+		p1_wr_addr	= REG_ZERO;
+		p0_wr_data	= 0;
+		p1_wr_data	= 0;
+
+		//Select completed, use both ports to retire
 		if(share_select_valid && want_select_result) begin
-			temp_regs[select_p_rd_ff]	<= share_select_p;
-			temp_regs[select_q_rd_ff]	<= share_select_q;
+			p0_wr_en	= 1;
+			p1_wr_en	= 1;
+
+			p0_wr_addr	= select_p_rd_ff;
+			p1_wr_addr	= select_q_rd_ff;
+
+			p0_wr_data	= share_select_p;
+			p1_wr_data	= share_select_q;
 		end
 
-		//Write ECDSA Q inputs to temp0...3
-		if(dsa_load)
-			temp_regs[dsa_addr]			<= work_in;
+		//Multiply completed, use first port to retire
+		//(even if an add/sub issued concurrently it's long done by now so no conflicts)
+		if(share_mult_valid && want_mult_result) begin
+			p0_wr_en	= 1;
+			p0_wr_addr	= mult_rd_ff;
+			p0_wr_data	= share_mult_out;
+		end
 
-		if(dh_en)
-			temp_regs[REG_TEMP_10]		<= work_in;
+		//Add/subtract completed, use first port for add and second for subtract
+		if(share_add_valid && want_add_result) begin
+			p0_wr_en	= 1;
+			p0_wr_addr	= add_rd_ff;
+			p0_wr_data	= share_add_out;
+		end
+		if(share_sub_valid && want_sub_result) begin
+			p1_wr_en	= 1;
+			p1_wr_addr	= sub_rd_ff;
+			p1_wr_data	= share_sub_out;
+		end
+
+		//External input loading uses first port
+		if(dsa_load) begin
+			p0_wr_en	= 1;
+			p0_wr_addr	= regid_t'({2'b0, dsa_addr});
+			p0_wr_data	= work_in;
+		end
+		if(dh_en) begin
+			p0_wr_en	= 1;
+			p0_wr_addr	= REG_TEMP_10;
+			p0_wr_data	= work_in;
+		end
 
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Read port muxing
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Read logic: full crossbar for now, no per-port depopulation
 
 	always_ff @(posedge clk) begin
+
+		//TODO: make this a dedicated read port or something
+		if(share_freeze_en)
+			share_freeze_a	<= temp_regs[REG_TEMP_0];
+
+		if(ml_rd_en)
+			ml_work_out		<= {temp_regs[REG_TEMP_8][255:0], temp_regs[REG_TEMP_6][255:0]};
 
 		if(rd_en) begin
 
