@@ -74,6 +74,11 @@
 		Continued signature work
 			15243 LUT / 9079 FF
 
+		Discrete muxes and register file
+			18304 LUT / 9145 FF
+			of which
+				9034 LUT / 2904 FF in regfile
+
 	Run time performance:
 		crypto_scalarmult (ECDH): 563438 clocks
 
@@ -92,6 +97,32 @@
 			assert dsa_en
 
  */
+
+typedef enum logic[3:0]
+{
+	//General purpose registers, writable and usable everywhere
+	REG_TEMP_0		= 4'h00,
+	REG_TEMP_1		= 4'h01,
+	REG_TEMP_2		= 4'h02,
+	REG_TEMP_3		= 4'h03,
+	REG_TEMP_4		= 4'h04,
+	REG_TEMP_5		= 4'h05,
+	REG_TEMP_6		= 4'h06,
+	REG_TEMP_7		= 4'h07,
+	REG_TEMP_8		= 4'h08,
+	REG_TEMP_9		= 4'h09,
+	REG_TEMP_10		= 4'h0a,
+
+	//Special registers (named, but not always usable in every operation)
+	REG_121665		= 4'h0b,	//constant 121665
+	REG_ZERO		= 4'h0c,	//constant 0, writes ignored
+	REG_ONE			= 4'h0d,	//constant 1
+	REG_D2			= 4'h0e,	//constant 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159
+	REG_WORK_HI		= 4'h0f		//must be last
+} regid_t;
+
+typedef logic[263:0] regval_t;
+
 module X25519_ScalarMult(
 	input wire			clk,
 
@@ -147,13 +178,13 @@ module X25519_ScalarMult(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// RESOURCE SHARING
+	// Execution units
 
-	logic			share_addsub_en	= 0;
-	logic[263:0]	share_addsub_a	= 0;
-	logic[263:0]	share_addsub_b	= 0;
-	wire			share_add_valid;
-	wire[263:0]		share_add_out;
+	logic		share_addsub_en	= 0;
+	regval_t	share_addsub_a;
+	regval_t	share_addsub_b;
+	wire		share_add_valid;
+	wire[263:0]	share_add_out;
 
 	X25519_Add share_add(
 		.clk(clk),
@@ -164,8 +195,8 @@ module X25519_ScalarMult(
 		.out(share_add_out)
 	);
 
-	wire			share_sub_valid;
-	wire[263:0]		share_sub_out;
+	wire		share_sub_valid;
+	wire[263:0]	share_sub_out;
 
 	X25519_Sub share_sub(
 		.clk(clk),
@@ -176,28 +207,28 @@ module X25519_ScalarMult(
 		.out(share_sub_out)
 	);
 
-	logic			share_select_en	= 0;
-	logic[255:0]	share_select_r	= 0;
-	logic[255:0]	share_select_s	= 0;
-	wire[255:0]		share_select_p;
-	wire[255:0]		share_select_q;
-	wire			share_select_valid;
+	logic		share_select_en	= 0;
+	regval_t	share_select_r;
+	regval_t	share_select_s;
+	wire[255:0]	share_select_p;
+	wire[255:0]	share_select_q;
+	wire		share_select_valid;
 
 	X25519_Select share_select(
 		.clk(clk),
 		.en(share_select_en),
-		.p(share_select_p),
-		.q(share_select_q),
+		.p(share_select_p[255:0]),
+		.q(share_select_q[255:0]),
 		.r(share_select_r),
 		.s(share_select_s),
 		.b(b),
 		.out_valid(share_select_valid));
 
-	logic			share_mult_en	= 0;
-	logic[263:0]	share_mult_a	= 0;
-	logic[263:0]	share_mult_b	= 0;
-	wire[263:0]		share_mult_out;
-	wire			share_mult_valid;
+	logic		share_mult_en	= 0;
+	regval_t	share_mult_a;
+	regval_t	share_mult_b;
+	wire[263:0]	share_mult_out;
+	wire		share_mult_valid;
 
 	X25519_Mult share_mult(
 		.clk(clk),
@@ -324,37 +355,7 @@ module X25519_ScalarMult(
 	state_t state = STATE_DONE;
 
 	//Memory for temporary variables
-	typedef enum logic[3:0]
-	{
-		//General purpose registers, writable and usable everywhere
-		REG_TEMP_0		= 4'h00,
-		REG_TEMP_1		= 4'h01,
-		REG_TEMP_2		= 4'h02,
-		REG_TEMP_3		= 4'h03,
-		REG_TEMP_4		= 4'h04,
-		REG_TEMP_5		= 4'h05,
-		REG_TEMP_6		= 4'h06,
-		REG_TEMP_7		= 4'h07,
-		REG_TEMP_8		= 4'h08,
-		REG_TEMP_9		= 4'h09,
-		REG_TEMP_10		= 4'h0a,
-
-		//Special registers (named, but not always usable in every operation)
-		REG_121665		= 4'h0b,	//constant 121665
-		REG_ZERO		= 4'h0c,	//constant 0, writes ignored
-		REG_ONE			= 4'h0d,	//constant 1
-		REG_D2			= 4'h0e,	//constant 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159
-		REG_WORK_HI		= 4'h0f		//must be last
-	} regid_t;
-	logic[263:0]	temp_regs[REG_TEMP_10:0];
-
-	//Initialize registers, including constants
-	initial begin
-
-		for(integer i=0; i<=REG_TEMP_10; i++)
-			temp_regs[i]		<= 0;
-
-	end
+	regval_t	temp_regs[REG_TEMP_10:0];
 
 	//Microcode definitions
 	typedef struct packed
@@ -886,9 +887,96 @@ module X25519_ScalarMult(
 
 	end
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The register file
+
+	logic	want_add_result = 0;
+	logic	want_sub_result = 0;
+	logic	want_mult_result = 0;
+	logic	want_select_result = 0;
+
+	regid_t	add_rd_ff = REG_TEMP_0;
+	regid_t sub_rd_ff = REG_TEMP_0;
+	regid_t mult_rd_ff = REG_TEMP_0;
+	regid_t select_p_rd_ff = REG_TEMP_0;
+	regid_t select_q_rd_ff = REG_TEMP_0;
+
+	(* keep_hierarchy = "yes" *)
+	X25519_Regfile regfile(
+		.clk(clk),
+		.temp_regs(temp_regs),
+
+		.share_add_valid(share_add_valid),
+		.share_sub_valid(share_sub_valid),
+		.share_mult_valid(share_mult_valid),
+		.share_select_valid(share_select_valid),
+
+		.share_add_out(share_add_out),
+		.share_sub_out(share_sub_out),
+		.share_mult_out(share_mult_out),
+		.share_select_p({8'h0, share_select_p}),
+		.share_select_q({8'h0, share_select_q}),
+		.work_in({8'h0, work_in}),
+
+		.dh_en(dh_en),
+		.dsa_load(dsa_load),
+		.dsa_addr(dsa_addr),
+
+		.want_add_result(want_add_result),
+		.want_sub_result(want_sub_result),
+		.want_mult_result(want_mult_result),
+		.want_select_result(want_select_result),
+
+		.add_rd_ff(add_rd_ff),
+		.sub_rd_ff(sub_rd_ff),
+		.mult_rd_ff(mult_rd_ff),
+		.select_p_rd_ff(select_p_rd_ff),
+		.select_q_rd_ff(select_q_rd_ff)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Input muxing for execution units
+
 	microcode_t line;
 	logic		advancing;
 	logic		advancing_ff	= 0;
+
+	(* keep_hierarchy = "yes" *)
+	X25519_Addsub_AMux addsub_amux(
+		.clk(clk),
+		.regs(temp_regs),
+		.ce(advancing_ff),
+		.muxsel(line.addsub_a),
+		.muxout(share_addsub_a));
+
+	(* keep_hierarchy = "yes" *)
+	X25519_Addsub_BMux addsub_bmux(
+		.clk(clk),
+		.regs(temp_regs),
+		.ce(advancing_ff),
+		.muxsel(line.addsub_b),
+		.muxout(share_addsub_b));
+
+	(* keep_hierarchy = "yes" *)
+	X25519_Mult_AMux mult_amux(
+		.clk(clk),
+		.regs(temp_regs),
+		.ml_work_out(ml_work_out),
+		.ce(advancing_ff),
+		.muxsel(line.mult_a),
+		.muxout(share_mult_a));
+
+	(* keep_hierarchy = "yes" *)
+	X25519_Mult_BMux mult_bmux(
+		.clk(clk),
+		.regs(temp_regs),
+		.ml_work_out(ml_work_out),
+		.ce(advancing_ff),
+		.muxsel(line.mult_b),
+		.muxout(share_mult_b));
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Top level control
 
 	logic[6:0]	loop_count		= 0;
 
@@ -902,17 +990,6 @@ module X25519_ScalarMult(
 
 		share_freeze_a	= temp_regs[REG_TEMP_0];
 	end
-
-	logic	want_add_result = 0;
-	logic	want_sub_result = 0;
-	logic	want_mult_result = 0;
-	logic	want_select_result = 0;
-
-	regid_t	add_rd_ff = REG_TEMP_0;
-	regid_t sub_rd_ff = REG_TEMP_0;
-	regid_t mult_rd_ff = REG_TEMP_0;
-	regid_t select_p_rd_ff = REG_TEMP_0;
-	regid_t select_q_rd_ff = REG_TEMP_0;
 
 	always_ff @(posedge clk) begin
 		share_addsub_en	<= 0;
@@ -936,25 +1013,6 @@ module X25519_ScalarMult(
 		mult_rd_ff			<= line.mult_out;
 		select_p_rd_ff		<= line.select_p;
 		select_q_rd_ff		<= line.select_q;
-
-		//Save output
-		if(share_add_valid && want_add_result)
-			temp_regs[add_rd_ff]		<= share_add_out;
-		if(share_sub_valid && want_sub_result)
-			temp_regs[sub_rd_ff]		<= share_sub_out;
-		if(share_mult_valid && want_mult_result)
-			temp_regs[mult_rd_ff]		<= share_mult_out;
-		if(share_select_valid && want_select_result) begin
-			temp_regs[select_p_rd_ff]	<= share_select_p;
-			temp_regs[select_q_rd_ff]	<= share_select_q;
-		end
-
-		//Write ECDSA Q inputs to temp0...3
-		if(dsa_load)
-			temp_regs[dsa_addr]			<= work_in;
-
-		if(dh_en)
-			temp_regs[REG_TEMP_10]		<= work_in;
 
 		if(share_select_valid && state == STATE_XN_HIGH2)
 			iter_out_valid	<= 1;
@@ -997,60 +1055,6 @@ module X25519_ScalarMult(
 
 			//Special case freeze() since it's only used for the output
 			share_freeze_en		<= (state == STATE_DONE);
-
-			//Special case a few "magic" inputs for constants etc.
-			//Commented out paths are not used by current microcode.
-			//Removing these mux paths saves a few LUTs. They can be added back if needed in the future.
-			case(line.addsub_a)
-				//REG_TEMP_0:		share_addsub_a	<= temp_regs[REG_TEMP_0];
-				REG_TEMP_1:		share_addsub_a	<= temp_regs[REG_TEMP_1];
-				REG_TEMP_2:		share_addsub_a	<= temp_regs[REG_TEMP_2];
-				REG_TEMP_3:		share_addsub_a	<= temp_regs[REG_TEMP_3];
-				REG_TEMP_4:		share_addsub_a	<= temp_regs[REG_TEMP_4];
-				REG_TEMP_5:		share_addsub_a	<= temp_regs[REG_TEMP_5];
-				REG_TEMP_6:		share_addsub_a	<= temp_regs[REG_TEMP_6];
-				REG_TEMP_7:		share_addsub_a	<= temp_regs[REG_TEMP_7];
-				REG_TEMP_10:	share_addsub_a	<= temp_regs[REG_TEMP_10];
-				REG_ZERO:		share_addsub_a	<= 264'h0;
-			endcase
-
-			case(line.addsub_b)
-				REG_TEMP_0:		share_addsub_b	<= temp_regs[REG_TEMP_0];
-				//REG_TEMP_1:		share_addsub_b	<= temp_regs[REG_TEMP_1];
-				REG_TEMP_2:		share_addsub_b	<= temp_regs[REG_TEMP_2];
-				REG_TEMP_3:		share_addsub_b	<= temp_regs[REG_TEMP_3];
-				REG_TEMP_4:		share_addsub_b	<= temp_regs[REG_TEMP_4];
-				REG_TEMP_5:		share_addsub_b	<= temp_regs[REG_TEMP_5];
-				REG_TEMP_8:		share_addsub_b	<= temp_regs[REG_TEMP_8];
-				REG_TEMP_9:		share_addsub_b	<= temp_regs[REG_TEMP_9];
-			endcase
-
-			case(line.mult_a)
-				REG_TEMP_0:		share_mult_a	<= temp_regs[REG_TEMP_0];
-				REG_TEMP_1:		share_mult_a	<= temp_regs[REG_TEMP_1];
-				REG_TEMP_2:		share_mult_a	<= temp_regs[REG_TEMP_2];
-				REG_TEMP_3:		share_mult_a	<= temp_regs[REG_TEMP_3];
-				REG_TEMP_4:		share_mult_a	<= temp_regs[REG_TEMP_4];
-				REG_TEMP_8:		share_mult_a	<= temp_regs[REG_TEMP_8];
-				REG_TEMP_9:		share_mult_a	<= temp_regs[REG_TEMP_9];
-				REG_WORK_HI:	share_mult_a	<= {8'h0, ml_work_out[511:256]};
-			endcase
-
-			case(line.mult_b)
-				REG_TEMP_0:		share_mult_b	<= temp_regs[REG_TEMP_0];
-				REG_TEMP_1:		share_mult_b	<= temp_regs[REG_TEMP_1];
-				REG_TEMP_2:		share_mult_b	<= temp_regs[REG_TEMP_2];
-				REG_TEMP_3:		share_mult_b	<= temp_regs[REG_TEMP_3];
-				REG_TEMP_4:		share_mult_b	<= temp_regs[REG_TEMP_4];
-				REG_TEMP_5:		share_mult_b	<= temp_regs[REG_TEMP_5];
-				REG_TEMP_6:		share_mult_b	<= temp_regs[REG_TEMP_6];
-				REG_TEMP_8:		share_mult_b	<= temp_regs[REG_TEMP_8];
-				REG_TEMP_9:		share_mult_b	<= temp_regs[REG_TEMP_9];
-				REG_TEMP_10:	share_mult_b	<= temp_regs[REG_TEMP_10];
-				REG_121665:		share_mult_b	<= 264'd121665;
-				REG_D2:			share_mult_b	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-				REG_WORK_HI:	share_mult_b	<= {8'h0, ml_work_out[511:256]};
-			endcase
 
 			case(line.select_r)
 				REG_ZERO:		share_select_r	<= 256'h0;
@@ -1224,4 +1228,210 @@ module X25519_ScalarMult(
 
 endmodule
 
-//TODO: refactor muxing into separate modules
+/**
+	@brief Mux for A input of add/sub functional unit
+ */
+module X25519_Addsub_AMux(
+	input wire			clk,
+	input wire regval_t regs[10:0],
+	input wire			ce,
+	input wire regid_t	muxsel,
+
+	output regval_t		muxout = 0);
+
+	always_ff @(posedge clk) begin
+
+		if(ce) begin
+			case(muxsel)
+				//REG_TEMP_0:		muxout	<= regs[REG_TEMP_0];
+				REG_TEMP_1:		muxout	<= regs[REG_TEMP_1];
+				REG_TEMP_2:		muxout	<= regs[REG_TEMP_2];
+				REG_TEMP_3:		muxout	<= regs[REG_TEMP_3];
+				REG_TEMP_4:		muxout	<= regs[REG_TEMP_4];
+				REG_TEMP_5:		muxout	<= regs[REG_TEMP_5];
+				REG_TEMP_6:		muxout	<= regs[REG_TEMP_6];
+				REG_TEMP_7:		muxout	<= regs[REG_TEMP_7];
+				REG_TEMP_10:	muxout	<= regs[REG_TEMP_10];
+				REG_ZERO:		muxout	<= 264'h0;
+			endcase
+		end
+
+	end
+
+endmodule
+
+/**
+	@brief Mux for B input of add/sub functional unit
+ */
+module X25519_Addsub_BMux(
+	input wire			clk,
+	input wire regval_t regs[10:0],
+	input wire			ce,
+	input wire regid_t	muxsel,
+
+	output regval_t		muxout = 0);
+
+	always_ff @(posedge clk) begin
+
+		if(ce) begin
+			case(muxsel)
+				REG_TEMP_0:		muxout	<= regs[REG_TEMP_0];
+				//REG_TEMP_1:		muxout	<= regs[REG_TEMP_1];
+				REG_TEMP_2:		muxout	<= regs[REG_TEMP_2];
+				REG_TEMP_3:		muxout	<= regs[REG_TEMP_3];
+				REG_TEMP_4:		muxout	<= regs[REG_TEMP_4];
+				REG_TEMP_5:		muxout	<= regs[REG_TEMP_5];
+				REG_TEMP_8:		muxout	<= regs[REG_TEMP_8];
+				REG_TEMP_9:		muxout	<= regs[REG_TEMP_9];
+			endcase
+		end
+
+	end
+
+endmodule
+
+/**
+	@brief Mux for A input of multiply functional unit
+ */
+module X25519_Mult_AMux(
+	input wire			clk,
+	input wire regval_t regs[10:0],
+	input wire			ce,
+	input wire regid_t	muxsel,
+	input wire[511:0]	ml_work_out,
+
+	output regval_t		muxout = 0);
+
+	always_ff @(posedge clk) begin
+
+		if(ce) begin
+			case(muxsel)
+				REG_TEMP_0:		muxout	<= regs[REG_TEMP_0];
+				REG_TEMP_1:		muxout	<= regs[REG_TEMP_1];
+				REG_TEMP_2:		muxout	<= regs[REG_TEMP_2];
+				REG_TEMP_3:		muxout	<= regs[REG_TEMP_3];
+				REG_TEMP_4:		muxout	<= regs[REG_TEMP_4];
+				REG_TEMP_8:		muxout	<= regs[REG_TEMP_8];
+				REG_TEMP_9:		muxout	<= regs[REG_TEMP_9];
+				REG_WORK_HI:	muxout	<= {8'h0, ml_work_out[511:256]};
+			endcase
+		end
+
+	end
+
+endmodule
+
+/**
+	@brief Mux for B input of multiply functional unit
+ */
+module X25519_Mult_BMux(
+	input wire			clk,
+	input wire regval_t regs[10:0],
+	input wire			ce,
+	input wire regid_t	muxsel,
+	input wire[511:0]	ml_work_out,
+
+	output regval_t		muxout = 0);
+
+	always_ff @(posedge clk) begin
+
+		if(ce) begin
+			case(muxsel)
+				REG_TEMP_0:		muxout	<= regs[REG_TEMP_0];
+				REG_TEMP_1:		muxout	<= regs[REG_TEMP_1];
+				REG_TEMP_2:		muxout	<= regs[REG_TEMP_2];
+				REG_TEMP_3:		muxout	<= regs[REG_TEMP_3];
+				REG_TEMP_4:		muxout	<= regs[REG_TEMP_4];
+				REG_TEMP_5:		muxout	<= regs[REG_TEMP_5];
+				REG_TEMP_6:		muxout	<= regs[REG_TEMP_6];
+				REG_TEMP_8:		muxout	<= regs[REG_TEMP_8];
+				REG_TEMP_9:		muxout	<= regs[REG_TEMP_9];
+				REG_TEMP_10:	muxout	<= regs[REG_TEMP_10];
+				REG_121665:		muxout	<= 264'd121665;
+				REG_D2:			muxout	<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
+				REG_WORK_HI:	muxout	<= {8'h0, ml_work_out[511:256]};
+			endcase
+		end
+
+	end
+
+endmodule
+
+/**
+	@brief Register file
+ */
+module X25519_Regfile(
+	input wire			clk,
+
+	//Write ports
+	input wire			share_add_valid,
+	input wire			share_sub_valid,
+	input wire			share_mult_valid,
+	input wire			share_select_valid,
+
+	input wire			want_add_result,
+	input wire			want_sub_result,
+	input wire			want_mult_result,
+	input wire			want_select_result,
+
+	input wire			dh_en,
+	input wire			dsa_load,
+	input wire[1:0]		dsa_addr,
+
+	input wire regid_t	add_rd_ff,
+	input wire regid_t	sub_rd_ff,
+	input wire regid_t	mult_rd_ff,
+	input wire regid_t	select_p_rd_ff,
+	input wire regid_t	select_q_rd_ff,
+
+	input wire regval_t	share_add_out,
+	input wire regval_t	share_sub_out,
+	input wire regval_t	share_mult_out,
+	input wire regval_t	share_select_p,
+	input wire regval_t	share_select_q,
+	input wire regval_t	work_in,
+
+	//Read stuff
+	output regval_t		temp_regs[REG_TEMP_10:0]
+	);
+
+	//Clear all registers to zero on reset
+	initial begin
+
+		for(integer i=0; i<=REG_TEMP_10; i++)
+			temp_regs[i]		<= 0;
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Write logic
+
+	always_ff @(posedge clk) begin
+
+		//Initial naive implementation has 7 write ports, we should be able to simplify this a lot
+
+		//Save output
+		if(share_add_valid && want_add_result)
+			temp_regs[add_rd_ff]		<= share_add_out;
+		if(share_sub_valid && want_sub_result)
+			temp_regs[sub_rd_ff]		<= share_sub_out;
+		if(share_mult_valid && want_mult_result)
+			temp_regs[mult_rd_ff]		<= share_mult_out;
+		if(share_select_valid && want_select_result) begin
+			temp_regs[select_p_rd_ff]	<= share_select_p;
+			temp_regs[select_q_rd_ff]	<= share_select_q;
+		end
+
+		//Write ECDSA Q inputs to temp0...3
+		if(dsa_load)
+			temp_regs[dsa_addr]			<= work_in;
+
+		if(dh_en)
+			temp_regs[REG_TEMP_10]		<= work_in;
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Write logic
+
+endmodule
