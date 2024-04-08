@@ -82,20 +82,13 @@
 		Unified muxes + regfile (regfile only)
 			16158 LUT / 4472 FF
 
-		Refactored regfile with only two write ports (regfile only)
-			10522 LUT / 4472 FF
-
-		Including extra read ports missed in previous calculation
-			10933 LUT / 4983 FF in regfile
-			15760 / 9412 total
-
-		Moved constants to register file, eliminated ugly case block
-			10507 LUT / 4983 FF
-			14889 / 9402 total
-
 		Condense regfile to four read ports, but not explicit lutram yet
 			11482 LUT / 5271 FF
 			16300 / 9694 total
+
+		LVT based lutram regfile
+			3279 LUT / 1327 FF for regfile!! Massive reduction...
+			8164 LUT / 5750 FF total
 
 	Run time performance:
 		crypto_scalarmult (ECDH): 563438 clocks
@@ -1184,6 +1177,79 @@ module X25519_ScalarMult(
 endmodule
 
 /**
+	@brief A single bank of the register file
+
+	Dual port, one R/W port (we cannot retire an instruction and fetch simultaneously) and three R/O ports
+ */
+module X25519_RegfileBank(
+
+	input wire			clk,
+	input wire			wr_en,
+	input wire regid_t	wr_addr,
+	input wire regval_t	wr_data,
+
+	input wire regid_t	rd_addr0,
+	input wire regid_t	rd_addr1,
+	input wire regid_t	rd_addr2,
+	input wire regid_t	rd_addr3,
+
+	output regval_t		rd_data0,
+	output regval_t		rd_data1,
+	output regval_t		rd_data2,
+	output regval_t		rd_data3
+);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Write port address muxing
+
+	regid_t p3_addr;
+	always_comb begin
+		if(wr_en)
+			p3_addr = wr_addr;
+		else
+			p3_addr = rd_addr3;
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The actual memory array
+
+	(* RAM_STYLE = "distributed" *)
+	regval_t		mem[REG_COUNT-1:0];
+
+	//Clear all registers to zero on reset
+	initial begin
+
+		//Normal GPRs
+		for(integer i=0; i<=REG_TEMP_10; i++)
+			mem[i]			<= 0;
+
+		//Special registers for constants (read only)
+		mem[REG_ONE]		<= 264'h1;
+		mem[REG_ZERO]		<= 264'h0;
+		mem[REG_121665]		<= 264'd121665;
+		mem[REG_D2]			<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Writing
+
+	always_ff @(posedge clk) begin
+		if(wr_en)
+			mem[wr_addr] <= wr_data;
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Reading
+
+	assign rd_data0 = mem[rd_addr0];
+	assign rd_data1 = mem[rd_addr1];
+	assign rd_data2 = mem[rd_addr2];
+	assign rd_data3 = mem[p3_addr];
+
+endmodule
+
+/**
 	@brief Register file
  */
 module X25519_Regfile(
@@ -1238,27 +1304,7 @@ module X25519_Regfile(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The actual memory
-
-	regval_t		temp_regs[REG_COUNT-1:0];
-
-	//Clear all registers to zero on reset
-	initial begin
-
-		//Normal GPRs
-		for(integer i=0; i<=REG_TEMP_10; i++)
-			temp_regs[i]		<= 0;
-
-		//Special registers for constants (read only)
-		temp_regs[REG_ONE]		<= 264'h1;
-		temp_regs[REG_ZERO]		<= 264'h0;
-		temp_regs[REG_121665]	<= 264'd121665;
-		temp_regs[REG_D2]		<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Actual write logic
+	// Memory banks
 
 	logic		p0_wr_en;
 	logic		p1_wr_en;
@@ -1269,12 +1315,98 @@ module X25519_Regfile(
 	regval_t	p0_wr_data;
 	regval_t	p1_wr_data;
 
-	always_ff @(posedge clk) begin
-		if(p0_wr_en)
-			temp_regs[p0_wr_addr]	<= p0_wr_data;
+	regid_t		p0_rd_addr;
+	regid_t		p1_rd_addr;
+	regid_t		p2_rd_addr;
+	regid_t		p3_rd_addr;
 
+	regval_t	p0_rd_data_bank0;
+	regval_t	p1_rd_data_bank0;
+	regval_t	p2_rd_data_bank0;
+	regval_t	p3_rd_data_bank0;
+
+	X25519_RegfileBank bank0(
+		.clk(clk),
+
+		.wr_en(p0_wr_en),
+		.wr_addr(p0_wr_addr),
+		.wr_data(p0_wr_data),
+
+		.rd_addr0(p0_rd_addr),
+		.rd_addr1(p1_rd_addr),
+		.rd_addr2(p2_rd_addr),
+		.rd_addr3(p3_rd_addr),
+
+		.rd_data0(p0_rd_data_bank0),
+		.rd_data1(p1_rd_data_bank0),
+		.rd_data2(p2_rd_data_bank0),
+		.rd_data3(p3_rd_data_bank0)
+		);
+
+	regval_t	p0_rd_data_bank1;
+	regval_t	p1_rd_data_bank1;
+	regval_t	p2_rd_data_bank1;
+	regval_t	p3_rd_data_bank1;
+
+	X25519_RegfileBank bank1(
+		.clk(clk),
+
+		.wr_en(p1_wr_en),
+		.wr_addr(p1_wr_addr),
+		.wr_data(p1_wr_data),
+
+		.rd_addr0(p0_rd_addr),
+		.rd_addr1(p1_rd_addr),
+		.rd_addr2(p2_rd_addr),
+		.rd_addr3(p3_rd_addr),
+
+		.rd_data0(p0_rd_data_bank1),
+		.rd_data1(p1_rd_data_bank1),
+		.rd_data2(p2_rd_data_bank1),
+		.rd_data3(p3_rd_data_bank1)
+		);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Live value table and read muxing
+
+	regval_t	p0_rd_data;
+	regval_t	p1_rd_data;
+	regval_t	p2_rd_data;
+	regval_t	p3_rd_data;
+
+	logic[15:0]	lvt = 0;
+
+	always_ff @(posedge clk) begin
+
+		if(p0_wr_en)
+			lvt[p0_wr_addr]	<= 0;
 		if(p1_wr_en)
-			temp_regs[p1_wr_addr]	<= p1_wr_data;
+			lvt[p1_wr_addr]	<= 1;
+
+	end
+
+	always_comb begin
+
+		if(lvt[p0_rd_addr])
+			p0_rd_data	= p0_rd_data_bank1;
+		else
+			p0_rd_data	= p0_rd_data_bank0;
+
+		if(lvt[p1_rd_addr])
+			p1_rd_data	= p1_rd_data_bank1;
+		else
+			p1_rd_data	= p1_rd_data_bank0;
+
+		if(lvt[p2_rd_addr])
+			p2_rd_data	= p2_rd_data_bank1;
+		else
+			p2_rd_data	= p2_rd_data_bank0;
+
+		if(lvt[p3_rd_addr])
+			p3_rd_data	= p3_rd_data_bank1;
+		else
+			p3_rd_data	= p3_rd_data_bank0;
+
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -1336,27 +1468,7 @@ module X25519_Regfile(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Read logic (combinatorial, registers are separate)
-
-	regid_t		p0_rd_addr;
-	regid_t		p1_rd_addr;
-	regid_t		p2_rd_addr;
-	regid_t		p3_rd_addr;
-
-	regval_t	p0_rd_data;
-	regval_t	p1_rd_data;
-	regval_t	p2_rd_data;
-	regval_t	p3_rd_data;
-
-	always_comb begin
-		p0_rd_data	= temp_regs[p0_rd_addr];
-		p1_rd_data	= temp_regs[p1_rd_addr];
-		p2_rd_data	= temp_regs[p2_rd_addr];
-		p3_rd_data	= temp_regs[p3_rd_addr];
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Read port muxing
+	// Read port address muxing
 
 	/*
 		We have a total of 7 logical read ports: freeze, addsub_a/b, mult_a/b, select_r/s
@@ -1404,7 +1516,7 @@ module X25519_Regfile(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Read logic: full crossbar for now, no per-port depopulation
+	// Output registers
 
 	always_ff @(posedge clk) begin
 
