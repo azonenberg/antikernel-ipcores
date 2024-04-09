@@ -59,6 +59,13 @@
 		Wait for out_valid to pulse high
 		Read results
 			assert dsa_rd then read corresponding result word from work_out
+
+	To do a scalarbase():
+		Load q0...q1
+			Same as scalarmult()
+		Start the operation
+			assert dsa_base_en
+		same as scalarmult() from here
  */
 
 module X25519_ScalarMult(
@@ -75,6 +82,7 @@ module X25519_ScalarMult(
 
 	//ECDSA interface
 	input wire			dsa_en,
+	input wire			dsa_base_en,
 	input wire			dsa_load,
 	input wire			dsa_rd,
 	output logic		dsa_done,
@@ -291,6 +299,9 @@ module X25519_ScalarMult(
 		STATE_SCALARMULT_SECOND_SEL2,
 		STATE_SCALARMULT_SECOND_SEL3,
 		STATE_SCALARMULT_SECOND_SEL4,
+
+		//scalarbase() setup: x lines
+		STATE_SCALARBASE_INIT1,
 
 		//completion: 2 lines
 		STATE_ITER_DONE,
@@ -890,6 +901,20 @@ module X25519_ScalarMult(
 			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_ITER_DONE, 1'b0, 7'd0 };
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// scalarbase() initialization before jumping to scalarmult()
+
+		//TODO: do this part too
+		//set25519(q[0],X);
+		//set25519(q[1],Y);
+
+		//Load constant inputs
+		//set25519(q[2],gf1);
+		//bignumMult(q[3],X,Y);
+		ucode[STATE_SCALARBASE_INIT1] = { 3'b011, REG_ONE, REG_ZERO, REG_TEMP_0, REG_TEMP_1,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_2, REG_ZERO, REG_TEMP_3, 3'b010, STATE_DSA_INIT1, 1'b0, 7'd0 };
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		/// end
 
 		ucode[STATE_DONE] = { 3'b000, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
@@ -1021,6 +1046,8 @@ module X25519_ScalarMult(
 						ml_out_valid;	//jump to STATE_RECIP
 	end
 
+	logic		load_base		= 0;
+
 	always_ff @(posedge clk) begin
 		share_addsub_en	<= 0;
 		share_select_en	<= 0;
@@ -1104,8 +1131,12 @@ module X25519_ScalarMult(
 		if(dsa_iter_en) begin
 			advancing_ff	<= 1;
 
+			//scalarbase one-time init
+			if(load_base)
+				state		<= STATE_SCALARBASE_INIT1;
+
 			//one time initialization
-			if(iter_first)
+			else if(iter_first)
 				state		<= STATE_DSA_INIT1;
 
 			//no jump right into loop entry
@@ -1141,6 +1172,7 @@ module X25519_ScalarMult(
 		ml_out_valid	<= 0;
 		ml_rd_en		<= 0;
 		dsa_done		<= 0;
+		load_base		<= 0;
 
 		if(share_mult_valid && (round < 5))
 			$display("Multiply complete: %x", share_mult_out);
@@ -1164,9 +1196,10 @@ module X25519_ScalarMult(
 
 				//When starting a new scalarmult(), go from the highest bit
 				//but don't twiddle bits like crypto_scalarmult() needs
-				if(dsa_en) begin
+				if(dsa_en || dsa_base_en) begin
 					dsa_iter_en		<= 1;
 					iter_first		<= 1;
+					load_base		<= dsa_base_en;
 					round			<= 255;
 					b				<= e[255];
 					loopstate		<= LSTATE_SCALARMULT;
