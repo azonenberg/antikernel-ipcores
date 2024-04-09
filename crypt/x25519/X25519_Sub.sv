@@ -56,9 +56,11 @@ module X25519_Sub(
 		en_ff		<= en;
 		out_valid	<= en_ff;
 
+		//calculate a-b+p rather than a-b to avoid possibility of underflow
+		//we may get some carry out, that's fine though
 		if(en) begin
-			sum_low		<= a[127:0] - b[127:0] + 128'hffffffffffffffffffffffffffffffda;
-			sum_high	<= a[263:128] - b[263:128] + 128'hffffffffffffffffffffffffffffffff;
+			sum_low		<= a[127:0] - b[127:0] + 128'hffffffffffffffffffffffffffffffed;
+			sum_high	<= a[263:128] - b[263:128] + 128'h7fffffffffffffffffffffffffffffff;
 		end
 
 		if(en_ff)

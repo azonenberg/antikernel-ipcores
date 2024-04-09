@@ -36,28 +36,10 @@
 
 	Derived from mainloop() and crypto_scalarmult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
 
-	Typical area (Kintex-7)_
-		9315 LUT, 8559 FF, 32 DSP
+	Typical area (Kintex-7):
+		(OLD) 9315 LUT, 8559 FF, 32 DSP
 
-		Refactored for hierarchy and separate muxes
-			9415 LUT, 8775 FF, 32 DSP
-			of which
-				MultPass_stage1 = 2713 LUT
-				MultPass_stage2 = 256 LUT
-				MultMuxing = 520 LUT
-
-		Optimized mult muxing
-			9158 LUT, 8816 FF
-			of which
-				MultMuxing = 261 LUT, 518 FF
-
-			With flattened hierarchy
-				9060 LUT, 8542 FF, 32 DSP
-
-		LVT based lutram regfile and signature WIP
-			8164 LUT / 5750 FF total
-			3279 LUT / 1327 FF for regfile!! Massive reduction...
-
+		(UPDATE THIS)
 		Flattened and some other optimizations
 			7476 LUT / 5736 FF / 1408 LUTRAM
 			regfile
@@ -74,12 +56,13 @@
 				128 LUT / 846 FF
 
 	Run time performance:
-		crypto_scalarmult (ECDH): 563438 clocks / 567786 after regid pipelining
+		crypto_scalarmult (ECDH): 567786 clocks
+		scalarmult (ECDSA):       957287 clocks
 
 	Typical achievable performance:
 		250 MHz in Kintex-7, -2 speed
-			crypto_scalarmult (ECDH):	2.24 ms / 2.27 with regid pipelining etc
-			scalarmult (ECDSA):			xx
+			crypto_scalarmult (ECDH):	2.27 ms
+			scalarmult (ECDSA):			3.90 ms
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid
@@ -133,6 +116,8 @@ module X25519_ScalarMult(
 	//ECDSA interface
 	input wire			dsa_en,
 	input wire			dsa_load,
+	input wire			dsa_rd,
+	output logic		dsa_done,
 	input wire[1:0]		dsa_addr,
 
 	//Common outputs
@@ -238,7 +223,6 @@ module X25519_ScalarMult(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main loop
 
-	//going to have to bump this up to one more address bit
 	typedef enum logic[6:0]
 	{
 		//mainloop(): 18 lines
@@ -319,7 +303,7 @@ module X25519_ScalarMult(
 		STATE_SCALARMULT_FIRST_SEL3,
 		STATE_SCALARMULT_FIRST_SEL4,
 
-		//add(): 9 lines
+		//first add(): 9 lines
 		STATE_ADD_FIRST_1,
 		STATE_ADD_FIRST_2,
 		STATE_ADD_FIRST_3,
@@ -330,7 +314,18 @@ module X25519_ScalarMult(
 		STATE_ADD_FIRST_8,
 		STATE_ADD_FIRST_9,
 
-		//scalarmult() loop part 2:
+		//second add(): 9 lines
+		STATE_ADD_SECOND_1,
+		STATE_ADD_SECOND_2,
+		STATE_ADD_SECOND_3,
+		STATE_ADD_SECOND_4,
+		STATE_ADD_SECOND_5,
+		STATE_ADD_SECOND_6,
+		STATE_ADD_SECOND_7,
+		STATE_ADD_SECOND_8,
+		STATE_ADD_SECOND_9,
+
+		//scalarmult() loop part 2: 4 lines
 		STATE_SCALARMULT_SECOND_SEL1,
 		STATE_SCALARMULT_SECOND_SEL2,
 		STATE_SCALARMULT_SECOND_SEL3,
@@ -827,7 +822,7 @@ module X25519_ScalarMult(
 		//bignumMult(pout[1], b, c);
 		ucode[STATE_ADD_FIRST_9] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_9, REG_TEMP_10,
 			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
-			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_SCALARMULT_SECOND_SEL1, 1'b0, 7'd0 };
+			REG_ZERO, REG_ZERO, REG_TEMP_1, 3'b010, STATE_ADD_SECOND_1, 1'b0, 7'd0 };
 
 		/*
 			After first add, in the top level scalarmult() loop
@@ -836,13 +831,83 @@ module X25519_ScalarMult(
 		 */
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+		// Now we call add() again
+
+		/*
+			Register assignments
+				out=out, p=out, q=out
+
+			In other words
+				p[] = temp[7:4]
+				q[] = temp[7:4]
+				out[] = temp[7:4]
+
+				and top level q is in 3:0 so we're not allowed to touch those
+
+				a = TEMP_8
+				b = TEMP_9
+				c = TEMP_10
+		 */
+
+		//bignumAddSub(b, a, p1, p0);
+		//bignumMult(pout[3], p3, q3);
+		ucode[STATE_ADD_SECOND_1] = {3'b011, REG_TEMP_5, REG_TEMP_4, REG_TEMP_7, REG_TEMP_7,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_9, REG_TEMP_8, REG_TEMP_7, 3'b010, STATE_ADD_SECOND_2, 1'b0, 7'd0 };
+
+		//bignumAddSub(pout[1], pout[0], q1, q0);
+		//bignumMult(pout[2], p2, q2);
+		ucode[STATE_ADD_SECOND_2] = {3'b011, REG_TEMP_5, REG_TEMP_4, REG_TEMP_6, REG_TEMP_6,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_5, REG_TEMP_4, REG_TEMP_6, 3'b010, STATE_ADD_SECOND_3, 1'b0, 7'd0 };
+
+		//bignumAdd(c, pout[2], pout[2]);
+		//bignumMult(pout[3], pout[3], D2);
+		ucode[STATE_ADD_SECOND_3] = {3'b011, REG_TEMP_6, REG_TEMP_6, REG_TEMP_7, REG_D2,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_10, REG_ZERO, REG_TEMP_7, 3'b010, STATE_ADD_SECOND_4, 1'b0, 7'd0 };
+
+		//bignumAddSub(c, pout[3], c, pout[3]);
+		//bignumMult(pout[1], b, pout[1]);
+		ucode[STATE_ADD_SECOND_4] = {3'b011, REG_TEMP_10, REG_TEMP_7, REG_TEMP_9, REG_TEMP_5,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_10, REG_TEMP_7, REG_TEMP_5, 3'b010, STATE_ADD_SECOND_5, 1'b0, 7'd0 };
+
+		//bignumMult(pout[0], a, pout[0]);
+		ucode[STATE_ADD_SECOND_5] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_8, REG_TEMP_4,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_ZERO, REG_ZERO, REG_TEMP_4, 3'b010, STATE_ADD_SECOND_6, 1'b0, 7'd0 };
+
+		//bignumAddSub(b, pout[1], pout[1], pout[0]);
+		//bignumMult(pout[2], c, pout[3]);
+		ucode[STATE_ADD_SECOND_6] = {3'b011, REG_TEMP_5, REG_TEMP_4, REG_TEMP_10, REG_TEMP_7,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_9, REG_TEMP_5, REG_TEMP_6, 3'b010, STATE_ADD_SECOND_7, 1'b0, 7'd0 };
+
+		//bignumMult(pout[0], pout[1], pout[3]);
+		ucode[STATE_ADD_SECOND_7] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_5, REG_TEMP_7,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_ZERO, REG_ZERO, REG_TEMP_4, 3'b010, STATE_ADD_SECOND_8, 1'b0, 7'd0 };
+
+		//bignumMult(pout[3], pout[1], b);
+		ucode[STATE_ADD_SECOND_8] = {3'b001, REG_ZERO, REG_ZERO, REG_TEMP_5, REG_TEMP_9,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_ZERO, REG_ZERO, REG_TEMP_7, 3'b010, STATE_ADD_SECOND_9, 1'b0, 7'd0 };
+
+		//bignumMult(pout[1], b, c);
+		ucode[STATE_ADD_SECOND_9] = { 3'b001, REG_ZERO, REG_ZERO, REG_TEMP_9, REG_TEMP_10,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_ZERO, REG_ZERO, REG_TEMP_5, 3'b010, STATE_SCALARMULT_SECOND_SEL1, 1'b0, 7'd0 };
+
+		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// scalarmult selection after add()
 
 		/*
-			q[3:0]   = TEMP_3:0
-			out[3:0] = TEMP_7:4
+			at top level
+			q[] = temp[3:0]
+			out = temp[7:4]
 		 */
-		/*
+
 		//sel25519(out[0], q[0], b);
 		ucode[STATE_SCALARMULT_SECOND_SEL1] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
 			REG_TEMP_0, REG_TEMP_4, REG_TEMP_0, REG_TEMP_4,
@@ -861,8 +926,7 @@ module X25519_ScalarMult(
 		//sel25519(out[3], q[3], b);
 		ucode[STATE_SCALARMULT_SECOND_SEL4] = { 3'b100, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
 			REG_TEMP_3, REG_TEMP_7, REG_TEMP_3, REG_TEMP_7,
-			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_ADD_SECOND_1, 1'b0, 7'd0 };
-		*/
+			REG_ZERO, REG_ZERO, REG_ZERO, 3'b001, STATE_ITER_DONE, 1'b0, 7'd0 };
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		/// end
@@ -948,6 +1012,7 @@ module X25519_ScalarMult(
 		.dh_en(dh_en),
 		.dsa_load(dsa_load),
 		.dsa_addr(dsa_addr),
+		.dsa_rd(dsa_rd),
 
 		.want_add_result(want_add_result),
 		.want_sub_result(want_sub_result),
@@ -1003,7 +1068,7 @@ module X25519_ScalarMult(
 
 		iter_out_valid	<= 0;
 
-		out_valid 		<= share_freeze_en;
+		out_valid 		<= share_freeze_en || dsa_rd;
 
 		advancing_ff	<= advancing;
 		advancing_ff2	<= advancing_ff;
@@ -1021,7 +1086,7 @@ module X25519_ScalarMult(
 		select_p_rd_ff		<= line.select_p;
 		select_q_rd_ff		<= line.select_q;
 
-		if(share_select_valid && state == STATE_XN_HIGH2)
+		if(share_select_valid && ( (state == STATE_XN_HIGH2) || (state == STATE_SCALARMULT_SECOND_SEL4) ) )
 			iter_out_valid	<= 1;
 
 		//Move on to the next state
@@ -1077,12 +1142,14 @@ module X25519_ScalarMult(
 
 		if(dsa_iter_en) begin
 			advancing_ff	<= 1;
+
+			//one time initialization
 			if(iter_first)
 				state		<= STATE_DSA_INIT1;
 
-			//TODO
+			//no jump right into loop entry
 			else
-				state 		<= STATE_DONE;
+				state 		<= STATE_SCALARMULT_FIRST_SEL1;
 		end
 
 	end
@@ -1100,7 +1167,9 @@ module X25519_ScalarMult(
 		LSTATE_MLDONE,
 
 		//scalarmult
-		LSTATE_SCALARMULT
+		LSTATE_SCALARSTART,
+		LSTATE_SCALARMULT,
+		LSTATE_SCALARDONE
 	} loopstate = LSTATE_IDLE;
 
 	always_ff @(posedge clk) begin
@@ -1110,6 +1179,7 @@ module X25519_ScalarMult(
 		iter_first		<= 0;
 		ml_out_valid	<= 0;
 		ml_rd_en		<= 0;
+		dsa_done		<= 0;
 
 		if(share_mult_valid && (round < 5))
 			$display("Multiply complete: %x", share_mult_out);
@@ -1136,8 +1206,8 @@ module X25519_ScalarMult(
 				if(dsa_en) begin
 					dsa_iter_en		<= 1;
 					iter_first		<= 1;
-					round			<= 254;
-					b				<= e[254];
+					round			<= 255;
+					b				<= e[255];
 					loopstate		<= LSTATE_SCALARMULT;
 				end
 
@@ -1175,9 +1245,31 @@ module X25519_ScalarMult(
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// scalarmult()
 
+			LSTATE_SCALARSTART: begin
+				b					<= e[round];
+				dsa_iter_en			<= 1;
+				loopstate			<= LSTATE_SCALARMULT;
+			end	//end LSTATE_SCALARSTART
+
 			LSTATE_SCALARMULT: begin
 
+				if(iter_out_valid) begin
+					round			<= round - 1;
+
+					if(round == 0) begin
+						loopstate	<= LSTATE_SCALARDONE;
+						ml_rd_en	<= 1;
+					end
+					else
+						loopstate	<= LSTATE_SCALARSTART;
+				end
+
 			end
+
+			LSTATE_SCALARDONE: begin
+				dsa_done		<= 1;
+				loopstate		<= LSTATE_IDLE;
+			end	//end STATE_SCALARDONE
 
 		endcase
 
@@ -1185,358 +1277,3 @@ module X25519_ScalarMult(
 
 endmodule
 
-/**
-	@brief A single bank of the register file
-
-	Dual port, one R/W port (we cannot retire an instruction and fetch simultaneously) and three R/O ports
- */
-module X25519_RegfileBank(
-
-	input wire			clk,
-	input wire			wr_en,
-	input wire regid_t	wr_addr,
-	input wire regval_t	wr_data,
-
-	input wire regid_t	rd_addr0,
-	input wire regid_t	rd_addr1,
-	input wire regid_t	rd_addr2,
-	input wire regid_t	rd_addr3,
-
-	output regval_t		rd_data0,
-	output regval_t		rd_data1,
-	output regval_t		rd_data2,
-	output regval_t		rd_data3
-);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Write port address muxing
-
-	regid_t p3_addr;
-	always_comb begin
-		if(wr_en)
-			p3_addr = wr_addr;
-		else
-			p3_addr = rd_addr3;
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The actual memory array
-
-	(* RAM_STYLE = "distributed" *)
-	regval_t		mem[REG_COUNT-1:0];
-
-	//Clear all registers to zero on reset
-	initial begin
-
-		//Normal GPRs
-		for(integer i=0; i<=REG_TEMP_10; i++)
-			mem[i]			<= 0;
-
-		//Special registers for constants (read only)
-		mem[REG_ONE]		<= 264'h1;
-		mem[REG_ZERO]		<= 264'h0;
-		mem[REG_121665]		<= 264'd121665;
-		mem[REG_D2]			<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
-
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Writing
-
-	always_ff @(posedge clk) begin
-		if(wr_en)
-			mem[wr_addr] <= wr_data;
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Reading
-
-	assign rd_data0 = mem[rd_addr0];
-	assign rd_data1 = mem[rd_addr1];
-	assign rd_data2 = mem[rd_addr2];
-	assign rd_data3 = mem[p3_addr];
-
-endmodule
-
-/**
-	@brief Register file
- */
-module X25519_Regfile(
-	input wire			clk,
-
-	//Write ports
-	input wire			share_add_valid,
-	input wire			share_sub_valid,
-	input wire			share_mult_valid,
-	input wire			share_select_valid,
-
-	input wire			want_add_result,
-	input wire			want_sub_result,
-	input wire			want_mult_result,
-	input wire			want_select_result,
-
-	input wire			dh_en,
-	input wire			dsa_load,
-	input wire[1:0]		dsa_addr,
-
-	input wire regid_t	add_rd_ff,
-	input wire regid_t	sub_rd_ff,
-	input wire regid_t	mult_rd_ff,
-	input wire regid_t	select_p_rd_ff,
-	input wire regid_t	select_q_rd_ff,
-
-	input wire regval_t	share_add_out,
-	input wire regval_t	share_sub_out,
-	input wire regval_t	share_mult_out,
-	input wire regval_t	share_select_p,
-	input wire regval_t	share_select_q,
-	input wire regval_t	work_in,
-
-	//Read stuff
-	input wire			rd_en,
-	input wire			share_freeze_en,
-	input wire			ml_rd_en,
-	input wire regid_t	addsub_a_regid,
-	input wire regid_t	addsub_b_regid,
-	input wire regid_t	mult_a_regid,
-	input wire regid_t	mult_b_regid,
-	input wire regid_t	select_r_regid,
-	input wire regid_t	select_s_regid,
-
-	output regval_t		share_addsub_a,
-	output regval_t		share_addsub_b,
-	output regval_t		share_mult_a,
-	output regval_t		share_mult_b,
-	output regval_t		share_freeze_a
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Memory banks
-
-	logic		p0_wr_en;
-	logic		p1_wr_en;
-
-	regid_t		p0_wr_addr;
-	regid_t		p1_wr_addr;
-
-	regval_t	p0_wr_data;
-	regval_t	p1_wr_data;
-
-	regid_t		p0_rd_addr;
-	regid_t		p1_rd_addr;
-	regid_t		p2_rd_addr;
-	regid_t		p3_rd_addr;
-
-	regval_t	p0_rd_data_bank0;
-	regval_t	p1_rd_data_bank0;
-	regval_t	p2_rd_data_bank0;
-	regval_t	p3_rd_data_bank0;
-
-	X25519_RegfileBank bank0(
-		.clk(clk),
-
-		.wr_en(p0_wr_en),
-		.wr_addr(p0_wr_addr),
-		.wr_data(p0_wr_data),
-
-		.rd_addr0(p0_rd_addr),
-		.rd_addr1(p1_rd_addr),
-		.rd_addr2(p2_rd_addr),
-		.rd_addr3(p3_rd_addr),
-
-		.rd_data0(p0_rd_data_bank0),
-		.rd_data1(p1_rd_data_bank0),
-		.rd_data2(p2_rd_data_bank0),
-		.rd_data3(p3_rd_data_bank0)
-		);
-
-	regval_t	p0_rd_data_bank1;
-	regval_t	p1_rd_data_bank1;
-	regval_t	p2_rd_data_bank1;
-	regval_t	p3_rd_data_bank1;
-
-	X25519_RegfileBank bank1(
-		.clk(clk),
-
-		.wr_en(p1_wr_en),
-		.wr_addr(p1_wr_addr),
-		.wr_data(p1_wr_data),
-
-		.rd_addr0(p0_rd_addr),
-		.rd_addr1(p1_rd_addr),
-		.rd_addr2(p2_rd_addr),
-		.rd_addr3(p3_rd_addr),
-
-		.rd_data0(p0_rd_data_bank1),
-		.rd_data1(p1_rd_data_bank1),
-		.rd_data2(p2_rd_data_bank1),
-		.rd_data3(p3_rd_data_bank1)
-		);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Live value table and read muxing
-
-	regval_t	p0_rd_data;
-	regval_t	p1_rd_data;
-	regval_t	p2_rd_data;
-	regval_t	p3_rd_data;
-
-	logic[15:0]	lvt = 0;
-
-	always_ff @(posedge clk) begin
-
-		if(p0_wr_en)
-			lvt[p0_wr_addr]	<= 0;
-		if(p1_wr_en)
-			lvt[p1_wr_addr]	<= 1;
-
-	end
-
-	always_comb begin
-
-		if(lvt[p0_rd_addr])
-			p0_rd_data	= p0_rd_data_bank1;
-		else
-			p0_rd_data	= p0_rd_data_bank0;
-
-		if(lvt[p1_rd_addr])
-			p1_rd_data	= p1_rd_data_bank1;
-		else
-			p1_rd_data	= p1_rd_data_bank0;
-
-		if(lvt[p2_rd_addr])
-			p2_rd_data	= p2_rd_data_bank1;
-		else
-			p2_rd_data	= p2_rd_data_bank0;
-
-		if(lvt[p3_rd_addr])
-			p3_rd_data	= p3_rd_data_bank1;
-		else
-			p3_rd_data	= p3_rd_data_bank0;
-
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Write port address muxing and arbitration
-
-	always_comb begin
-
-		p0_wr_en	= 0;
-		p1_wr_en	= 0;
-		p0_wr_addr	= REG_ZERO;
-		p1_wr_addr	= REG_ZERO;
-		p0_wr_data	= 0;
-		p1_wr_data	= 0;
-
-		//Select completed, use both ports to retire
-		if(share_select_valid && want_select_result) begin
-			p0_wr_en	= 1;
-			p1_wr_en	= 1;
-
-			p0_wr_addr	= select_p_rd_ff;
-			p1_wr_addr	= select_q_rd_ff;
-
-			p0_wr_data	= share_select_p;
-			p1_wr_data	= share_select_q;
-		end
-
-		//Multiply completed, use first port to retire
-		//(even if an add/sub issued concurrently it's long done by now so no conflicts)
-		if(share_mult_valid && want_mult_result) begin
-			p0_wr_en	= 1;
-			p0_wr_addr	= mult_rd_ff;
-			p0_wr_data	= share_mult_out;
-		end
-
-		//Add/subtract completed, use first port for add and second for subtract
-		if(share_add_valid && want_add_result) begin
-			p0_wr_en	= 1;
-			p0_wr_addr	= add_rd_ff;
-			p0_wr_data	= share_add_out;
-		end
-		if(share_sub_valid && want_sub_result) begin
-			p1_wr_en	= 1;
-			p1_wr_addr	= sub_rd_ff;
-			p1_wr_data	= share_sub_out;
-		end
-
-		//External input loading uses first port
-		if(dsa_load) begin
-			p0_wr_en	= 1;
-			p0_wr_addr	= regid_t'({2'b0, dsa_addr});
-			p0_wr_data	= work_in;
-		end
-		if(dh_en) begin
-			p0_wr_en	= 1;
-			p0_wr_addr	= REG_TEMP_10;
-			p0_wr_data	= work_in;
-		end
-
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Read port address muxing
-
-	/*
-		We have a total of 7 logical read ports: freeze, addsub_a/b, mult_a/b, select_r/s
-
-		freeze is exclusive with the others so can use any port
-
-		add/sub and mult can execute concurrently so we need at least 4 ports for them
-		select can execute concurrently with add/sub but is never issued concurrently with multiply
-	 */
-
-	always_comb begin
-
-		//default to reading nothing
-		p0_rd_addr		= REG_ZERO;
-		p1_rd_addr		= REG_ZERO;
-		p2_rd_addr		= REG_ZERO;
-		p3_rd_addr		= REG_ZERO;
-
-		//Freeze: port 0
-		if(share_freeze_en)
-			p0_rd_addr	= REG_TEMP_0;
-
-		//Add/sub: ports 0/1
-		if(rd_en) begin
-			p0_rd_addr	= addsub_a_regid;
-			p1_rd_addr	= addsub_b_regid;
-		end
-
-		//Multiply or select: ports 2/3
-		if(rd_en) begin
-
-			//TODO: maybe we can shorten critical path here by passing multiply enable line?
-			if(mult_a_regid != REG_ZERO) begin
-				p2_rd_addr	= mult_a_regid;
-				p3_rd_addr	= mult_b_regid;
-			end
-
-			else begin
-				p2_rd_addr	= select_r_regid;
-				p3_rd_addr	= select_s_regid;
-			end
-
-		end
-
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Output registers
-
-	always_ff @(posedge clk) begin
-
-		if(share_freeze_en)
-			share_freeze_a	<= p0_rd_data;
-
-		if(rd_en) begin
-			share_addsub_a	<= p0_rd_data;
-			share_addsub_b	<= p1_rd_data;
-			share_mult_a	<= p2_rd_data;
-			share_mult_b	<= p3_rd_data;
-		end
-
-	end
-
-endmodule
