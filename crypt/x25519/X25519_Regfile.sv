@@ -69,7 +69,7 @@ module X25519_RegfileBank(
 	// The actual memory array
 
 	(* RAM_STYLE = "distributed" *)
-	regval_t		mem[REG_COUNT-1:0];
+	regval_t		mem[15:0];
 
 	//Clear all registers to zero on reset
 	initial begin
@@ -83,6 +83,7 @@ module X25519_RegfileBank(
 		mem[REG_ZERO]		<= 264'h0;
 		mem[REG_121665]		<= 264'd121665;
 		mem[REG_D2]			<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
+		mem[REG_Y]			<= 264'h6666666666666666666666666666666666666666666666666666666666666658;
 
 	end
 

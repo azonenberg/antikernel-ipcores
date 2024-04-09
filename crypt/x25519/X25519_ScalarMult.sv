@@ -262,9 +262,10 @@ module X25519_ScalarMult(
 		//crypto_scalarmult(): 1 line
 		STATE_FINAL_MULT,
 
-		//scalarmult() entry: 2 lines
+		//scalarmult() entry: 3 lines
 		STATE_DSA_INIT1,
 		STATE_DSA_INIT2,
+		STATE_DSA_INIT3,
 
 		//scalarmult() loop part 1: 4 lines
 		STATE_SCALARMULT_FIRST_SEL1,
@@ -691,17 +692,24 @@ module X25519_ScalarMult(
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// scalarmult one-time init (first iteration)
 
-		//At entry: temp[3:0] are q[3:0]
+		//At entry: temp[1:0] are q[1:0] (x/y point coordinates)
+
+		//Load constant inputs
+		//set25519(q[2],gf1);
+		//bignumMult(q[3],X,Y);
+		ucode[STATE_DSA_INIT1] = { 3'b011, REG_ONE, REG_ZERO, REG_TEMP_0, REG_TEMP_1,
+			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
+			REG_TEMP_2, REG_ZERO, REG_TEMP_3, 3'b010, STATE_DSA_INIT2, 1'b0, 7'd0 };
 
 		//set25519(out[0], gf0)
 		//set25519(out[1], gf1)
-		ucode[STATE_DSA_INIT1] = { 3'b110, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,		//TEMP_4 is out[0] = 0
+		ucode[STATE_DSA_INIT2] = { 3'b110, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,		//TEMP_4 is out[0] = 0
 			REG_ONE, REG_ONE, REG_TEMP_5, REG_ZERO,										//TEMP_5 is out[1] = 1
-			REG_TEMP_4, REG_ZERO, REG_ZERO, 3'b100, STATE_DSA_INIT2, 1'b0, 7'd0 };
+			REG_TEMP_4, REG_ZERO, REG_ZERO, 3'b100, STATE_DSA_INIT3, 1'b0, 7'd0 };
 
 		//set25519(out[2],gf1);
 		//set25519(out[3],gf0);
-		ucode[STATE_DSA_INIT2] = { 3'b110, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,		//TEMP_6 is out[2] = 1
+		ucode[STATE_DSA_INIT3] = { 3'b110, REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,		//TEMP_6 is out[2] = 1
 			REG_ONE, REG_ONE, REG_TEMP_6, REG_ZERO,										//TEMP_7 is out[3] = 0
 			REG_TEMP_7, REG_ZERO, REG_ZERO, 3'b100, STATE_SCALARMULT_FIRST_SEL1, 1'b0, 7'd0 };
 
@@ -905,14 +913,12 @@ module X25519_ScalarMult(
 
 		//TODO: do this part too
 		//set25519(q[0],X);
-		//set25519(q[1],Y);
 
 		//Load constant inputs
-		//set25519(q[2],gf1);
-		//bignumMult(q[3],X,Y);
-		ucode[STATE_SCALARBASE_INIT1] = { 3'b011, REG_ONE, REG_ZERO, REG_TEMP_0, REG_TEMP_1,
+		//set25519(q[1],Y);
+		ucode[STATE_SCALARBASE_INIT1] = { 3'b010, REG_Y, REG_ZERO, REG_ZERO, REG_ZERO,
 			REG_ZERO, REG_ZERO, REG_ZERO, REG_ZERO,
-			REG_TEMP_2, REG_ZERO, REG_TEMP_3, 3'b010, STATE_DSA_INIT1, 1'b0, 7'd0 };
+			REG_TEMP_1, REG_ZERO, REG_ZERO, 3'b100, STATE_DSA_INIT1, 1'b0, 7'd0 };
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		/// end

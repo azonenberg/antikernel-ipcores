@@ -73,8 +73,8 @@ typedef enum logic[3:0]
 	REG_ZERO		= 4'h0c,	//constant 0, writes ignored
 	REG_ONE			= 4'h0d,	//constant 1
 	REG_D2			= 4'h0e,	//constant 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159
+	REG_Y			= 4'h0f		//constant 256'h6666666666666666666666666666666666666666666666666666666666666658
 
-	REG_COUNT		= 4'h0f
 } xregid_t;
 
 typedef logic[263:0] regval_t;
