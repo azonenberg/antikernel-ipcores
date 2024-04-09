@@ -2,9 +2,9 @@
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -36,6 +36,7 @@
 
 	Derived from add() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
  */
+(* USE_DSP="no" *)
 module X25519_Add(
 	input wire			clk,
 	input wire			en,

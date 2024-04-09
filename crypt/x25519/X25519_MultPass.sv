@@ -2,9 +2,9 @@
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -200,6 +200,8 @@ endmodule
 
 /**
 	@brief Helper for X25519_MultPass
+
+	x38 is only 3 bits (32 + 4 + 2) so makes sense to save DSPs for other stuff
  */
 (* USE_DSP="no" *)
 module X25519_MultPass_stage2(
