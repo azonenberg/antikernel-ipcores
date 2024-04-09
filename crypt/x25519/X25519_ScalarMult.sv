@@ -37,25 +37,9 @@
 	Derived from mainloop() and crypto_scalarmult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
 
 	Typical area (Kintex-7):
-		(OLD) 9315 LUT, 8559 FF, 32 DSP
+		7632 LUT, 5737 FF, 32 DSP
 
-		(UPDATE THIS)
-		Flattened and some other optimizations
-			7476 LUT / 5736 FF / 1408 LUTRAM
-			regfile
-				2829 LUT / 1327 FF / 1408 LUTRAM
-			add
-				265 LUT / 529 FF
-			mult
-				3707 LUT / 2741 FF
-			select
-				258 LUT / 513 FF
-			sub
-				268 LUT / 531 FF
-			squeeze
-				128 LUT / 846 FF
-
-	Run time performance:
+	Run time (constant cycle count):
 		crypto_scalarmult (ECDH): 567786 clocks
 		scalarmult (ECDSA):       957287 clocks
 
@@ -72,34 +56,10 @@
 			Assert dsa_load with dsa_addr set to index of q and work_in set to the input data
 		Start the operation
 			assert dsa_en
-
+		Wait for out_valid to pulse high
+		Read results
+			assert dsa_rd then read corresponding result word from work_out
  */
-
-typedef enum logic[3:0]
-{
-	//General purpose registers, writable and usable everywhere
-	REG_TEMP_0		= 4'h00,
-	REG_TEMP_1		= 4'h01,
-	REG_TEMP_2		= 4'h02,
-	REG_TEMP_3		= 4'h03,
-	REG_TEMP_4		= 4'h04,
-	REG_TEMP_5		= 4'h05,
-	REG_TEMP_6		= 4'h06,
-	REG_TEMP_7		= 4'h07,
-	REG_TEMP_8		= 4'h08,
-	REG_TEMP_9		= 4'h09,
-	REG_TEMP_10		= 4'h0a,
-
-	//Special registers (named, but not always usable in every operation)
-	REG_121665		= 4'h0b,	//constant 121665
-	REG_ZERO		= 4'h0c,	//constant 0, writes ignored
-	REG_ONE			= 4'h0d,	//constant 1
-	REG_D2			= 4'h0e,	//constant 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159
-
-	REG_COUNT		= 4'h0f
-} regid_t;
-
-typedef logic[263:0] regval_t;
 
 module X25519_ScalarMult(
 	input wire			clk,
@@ -124,6 +84,7 @@ module X25519_ScalarMult(
 	output logic		out_valid = 0,
 	output wire[255:0]	work_out
 );
+	`include "X25519_Types.svh"
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Loop contents
@@ -347,25 +308,25 @@ module X25519_ScalarMult(
 		logic		select_en;
 		logic		addsub_en;
 		logic		mult_en;
-		regid_t		addsub_a;
-		regid_t		addsub_b;
-		regid_t		mult_a;
-		regid_t		mult_b;
+		xregid_t		addsub_a;
+		xregid_t		addsub_b;
+		xregid_t		mult_a;
+		xregid_t		mult_b;
 
 		/////
 
 		//new block for selection
-		regid_t		select_r;	//inputs
-		regid_t		select_s;
-		regid_t		select_p;	//outputs
-		regid_t		select_q;
+		xregid_t		select_r;	//inputs
+		xregid_t		select_s;
+		xregid_t		select_p;	//outputs
+		xregid_t		select_q;
 
 		/////
 
 		//outputs
-		regid_t		add_out;
-		regid_t		sub_out;
-		regid_t		mult_out;
+		xregid_t		add_out;
+		xregid_t		sub_out;
+		xregid_t		mult_out;
 
 		//control flow
 		logic		next_on_add;
@@ -952,26 +913,26 @@ module X25519_ScalarMult(
 	logic	ml_rd_en = 0;
 
 	(* KEEP = "true" *)
-	regid_t	add_rd_ff = REG_TEMP_0;
+	xregid_t	add_rd_ff = REG_TEMP_0;
 
 	(* KEEP = "true" *)
-	regid_t sub_rd_ff = REG_TEMP_0;
+	xregid_t sub_rd_ff = REG_TEMP_0;
 
 	(* KEEP = "true" *)
-	regid_t mult_rd_ff = REG_TEMP_0;
+	xregid_t mult_rd_ff = REG_TEMP_0;
 
 	(* KEEP = "true" *)
-	regid_t select_p_rd_ff = REG_TEMP_0;
+	xregid_t select_p_rd_ff = REG_TEMP_0;
 
 	(* KEEP = "true" *)
-	regid_t select_q_rd_ff = REG_TEMP_0;
+	xregid_t select_q_rd_ff = REG_TEMP_0;
 
-	regid_t	addsub_a_ff	= REG_TEMP_0;
-	regid_t	addsub_b_ff	= REG_TEMP_0;
-	regid_t	mult_a_ff	= REG_TEMP_0;
-	regid_t	mult_b_ff	= REG_TEMP_0;
-	regid_t	select_r_ff	= REG_TEMP_0;
-	regid_t	select_s_ff	= REG_TEMP_0;
+	xregid_t	addsub_a_ff	= REG_TEMP_0;
+	xregid_t	addsub_b_ff	= REG_TEMP_0;
+	xregid_t	mult_a_ff	= REG_TEMP_0;
+	xregid_t	mult_b_ff	= REG_TEMP_0;
+	xregid_t	select_r_ff	= REG_TEMP_0;
+	xregid_t	select_s_ff	= REG_TEMP_0;
 
 	logic		advancing;
 	logic		advancing_ff	= 0;

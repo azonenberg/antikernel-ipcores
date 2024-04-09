@@ -29,6 +29,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "X25519_Types.svh"
+
 /**
 	@brief A single bank of the register file
 
@@ -38,13 +40,13 @@ module X25519_RegfileBank(
 
 	input wire			clk,
 	input wire			wr_en,
-	input wire regid_t	wr_addr,
+	input wire xregid_t	wr_addr,
 	input wire regval_t	wr_data,
 
-	input wire regid_t	rd_addr0,
-	input wire regid_t	rd_addr1,
-	input wire regid_t	rd_addr2,
-	input wire regid_t	rd_addr3,
+	input wire xregid_t	rd_addr0,
+	input wire xregid_t	rd_addr1,
+	input wire xregid_t	rd_addr2,
+	input wire xregid_t	rd_addr3,
 
 	output regval_t		rd_data0,
 	output regval_t		rd_data1,
@@ -55,7 +57,7 @@ module X25519_RegfileBank(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Write port address muxing
 
-	regid_t p3_addr;
+	xregid_t p3_addr;
 	always_comb begin
 		if(wr_en)
 			p3_addr = wr_addr;
@@ -123,11 +125,11 @@ module X25519_Regfile(
 	input wire			dsa_load,
 	input wire[1:0]		dsa_addr,
 
-	input wire regid_t	add_rd_ff,
-	input wire regid_t	sub_rd_ff,
-	input wire regid_t	mult_rd_ff,
-	input wire regid_t	select_p_rd_ff,
-	input wire regid_t	select_q_rd_ff,
+	input wire xregid_t	add_rd_ff,
+	input wire xregid_t	sub_rd_ff,
+	input wire xregid_t	mult_rd_ff,
+	input wire xregid_t	select_p_rd_ff,
+	input wire xregid_t	select_q_rd_ff,
 
 	input wire regval_t	share_add_out,
 	input wire regval_t	share_sub_out,
@@ -141,12 +143,12 @@ module X25519_Regfile(
 	input wire			rd_en,
 	input wire			share_freeze_en,
 	input wire			ml_rd_en,
-	input wire regid_t	addsub_a_regid,
-	input wire regid_t	addsub_b_regid,
-	input wire regid_t	mult_a_regid,
-	input wire regid_t	mult_b_regid,
-	input wire regid_t	select_r_regid,
-	input wire regid_t	select_s_regid,
+	input wire xregid_t	addsub_a_regid,
+	input wire xregid_t	addsub_b_regid,
+	input wire xregid_t	mult_a_regid,
+	input wire xregid_t	mult_b_regid,
+	input wire xregid_t	select_r_regid,
+	input wire xregid_t	select_s_regid,
 
 	output regval_t		share_addsub_a,
 	output regval_t		share_addsub_b,
@@ -161,16 +163,16 @@ module X25519_Regfile(
 	logic		p0_wr_en;
 	logic		p1_wr_en;
 
-	regid_t		p0_wr_addr;
-	regid_t		p1_wr_addr;
+	xregid_t		p0_wr_addr;
+	xregid_t		p1_wr_addr;
 
 	regval_t	p0_wr_data;
 	regval_t	p1_wr_data;
 
-	regid_t		p0_rd_addr;
-	regid_t		p1_rd_addr;
-	regid_t		p2_rd_addr;
-	regid_t		p3_rd_addr;
+	xregid_t		p0_rd_addr;
+	xregid_t		p1_rd_addr;
+	xregid_t		p2_rd_addr;
+	xregid_t		p3_rd_addr;
 
 	regval_t	p0_rd_data_bank0;
 	regval_t	p1_rd_data_bank0;
@@ -308,7 +310,7 @@ module X25519_Regfile(
 		//External input loading uses first port
 		if(dsa_load) begin
 			p0_wr_en	= 1;
-			p0_wr_addr	= regid_t'({2'b0, dsa_addr});
+			p0_wr_addr	= xregid_t'({2'b0, dsa_addr});
 			p0_wr_data	= work_in;
 		end
 		if(dh_en) begin
@@ -351,7 +353,7 @@ module X25519_Regfile(
 
 		//DSA output: port 0
 		if(dsa_rd)
-			p0_rd_addr	= regid_t'(REG_TEMP_4 + dsa_addr);
+			p0_rd_addr	= xregid_t'(REG_TEMP_4 + dsa_addr);
 
 		//Add/sub: ports 0/1
 		if(rd_en) begin

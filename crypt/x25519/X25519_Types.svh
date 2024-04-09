@@ -2,9 +2,9 @@
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -51,5 +51,32 @@ typedef struct packed
 {
 	uint32_t[31:0]	blocks;
 } bignum32_t;
+
+
+typedef enum logic[3:0]
+{
+	//General purpose registers, writable and usable everywhere
+	REG_TEMP_0		= 4'h00,
+	REG_TEMP_1		= 4'h01,
+	REG_TEMP_2		= 4'h02,
+	REG_TEMP_3		= 4'h03,
+	REG_TEMP_4		= 4'h04,
+	REG_TEMP_5		= 4'h05,
+	REG_TEMP_6		= 4'h06,
+	REG_TEMP_7		= 4'h07,
+	REG_TEMP_8		= 4'h08,
+	REG_TEMP_9		= 4'h09,
+	REG_TEMP_10		= 4'h0a,
+
+	//Special registers (named, but not always usable in every operation)
+	REG_121665		= 4'h0b,	//constant 121665
+	REG_ZERO		= 4'h0c,	//constant 0, writes ignored
+	REG_ONE			= 4'h0d,	//constant 1
+	REG_D2			= 4'h0e,	//constant 256'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159
+
+	REG_COUNT		= 4'h0f
+} xregid_t;
+
+typedef logic[263:0] regval_t;
 
 `endif
