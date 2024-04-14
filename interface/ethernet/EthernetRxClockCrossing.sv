@@ -2,9 +2,9 @@
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -118,6 +118,9 @@ module EthernetRxClockCrossing(
 		RXFIFO_STATE_PACKET_2			= 4'h6
 	} rxfifo_pop_state = RXFIFO_STATE_WAIT_FOR_HEADER_0;
 
+	//True if we're idle but have a valid word from the previous packet
+	logic	last_word_valid = 0;
+
 	always_ff @(posedge sys_clk) begin
 		rxfifo_rd_en				<= 0;
 		rxfifo_rd_pop_single		<= 0;
@@ -172,8 +175,12 @@ module EthernetRxClockCrossing(
 				//Kick off the RX decoder.
 				if( (rxfifo_rd_size != 0) && !rxfifo_rd_pop_single) begin
 					cdc_rx_bus.start		<= 1;
-					rxfifo_rd_en			<= 1;
-					rxfifo_rd_pop_single	<= 1;
+
+					//If we didn't get a valid word at the end of the previous packet, read now
+					if(!last_word_valid) begin
+						rxfifo_rd_en			<= 1;
+						rxfifo_rd_pop_single	<= 1;
+					end
 					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_0;
 				end
 
@@ -203,6 +210,9 @@ module EthernetRxClockCrossing(
 				if(rxfifo_rd_bytes_valid == 0) begin
 					cdc_rx_bus.commit		<= 1;
 					rxfifo_pop_state		<= RXFIFO_STATE_IDLE;
+
+					//But if the FIFO isn't empty, we read the first word of the next packet!
+					last_word_valid	<=		(rxfifo_rd_size > 1);
 				end
 
 				//If we hit the end of the packet and there's nothing left in the FIFO, commit this one
