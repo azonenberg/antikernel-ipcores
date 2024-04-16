@@ -3,9 +3,9 @@
 
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -35,7 +35,8 @@
 	@author Andrew D. Zonenberg
 	@brief 8B/10B line code receiver and comma aligner
 
-	TODO: consider splitting decoder and comma aligner into separate blocks?
+	NOTE: internal comma aligner assumes we're working with a single lane decode and does NOT WORK if we are ganging
+	several decoder blocks next to each other on a 20/40 bit bus
  */
 module Decode8b10b(
 	input wire			clk,
