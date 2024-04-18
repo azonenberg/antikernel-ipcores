@@ -2,9 +2,9 @@
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -110,11 +110,20 @@ module XGMACWrapper(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Pipeline register on the XGMII RX bus to improve timing
+	// (tight on Kintex7 -2, might be able to remove on ultrascale?)
+
+	XgmiiBus	xgmii_rx_bus_ff;
+	always_ff @(posedge mac_rx_clk) begin
+		xgmii_rx_bus_ff	<= xgmii_rx_bus;
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual MAC
 
 	XGEthernetMAC mac(
 		.xgmii_rx_clk(mac_rx_clk),
-		.xgmii_rx_bus(xgmii_rx_bus),
+		.xgmii_rx_bus(xgmii_rx_bus_ff),
 
 		.xgmii_tx_clk(mac_tx_clk),
 		.xgmii_tx_bus(xgmii_tx_bus),
