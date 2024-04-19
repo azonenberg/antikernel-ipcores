@@ -2,9 +2,9 @@
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -46,7 +46,7 @@ module XGEthernetPCS(
 	input wire			rx_header_valid,
 	input wire[1:0]		rx_header,
 	input wire[31:0]	rx_data,
-	output logic		rx_bitslip	= 0,
+	output wire			rx_bitslip,
 
 	//Outbound data to the GT's 64/66b gearbox
 	output logic[5:0]	tx_sequence	= 0,
@@ -66,7 +66,7 @@ module XGEthernetPCS(
 
 	//Link state etc signals (RX clock domain)
 	input wire			sfp_los,
-	output logic		block_sync_good,	//indicates valid 64/66b synchronization
+	output wire			block_sync_good,	//indicates valid 64/66b synchronization
 	output wire			link_up,
 	output logic		remote_fault
 	);
@@ -141,49 +141,12 @@ module XGEthernetPCS(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX 64/66b block alignment
 
-	logic[3:0]	block_align_errors	= 0;
-	logic[10:0]	bitslip_window		= 0;
-	logic[7:0]	bitslip_cooldown	= 0;
-
-	always_ff @(posedge rx_clk) begin
-
-		rx_bitslip					<= 0;
-
-		if(rx_header_valid) begin
-
-			//Wait 256 clocks between bitslips to make sure we don't miss the sync
-			if(bitslip_cooldown)
-				bitslip_cooldown		<= bitslip_cooldown + 1'h1;
-
-			else begin
-
-				bitslip_window			<= bitslip_window + 1'h1;
-
-				//Count bad headers
-				if( (rx_header != SYNC_DATA) && (rx_header != SYNC_CONTROL) )
-					block_align_errors	<= block_align_errors + 1'h1;
-
-				//More than 15 block align errors in 2048 blocks (arbitrary cutoff for now) triggers re-alignment
-				if(block_align_errors == 15) begin
-					bitslip_window		<= 0;
-					block_align_errors	<= 0;
-					rx_bitslip			<= 1;
-					bitslip_cooldown	<= 1;
-					block_sync_good		<= 0;
-				end
-
-				if(bitslip_window == 0)
-					block_align_errors	<= 0;
-
-				//Declare block sync good after 128 blocks in a row with valid headers
-				if( (bitslip_window == 128) && (block_align_errors == 0) )
-					block_sync_good		<= 1;
-
-			end
-
-		end
-
-	end
+	SymbolAligner64b66b rx_aligner(
+		.clk(rx_clk),
+		.header_valid(rx_header_valid),
+		.header(rx_header),
+		.bitslip(rx_bitslip),
+		.block_sync_good(block_sync_good));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Pipeline stage 1: RX 64/66b descrambling and bit reordering
