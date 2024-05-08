@@ -29,7 +29,7 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "GmiiBus.svh"
+import EthernetBus::*;
 
 /**
 	@brief 10 Gigabit Ethernet Base-R PCS. Requires an external GT* for the PMA.

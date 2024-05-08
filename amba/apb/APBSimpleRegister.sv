@@ -29,7 +29,7 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "APBTypes.svh"
+import APBTypes::*
 
 /**
 	@brief A single register of arbitrary size, which can be read or written bytewise over APB

@@ -28,8 +28,7 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`ifndef APBTypes_svh
-`define APBTypes_svh
+package APBTypes;
 
 /**
 	@brief An APB bus, as specified in ARM IHI 0024D
@@ -85,4 +84,4 @@ interface APB #(
 
 endinterface
 
-`endif
+endpackage

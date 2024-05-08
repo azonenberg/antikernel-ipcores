@@ -1,8 +1,8 @@
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -38,8 +38,7 @@
 		commit is asserted after, not simultaneous with, last assertion of data_valid
  */
 
-`ifndef EthernetBus_h
-`define EthernetBus_h
+package EthernetBus;
 
 `include "Ethertypes.svh"
 
@@ -162,4 +161,28 @@ typedef struct packed
 	logic[47:0]	rx_arp;
 } EthernetDecoderPerformanceCounters;
 
-`endif
+typedef struct packed
+{
+	logic		dvalid;	//asserted alternate cycles during 10/100 mode
+	logic		en;
+	logic		er;
+	logic[7:0]	data;
+} GmiiBus;
+
+typedef enum logic[1:0]
+{
+	LINK_SPEED_10G		= 3,
+	LINK_SPEED_1000M	= 2,
+	LINK_SPEED_100M		= 1,
+	LINK_SPEED_10M		= 0
+} lspeed_t;
+
+typedef struct packed
+{
+	logic		valid;
+	logic[3:0]	ctl;
+	logic[31:0]	data;
+} XgmiiBus;
+
+
+endpackage
