@@ -30,59 +30,100 @@
 ***********************************************************************************************************************/
 
 /**
-	@brief A single configuration register of arbitrary size, which can be read or written bytewise over APB
- */
-module APBSimpleRegister #(
-	parameter REG_WIDTH 	= 32,
-	parameter INIT			= 0
-)(
-	//The APB bus
-	APB.completer apb,
+	@brief A simple, parameterizable APBv5 interconnect bridge
 
-	//Internal register access (in PCLK domain)
-	output logic[REG_WIDTH-1:0]	regval_out = INIT,
-	output logic 				updated = 0
+	Connects a single upstream endpoint to one or more downstream peripherals,
+	each with an equal block of address space allocated starting from the base.
+
+	Entirely combinatorial, external register stages may be added if required.
+ */
+module APBBridge #(
+	parameter BASE_ADDR		= 32'h4000_0000,		//base address of the bridge
+	parameter BLOCK_SIZE	= 32'h0000_0800,		//how much address space to allocate to each peripheral
+	parameter NUM_PORTS		= 2,
+
+	localparam BLOCK_BITS	= $clog2(BLOCK_SIZE),
+	localparam DEVICE_BITS	= upstream.ADDR_WIDTH - BLOCK_BITS,
+	localparam BASE_BLOCK	= BASE_ADDR[upstream.ADDR_WIDTH-1 : BLOCK_BITS],
+	localparam INDEX_BITS	= $clog2(NUM_PORTS)
+)(
+	APB.completer	upstream,						//single upstream port
+	APB.requester	downstream[NUM_PORTS-1:0]
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Register logic
+	// Pass downstream control signals through unmodified to save LUTs
 
-	//Combinatorially assert PREADY when selected
-	always_comb begin
-		apb.pready = apb.psel && apb.penable;
+	for(genvar g=0; g<NUM_PORTS; g++) begin
+		assign downstream[g].pclk		= upstream.pclk;
+		assign downstream[g].preset_n	= upstream.preset_n;
+		assign downstream[g].penable	= upstream.penable;
+		assign downstream[g].paddr		= upstream.paddr[BLOCK_BITS-1:0];
+		assign downstream[g].pwrite		= upstream.pwrite;
+		assign downstream[g].pwdata		= upstream.pwdata;
+		assign downstream[g].pauser		= upstream.pauser;
+		assign downstream[g].pwuser		= upstream.pwuser;
+		assign downstream[g].pprot		= upstream.pprot;
+		assign downstream[g].pstrb		= upstream.pstrb;
 
-		if(apb.pready)
-			apb.prdata	= regval_out[apb.paddr*8 +: apb.DATA_WIDTH];
-		else
-			apb.prdata	= 0;
+		//TODO: is this correct? or should we be more targeted
+		assign downstream[g].pwakeup	= upstream.pwakeup;
 	end
 
-	always_ff @(posedge apb.pclk or negedge apb.preset_n) begin
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Address decoding
 
-		//Reset
-		if(!apb.preset_n) begin
-			apb.pslverr	<= 0;
-			updated		<= 0;
-			regval_out	<= INIT;
-		end
+	logic[DEVICE_BITS-1:0]	block_addr;
+	logic					range_match;
+	logic[INDEX_BITS-1:0]	devid;
 
-		//Normal path
-		else begin
+	always_comb begin
+		block_addr 			= upstream.paddr[upstream.ADDR_WIDTH-1 : BLOCK_BITS];
+		range_match 		= (block_addr[DEVICE_BITS-1:INDEX_BITS] == BASE_BLOCK[DEVICE_BITS-1:INDEX_BITS]);
+		devid 				= block_addr[INDEX_BITS-1:0];
+	end
 
-			updated	<= 0;
+	for(genvar g=0; g<NUM_PORTS; g++)
+		assign downstream[g].psel		= upstream.psel && range_match && (devid == g);
 
-			if(apb.pready) begin
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Extract readback data into local vectors
 
-				//Writes
-				if(apb.pwrite) begin
-					updated										<= 1;
-					regval_out[apb.paddr*8 +: apb.DATA_WIDTH]	<= apb.pwdata;
-				end
+	//This us derpy but needed since Vivado doesn't let us use integer indexes on interfaces, only genvars
+	//TODO: check LRM and see if this is a language issue or a tooling/Verific issue
 
-			end
+	wire							pready[NUM_PORTS-1:0];
+	wire							pslverr[NUM_PORTS-1:0];
+	wire[upstream.DATA_WIDTH-1:0]	prdata[NUM_PORTS-1:0];
+	wire[upstream.USER_WIDTH-1:0]	pruser[NUM_PORTS-1:0];
+	wire[upstream.USER_WIDTH-1:0]	pbuser[NUM_PORTS-1:0];
 
-			//TODO: external update port?
+	for(genvar g=0; g<NUM_PORTS; g++) begin
+		assign pready[g]	= downstream[g].pready;
+		assign prdata[g]	= downstream[g].prdata;
+		assign pruser[g]	= downstream[g].pruser;
+		assign pbuser[g]	= downstream[g].pbuser;
+		assign pslverr[g]	= downstream[g].pslverr;
+	end
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Mux reply data
+
+	always_comb begin
+
+		//tie off by default
+		upstream.pready		= 0;
+		upstream.prdata		= 0;
+		upstream.pruser		= 0;
+		upstream.pbuser		= 0;
+
+		//forward from selected device
+		if(upstream.psel && range_match) begin
+			upstream.pready		= pready[devid];
+			upstream.prdata		= prdata[devid];
+			upstream.pruser		= pruser[devid];
+			upstream.pbuser		= pbuser[devid];
+			upstream.pslverr	= pslverr[devid];
 		end
 
 	end
