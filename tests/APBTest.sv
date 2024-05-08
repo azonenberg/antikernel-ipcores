@@ -30,6 +30,15 @@ module APBTest();
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Pipeline register
+
+	APB #(.DATA_WIDTH(16), .ADDR_WIDTH(12), .USER_WIDTH(0)) regABus();
+
+	//TODO: this breaks assertions that have timing based on the top level state machine
+	//Fix that!
+	APBRegisterSlice sliceA( .upstream(peripheralBus[0]), .downstream(regABus) );
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Peripherals
 
 	wire[63:0]	regvalA;
@@ -43,7 +52,7 @@ module APBTest();
 		.REG_WIDTH(64),
 		.INIT(64'haaaaaaaa_aaaaaaaa)
 	) regA (
-		.apb(peripheralBus[0]),
+		.apb(regABus),
 		.regval_out(regvalA),
 		.updated(updatedA)
 	);
