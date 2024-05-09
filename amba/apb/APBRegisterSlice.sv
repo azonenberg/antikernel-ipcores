@@ -29,6 +29,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "APBTypes.sv"
+
 /**
 	@brief An APBv5 pipeline register (parameterizable upstream, downstream, or both)
  */
@@ -66,6 +68,7 @@ module APBRegisterSlice #(
 				downstream.pwakeup	<=	0;
 				downstream.pauser	<=	0;
 				downstream.pwuser	<=	0;
+				done				<=	0;
 			end
 
 			//normal path
@@ -139,6 +142,10 @@ module APBRegisterSlice #(
 				upstream.pslverr	<= downstream.pslverr;
 				upstream.pruser		<= downstream.pruser;
 				upstream.pbuser		<= downstream.pbuser;
+
+				//don't assert PREADY for two clocks in a row
+				if(upstream.pready)
+					upstream.pready	<= 0;
 			end
 		end
 

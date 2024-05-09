@@ -29,6 +29,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`include "APBTypes.sv"
+
 /**
 	@brief A simple, parameterizable APBv5 interconnect bridge
 
@@ -40,16 +42,19 @@
 module APBBridge #(
 	parameter BASE_ADDR		= 32'h4000_0000,		//base address of the bridge
 	parameter BLOCK_SIZE	= 32'h0000_0800,		//how much address space to allocate to each peripheral
-	parameter NUM_PORTS		= 2,
-
-	localparam BLOCK_BITS	= $clog2(BLOCK_SIZE),
-	localparam DEVICE_BITS	= upstream.ADDR_WIDTH - BLOCK_BITS,
-	localparam BASE_BLOCK	= BASE_ADDR[upstream.ADDR_WIDTH-1 : BLOCK_BITS],
-	localparam INDEX_BITS	= $clog2(NUM_PORTS)
+	parameter NUM_PORTS		= 2
 )(
 	APB.completer	upstream,						//single upstream port
 	APB.requester	downstream[NUM_PORTS-1:0]
 );
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Extract some width-dependent configuration
+
+	localparam BLOCK_BITS	= $clog2(BLOCK_SIZE);
+	localparam DEVICE_BITS	= upstream.ADDR_WIDTH - BLOCK_BITS;
+	localparam BASE_BLOCK	= BASE_ADDR[upstream.ADDR_WIDTH-1 : BLOCK_BITS];
+	localparam INDEX_BITS	= $clog2(NUM_PORTS);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Pass downstream control signals through unmodified to save LUTs
@@ -116,6 +121,7 @@ module APBBridge #(
 		upstream.prdata		= 0;
 		upstream.pruser		= 0;
 		upstream.pbuser		= 0;
+		upstream.pslverr	= 0;
 
 		//forward from selected device
 		if(upstream.psel && range_match) begin

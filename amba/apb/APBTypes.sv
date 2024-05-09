@@ -28,8 +28,11 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`ifndef APBTypes_sv
+`define APBTypes_sv
+
 /**
-	@brief An APBv5 bus, as specified in ARM IHI 0024D
+	@brief An APBv5 bus, as specified in ARM IHI 0024E
  */
 interface APB #(
 	parameter DATA_WIDTH = 8,	//can be 8, 16, or 32
@@ -82,3 +85,4 @@ interface APB #(
 
 endinterface
 
+`endif
