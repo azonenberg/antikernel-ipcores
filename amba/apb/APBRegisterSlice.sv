@@ -49,10 +49,10 @@ module APBRegisterSlice #(
 	assign downstream.pclk = upstream.pclk;
 	assign downstream.preset_n = upstream.preset_n;
 
+	logic	done = 0;
+
 	//Register path
 	if(DOWN_REG) begin
-
-		logic	done = 0;
 
 		always_ff @(posedge upstream.pclk or negedge upstream.preset_n) begin
 
@@ -104,6 +104,22 @@ module APBRegisterSlice #(
 
 	//Combinatorial path
 	else begin
+
+		always_ff @(posedge upstream.pclk or negedge upstream.preset_n) begin
+			if(!upstream.preset_n)
+				done				<= 0;
+
+			else begin
+
+				if(downstream.pready)
+					done			<= 1;
+				if(!upstream.penable)
+					done			<= 0;
+
+			end
+
+		end
+
 		always_comb begin
 			downstream.paddr		=	upstream.paddr;
 			downstream.psel			=	upstream.psel;
@@ -115,6 +131,12 @@ module APBRegisterSlice #(
 			downstream.pwakeup		=	upstream.pwakeup;
 			downstream.pauser		=	upstream.pauser;
 			downstream.pwuser		=	upstream.pwuser;
+
+			//Special path needed to handle the case of PENABLE being asserted upstream
+			//after PREADY is asserted downstream
+			if(done)
+				downstream.penable	= 0;
+
 		end
 	end
 
@@ -142,10 +164,6 @@ module APBRegisterSlice #(
 				upstream.pslverr	<= downstream.pslverr;
 				upstream.pruser		<= downstream.pruser;
 				upstream.pbuser		<= downstream.pbuser;
-
-				//don't assert PREADY for two clocks in a row
-				if(upstream.pready)
-					upstream.pready	<= 0;
 			end
 		end
 
