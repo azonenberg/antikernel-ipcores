@@ -54,6 +54,7 @@ module QSPIDeviceInterface #(
 	inout wire[3:0]					dq,
 
 	output logic					start		= 0,	//single cycle strobe indicating CS# falling edge
+	output logic					stop		= 0,	//single cycle strobe indicating CS# rising edge
 	output logic					insn_valid	= 0,	//single cycle strobe indicating instruction is valid
 	output logic[INSN_BITS - 1 : 0]	insn		= 0,
 	output logic					wr_valid	= 0,	//single cycle strobe indicating wr_data is valid
@@ -128,7 +129,7 @@ module QSPIDeviceInterface #(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Detect falling CS# edges and rising SCK edges
+	// Detect rising/falling CS# edges and rising SCK edges
 
 	logic	cs_n_ff		= 1;
 	logic	sck_ff		= 0;
@@ -136,6 +137,7 @@ module QSPIDeviceInterface #(
 		cs_n_ff		<= cs_n_sync;
 		sck_ff		<= sck_sync;
 		start		<= !cs_n_sync && cs_n_ff;
+		stop		<= cs_n_sync && !cs_n_ff;
 	end
 
 	logic	sck_rising;
