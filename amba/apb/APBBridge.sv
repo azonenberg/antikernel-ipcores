@@ -84,7 +84,10 @@ module APBBridge #(
 
 	always_comb begin
 		block_addr 			= upstream.paddr[upstream.ADDR_WIDTH-1 : BLOCK_BITS];
-		range_match 		= (block_addr[DEVICE_BITS-1:INDEX_BITS] == BASE_BLOCK[DEVICE_BITS-1:INDEX_BITS]);
+		if(DEVICE_BITS > INDEX_BITS)
+			range_match 	= (block_addr[DEVICE_BITS-1:INDEX_BITS] == BASE_BLOCK[DEVICE_BITS-1:INDEX_BITS]);
+		else
+			range_match		= 1;
 		devid 				= block_addr[INDEX_BITS-1:0];
 	end
 
