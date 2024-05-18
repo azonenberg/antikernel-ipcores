@@ -67,7 +67,7 @@ module EthernetRxClockCrossing(
 
 	//An all-zero word indicates packet boundaries
 	CrossClockPacketFifo #(
-		.WIDTH(35),		//3 bytes valid + 32 data
+		.WIDTH(35),		//3 bits valid + 32 data
 		.DEPTH(1024)	//at least 2 packets worth
 	) rx_cdc_fifo (
 		.wr_clk(gmii_rxc),
