@@ -115,7 +115,8 @@ module EthernetRxClockCrossing(
 		RXFIFO_STATE_WAIT_FOR_HEADER_2	= 4'h3,
 		RXFIFO_STATE_PACKET_0			= 4'h4,
 		RXFIFO_STATE_PACKET_1			= 4'h5,
-		RXFIFO_STATE_PACKET_2			= 4'h6
+		RXFIFO_STATE_PACKET_2			= 4'h6,
+		RXFIFO_STATE_PACKET_3			= 4'h7
 	} rxfifo_pop_state = RXFIFO_STATE_WAIT_FOR_HEADER_0;
 
 	//True if we're idle but have a valid word from the previous packet
@@ -194,7 +195,7 @@ module EthernetRxClockCrossing(
 			RXFIFO_STATE_PACKET_0: begin
 
 				//First word is en route. Pop the second
-				if(rxfifo_rd_size > 1) begin
+				if(rxfifo_rd_size > 2) begin
 					rxfifo_rd_en			<= 1;
 					rxfifo_rd_pop_single	<= 1;
 					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_1;
@@ -202,8 +203,17 @@ module EthernetRxClockCrossing(
 
 			end	//end RXFIFO_STATE_PACKET_0
 
-			//Data words are ready, deal with them
+			//Read second word of packet (packet must be at least 2 words long anyway)
 			RXFIFO_STATE_PACKET_1: begin
+
+				//First word is en route. Pop the second
+				rxfifo_rd_en			<= 1;
+				rxfifo_rd_pop_single	<= 1;
+				rxfifo_pop_state		<= RXFIFO_STATE_PACKET_2;
+			end	//end RXFIFO_STATE_PACKET_1
+
+			//Data words are ready, deal with them
+			RXFIFO_STATE_PACKET_2: begin
 
 				//If we hit an all-zeroes word we've just popped the inter-frame gap for the next packet.
 				//Jump straight to the idle state
@@ -224,7 +234,7 @@ module EthernetRxClockCrossing(
 					cdc_rx_bus.data			<= rxfifo_rd_data;
 
 					//Commit it next cycle
-					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_2;
+					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_3;
 				end
 
 				else begin
@@ -247,13 +257,13 @@ module EthernetRxClockCrossing(
 				end
 
 
-			end	//end RXFIFO_STATE_PACKET_1
+			end	//end RXFIFO_STATE_PACKET_2
 
-			RXFIFO_STATE_PACKET_2: begin
+			RXFIFO_STATE_PACKET_3: begin
 				cdc_rx_bus.commit		<= 1;
 				perf_rx_cdc_frames		<= perf_rx_cdc_frames + 1'h1;
 				rxfifo_pop_state		<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
-			end	//end RXFIFO_STATE_PACKET_2
+			end	//end RXFIFO_STATE_PACKET_3
 
 		endcase
 
