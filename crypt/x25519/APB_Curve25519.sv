@@ -60,12 +60,14 @@ module APB_Curve25519(
 
 		REG_STATUS		= 'h020,		//[0] = busy
 		REG_RD_ADDR		= 'h024,		//read address
+		REG_CMD			= 'h028,		//command (write to start an operation)
+										//1 = crypto_scalarmult
 
 		REG_STATUS_2	= 'h040,		//copy of REG_STATUS
 
 		//crypto_scalarmult()
 		REG_WORK		= 'h060,		//Input point
-										//Starts the point multiply automatically when last word is written
+
 		//scalarmult()
 		REG_Q_0			= 'h080,		//Expanded input point, block 0
 		REG_Q_1			= 'h0a0,		//Expanded input point, block 1
@@ -93,6 +95,11 @@ module APB_Curve25519(
 		BLOCK_BASE_Q_0	= REG_BASE_Q_0[8:5],
 		BLOCK_DATA_OUT	= REG_DATA_OUT[8:5]
 	} blockid_t;
+
+	typedef enum logic[7:0]
+	{
+		CMD_CRYPTO_SCALARMULT	= 'h1
+	} cmd;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register logic
@@ -192,6 +199,17 @@ module APB_Curve25519(
 					crypt_dsa_addr	<= apb.pwdata[1:0];
 				end
 
+				//Start a crypto operation
+				else if(apb.paddr == REG_CMD) begin
+
+					case(apb.pwdata)
+						CMD_CRYPTO_SCALARMULT:		crypt_en		<= 1;
+						default: begin
+						end
+					endcase
+
+				end
+
 				//Write to a specific block
 				else begin
 
@@ -199,11 +217,7 @@ module APB_Curve25519(
 
 						BLOCK_E: crypt_e[crypt_index*16 +: 16]	<= apb.pwdata;
 
-						BLOCK_WORK: begin
-							crypt_work_in[crypt_index*16 +: 16]	<= apb.pwdata;
-							if(crypt_index == 15)
-								crypt_en		<= 1;
-						end
+						BLOCK_WORK: crypt_work_in[crypt_index*16 +: 16]	<= apb.pwdata;
 
 						BLOCK_Q_0: begin
 							crypt_work_in[crypt_index*16 +: 16]	<= apb.pwdata;
