@@ -40,9 +40,12 @@
 
 	A single cycle bus turnaround / dummy stage is present after the instruction/address and before data, regardless
 	of whether the operation is a read or write.
+
+	(TODO: update this)
  */
 module QSPIDeviceInterface #(
 	parameter						INSN_BYTES		= 1,
+	parameter						DDR_MODE		= 0,
 
 	localparam						INSN_BITS 		= INSN_BYTES*8,
 	localparam						INSN_NIBBLES	= INSN_BYTES * 2
@@ -154,11 +157,11 @@ module QSPIDeviceInterface #(
 	{
 		STATE_DESELECTED 	= 4'h0,
 		STATE_INSN			= 4'h1,
-		STATE_ADDRESS		= 4'h2,
-		STATE_TURNAROUND	= 4'h3,
+		STATE_TURNAROUND	= 4'h2,
 
-		STATE_WR_HI			= 4'h4,
-		STATE_WR_LO			= 4'h5,
+		STATE_WR_HI			= 4'h3,
+		STATE_WR_LO			= 4'h4,
+		STATE_WR_DELAY		= 4'h5,
 
 		STATE_RD_HI			= 4'h6,
 		STATE_RD_LO			= 4'h7
@@ -178,16 +181,20 @@ module QSPIDeviceInterface #(
 			rd_data_next_fwd	= rd_data;
 	end
 
+	logic	sck_edge_of_interest;
+
 	//Combinatorially assert data-ready flag
 	always_comb begin
 		rd_ready		= 0;
+
+		sck_edge_of_interest = sck_rising || (DDR_MODE && sck_falling);
 
 		//Request first data byte as soon as we get the instruction
 		if(insn_valid)
 			rd_ready	= 1;
 
 		//Request additional data as we send the last of the current byte
-		if( (state == STATE_RD_LO) && sck_rising )
+		if( (state == STATE_RD_LO) && sck_edge_of_interest )
 			rd_ready	= 1;
 
 	end
@@ -202,7 +209,7 @@ module QSPIDeviceInterface #(
 		//Read path executes on SCK rising edge too, but important to note that our view of the edge is delayed by two
 		//cycles due to synchronizer sampling latency. Driving on the delayed rising edge gives plenty of hold time for
 		//the receiver and maximizes our setup margin for the upcoming clock edge.
-		if(sck_rising) begin
+		if(sck_edge_of_interest) begin
 
 			dq_in_ff	<= dq_in_sync;
 
@@ -220,15 +227,10 @@ module QSPIDeviceInterface #(
 					if( (insn_count + 1) == INSN_NIBBLES ) begin
 						insn_valid	<= 1;
 
-						//TODO: optionally go to address cycle
 						state		<= STATE_TURNAROUND;
 					end
 
 				end	//end STATE_INSN
-
-				//Address TODO
-				STATE_ADDRESS: begin
-				end	//end STATE_ADDRESS
 
 				//Bus turnaround
 				STATE_TURNAROUND: begin
@@ -237,15 +239,26 @@ module QSPIDeviceInterface #(
 						//Start driving outputs
 						dq_oe	<= 1;
 
-						state	<= STATE_RD_LO;
+						if(DDR_MODE)
+							state	<= STATE_RD_HI;
+						else
+							state	<= STATE_RD_LO;
 						dq_out	<= rd_data_next_fwd[7:4];
 
 					end
-					else
-						state	<= STATE_WR_HI;
+					else begin
+						if(DDR_MODE)
+							state	<= STATE_WR_DELAY;
+						else
+							state	<= STATE_WR_HI;
+					end
 				end	//end STATE_TURNAROUND
 
 				//Write data path
+				STATE_WR_DELAY: begin
+					state	<= STATE_WR_HI;
+				end	//end STATE_WR_DELAY
+
 				STATE_WR_HI: begin
 					state	<= STATE_WR_LO;
 				end	//end STATE_WR_HI
