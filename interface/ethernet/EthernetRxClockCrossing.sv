@@ -206,6 +206,13 @@ module EthernetRxClockCrossing(
 			//Read second word of packet (packet must be at least 2 words long anyway)
 			RXFIFO_STATE_PACKET_1: begin
 
+				//Don't fully understand why this is needed for 1G but not 10G...
+				if(rxfifo_rd_bytes_valid != 0) begin
+					cdc_rx_bus.data_valid	<= 1;
+					cdc_rx_bus.bytes_valid	<= rxfifo_rd_bytes_valid;
+					cdc_rx_bus.data			<= rxfifo_rd_data;
+				end
+
 				//First word is en route. Pop the second
 				rxfifo_rd_en			<= 1;
 				rxfifo_rd_pop_single	<= 1;
