@@ -27,102 +27,52 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_GPIO_h
-#define APB_GPIO_h
+#ifndef APB_Timer_h
+#define APB_Timer_h
 
 /**
-	@brief Registers for a GPIO pin
+	@brief Registers for a timer pin
  */
-struct APB_GPIO
+struct APB_Timer
 {
-public:
-	uint32_t		out;
-	uint32_t		in;
-	uint32_t		tris;
+	uint32_t count;
+	uint32_t prediv;
+	uint32_t ctl;
 };
 
 /**
-	@brief Wrapper class for APB_GPIO
+	@brief Wrapper class for APB_Timer
 
-	Semantics largely identical to the stm32-cpp GPIOPin class
-
-	TODO: open drain support?
+	Semantics largely identical to the stm32-cpp Timer class
  */
-class GPIOPin
+class Timer
 {
 public:
-
-	enum gpiomode_t
+	enum Features
 	{
-		MODE_INPUT		= 0,
-		MODE_OUTPUT		= 1,
-		//no peripheral/analog mode supported
+		FEATURE_16BIT,
+		FEATURE_32BIT
 	};
 
-	//no slew rate control supported
+	Timer(volatile APB_Timer* chan, Features features, uint32_t prescale);
 
 	/**
-		@brief Initializes the pin
+		@brief Gets the current counter value
 	 */
-	GPIOPin(
-		volatile APB_GPIO* gpio,
-		uint8_t pin,
-		gpiomode_t mode)
-	: m_gpio(gpio)
-	, m_pin(pin)
-	, m_setmask(1 << pin)
-	, m_clearmask(~m_setmask)
-	{
-		//Configure the pin
-		SetMode(mode);
-	}
+	uint32_t GetCount()
+	{ return m_chan->count; }
 
 	/**
-		@brief Set the pin to input or output mode
+		@brief Restarts the counter from the default value (0 if up, auto reload value if down)
 	 */
-	void SetMode(gpiomode_t mode)
-	{
-		if(mode == MODE_OUTPUT)
-			m_gpio->tris &= m_clearmask;
-		else
-			m_gpio->tris |= m_setmask;
-	}
+	void Restart()
+	{ m_chan->ctl = 0x1; }
 
-	/**
-		@brief Drives a value out the pin
-	 */
-	void Set(bool b)
-	{
-		if(b)
-			m_gpio->out |= m_setmask;
-		else
-			m_gpio->out &= m_clearmask;
-	}
-
-	//Convenience helper for assigning GPIOs
-	void operator=(bool b)
-	{ Set(b); }
-
-	//Convenience helper for reading GPIOs
-	operator bool() const
-	{ return Get(); }
-
-	/**
-		@brief Reads the current value of the pin
-	 */
-	bool Get() const
-	{
-		if(m_gpio->in & m_setmask)
-			return true;
-		else
-			return false;
-	}
+	void Sleep(uint32_t ticks, bool reset = false);
 
 protected:
-	volatile APB_GPIO* 	m_gpio;
-	uint8_t				m_pin;
-	uint32_t			m_setmask;
-	uint32_t			m_clearmask;
+	volatile APB_Timer*	m_chan;
+	Features m_features;
 };
 
 #endif

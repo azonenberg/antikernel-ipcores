@@ -27,102 +27,32 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_GPIO_h
-#define APB_GPIO_h
+#include <stdint.h>
+#include "APB_Timer.h"
 
-/**
-	@brief Registers for a GPIO pin
- */
-struct APB_GPIO
+Timer::Timer(volatile APB_Timer* chan, Features features, uint32_t prescale)
+	: m_chan(chan)
+	, m_features(features)
 {
-public:
-	uint32_t		out;
-	uint32_t		in;
-	uint32_t		tris;
-};
+	m_chan->prediv = prescale;
+	Restart();
+}
 
-/**
-	@brief Wrapper class for APB_GPIO
-
-	Semantics largely identical to the stm32-cpp GPIOPin class
-
-	TODO: open drain support?
- */
-class GPIOPin
+void Timer::Sleep(uint32_t ticks, bool reset)
 {
-public:
+	if(reset)
+		Restart();
 
-	enum gpiomode_t
+	if(m_features == FEATURE_16BIT)
 	{
-		MODE_INPUT		= 0,
-		MODE_OUTPUT		= 1,
-		//no peripheral/analog mode supported
-	};
-
-	//no slew rate control supported
-
-	/**
-		@brief Initializes the pin
-	 */
-	GPIOPin(
-		volatile APB_GPIO* gpio,
-		uint8_t pin,
-		gpiomode_t mode)
-	: m_gpio(gpio)
-	, m_pin(pin)
-	, m_setmask(1 << pin)
-	, m_clearmask(~m_setmask)
-	{
-		//Configure the pin
-		SetMode(mode);
+		uint16_t target = m_chan->count + ticks;
+		while(m_chan->count != target)
+		{}
 	}
-
-	/**
-		@brief Set the pin to input or output mode
-	 */
-	void SetMode(gpiomode_t mode)
+	else
 	{
-		if(mode == MODE_OUTPUT)
-			m_gpio->tris &= m_clearmask;
-		else
-			m_gpio->tris |= m_setmask;
+		uint32_t target = m_chan->count + ticks;
+		while(m_chan->count != target)
+		{}
 	}
-
-	/**
-		@brief Drives a value out the pin
-	 */
-	void Set(bool b)
-	{
-		if(b)
-			m_gpio->out |= m_setmask;
-		else
-			m_gpio->out &= m_clearmask;
-	}
-
-	//Convenience helper for assigning GPIOs
-	void operator=(bool b)
-	{ Set(b); }
-
-	//Convenience helper for reading GPIOs
-	operator bool() const
-	{ return Get(); }
-
-	/**
-		@brief Reads the current value of the pin
-	 */
-	bool Get() const
-	{
-		if(m_gpio->in & m_setmask)
-			return true;
-		else
-			return false;
-	}
-
-protected:
-	volatile APB_GPIO* 	m_gpio;
-	uint8_t				m_pin;
-	uint32_t			m_setmask;
-	uint32_t			m_clearmask;
-};
-
-#endif
+}
