@@ -27,54 +27,69 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_Timer_h
-#define APB_Timer_h
+#ifndef APB_UART_h
+#define APB_UART_h
+
+#include <embedded-utils/CharacterDevice.h>
 
 /**
-	@brief Registers for a timer channel
+	@brief Registers for a UART channel
  */
-struct APB_Timer
+struct APB_UART
 {
-	uint32_t count;
-	uint32_t prediv;
-	uint32_t ctl;
+	uint32_t status;
+	uint32_t clkdiv;
+	uint32_t tx_data;
+	uint32_t rx_data;
 };
 
 /**
-	@brief Wrapper class for APB_Timer
+	@brief Wrapper class for APB_UART
 
-	Semantics largely identical to the stm32-cpp Timer class
+	Semantics largely identical to the stm32-cpp UART class but derived from CharacterDevice rather than
+	BufferedCharacterDevice, since our buffering is implemented in hardware
  */
-class Timer
+class UART : public CharacterDevice
 {
 public:
-	enum Features
+
+	UART(volatile APB_UART* lane, uint32_t baud_div = 181)
+	 : UART(lane, lane, baud_div)
+	{}
+
+	UART(volatile APB_UART* txlane, volatile APB_UART* rxlane, uint32_t baud_div)
+		: m_txlane(txlane)
+		, m_rxlane(rxlane)
 	{
-		FEATURE_16BIT,
-		FEATURE_32BIT
-	};
+		m_txlane->clkdiv = baud_div;
+		m_rxlane->clkdiv = baud_div;
+	}
 
-	Timer(volatile APB_Timer* chan, Features features, uint32_t prescale);
+	//TX side
+	virtual void PrintBinary(char ch) override
+	{
+		//Block if the FIFO has no free space
+		while(m_txlane->status & 1)
+		{}
 
-	/**
-		@brief Gets the current counter value
-	 */
-	uint32_t GetCount()
-	{ return m_chan->count; }
+		m_txlane->tx_data = ch;
+	}
 
-	/**
-		@brief Restarts the counter from the default value (0 if up, auto reload value if down)
-	 */
-	void Restart()
-	{ m_chan->ctl = 0x1; }
+	bool DataPending()
+	{ return (m_rxlane->status & 2) == 2; }
 
-	void Sleep(uint32_t ticks, bool reset = false);
+	virtual char BlockingRead()
+	{
+		//Block if the FIFO has nothing to read
+		while( (m_rxlane->status & 2) == 0)
+		{}
+
+		return m_rxlane->rx_data;
+	}
 
 protected:
-	volatile APB_Timer*	m_chan;
-	Features m_features;
+	volatile APB_UART* m_txlane;
+	volatile APB_UART* m_rxlane;
 };
-
-#define HAVE_TIM
 
 #endif
