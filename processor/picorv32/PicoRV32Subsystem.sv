@@ -126,20 +126,67 @@ module PicoRV32Subsystem #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Address decoding
+
+	logic		mem_addr_is_ram;
+	logic		mem_addr_is_rom;
+	logic		mem_addr_is_apb;
+
+	logic		mem_request;
+	logic		mem_read;
+
+	always_comb begin
+		mem_addr_is_ram = (mem_addr >= TCM_RAM_BASE) && (mem_addr <= TCM_RAM_MAX);
+		mem_addr_is_rom = (mem_addr >= TCM_ROM_BASE) && (mem_addr <= TCM_ROM_MAX);
+		mem_addr_is_apb = (mem_addr >= APB_BASE) && (mem_addr <= APB_MAX);
+
+		mem_request		= mem_valid && !mem_ready;
+		mem_read		= mem_request && !mem_wstrb;
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Instruction ROM
 
+	(* RAM_STYLE = "block" *)
 	logic[31:0] rom[TCM_ROM_WORDS-1:0];
+
 	initial begin
 		$readmemh(TCM_ROM_IMAGE, rom);
+	end
+
+	logic					rom_rd_en;
+	logic[TCM_ROM_BITS-1:0]	rom_addr;
+
+	//Control signal decoding
+	always_comb begin
+		rom_rd_en			= mem_read && mem_addr_is_rom;
+		rom_addr			= mem_addr[2 +: TCM_ROM_BITS];
+	end
+
+	//Registered reads
+	logic		rom_rd_valid = 0;
+	logic[31:0]	rom_rd_data;
+	always_ff @(posedge clk) begin
+		rom_rd_valid		<= rom_rd_en;
+		if(rom_rd_en)
+			rom_rd_data		<= rom[rom_addr];
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Data RAM
 
+	(* RAM_STYLE = "block" *)
 	logic[7:0] ram0[TCM_RAM_WORDS-1:0];
+
+	(* RAM_STYLE = "block" *)
 	logic[7:0] ram1[TCM_RAM_WORDS-1:0];
+
+	(* RAM_STYLE = "block" *)
 	logic[7:0] ram2[TCM_RAM_WORDS-1:0];
+
+	(* RAM_STYLE = "block" *)
 	logic[7:0] ram3[TCM_RAM_WORDS-1:0];
+
 	initial begin
 		for(integer i=0; i<2048; i++) begin
 			ram0[i] = 0;
@@ -147,6 +194,42 @@ module PicoRV32Subsystem #(
 			ram2[i] = 0;
 			ram3[i] = 0;
 		end
+	end
+
+	logic[3:0]	ram_wr_en;
+	logic		ram_rd_en;
+
+	logic[TCM_RAM_BITS-1:0]	ram_addr;
+
+	//Control signal decoding
+	always_comb begin
+
+		for(integer i=0; i<4; i=i+1)
+			ram_wr_en[i]	= (mem_request && mem_wstrb[i] && mem_addr_is_ram);
+		ram_rd_en			= mem_read && mem_addr_is_ram;
+
+		ram_addr			= mem_addr[2 +: TCM_RAM_BITS];
+	end
+
+	//Registered writes
+	always_ff @(posedge clk) begin
+		if(ram_wr_en[0])
+			ram0[ram_addr]	<= mem_wdata[7:0];
+		if(ram_wr_en[1])
+			ram1[ram_addr]	<= mem_wdata[15:8];
+		if(ram_wr_en[2])
+			ram2[ram_addr]	<= mem_wdata[23:16];
+		if(ram_wr_en[3])
+			ram3[ram_addr]	<= mem_wdata[31:24];
+	end
+
+	//Registered reads
+	logic		ram_rd_valid = 0;
+	logic[31:0]	ram_rd_data;
+	always_ff @(posedge clk) begin
+		ram_rd_valid		<= ram_rd_en;
+		if(ram_rd_en)
+			ram_rd_data		<= { ram3[ram_addr], ram2[ram_addr], ram1[ram_addr], ram0[ram_addr] };
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -169,11 +252,40 @@ module PicoRV32Subsystem #(
 		apb.pstrb 	= 0;
 	end
 
+	//Muxing of RAM read state
 	always_ff @(posedge clk) begin
-
-		//clean output signals if not using
-		mem_ready	<= 0;
 		mem_rdata	<= 0;
+		mem_ready	<= 0;
+
+		//Handle APB reply coming back
+		if(apb.pslverr || apb.pready) begin
+			mem_ready	<= 1;
+			mem_rdata	<= apb.prdata;
+		end
+
+		//Acknowledge RAM writes immediately
+		if(ram_wr_en)
+			mem_ready	<= 1;
+
+		//Mux RAM/ROM reads/writes on completion
+		if(ram_rd_valid) begin
+			mem_ready	<= 1;
+			mem_rdata	<= ram_rd_data;
+		end
+		if(rom_rd_valid) begin
+			mem_ready	<= 1;
+			mem_rdata	<= rom_rd_data;
+		end
+
+		//any invalid memory access will never be acknowledged and hang the bus
+		//TODO: add some kind of watchdog or fault handler for this?
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// APB interfacing
+
+	always_ff @(posedge clk) begin
 
 		//clear flags when pready is asserted
 		if(apb.pready || mem_ready) begin
@@ -187,82 +299,17 @@ module PicoRV32Subsystem #(
 		else if(apb.penable && !apb.psel)
 			apb.psel	<= 1;
 
-		//handle reply coming back
-		if(apb.pslverr || apb.pready) begin
-			mem_ready	<= 1;
-			mem_rdata	<= apb.prdata;
-		end
+		//Dispatch APB requests
+		if(mem_request && mem_addr_is_apb) begin
+			apb.penable	<= 1;
+			apb.paddr	<= mem_addr;
+			apb.pstrb	<= mem_wstrb;
+			apb.pwdata	<= mem_wdata;
 
-		//do nothing if not doing a memory transaction
-		if(!mem_valid) begin
-		end
-
-		//do nothing if we just completed a memory transaction
-		else if(mem_ready) begin
-		end
-
-		//Reads
-		else if(!mem_wstrb) begin
-
-			//Instruction / data ROM
-			if( (mem_addr >= TCM_ROM_BASE) && (mem_addr <= TCM_ROM_MAX) ) begin
-				mem_ready			<= 1;
-				mem_rdata			<= rom[mem_addr[2 +: TCM_ROM_BITS]];
-			end
-
-			//RAM
-			else if( (mem_addr >= TCM_RAM_BASE) && (mem_addr <= TCM_RAM_MAX) ) begin
-				mem_ready			<= 1;
-				mem_rdata[7:0]		<= ram0[mem_addr[2 +: TCM_RAM_BITS]];
-				mem_rdata[15:8]		<= ram1[mem_addr[2 +: TCM_RAM_BITS]];
-				mem_rdata[23:16]	<= ram2[mem_addr[2 +: TCM_RAM_BITS]];
-				mem_rdata[31:24]	<= ram3[mem_addr[2 +: TCM_RAM_BITS]];
-			end
-
-			//APB interface
-			else if( (mem_addr >= APB_BASE) && (mem_addr <= APB_MAX) ) begin
-				apb.penable			<= 1;
-				apb.pwrite			<= 0;
-				apb.paddr			<= mem_addr;
-				apb.pstrb			<= 0;
-				apb.pwdata			<= 0;
-			end
-
-			//unmapped address, return zero because there's no fault input on the core
-			else begin
-				mem_ready			<= 1;
-				mem_rdata			<= 0;
-			end
-
-		end
-
-		//Writes
-		else begin
-
-			//Ignore writes to ROM
-
-			//RAM
-			if( (mem_addr >= TCM_RAM_BASE) && (mem_addr <= TCM_RAM_MAX) ) begin
-				mem_ready			<= 1;
-				if(mem_wstrb[0])
-					ram0[mem_addr[2 +: 11]]		<= mem_wdata[7:0];
-				if(mem_wstrb[1])
-					ram1[mem_addr[2 +: 11]]		<= mem_wdata[15:8];
-				if(mem_wstrb[2])
-					ram2[mem_addr[2 +: 11]]		<= mem_wdata[23:16];
-				if(mem_wstrb[3])
-					ram3[mem_addr[2 +: 11]]		<= mem_wdata[31:24];
-			end
-
-			//APB interface
-			else if( (mem_addr >= APB_BASE) && (mem_addr <= APB_MAX) ) begin
-				apb.penable			<= 1;
-				apb.pwrite			<= 1;
-				apb.paddr			<= mem_addr;
-				apb.pstrb			<= mem_wstrb;
-				apb.pwdata			<= mem_wdata;
-			end
-
+			if(mem_wstrb)
+				apb.pwrite	<= 1;
+			else
+				apb.pwrite	<= 0;
 		end
 
 	end
