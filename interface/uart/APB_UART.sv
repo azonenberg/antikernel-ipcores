@@ -263,32 +263,4 @@ module APB_UART #(
 
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
-
-	ila_0 ila(
-		.clk(apb.pclk),
-
-		.probe0(tx),
-		.probe1(tx_data),
-		.probe2(tx_en),
-		.probe3(tx_done),
-		.probe4(apb.penable),
-		.probe5(apb.psel),
-		.probe6(apb.pwrite),
-		.probe7(apb.paddr),
-		.probe8(apb.pstrb),
-		.probe9(apb.pwdata),
-		.probe10(apb.prdata),
-		.probe11(tx_fifo_rd),
-		.probe12(tx_busy),
-		.probe13(tx_fifo_empty),
-		.probe14(rx_fifo_rd),
-		.probe15(rx_data_ready),
-		.probe16(rx_data),
-		.probe17(rx_fifo_rd_data),
-		.probe18(rx_fifo_empty),
-		.probe19(tx_fifo_wr)
-	);
-
 endmodule
