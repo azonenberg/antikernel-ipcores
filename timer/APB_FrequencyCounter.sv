@@ -34,27 +34,23 @@
 /**
 	@file
 	@author	Andrew D. Zonenberg
-	@brief	APB register access to a SPI bus controller
+	@brief	APB controlled frequency counter
 
-	Includes a control for a single chip select pin. Additional chip selects, if needed, must be provided by
-	a separate GPIO block.
+	Counts how many cycles of an unknown input frequency we see in a given number of cycles of a known reference.
  */
-module APB_SPIHostInterface(
+module APB_FrequencyCounter(
 
 	//The APB bus
-	APB.completer 					apb,
+	APB.completer 	apb,
 
-	//SPI interface
-	output wire						spi_sck,
-	output wire						spi_mosi,
-	input wire						spi_miso,
-	output logic					spi_cs_n
+	//Test signal input
+	input wire		clkin
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// We only support 16 or 32 bit APB, throw synthesis error for anything else
+	// We only support 32 bit APB, throw synthesis error for anything else
 
-	if(apb.DATA_WIDTH > 32)
+	if(apb.DATA_WIDTH != 32)
 		apb_bus_width_is_invalid();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -62,40 +58,77 @@ module APB_SPIHostInterface(
 
 	typedef enum logic[7:0]
 	{
-		REG_CLK_DIV		= 'h00,		//clock divider from PCLK to SCK
-		REG_DATA		= 'h04,		//[7:0] data to send/receive
-		REG_CS_N		= 'h08,		//[0] = chip select output value
-		REG_STATUS		= 'h20,		//[0] = busy flag
-		REG_STATUS_2	= 'h40		//duplicate of REG_STATUS
+		REG_CTRL		= 'h00,		//[0] start a measurement
+		REG_STATUS		= 'h04,		//[0] measurement in progress
+		REG_TESTLEN		= 'h08,		//Number of cycles to measure the input for
+		REG_COUNT		= 'h0c		//Count value
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The SPI controller
+	// Synchronize start/done flags
 
-	logic[15:0]	clkdiv	= 100;
+	logic	start = 0;
+	wire	start_sync;
 
-	logic		shift_en;
-	logic[7:0]	shift_data;
-	wire		shift_done;
-	wire[7:0]	rx_data;
+	PulseSynchronizer sync_start(
+		.clk_a(apb.pclk),
+		.pulse_a(start),
 
-	SPIHostInterface spi(
-		.clk(apb.pclk),
-		.clkdiv(clkdiv),
+		.clk_b(clkin),
+		.pulse_b(start_sync)
+	);
 
-		.spi_sck(spi_sck),
-		.spi_mosi(spi_mosi),
-		.spi_miso(spi_miso),
+	logic	stop = 0;
+	wire	stop_sync;
 
-		.shift_en(shift_en),
-		.shift_done(shift_done),
-		.tx_data(shift_data),
-		.rx_data(rx_data));
+	PulseSynchronizer sync_stop(
+		.clk_a(apb.pclk),
+		.pulse_a(stop),
+
+		.clk_b(clkin),
+		.pulse_b(stop_sync)
+	);
+
+	logic[31:0] count		= 0;
+	wire[31:0]	count_sync;
+	wire		done;
+
+	RegisterSynchronizer #(.WIDTH(32)) sync_result(
+		.clk_a(clkin),
+		.en_a(stop_sync),
+		.ack_a(),
+		.reg_a(count),
+
+		.clk_b(apb.pclk),
+		.updated_b(done),
+		.reset_b(!apb.preset_n),
+		.reg_b(count_sync)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// APB interface logic
+	// Test domain counter
 
-	logic	shift_busy = 0;
+	logic	running = 1;
+
+	always_ff @(posedge clkin) begin
+
+		if(start_sync) begin
+			count	<= 0;
+			running	<= 1;
+		end
+		else if(stop_sync)
+			running	<= 0;
+		else
+			count	<= count + 1;
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// APB interface logic and ref clock counter
+
+	logic[31:0] testlen		= 0;
+	logic[31:0] testcount	= 0;
+	logic		busy		= 0;
 
 	always_comb begin
 
@@ -106,29 +139,18 @@ module APB_SPIHostInterface(
 		apb.prdata		= 0;
 		apb.pslverr		= 0;
 
-		//Clear control signals
-		shift_en		= 0;
-		shift_data		= 0;
-
 		if(apb.pready) begin
 
 			if(apb.pwrite) begin
 
 				case(apb.paddr)
 
-					//Start a read or write
-					REG_DATA: begin
-						shift_en	= 1;
-						shift_data	= apb.pwdata[7:0];
+					REG_CTRL: begin
+					end
+					REG_TESTLEN: begin
 					end
 
-					//write is sequential, just need to not trigger default case
-					REG_CLK_DIV: begin
-					end
-					REG_CS_N: begin
-					end
-
-					//unmapped address
+					//unmapped or non-writable address
 					default:	apb.pslverr		= 1;
 
 				endcase
@@ -139,11 +161,10 @@ module APB_SPIHostInterface(
 
 				case(apb.paddr)
 
-					REG_CLK_DIV:	apb.prdata	= clkdiv;
-					REG_DATA:		apb.prdata	= {8'h0, rx_data};
-					REG_CS_N:		apb.prdata	= {15'h0, spi_cs_n};
-					REG_STATUS:		apb.prdata	= {15'h0, shift_busy};
-					REG_STATUS_2:	apb.prdata	= {15'h0, shift_busy};
+					REG_CTRL:		apb.prdata = 0;
+					REG_STATUS:		apb.prdata = { 31'h0, busy };
+					REG_TESTLEN:	apb.prdata = testlen;
+					REG_COUNT:		apb.prdata = count_sync;
 
 					//unmapped address
 					default:		apb.pslverr		= 1;
@@ -159,18 +180,27 @@ module APB_SPIHostInterface(
 
 		//Reset
 		if(!apb.preset_n) begin
-			spi_cs_n	<= 0;
-			clkdiv		<= 100;
-			shift_busy	<= 0;
+			testlen		<= 0;
+			testcount	<= 0;
+			busy		<= 0;
+			start		<= 0;
+			stop		<= 0;
 		end
 
 		//Normal path
 		else begin
 
-			if(shift_en)
-				shift_busy	<= 1;
-			if(shift_done)
-				shift_busy	<= 0;
+			start	<= 0;
+			stop	<= 0;
+
+			if(busy) begin
+				testcount	<= testcount + 1;
+				if(testcount == testlen)
+					stop	<= 1;
+			end
+
+			if(done)
+				busy	<= 0;
 
 			if(apb.pready) begin
 
@@ -178,8 +208,14 @@ module APB_SPIHostInterface(
 				if(apb.pwrite) begin
 
 					case(apb.paddr)
-						REG_CS_N:		spi_cs_n	<= apb.pwdata[0];
-						REG_CLK_DIV:	clkdiv		<= apb.pwdata[15:0];
+						REG_CTRL: begin
+							if(apb.pwdata[0]) begin
+								start 		<= 1;
+								busy		<= 1;
+								testcount	<= 0;
+							end
+						end
+						REG_TESTLEN:	testlen	<= apb.pwdata;
 
 						default: begin
 						end
@@ -188,7 +224,6 @@ module APB_SPIHostInterface(
 				end
 
 			end
-
 		end
 
 	end

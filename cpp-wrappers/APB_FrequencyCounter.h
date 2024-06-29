@@ -1,5 +1,3 @@
-`timescale 1ns/1ps
-`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
@@ -29,168 +27,20 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "../../../antikernel-ipcores/amba/apb/APBTypes.sv"
+#ifndef APB_FrequencyCounter_h
+#define APB_FrequencyCounter_h
 
 /**
-	@file
-	@author	Andrew D. Zonenberg
-	@brief	APB register access to a SPI bus controller
-
-	Includes a control for a single chip select pin. Additional chip selects, if needed, must be provided by
-	a separate GPIO block.
+	@brief Registers for a FrequencyCounter
  */
-module APB_SPIHostInterface(
+struct APB_FrequencyCounter
+{
+	uint32_t ctrl;
+	uint32_t status;
+	uint32_t testlen;
+	uint32_t count;
+};
 
-	//The APB bus
-	APB.completer 					apb,
+//TODO: wrapper class
 
-	//SPI interface
-	output wire						spi_sck,
-	output wire						spi_mosi,
-	input wire						spi_miso,
-	output logic					spi_cs_n
-);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// We only support 16 or 32 bit APB, throw synthesis error for anything else
-
-	if(apb.DATA_WIDTH > 32)
-		apb_bus_width_is_invalid();
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Register IDs
-
-	typedef enum logic[7:0]
-	{
-		REG_CLK_DIV		= 'h00,		//clock divider from PCLK to SCK
-		REG_DATA		= 'h04,		//[7:0] data to send/receive
-		REG_CS_N		= 'h08,		//[0] = chip select output value
-		REG_STATUS		= 'h20,		//[0] = busy flag
-		REG_STATUS_2	= 'h40		//duplicate of REG_STATUS
-	} regid_t;
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The SPI controller
-
-	logic[15:0]	clkdiv	= 100;
-
-	logic		shift_en;
-	logic[7:0]	shift_data;
-	wire		shift_done;
-	wire[7:0]	rx_data;
-
-	SPIHostInterface spi(
-		.clk(apb.pclk),
-		.clkdiv(clkdiv),
-
-		.spi_sck(spi_sck),
-		.spi_mosi(spi_mosi),
-		.spi_miso(spi_miso),
-
-		.shift_en(shift_en),
-		.shift_done(shift_done),
-		.tx_data(shift_data),
-		.rx_data(rx_data));
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// APB interface logic
-
-	logic	shift_busy = 0;
-
-	always_comb begin
-
-		//Combinatorially assert PREADY when selected
-		apb.pready		= apb.psel && apb.penable;
-
-		//Default to no errors and no read data
-		apb.prdata		= 0;
-		apb.pslverr		= 0;
-
-		//Clear control signals
-		shift_en		= 0;
-		shift_data		= 0;
-
-		if(apb.pready) begin
-
-			if(apb.pwrite) begin
-
-				case(apb.paddr)
-
-					//Start a read or write
-					REG_DATA: begin
-						shift_en	= 1;
-						shift_data	= apb.pwdata[7:0];
-					end
-
-					//write is sequential, just need to not trigger default case
-					REG_CLK_DIV: begin
-					end
-					REG_CS_N: begin
-					end
-
-					//unmapped address
-					default:	apb.pslverr		= 1;
-
-				endcase
-
-			end
-
-			else begin
-
-				case(apb.paddr)
-
-					REG_CLK_DIV:	apb.prdata	= clkdiv;
-					REG_DATA:		apb.prdata	= {8'h0, rx_data};
-					REG_CS_N:		apb.prdata	= {15'h0, spi_cs_n};
-					REG_STATUS:		apb.prdata	= {15'h0, shift_busy};
-					REG_STATUS_2:	apb.prdata	= {15'h0, shift_busy};
-
-					//unmapped address
-					default:		apb.pslverr		= 1;
-
-				endcase
-
-			end
-
-		end
-	end
-
-	always_ff @(posedge apb.pclk or negedge apb.preset_n) begin
-
-		//Reset
-		if(!apb.preset_n) begin
-			spi_cs_n	<= 0;
-			clkdiv		<= 100;
-			shift_busy	<= 0;
-		end
-
-		//Normal path
-		else begin
-
-			if(shift_en)
-				shift_busy	<= 1;
-			if(shift_done)
-				shift_busy	<= 0;
-
-			if(apb.pready) begin
-
-				//Writes
-				if(apb.pwrite) begin
-
-					case(apb.paddr)
-						REG_CS_N:		spi_cs_n	<= apb.pwdata[0];
-						REG_CLK_DIV:	clkdiv		<= apb.pwdata[15:0];
-
-						default: begin
-						end
-					endcase
-
-				end
-
-			end
-
-		end
-
-	end
-
-endmodule
+#endif
