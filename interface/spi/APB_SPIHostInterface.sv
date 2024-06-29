@@ -52,9 +52,9 @@ module APB_SPIHostInterface(
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// We only support 16-bit APB, throw synthesis error for anything else
+	// We only support 16 or 32 bit APB, throw synthesis error for anything else
 
-	if(apb.DATA_WIDTH != 16)
+	if(apb.DATA_WIDTH > 32)
 		apb_bus_width_is_invalid();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -63,8 +63,8 @@ module APB_SPIHostInterface(
 	typedef enum logic[7:0]
 	{
 		REG_CLK_DIV		= 'h00,		//clock divider from PCLK to SCK
-		REG_DATA		= 'h02,		//[7:0] data to send/receive
-		REG_CS_N		= 'h04,		//[0] = chip select output value
+		REG_DATA		= 'h04,		//[7:0] data to send/receive
+		REG_CS_N		= 'h08,		//[0] = chip select output value
 		REG_STATUS		= 'h20,		//[0] = busy flag
 		REG_STATUS_2	= 'h40		//duplicate of REG_STATUS
 	} regid_t;
