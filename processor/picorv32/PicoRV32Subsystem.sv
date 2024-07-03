@@ -85,7 +85,9 @@ module PicoRV32Subsystem #(
 		.ENABLE_DIV(1),
 		.PROGADDR_RESET(TCM_ROM_BASE),					//reset vector is the start of ROM
 		.PROGADDR_IRQ(32'h0000_0000),					//TODO: IRQ vector if/when we enable IRQs
-		.STACKADDR(TCM_RAM_BASE + TCM_RAM_SIZE - 16)	//initial stack pointer at the end of RAM
+		.STACKADDR(TCM_RAM_BASE + TCM_RAM_SIZE - 16),	//initial stack pointer at the end of RAM
+		.COMPRESSED_ISA(1),
+		.BARREL_SHIFTER(1)
 	) mcu (
 
 		.clk(clk),
