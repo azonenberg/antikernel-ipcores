@@ -75,7 +75,7 @@ public:
 		m_txlane->tx_data = ch;
 	}
 
-	bool DataPending()
+	bool HasInput()
 	{ return (m_rxlane->status & 2) == 2; }
 
 	virtual char BlockingRead()
