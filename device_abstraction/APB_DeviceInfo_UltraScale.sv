@@ -33,6 +33,9 @@
 	@brief A timer, readable/writable in blocks over APB
 
 	For now, only full width reads are supported (so no support for 32-bit counters on 16-bit APB)
+
+	TODO: add CDC support for when clk_dna and clk_icap are not the same as PCLK
+	(or do we just rely on the user to add constraints since they're pseudo-constant?)
  */
 module APB_DeviceInfo_UltraScale(
 
@@ -55,18 +58,81 @@ module APB_DeviceInfo_UltraScale(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register IDs
 
-	typedef enum logic[3:0]
+	typedef enum logic[7:0]
 	{
-		REG_STATUS		= 4'h0,
-		REG_IDCODE		= 4'h4		//Device IDCODE
-
+		REG_STATUS		= 8'h00,		//[0] = IDCODE valid
+										//[1] = serial valid
+		REG_IDCODE		= 8'h04,		//Device IDCODE
+		REG_SERIAL_0	= 8'h08,		//Die serial bits 95:64
+		REG_SERIAL_1	= 8'h0c,		//Die serial bits 63:32
+		REG_SERIAL_2	= 8'h10			//Die serial bits 31:0
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// DNA_PORT read logic TODO
+	// DNA_PORT read logic
+
+	wire	dna_out;
+	logic	dna_shift = 0;
+	logic	dna_read = 0;
+	DNA_PORTE2 dna_port (
+		.DOUT(dna_out),
+		.DIN(dna_out),
+		.READ(dna_read),
+		.SHIFT(dna_shift),
+		.CLK(clk_dna));
+
+	logic[95:0]	die_serial 			= 0;
+	logic		die_serial_valid	= 0;
+
+	enum logic[1:0]
+	{
+		DNA_READ_STATE_BOOT		= 2'h0,
+		DNA_READ_STATE_READ		= 2'h1,
+		DNA_READ_STATE_DONE		= 2'h2
+	} dna_read_state = DNA_READ_STATE_BOOT;
+
+	logic[7:0] dna_read_count	= 0;
+
+	always_ff @(posedge clk_dna) begin
+
+		dna_shift	<= 0;
+		dna_read	<= 0;
+
+		case(dna_read_state)
+
+			//Wait for boot-time init
+			DNA_READ_STATE_BOOT: begin
+
+				if(boot_done) begin
+					dna_read 			<= 1;
+					dna_read_state 		<= DNA_READ_STATE_READ;
+				end
+			end
+
+			//Shift the data
+			DNA_READ_STATE_READ: begin
+				dna_shift <= 1;
+
+				dna_read_count		<= dna_read_count + 8'h1;
+				die_serial			<= { die_serial[95:0], dna_out};	//now shift LSB first
+
+				//Done?
+				if(dna_read_count == 96) begin
+					dna_read_state		<= DNA_READ_STATE_DONE;
+					die_serial_valid	<= 1;
+				end
+			end	//end DNA_READ_STATE_READ
+
+			DNA_READ_STATE_DONE: begin
+				//do nothing
+			end	//end DNA_READ_STATE_DONE
+
+		endcase
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Timer for ICAP availability (TODO: is this needed on parts newer than 7 series?)
+	// Timer for ICAP availability (TODO: we probably don't need such a large counter)
 
 	localparam BOOT_INIT_VAL =  1;
 
@@ -246,8 +312,11 @@ module APB_DeviceInfo_UltraScale(
 			//read
 			if(!apb.pwrite) begin
 				case(apb.paddr)
-					REG_STATUS:		apb.prdata <= { 31'h0, idcode_valid };
-					REG_IDCODE:		apb.prdata	= idcode;
+					REG_STATUS:		apb.prdata = { 30'h0, die_serial_valid, idcode_valid };
+					REG_IDCODE:		apb.prdata = idcode;
+					REG_SERIAL_0:	apb.prdata = die_serial[95:64];
+					REG_SERIAL_1:	apb.prdata = die_serial[63:32];
+					REG_SERIAL_2:	apb.prdata = die_serial[31:0];
 					default:		apb.pslverr	= 1;
 				endcase
 			end

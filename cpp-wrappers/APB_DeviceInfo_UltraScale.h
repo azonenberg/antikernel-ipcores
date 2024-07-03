@@ -38,6 +38,7 @@ struct APB_DeviceInfo_UltraScale
 public:
 	uint32_t status;
 	uint32_t idcode;
+	uint32_t serial[3];
 };
 
 #endif
