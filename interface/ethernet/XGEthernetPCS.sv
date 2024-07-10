@@ -53,6 +53,10 @@ module XGEthernetPCS(
 	output logic[1:0]	tx_header	= 0,
 	output logic[31:0]	tx_data		= 0,
 
+	//Output control signals to fabric gearbox (if used)
+	output logic		tx_header_valid = 0,
+	output logic		tx_data_valid = 0,
+
 	//RX XGMII interface (single rate @ 312.5 MHz, rather than double rate @ 162.5 MHz)
 	//Bit numbering is changed from the 802.3 spec: we have [31] be lane 0
 	//so a 32-bit value will be transmitted in network byte order
@@ -858,8 +862,13 @@ module XGEthernetPCS(
 
 	always_ff @(posedge tx_clk) begin
 
+		tx_header_valid	<= tx_elastic_header_valid;
+		tx_data_valid	<= 0;
+
 		if(!tx_pause) begin
+
 			tx_header					<= tx_elastic_rd_header_ff;
+			tx_data_valid				<= 1;
 
 			for(integer i=0; i<32; i=i+1) begin
 				tx_scramble_temp		= tx_32b_data[i] ^ tx_scramble[38] ^ tx_scramble[57];
