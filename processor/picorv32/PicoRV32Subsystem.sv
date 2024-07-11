@@ -44,7 +44,10 @@ module PicoRV32Subsystem #(
 	parameter TCM_ROM_IMAGE = "/dev/null",
 
 	parameter APB_BASE		= 32'h4000_0000,
-	parameter APB_SIZE		= 32'h1000_0000
+	parameter APB_SIZE		= 32'h1000_0000,
+
+	parameter TCM_RAM_STYLE	= "block",
+	parameter TCM_ROM_STYLE	= "block"
 )(
 	input wire		clk,
 	input wire		rst_n,
@@ -149,7 +152,7 @@ module PicoRV32Subsystem #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Instruction ROM
 
-	(* RAM_STYLE = "block" *)
+	(* RAM_STYLE = TCM_ROM_STYLE *)
 	logic[31:0] rom[TCM_ROM_WORDS-1:0];
 
 	initial begin
@@ -177,16 +180,16 @@ module PicoRV32Subsystem #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Data RAM
 
-	(* RAM_STYLE = "block" *)
+	(* RAM_STYLE = TCM_RAM_STYLE *)
 	logic[7:0] ram0[TCM_RAM_WORDS-1:0];
 
-	(* RAM_STYLE = "block" *)
+	(* RAM_STYLE = TCM_RAM_STYLE *)
 	logic[7:0] ram1[TCM_RAM_WORDS-1:0];
 
-	(* RAM_STYLE = "block" *)
+	(* RAM_STYLE = TCM_RAM_STYLE *)
 	logic[7:0] ram2[TCM_RAM_WORDS-1:0];
 
-	(* RAM_STYLE = "block" *)
+	(* RAM_STYLE = TCM_RAM_STYLE *)
 	logic[7:0] ram3[TCM_RAM_WORDS-1:0];
 
 	initial begin
