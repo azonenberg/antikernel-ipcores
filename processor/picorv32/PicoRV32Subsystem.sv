@@ -58,16 +58,16 @@ module PicoRV32Subsystem #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Convert memory sizes from bytes to words
 
-	localparam TCM_RAM_WORDS = TCM_RAM_SIZE / 4;
-	localparam TCM_ROM_WORDS = TCM_ROM_SIZE / 4;
+	localparam TCM_RAM_WORDS 	= TCM_RAM_SIZE / 4;
+	localparam TCM_ROM_WORDS 	= TCM_ROM_SIZE / 4;
 
-	localparam TCM_RAM_MAX = TCM_RAM_BASE + TCM_RAM_SIZE - 1;
-	localparam TCM_ROM_MAX = TCM_ROM_BASE + TCM_ROM_SIZE - 1;
+	localparam TCM_RAM_MAX 		= TCM_RAM_BASE + TCM_RAM_SIZE - 1;
+	localparam TCM_ROM_MAX 		= TCM_ROM_BASE + TCM_ROM_SIZE - 1;
 
-	localparam APB_MAX = APB_BASE + APB_SIZE - 1;
+	localparam APB_MAX 			= APB_BASE + APB_SIZE - 1;
 
-	localparam TCM_RAM_BITS = $clog2(TCM_RAM_WORDS);
-	localparam TCM_ROM_BITS = $clog2(TCM_ROM_WORDS);
+	localparam TCM_RAM_BITS 	= $clog2(TCM_RAM_WORDS);
+	localparam TCM_ROM_BITS 	= $clog2(TCM_ROM_WORDS);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// CPU core
