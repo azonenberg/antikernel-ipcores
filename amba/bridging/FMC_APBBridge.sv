@@ -34,14 +34,16 @@
 
 	The FMC clock is used as the APB PCLK and is expected to be free-running.
  */
-module FMC_APBBridge(
+module FMC_APBBridge #(
+	parameter EARLY_READ = 0
+)(
 
 	//APB root bus to interconnect bridge
 	APB.requester		apb,
 
 	//FMC pins to MCU
 	input wire			fmc_clk,
-	output logic		fmc_nwait,
+	(* iob = "true" *) output logic		fmc_nwait,
 	input wire			fmc_noe,
 	inout wire[15:0]	fmc_ad,
 	input wire			fmc_nwe,
@@ -61,7 +63,7 @@ module FMC_APBBridge(
 	// I/O buffers
 
 	wire[15:0]	adbus_in;
-	logic[15:0]	adbus_out = 0;
+	(* iob = "true" *) logic[15:0]	adbus_out = 0;
 
 	BidirectionalBuffer #(
 		.WIDTH(16),
@@ -148,9 +150,6 @@ module FMC_APBBridge(
 			prdata_latched	<= apb.prdata;
 		end
 
-		//change every cycle so we can detect what gets latched
-		adbus_out		<= adbus_out + 1;
-
 		//Selected! Let's do something
 		if(!fmc_cs_n) begin
 
@@ -171,7 +170,7 @@ module FMC_APBBridge(
 					state			<= STATE_WAIT;
 
 					//Dispatch reads as soon as we can
-					if(!apb_busy) begin
+					if(!apb_busy && fmc_nwe) begin
 						apb.paddr		<= { fmc_a_hi, adbus_in, 1'b0};;
 						apb.pwrite		<= 0;
 						apb.penable		<= 1;
@@ -254,7 +253,8 @@ module FMC_APBBridge(
 				// Reads
 
 				STATE_RDATA_LO: begin
-					if(apb.pready) begin
+
+					if(apb.pready && EARLY_READ) begin
 						adbus_out		<= apb.prdata[15:0];
 						state			<= STATE_RDATA_HI;
 					end
@@ -292,34 +292,5 @@ module FMC_APBBridge(
 		end
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
-
-	ila_0 ila(
-		.clk(apb.pclk),
-
-		.probe0(fmc_cs_n),
-		.probe1(fmc_nwait),
-		.probe2(fmc_noe),
-		.probe3(adbus_in),
-		.probe4(fmc_nwe),
-		.probe5(fmc_nbl),
-		.probe6(fmc_nl_nadv),
-		.probe7(fmc_a_hi),
-		.probe8(apb.penable),
-		.probe9(apb.psel),
-		.probe10(apb.pwrite),
-		.probe11(apb.paddr),
-		.probe12(apb.pwdata),
-		.probe13(apb.pstrb),
-		.probe14(apb.prdata),
-		.probe15(state),
-		.probe16(adbus_out),
-		.probe17(pending_addr),
-		.probe18(pending_write),
-		.probe19(apb_busy),
-		.probe20(wait_count)
-	);
 
 endmodule
