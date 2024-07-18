@@ -27,20 +27,20 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_SPIHostInterface_h
-#define APB_SPIHostInterface_h
+#ifndef APB_APB_SPIHostInterface_h
+#define APB_APB_SPIHostInterface_h
 
 #include <embedded-utils/CharacterDevice.h>
 
 /**
-	@brief Registers for a SPIHostInterface channel
+	@brief Registers for a APB_SPIHostInterface channel
  */
 struct APB_SPIHostInterface
 {
 	uint32_t clkdiv;
 	uint32_t data;
 	uint32_t cs_n;
-	uint32_t field_10[4];
+	uint32_t field_10[5];
 	uint32_t status;
 };
 
@@ -49,11 +49,11 @@ struct APB_SPIHostInterface
 
 	Not currently compatible with stm32-cpp SPI class
  */
-class SPIHostInterface : public CharacterDevice
+class APB_SPIHostInterfaceDriver : public CharacterDevice
 {
 public:
 
-	SPIHostInterface(volatile APB_SPIHostInterface* lane, uint32_t baud_div = 181)
+	APB_SPIHostInterfaceDriver(volatile APB_SPIHostInterface* lane, uint32_t baud_div = 181)
 		: m_lane(lane)
 	{
 		m_lane->clkdiv = baud_div;

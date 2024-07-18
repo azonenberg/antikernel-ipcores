@@ -27,102 +27,20 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_GPIO_h
-#define APB_GPIO_h
+#ifndef APB_DeviceInfo_UltraScale_h
+#define APB_DeviceInfo_UltraScale_h
 
 /**
-	@brief Registers for a GPIO pin
+	@brief Registers for device information core
  */
-struct APB_GPIO
+struct APB_DeviceInfo_7series
 {
 public:
-	uint32_t		out;
-	uint32_t		in;
-	uint32_t		tris;
-};
-
-/**
-	@brief Wrapper class for APB_GPIO
-
-	Semantics largely identical to the stm32-cpp APB_GPIOPin class
-
-	TODO: open drain support?
- */
-class APB_GPIOPin
-{
-public:
-
-	enum gpiomode_t
-	{
-		MODE_INPUT		= 0,
-		MODE_OUTPUT		= 1,
-		//no peripheral/analog mode supported
-	};
-
-	//no slew rate control supported
-
-	/**
-		@brief Initializes the pin
-	 */
-	APB_GPIOPin(
-		volatile APB_GPIO* gpio,
-		uint8_t pin,
-		gpiomode_t mode)
-	: m_gpio(gpio)
-	, m_pin(pin)
-	, m_setmask(1 << pin)
-	, m_clearmask(~m_setmask)
-	{
-		//Configure the pin
-		SetMode(mode);
-	}
-
-	/**
-		@brief Set the pin to input or output mode
-	 */
-	void SetMode(gpiomode_t mode)
-	{
-		if(mode == MODE_OUTPUT)
-			m_gpio->tris &= m_clearmask;
-		else
-			m_gpio->tris |= m_setmask;
-	}
-
-	/**
-		@brief Drives a value out the pin
-	 */
-	void Set(bool b)
-	{
-		if(b)
-			m_gpio->out |= m_setmask;
-		else
-			m_gpio->out &= m_clearmask;
-	}
-
-	//Convenience helper for assigning GPIOs
-	void operator=(bool b)
-	{ Set(b); }
-
-	//Convenience helper for reading GPIOs
-	operator bool() const
-	{ return Get(); }
-
-	/**
-		@brief Reads the current value of the pin
-	 */
-	bool Get() const
-	{
-		if(m_gpio->in & m_setmask)
-			return true;
-		else
-			return false;
-	}
-
-protected:
-	volatile APB_GPIO* 	m_gpio;
-	uint8_t				m_pin;
-	uint32_t			m_setmask;
-	uint32_t			m_clearmask;
+	uint32_t status;
+	uint32_t idcode;
+	uint32_t field_08;	//padding for where ultrascale has third serial word
+	uint32_t serial[2];
+	uint32_t usercode;
 };
 
 #endif

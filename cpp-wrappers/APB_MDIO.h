@@ -27,102 +27,105 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_GPIO_h
-#define APB_GPIO_h
+#ifndef APB_MDIO_h
+#define APB_MDIO_h
 
 /**
-	@brief Registers for a GPIO pin
+	@brief Registers for MDIO transceiver
  */
-struct APB_GPIO
+struct APB_MDIO
 {
-public:
-	uint32_t		out;
-	uint32_t		in;
-	uint32_t		tris;
+	uint32_t	cmd_addr;
+	uint32_t	field_04;
+	uint32_t	data;
+	uint32_t	field_0c[13];
+	uint32_t	status;
+	uint32_t	field_24[7];
+	uint32_t	status2;
+};
+
+enum base_mdioreg_t
+{
+	//IEEE defined registers
+	REG_BASIC_CONTROL			= 0x0000,
+	REG_BASIC_STATUS			= 0x0001,
+	REG_PHY_ID_1				= 0x0002,
+	REG_PHY_ID_2				= 0x0003,
+	REG_AN_ADVERT				= 0x0004,
+	REG_GIG_CONTROL				= 0x0009,
+
+	//Extended register access
+	REG_PHY_REGCR				= 0x000d,
+	REG_PHY_ADDAR				= 0x000e
 };
 
 /**
-	@brief Wrapper class for APB_GPIO
-
-	Semantics largely identical to the stm32-cpp APB_GPIOPin class
-
-	TODO: open drain support?
+	@brief A single device on an APB_MDIO bus
  */
-class APB_GPIOPin
+class MDIODevice
 {
 public:
-
-	enum gpiomode_t
-	{
-		MODE_INPUT		= 0,
-		MODE_OUTPUT		= 1,
-		//no peripheral/analog mode supported
-	};
-
-	//no slew rate control supported
+	MDIODevice(volatile APB_MDIO* mdio, uint8_t phyaddr)
+	: m_mdio(mdio)
+	, m_phyaddr(phyaddr)
+	{}
 
 	/**
-		@brief Initializes the pin
+		@brief Write a value to a MDIO register
 	 */
-	APB_GPIOPin(
-		volatile APB_GPIO* gpio,
-		uint8_t pin,
-		gpiomode_t mode)
-	: m_gpio(gpio)
-	, m_pin(pin)
-	, m_setmask(1 << pin)
-	, m_clearmask(~m_setmask)
+	void WriteRegister(uint8_t regid, uint16_t value)
 	{
-		//Configure the pin
-		SetMode(mode);
+		m_mdio->cmd_addr = (regid << 8) | 0x8000 | m_phyaddr;
+		m_mdio->data = value;
+		WaitUntilIdle();
 	}
 
 	/**
-		@brief Set the pin to input or output mode
+		@brief Read a value from an MDIO register
 	 */
-	void SetMode(gpiomode_t mode)
+	uint16_t ReadRegister(uint8_t regid)
 	{
-		if(mode == MODE_OUTPUT)
-			m_gpio->tris &= m_clearmask;
-		else
-			m_gpio->tris |= m_setmask;
+		m_mdio->cmd_addr = (regid << 8) | m_phyaddr;
+		WaitUntilIdle();
+		return m_mdio->data;
 	}
 
 	/**
-		@brief Drives a value out the pin
+		@brief Write an extended register
 	 */
-	void Set(bool b)
+	void __attribute__((noinline)) WriteExtendedRegister(uint8_t mmd, uint8_t regid, uint16_t regval)
 	{
-		if(b)
-			m_gpio->out |= m_setmask;
-		else
-			m_gpio->out &= m_clearmask;
+		WriteRegister(REG_PHY_REGCR, mmd);			//set address
+		WriteRegister(REG_PHY_ADDAR, regid);
+		WriteRegister(REG_PHY_REGCR, mmd | 0x4000);	//data, no post inc
+		WriteRegister(REG_PHY_ADDAR, regval);
 	}
 
-	//Convenience helper for assigning GPIOs
-	void operator=(bool b)
-	{ Set(b); }
-
-	//Convenience helper for reading GPIOs
-	operator bool() const
-	{ return Get(); }
-
 	/**
-		@brief Reads the current value of the pin
+		@brief Read an extended register
 	 */
-	bool Get() const
+	uint16_t __attribute__((noinline)) ReadExtendedRegister(uint8_t mmd, uint8_t regid)
 	{
-		if(m_gpio->in & m_setmask)
-			return true;
-		else
-			return false;
+		WriteRegister(REG_PHY_REGCR, mmd);			//set address
+		WriteRegister(REG_PHY_ADDAR, regid);
+		WriteRegister(REG_PHY_REGCR, mmd | 0x4000);	//data, no post inc
+		return ReadRegister(REG_PHY_ADDAR);
 	}
 
 protected:
-	volatile APB_GPIO* 	m_gpio;
-	uint8_t				m_pin;
-	uint32_t			m_setmask;
-	uint32_t			m_clearmask;
+	/**
+		@brief Wait for the ongoing transaction to complete
+	 */
+	void WaitUntilIdle()
+	{
+		while(m_mdio->status != 0)
+		{}
+	}
+
+
+protected:
+	volatile APB_MDIO* m_mdio;
+	uint8_t m_phyaddr;
 };
 
 #endif

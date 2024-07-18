@@ -30,27 +30,27 @@
 ***********************************************************************************************************************/
 
 /**
-	@brief Device information block for UltraScale FPGAs
+	@brief Device information block for 7 series FPGAs
 
 	TODO: add CDC support for when clk_dna and clk_icap are not the same as PCLK
 	(or do we just rely on the user to add constraints since they're pseudo-constant?)
  */
-module APB_DeviceInfo_UltraScale(
+module APB_DeviceInfo_7series(
 
 	//The APB bus
 	APB.completer 	apb,
 
-	//DNA_PORT clock (must be max 200 MHz at 0.85/0.90V or 175 MHz at 0.72V)
+	//DNA_PORT clock
 	input wire		clk_dna,
 
-	//ICAP clock (must be max 200 MHz at 0.85/0.90V or 150 MHz at 0.72V)
+	//ICAP clock
 	input wire		clk_icap
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// We only support up to 32-bit APB due to register alignment, throw synthesis error for anything else
+	// We only support 32-bit APB
 
-	if(apb.DATA_WIDTH > 32)
+	if(apb.DATA_WIDTH != 32)
 		apb_bus_width_is_invalid();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -58,28 +58,32 @@ module APB_DeviceInfo_UltraScale(
 
 	typedef enum logic[7:0]
 	{
-		REG_STATUS		= 8'h00,		//[0] = IDCODE valid
-										//[1] = serial valid
-		REG_IDCODE		= 8'h04,		//Device IDCODE
-		REG_SERIAL_0	= 8'h08,		//Die serial bits 95:64
-		REG_SERIAL_1	= 8'h0c,		//Die serial bits 63:32
-		REG_SERIAL_2	= 8'h10			//Die serial bits 31:0
+		REG_STATUS		= 8'h00,	//[0] = IDCODE valid
+									//[1] = serial valid
+		REG_IDCODE		= 8'h04,	//Device IDCODE
+		REG_SERIAL_0	= 8'h0c,	//Die serial bits 63:32
+		REG_SERIAL_1	= 8'h10,	//Die serial bits 31:0
+		REG_USERCODE	= 8'h14		//User ID
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// DNA_PORT read logic
 
+	logic		boot_done	= 0;
+
 	wire	dna_out;
 	logic	dna_shift = 0;
 	logic	dna_read = 0;
-	DNA_PORTE2 dna_port (
+	DNA_PORT #(
+		.SIM_DNA_VALUE(57'headbeef_c0def00d)
+	) dna_port (
 		.DOUT(dna_out),
 		.DIN(dna_out),
 		.READ(dna_read),
 		.SHIFT(dna_shift),
 		.CLK(clk_dna));
 
-	logic[95:0]	die_serial 			= 0;
+	logic[63:0]	die_serial 			= 0;
 	logic		die_serial_valid	= 0;
 
 	enum logic[1:0]
@@ -89,7 +93,7 @@ module APB_DeviceInfo_UltraScale(
 		DNA_READ_STATE_DONE		= 2'h2
 	} dna_read_state = DNA_READ_STATE_BOOT;
 
-	logic[7:0] dna_read_count	= 0;
+	logic[6:0] dna_read_count	= 0;
 
 	always_ff @(posedge clk_dna) begin
 
@@ -111,11 +115,11 @@ module APB_DeviceInfo_UltraScale(
 			DNA_READ_STATE_READ: begin
 				dna_shift <= 1;
 
-				dna_read_count		<= dna_read_count + 8'h1;
-				die_serial			<= { die_serial[95:0], dna_out};	//now shift LSB first
+				dna_read_count		<= dna_read_count + 7'h1;
+				die_serial			<= {8'h0, die_serial[55:0], dna_out};	//now shift LSB first
 
 				//Done?
-				if(dna_read_count == 96) begin
+				if(dna_read_count == 57) begin
 					dna_read_state		<= DNA_READ_STATE_DONE;
 					die_serial_valid	<= 1;
 				end
@@ -135,7 +139,6 @@ module APB_DeviceInfo_UltraScale(
 	localparam BOOT_INIT_VAL =  1;
 
 	logic[22:0] boot_count	= BOOT_INIT_VAL;
-	logic		boot_done	= 0;
 
 	always_ff @(posedge clk_icap) begin
 		if(!boot_done) begin
@@ -168,15 +171,12 @@ module APB_DeviceInfo_UltraScale(
 		end
 	endgenerate
 
-	ICAPE3 icap(
+	ICAPE2 icap(
 		.CLK(clk_icap),
 		.I(icap_din_bswap),
 		.CSIB(icap_cs_n),
 		.O(icap_dout),
-		.RDWRB(icap_wr_n),
-		.AVAIL(),
-		.PRDONE(),
-		.PRERROR()
+		.RDWRB(icap_wr_n)
 		);
 
 	enum logic[2:0]
@@ -296,6 +296,17 @@ module APB_DeviceInfo_UltraScale(
 	// TODO: synchronizers to APB clock domain
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// USERCODE register
+
+	wire[31:0] usercode;
+
+	USR_ACCESSE2 user(
+		.DATA(usercode),
+		.CFGCLK(),
+		.DATAVALID()
+		);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register logic
 
 	//Combinatorial readback
@@ -312,9 +323,9 @@ module APB_DeviceInfo_UltraScale(
 				case(apb.paddr)
 					REG_STATUS:		apb.prdata = { 30'h0, die_serial_valid, idcode_valid };
 					REG_IDCODE:		apb.prdata = idcode;
-					REG_SERIAL_0:	apb.prdata = die_serial[95:64];
-					REG_SERIAL_1:	apb.prdata = die_serial[63:32];
-					REG_SERIAL_2:	apb.prdata = die_serial[31:0];
+					REG_SERIAL_0:	apb.prdata = die_serial[63:32];
+					REG_SERIAL_1:	apb.prdata = die_serial[31:0];
+					REG_USERCODE:	apb.prdata = usercode;
 					default:		apb.pslverr	= 1;
 				endcase
 			end

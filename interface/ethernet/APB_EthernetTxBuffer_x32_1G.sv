@@ -34,16 +34,16 @@ import EthernetBus::*;
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief FIFO for shifting Ethernet frames from the APB clock domain to 10G MAC TX domain
+	@brief FIFO for shifting Ethernet frames from the APB clock domain to the management PHY clock domain
 
-	No overflow checks since the incoming QSPI/APB data stream is far too slow to have any chance of overrunning
-	the buffer of the 10G MAC
+	TODO: add overflow checks since at 10/100 speed we might be able to fill the FIFO faster than it drains
  */
-module APB_EthernetTxBuffer_x32_10G(
+module APB_EthernetTxBuffer_x32_1G(
 	APB.completer 			apb,
 
 	input wire				tx_clk,
 	input wire				link_up,
+	input wire				tx_ready,
 	output EthernetTxBus	tx_bus
 );
 
@@ -69,7 +69,7 @@ module APB_EthernetTxBuffer_x32_10G(
 
 	wire	link_up_sync;
 
-	ThreeStageSynchronizer #(.IN_REG(0)) sync_xg0_link_up(
+	ThreeStageSynchronizer sync_link_up(
 		.clk_in(tx_clk),
 		.din(link_up),
 		.clk_out(apb.pclk),
@@ -77,29 +77,28 @@ module APB_EthernetTxBuffer_x32_10G(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Write incoming data to the buffer
+	// Serialize the 32-bit data coming in from APB to an 8-bit stream
 
-	logic		fifo_wr_en 			= 0;
-	logic[31:0]	fifo_wr_data 		= 0;
-	logic[2:0]	fifo_wr_valid		= 0;
-	logic		fifo_wr_commit		= 0;
-	logic		fifo_wr_commit_adv	= 0;
+	logic		wr_en 			= 0;
+	logic[7:0]	wr_data 		= 0;
+	logic		wr_commit		= 0;
 
-	logic[10:0]	expected_len_bytes	= 0;
-	logic[10:0]	expected_len_words	= 0;
-	logic[10:0]	running_len_bytes	= 0;
-	logic[10:0]	bytes_left			= 0;
-	logic[10:0]	wr_offset			= 0;
+	logic[23:0]	pending_bytes		= 0;
+	logic[1:0]	pending_bytes_valid	= 0;
+
+	logic[10:0]	tx_wr_packetlen	= 0;
+
+	wire 		tx_header_full;
+	wire 		tx_fifo_full;
 
 	//Combinatorial readback
 	always_comb begin
 
-		apb.pready	= apb.psel && apb.penable;
+		//Accept transactions immediately unless we have pending data to push, or the buffers are full
+		apb.pready	= apb.psel && apb.penable && (pending_bytes_valid == 0) && !tx_header_full && !tx_fifo_full;
+
 		apb.prdata	= 0;
 		apb.pslverr	= 0;
-
-		wr_offset 	= (apb.paddr - REG_TX_BUF);
-		bytes_left	= expected_len_bytes - wr_offset;
 
 		if(apb.pready) begin
 
@@ -119,7 +118,7 @@ module APB_EthernetTxBuffer_x32_10G(
 
 				//Status register readback
 				if(apb.paddr == REG_STAT)
-					apb.prdata	= { 32'h0, link_up_sync };
+					apb.prdata	= { 31'h0, link_up_sync };
 
 				//No other readback allowed (FIFO is write only)
 				else
@@ -134,69 +133,67 @@ module APB_EthernetTxBuffer_x32_10G(
 
 		//Reset
 		if(!apb.preset_n) begin
-			fifo_wr_en			<= 0;
-			fifo_wr_data		<= 0;
-			fifo_wr_valid		<= 0;
-			fifo_wr_commit		<= 0;
-			fifo_wr_commit_adv	<= 0;
-			expected_len_words	<= 0;
-			running_len_bytes	<= 0;
-			expected_len_bytes	<= 0;
+			wr_en				<= 0;
+			wr_data				<= 0;
+			wr_commit			<= 0;
+			tx_wr_packetlen		<= 0;
+			pending_bytes		<= 0;
+			pending_bytes_valid	<= 0;
 		end
 
 		//Normal path
 		else begin
 
-			fifo_wr_en			<= 0;
-			fifo_wr_commit_adv	<= 0;
-			fifo_wr_commit		<= fifo_wr_commit_adv;
+			wr_en			<= 0;
+			wr_commit		<= 0;
 
 			//Increment word count as we push
-			if(fifo_wr_en)
-				running_len_bytes	<= running_len_bytes + fifo_wr_valid;
+			if(wr_en)
+				tx_wr_packetlen	<= tx_wr_packetlen + 1;
+
+			//Push rest of a word
+			if(pending_bytes_valid) begin
+				wr_en				<= 1;
+				wr_data				<= pending_bytes[7:0];
+				pending_bytes		<= { 8'h0, pending_bytes[23:16] };
+				pending_bytes_valid	<= pending_bytes_valid - 1;
+			end
 
 			//Reset state after a push completes
-			if(fifo_wr_commit) begin
-				running_len_bytes	<= 0;
-				fifo_wr_valid		<= 0;
-				expected_len_words	<= 0;
+			if(wr_commit) begin
+				tx_wr_packetlen		<= 0;
+				pending_bytes		<= 0;
+				pending_bytes_valid	<= 0;
 			end
 
 			if(apb.pready && apb.pwrite) begin
 
 				//Commit an in-progress packet
 				if(apb.paddr == REG_COMMIT)
-					fifo_wr_commit_adv	<= 1;
-
-				else if(apb.paddr == REG_LENGTH) begin
-					expected_len_bytes		<= apb.pwdata[10:0];
-					if(apb.pwdata[1:0])
-						expected_len_words	<= apb.pwdata[10:2] + 1;
-					else
-						expected_len_words	<= apb.pwdata[10:2];
-				end
+					wr_commit		<= 1;
 
 				//Write to the transmit buffer
-				//Expect writes to be rounded up to multiples of 64-byte AXI transactions
 				else if(apb.paddr >= REG_TX_BUF) begin
 
-					//Pushing data to FIFO (swap byte order)
-					fifo_wr_en		<= 1;
-					fifo_wr_data	<= { apb.pwdata[7:0], apb.pwdata[15:8], apb.pwdata[23:16], apb.pwdata[31:24] };
+					//Push the LSB either way
+					wr_en			<= 1;
+					wr_data			<= apb.pwdata[7:0];
 
-					//Off the end of the frame? Don't write
-					if(wr_offset >= expected_len_bytes) begin
-						fifo_wr_valid	<= 0;
-						fifo_wr_en		<= 0;
+					//Other bytes valid too? Save and push later
+					//(assume contiguous byte range)
+					if(apb.pstrb[3] == 1) begin
+						pending_bytes		<= apb.pwdata[31:8];
+						pending_bytes_valid	<= 3;
+					end
+					else if(apb.pstrb[2] == 1) begin
+						pending_bytes		<= apb.pwdata[23:8];
+						pending_bytes_valid	<= 2;
+					end
+					else if(apb.pstrb[1] == 1) begin
+						pending_bytes		<= apb.pwdata[15:8];
+						pending_bytes_valid	<= 1;
 					end
 
-					//Enough space for the whole word? Write it
-					else if(bytes_left >= 4)
-						fifo_wr_valid	<= 4;
-
-					//Partial word
-					else
-						fifo_wr_valid	<= bytes_left;
 				end
 
 			end
@@ -208,20 +205,17 @@ module APB_EthernetTxBuffer_x32_10G(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual FIFOs
 
-	//For now, no checks for overflow
-	//Assume we're popping (at 10G speed) faster than we can possibly push from STM32 over QSPI
-
-	logic		rd_reset = 0;
-	always_ff @(posedge tx_clk) begin
-		rd_reset	<= !link_up;
-	end
+	wire		rd_reset;
+	assign		rd_reset = !link_up;
 
 	wire		wr_reset;
 
 	logic		txfifo_rd_en			= 0;
-	wire[31:0]	txfifo_rd_data;
+	wire[7:0]	txfifo_rd_data;
 
-	EthernetTxBus	tx_bus_adv;
+	//Tie off unused high bits
+	assign tx_bus.data[31:8] = 0;
+	assign tx_bus.bytes_valid = 1;
 
 	ThreeStageSynchronizer sync_fifo_rst(
 		.clk_in(apb.pclk),
@@ -230,22 +224,22 @@ module APB_EthernetTxBuffer_x32_10G(
 		.dout(wr_reset)
 	);
 	CrossClockFifo #(
-		.WIDTH($bits(fifo_wr_data) + $bits(fifo_wr_valid)),
-		.DEPTH(1024),
+		.WIDTH(8),
+		.DEPTH(4096),
 		.USE_BLOCK(1),
 		.OUT_REG(1)
 	) tx_cdc_fifo (
 		.wr_clk(apb.pclk),
-		.wr_en(fifo_wr_en),
-		.wr_data({fifo_wr_data, fifo_wr_valid}),
+		.wr_en(wr_en),
+		.wr_data(wr_data),
 		.wr_size(),
-		.wr_full(),
+		.wr_full(tx_fifo_full),
 		.wr_overflow(),
 		.wr_reset(wr_reset),
 
 		.rd_clk(tx_clk),
 		.rd_en(txfifo_rd_en),
-		.rd_data({tx_bus_adv.data, tx_bus_adv.bytes_valid}),
+		.rd_data(tx_bus.data[7:0]),
 		.rd_size(),
 		.rd_empty(),
 		.rd_underflow(),
@@ -263,10 +257,10 @@ module APB_EthernetTxBuffer_x32_10G(
 		.OUT_REG(1)
 	) tx_framelen_fifo (
 		.wr_clk(apb.pclk),
-		.wr_en(fifo_wr_commit),
-		.wr_data(expected_len_words),
+		.wr_en(wr_commit),
+		.wr_data(tx_wr_packetlen),
 		.wr_size(),
-		.wr_full(),
+		.wr_full(tx_header_full),
 		.wr_overflow(),
 		.wr_reset(wr_reset),
 
@@ -292,19 +286,16 @@ module APB_EthernetTxBuffer_x32_10G(
 	logic[10:0] tx_count = 0;
 	always_ff @(posedge tx_clk) begin
 
-		tx_bus_adv.start		<= 0;
-		tx_bus_adv.data_valid	<= txfifo_rd_en;
-		txheader_rd_en			<= 0;
-		txfifo_rd_en			<= 0;
-
-		//Pipeline transmit bus to improve performance
-		tx_bus					<= tx_bus_adv;
+		tx_bus.start		<= 0;
+		tx_bus.data_valid	<= txfifo_rd_en;
+		txheader_rd_en		<= 0;
+		txfifo_rd_en		<= 0;
 
 		case(tx_state)
 
 			TX_STATE_IDLE: begin
 
-				if(!txheader_rd_empty && !txheader_rd_en) begin
+				if(!txheader_rd_empty && tx_ready && !txheader_rd_en) begin
 					txheader_rd_en	<= 1;
 					tx_state		<= TX_STATE_POP;
 				end
@@ -312,7 +303,7 @@ module APB_EthernetTxBuffer_x32_10G(
 			end
 
 			TX_STATE_POP: begin
-				tx_bus_adv.start	<= 1;
+				tx_bus.start	<= 1;
 				tx_count		<= 1;
 				txfifo_rd_en	<= 1;
 				tx_state		<= TX_STATE_SENDING;
@@ -333,5 +324,25 @@ module APB_EthernetTxBuffer_x32_10G(
 		endcase
 
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Debug ILA
+/*
+	ila_0 ila(
+		.clk(apb.pclk),
+		.probe0(apb.penable),
+		.probe1(apb.psel),
+		.probe2(apb.pready),
+		.probe3(apb.paddr),
+		.probe4(apb.pwrite),
+		.probe5(apb.pwdata),
+		.probe6(apb.pstrb),
+		.probe7(tx_wr_packetlen),
+		.probe8(wr_en),
+		.probe9(wr_data),
+		.probe10(wr_commit),
+		.probe11(pending_bytes),
+		.probe12(pending_bytes_valid)
+	);*/
 
 endmodule
