@@ -136,7 +136,7 @@ module FMC_APBBridge #(
 
 	end
 
-	always_ff @(posedge fmc_clk) begin
+	always_ff @(posedge apb.pclk) begin
 
 		//Activate
 		if(apb.penable && !apb.psel)

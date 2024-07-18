@@ -56,6 +56,12 @@ module APB_EthernetRxBuffer_x32(
 		apb_bus_width_is_invalid();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Tie off unused APB signals
+
+	assign apb.pruser = 0;
+	assign apb.pbuser = 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register IDs
 
 	typedef enum logic[11:0]
@@ -75,7 +81,7 @@ module APB_EthernetRxBuffer_x32(
 	wire				rxheader_rd_empty;
 	wire[10:0]			rxheader_rd_data;
 	logic				rxfifo_pop_packet;
-	logic[10:0]			rxfifo_packet_size;
+	logic[12:0]			rxfifo_packet_size;
 
 	logic				apb_pready_next;
 
@@ -124,6 +130,7 @@ module APB_EthernetRxBuffer_x32(
 			apb.pready			<= 0;
 			rxheader_rd_en		<= 0;
 			rxfifo_pop_packet	<= 0;
+			rxfifo_packet_size	<= 0;
 		end
 
 		//Normal path

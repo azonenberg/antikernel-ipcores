@@ -129,7 +129,7 @@ module EthernetMDIOTransceiver #(
 	assign		mgmt_busy_fwd		= mgmt_busy | phy_reg_wr | phy_reg_rd;
 
 	//Internal read data buffer
-	logic[15:0]	phy_rd_data_raw		= 0;
+	logic[14:0]	phy_rd_data_raw		= 0;
 
 	always_ff @(posedge clk) begin
 		case(mgmt_state)

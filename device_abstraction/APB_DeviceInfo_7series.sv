@@ -54,6 +54,12 @@ module APB_DeviceInfo_7series(
 		apb_bus_width_is_invalid();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Tie off unused APB signals
+
+	assign apb.pruser = 0;
+	assign apb.pbuser = 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register IDs
 
 	typedef enum logic[7:0]
@@ -75,7 +81,7 @@ module APB_DeviceInfo_7series(
 	logic	dna_shift = 0;
 	logic	dna_read = 0;
 	DNA_PORT #(
-		.SIM_DNA_VALUE(57'headbeef_c0def00d)
+		.SIM_DNA_VALUE(57'h0adbeef_c0def00d)
 	) dna_port (
 		.DOUT(dna_out),
 		.DIN(dna_out),
