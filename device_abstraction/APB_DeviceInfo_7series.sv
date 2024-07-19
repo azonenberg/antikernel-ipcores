@@ -60,6 +60,22 @@ module APB_DeviceInfo_7series(
 	assign apb.pbuser = 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Reset on APB reset
+
+	wire	rst_dna_n;
+	wire	rst_icap_n;
+
+	ResetSynchronizer sync_rst_dna(
+		.rst_in_n(apb.preset_n),
+		.clk(clk_dna),
+		.rst_out_n(rst_dna_n));
+
+	ResetSynchronizer sync_rst_icap(
+		.rst_in_n(apb.preset_n),
+		.clk(clk_icap),
+		.rst_out_n(rst_icap_n));
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register IDs
 
 	typedef enum logic[7:0]
@@ -90,7 +106,6 @@ module APB_DeviceInfo_7series(
 		.CLK(clk_dna));
 
 	logic[63:0]	die_serial 			= 0;
-	logic		die_serial_valid	= 0;
 
 	enum logic[1:0]
 	{
@@ -100,11 +115,14 @@ module APB_DeviceInfo_7series(
 	} dna_read_state = DNA_READ_STATE_BOOT;
 
 	logic[6:0] dna_read_count	= 0;
+	logic		die_serial_updated = 0;
 
 	always_ff @(posedge clk_dna) begin
 
-		dna_shift	<= 0;
-		dna_read	<= 0;
+		dna_shift		<= 0;
+		dna_read		<= 0;
+
+		die_serial_updated	<= 0;
 
 		case(dna_read_state)
 
@@ -127,7 +145,7 @@ module APB_DeviceInfo_7series(
 				//Done?
 				if(dna_read_count == 57) begin
 					dna_read_state		<= DNA_READ_STATE_DONE;
-					die_serial_valid	<= 1;
+					die_serial_updated	<= 1;
 				end
 			end	//end DNA_READ_STATE_READ
 
@@ -136,6 +154,10 @@ module APB_DeviceInfo_7series(
 			end	//end DNA_READ_STATE_DONE
 
 		endcase
+
+		if(!rst_dna_n) begin
+			dna_read_state <= DNA_READ_STATE_BOOT;
+		end
 
 	end
 
@@ -153,12 +175,17 @@ module APB_DeviceInfo_7series(
 			else
 				boot_count <= boot_count + 1'h1;
 		end
+
+		if(!rst_icap_n) begin
+			boot_done	<= 0;
+			boot_count	<= BOOT_INIT_VAL;
+		end
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// IDCODE ICAP read logic
 
-	logic		idcode_valid	= 0;
+	logic		idcode_updated	= 0;
 	logic[31:0]	idcode;
 
 	logic[31:0]	icap_din	= 32'hffffffff;
@@ -199,6 +226,8 @@ module APB_DeviceInfo_7series(
 	//see https://forums.xilinx.com/t5/Configuration/ICAPE2-documentation/td-p/453996
 	logic[15:0] count = 0;
 	always_ff @(posedge clk_icap) begin
+
+		idcode_updated	<= 0;
 
 		case(icap_state)
 
@@ -253,12 +282,13 @@ module APB_DeviceInfo_7series(
 			ICAP_STATE_READ: begin
 				count <= count + 1;
 				if(count == 8) begin
-					icap_state		<= ICAP_STATE_DONE;
-					idcode_valid	<= 1;
-					count			<= 0;
+					icap_state			<= ICAP_STATE_DONE;
+					count				<= 0;
 				end
-				if(count == 3)
-					idcode	<= icap_dout_bswap;
+				if(count == 3) begin
+					idcode				<= icap_dout_bswap;
+					idcode_updated		<= 1;
+				end
 			end	//end ICAP_STATE_READ
 
 			//Desync at the end
@@ -296,10 +326,68 @@ module APB_DeviceInfo_7series(
 
 		endcase
 
+		if(!rst_icap_n) begin
+			icap_state	<= ICAP_STATE_BOOT_HOLD;
+		end
+
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TODO: synchronizers to APB clock domain
+	// Synchronizers to APB clock domain
+
+	wire[63:0]	die_serial_pclk;
+	logic		die_serial_valid = 0;
+
+	wire		die_serial_updated_pclk;
+
+	always_ff @(posedge apb.pclk) begin
+		if(die_serial_updated_pclk)
+			die_serial_valid	<= 1;
+		if(!apb.preset_n)
+			die_serial_valid	<= 0;
+	end
+
+	RegisterSynchronizer #(
+		.WIDTH(64),
+		.IN_REG(0)
+	) sync_die_serial (
+		.clk_a(clk_dna),
+		.en_a(die_serial_updated),
+		.ack_a(),
+		.reg_a(die_serial),
+
+		.clk_b(apb.pclk),
+		.updated_b(die_serial_updated_pclk),
+		.reg_b(die_serial_pclk),
+		.reset_b(!apb.preset_n)
+	);
+
+	wire[31:0]	idcode_pclk;
+	logic		idcode_valid = 0;
+
+	wire		idcode_updated_pclk;
+
+	always_ff @(posedge apb.pclk) begin
+		if(idcode_updated_pclk)
+			idcode_valid	<= 1;
+		if(!apb.preset_n)
+			idcode_valid	<= 0;
+	end
+
+	RegisterSynchronizer #(
+		.WIDTH(32),
+		.IN_REG(0)
+	) sync_idcode (
+		.clk_a(clk_icap),
+		.en_a(idcode_updated),
+		.ack_a(),
+		.reg_a(idcode),
+
+		.clk_b(apb.pclk),
+		.updated_b(idcode_updated_pclk),
+		.reg_b(idcode_pclk),
+		.reset_b(!apb.preset_n)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// USERCODE register
@@ -328,9 +416,9 @@ module APB_DeviceInfo_7series(
 			if(!apb.pwrite) begin
 				case(apb.paddr)
 					REG_STATUS:		apb.prdata = { 30'h0, die_serial_valid, idcode_valid };
-					REG_IDCODE:		apb.prdata = idcode;
-					REG_SERIAL_0:	apb.prdata = die_serial[63:32];
-					REG_SERIAL_1:	apb.prdata = die_serial[31:0];
+					REG_IDCODE:		apb.prdata = idcode_pclk;
+					REG_SERIAL_0:	apb.prdata = die_serial_pclk[63:32];
+					REG_SERIAL_1:	apb.prdata = die_serial_pclk[31:0];
 					REG_USERCODE:	apb.prdata = usercode;
 					default:		apb.pslverr	= 1;
 				endcase
