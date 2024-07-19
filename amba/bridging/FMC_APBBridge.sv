@@ -35,7 +35,8 @@
 	The FMC clock is used as the APB PCLK and is expected to be free-running.
  */
 module FMC_APBBridge #(
-	parameter EARLY_READ = 0
+	parameter EARLY_READ 	= 1,	//do not change unless altering latency on FMC IP
+	parameter CLOCK_PHASE	= 90	//phase shift for internal PLL to optimize read capture timing
 )(
 
 	//APB root bus to interconnect bridge
@@ -76,18 +77,94 @@ module FMC_APBBridge #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Buffer the FMC clock and use it for everything
+	// PLL for deskewing clock buffer delay
 
-	BUFG bufg_fmc_clk(
-		.I(fmc_clk),
-		.O(apb.pclk)
+	//TODO: portable cross generation PLL for UltraScale etc
+
+	wire	clk_fb;
+	wire	clk_fb_bufg;
+	wire	pclk_raw;
+	wire	pll_lock;
+
+	PLLE2_BASE #(
+		.BANDWIDTH("OPTIMIZED"),
+		.CLKFBOUT_MULT(8),	//1 GHz VCO
+		.DIVCLK_DIVIDE(1),
+		.CLKFBOUT_PHASE(0),
+		.CLKIN1_PERIOD(8),	//125 MHz FMC clock
+		.STARTUP_WAIT("FALSE"),
+
+		.CLKOUT0_DIVIDE(8),	//125 MHz PCLK
+		.CLKOUT1_DIVIDE(8),
+		.CLKOUT2_DIVIDE(8),
+		.CLKOUT3_DIVIDE(8),
+		.CLKOUT4_DIVIDE(8),
+		.CLKOUT5_DIVIDE(8),
+
+		.CLKOUT0_PHASE(CLOCK_PHASE),	//phase shift on clock to center data eyes better
+		.CLKOUT1_PHASE(0),
+		.CLKOUT2_PHASE(0),
+		.CLKOUT3_PHASE(0),
+		.CLKOUT4_PHASE(0),
+		.CLKOUT5_PHASE(0),
+
+		.CLKOUT0_DUTY_CYCLE(0.5),
+		.CLKOUT1_DUTY_CYCLE(0.5),
+		.CLKOUT2_DUTY_CYCLE(0.5),
+		.CLKOUT3_DUTY_CYCLE(0.5),
+		.CLKOUT4_DUTY_CYCLE(0.5),
+		.CLKOUT5_DUTY_CYCLE(0.5)
+	) fmc_pll (
+		.CLKIN1(fmc_clk),
+		.CLKFBIN(clk_fb_bufg),
+		.CLKFBOUT(clk_fb),
+		.RST(1'b0),
+		.CLKOUT0(pclk_raw),
+		.CLKOUT1(),
+		.CLKOUT2(),
+		.CLKOUT3(),
+		.CLKOUT4(),
+		.CLKOUT5(),
+		.LOCKED(pll_lock),
+		.PWRDWN(0)
 	);
+
+	BUFG bufg_clk_fb(
+		.I(clk_fb),
+		.O(clk_fb_bufg));
+
+	BUFGCE bufg_pclk(
+		.I(pclk_raw),
+		.O(apb.pclk),
+		.CE(pll_lock));
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Hold APB in reset until PLL locks, then keep asserted for a few clocks after
+
+	logic	rst_n	= 0;
+	assign	apb.preset_n	= rst_n;
+	logic[3:0]	rst_count	= 1;
+
+	always_ff @(posedge apb.pclk or negedge pll_lock) begin
+
+		//Assert reset if PLL loses lock
+		if(!pll_lock) begin
+			rst_n		<= 0;
+			rst_count	<= 1;
+		end
+
+		//Once PLL is locked, hold reset for 15 clocks
+		else if(!rst_n) begin
+			rst_count	<= rst_count + 1;
+			if(rst_count == 0)
+				rst_n	<= 1;
+		end
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// APB interface logic
 
-	//Tie off unused signals (TODO: external reset input?)
-	assign apb.preset_n	= 1;
+	//Tie off unused signals
 	assign apb.pprot 	= 0;
 	assign apb.pwakeup 	= 0;
 	assign apb.pauser	= 0;
