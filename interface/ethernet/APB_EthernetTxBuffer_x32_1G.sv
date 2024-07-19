@@ -149,7 +149,7 @@ module APB_EthernetTxBuffer_x32_1G(
 			if(pending_bytes_valid) begin
 				wr_en				<= 1;
 				wr_data				<= pending_bytes[7:0];
-				pending_bytes		<= { 8'h0, pending_bytes[23:16] };
+				pending_bytes		<= { 8'h0, pending_bytes[23:8] };
 				pending_bytes_valid	<= pending_bytes_valid - 1;
 			end
 
@@ -320,25 +320,5 @@ module APB_EthernetTxBuffer_x32_1G(
 		endcase
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
-/*
-	ila_0 ila(
-		.clk(apb.pclk),
-		.probe0(apb.penable),
-		.probe1(apb.psel),
-		.probe2(apb.pready),
-		.probe3(apb.paddr),
-		.probe4(apb.pwrite),
-		.probe5(apb.pwdata),
-		.probe6(apb.pstrb),
-		.probe7(tx_wr_packetlen),
-		.probe8(wr_en),
-		.probe9(wr_data),
-		.probe10(wr_commit),
-		.probe11(pending_bytes),
-		.probe12(pending_bytes_valid)
-	);*/
 
 endmodule
