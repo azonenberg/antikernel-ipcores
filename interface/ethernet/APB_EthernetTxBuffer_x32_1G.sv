@@ -42,7 +42,7 @@ module APB_EthernetTxBuffer_x32_1G(
 	APB.completer 			apb,
 
 	input wire				tx_clk,
-	input wire				link_up,
+	input wire				link_up_pclk,
 	input wire				tx_ready,
 	output EthernetTxBus	tx_bus
 );
@@ -69,18 +69,6 @@ module APB_EthernetTxBuffer_x32_1G(
 		REG_LENGTH	= 'h0008,		//Write expected frame length (in bytes) here before writing to TX buffer
 		REG_TX_BUF	= 'h0010		//Write any address >= here to write to transmit buffer
 	} regid_t;
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Synchronizers for status signals
-
-	wire	link_up_sync;
-
-	ThreeStageSynchronizer sync_link_up(
-		.clk_in(tx_clk),
-		.din(link_up),
-		.clk_out(apb.pclk),
-		.dout(link_up_sync)
-	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Serialize the 32-bit data coming in from APB to an 8-bit stream
@@ -124,7 +112,7 @@ module APB_EthernetTxBuffer_x32_1G(
 
 				//Status register readback
 				if(apb.paddr == REG_STAT)
-					apb.prdata	= { 31'h0, link_up_sync };
+					apb.prdata	= { 31'h0, link_up_pclk };
 
 				//No other readback allowed (FIFO is write only)
 				else
@@ -212,9 +200,10 @@ module APB_EthernetTxBuffer_x32_1G(
 	// The actual FIFOs
 
 	wire		rd_reset;
-	assign		rd_reset = !link_up;
+	assign		rd_reset = !link_up_txclk;
 
 	wire		wr_reset;
+	assign		wr_reset = !link_up_pclk;
 
 	logic		txfifo_rd_en			= 0;
 	wire[7:0]	txfifo_rd_data;
@@ -223,11 +212,12 @@ module APB_EthernetTxBuffer_x32_1G(
 	assign tx_bus.data[31:8] = 0;
 	assign tx_bus.bytes_valid = 1;
 
-	ThreeStageSynchronizer sync_fifo_rst(
+	wire		link_up_txclk;
+	ThreeStageSynchronizer sync_link_up(
 		.clk_in(apb.pclk),
-		.din(rd_reset),
+		.din(link_up_pclk),
 		.clk_out(tx_clk),
-		.dout(wr_reset)
+		.dout(link_up_txclk)
 	);
 	CrossClockFifo #(
 		.WIDTH(8),
