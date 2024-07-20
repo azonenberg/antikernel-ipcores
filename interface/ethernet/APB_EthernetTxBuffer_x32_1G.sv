@@ -80,16 +80,23 @@ module APB_EthernetTxBuffer_x32_1G(
 	logic[23:0]	pending_bytes		= 0;
 	logic[1:0]	pending_bytes_valid	= 0;
 
-	logic[10:0]	tx_wr_packetlen	= 0;
+	logic[10:0]	tx_wr_packetlen			= 0;
+	logic[10:0]	tx_expected_packetlen	= 0;
 
 	wire 		tx_header_full;
 	wire 		tx_fifo_full;
+
+	logic	fifo_almost_full = 0;
+	logic	header_almost_full = 0;
+
+	wire[5:0] header_wr_size;
+	wire[12:0]	fifo_wr_size;
 
 	//Combinatorial readback
 	always_comb begin
 
 		//Accept transactions immediately unless we have pending data to push, or the buffers are full
-		apb.pready	= apb.psel && apb.penable && (pending_bytes_valid == 0) && !tx_header_full && !tx_fifo_full;
+		apb.pready	= apb.psel && apb.penable && (pending_bytes_valid == 0) && !header_almost_full && !fifo_almost_full;
 
 		apb.prdata	= 0;
 		apb.pslverr	= 0;
@@ -123,51 +130,70 @@ module APB_EthernetTxBuffer_x32_1G(
 		end
 	end
 
+	logic	writing_last_byte	= 0;
+
 	always_ff @(posedge apb.pclk or negedge apb.preset_n) begin
 
 		//Reset
 		if(!apb.preset_n) begin
-			wr_en				<= 0;
-			wr_data				<= 0;
-			wr_commit			<= 0;
-			tx_wr_packetlen		<= 0;
-			pending_bytes		<= 0;
-			pending_bytes_valid	<= 0;
+			wr_en					<= 0;
+			wr_data					<= 0;
+			wr_commit				<= 0;
+			tx_wr_packetlen			<= 0;
+			tx_expected_packetlen	<= 0;
+			pending_bytes			<= 0;
+			pending_bytes_valid		<= 0;
+			writing_last_byte		<= 0;
+
+			header_almost_full		<= 0;
+			fifo_almost_full		<= 0;
 		end
 
 		//Normal path
 		else begin
 
-			wr_en			<= 0;
-			wr_commit		<= 0;
+			//Pipeline fifo almost-full flags
+			fifo_almost_full	<= ( fifo_wr_size <= 1);
+			header_almost_full	<= ( header_wr_size <= 1);
+
+			wr_en				<= 0;
+			wr_commit			<= 0;
+
+			writing_last_byte	<= (tx_expected_packetlen - tx_wr_packetlen) == 1;
 
 			//Increment word count as we push
-			if(wr_en)
+			if(wr_en) begin
 				tx_wr_packetlen	<= tx_wr_packetlen + 1;
+			end
 
 			//Push rest of a word
 			if(pending_bytes_valid) begin
-				wr_en				<= 1;
-				wr_data				<= pending_bytes[7:0];
-				pending_bytes		<= { 8'h0, pending_bytes[23:8] };
-				pending_bytes_valid	<= pending_bytes_valid - 1;
+
+				//Stop if we ran off the end of the packet
+				if(writing_last_byte)
+					pending_bytes_valid	<= 0;
+
+				//Nope, good to go
+				else begin
+					wr_en				<= 1;
+					wr_data				<= pending_bytes[7:0];
+					pending_bytes		<= { 8'h0, pending_bytes[23:8] };
+					pending_bytes_valid	<= pending_bytes_valid - 1;
+				end
 			end
 
 			//Reset state after a push completes
 			if(wr_commit) begin
-				tx_wr_packetlen		<= 0;
-				pending_bytes		<= 0;
-				pending_bytes_valid	<= 0;
+				tx_wr_packetlen			<= 0;
+				tx_expected_packetlen	<= 0;
+				pending_bytes			<= 0;
+				pending_bytes_valid		<= 0;
 			end
 
 			if(apb.pready && apb.pwrite) begin
 
-				//Commit an in-progress packet
-				if(apb.paddr == REG_COMMIT)
-					wr_commit		<= 1;
-
 				//Write to the transmit buffer
-				else if(apb.paddr >= REG_TX_BUF) begin
+				if(apb.paddr >= REG_TX_BUF) begin
 
 					//Push the LSB either way
 					wr_en			<= 1;
@@ -187,6 +213,29 @@ module APB_EthernetTxBuffer_x32_1G(
 						pending_bytes		<= apb.pwdata[15:8];
 						pending_bytes_valid	<= 1;
 					end
+
+				end
+
+				//Write to registers
+				else begin
+
+					case(apb.paddr)
+
+						//Set the expected packet length
+						REG_LENGTH: begin
+							tx_expected_packetlen	<= apb.pwdata[10:0];
+						end
+
+						//Commit an in-progress packet
+						REG_COMMIT: begin
+							wr_commit				<= 1;
+						end
+
+						default: begin
+
+						end
+
+					endcase
 
 				end
 
@@ -228,7 +277,7 @@ module APB_EthernetTxBuffer_x32_1G(
 		.wr_clk(apb.pclk),
 		.wr_en(wr_en),
 		.wr_data(wr_data),
-		.wr_size(),
+		.wr_size(fifo_wr_size),
 		.wr_full(tx_fifo_full),
 		.wr_overflow(),
 		.wr_reset(wr_reset),
@@ -255,7 +304,7 @@ module APB_EthernetTxBuffer_x32_1G(
 		.wr_clk(apb.pclk),
 		.wr_en(wr_commit),
 		.wr_data(tx_wr_packetlen),
-		.wr_size(),
+		.wr_size(header_wr_size),
 		.wr_full(tx_header_full),
 		.wr_overflow(),
 		.wr_reset(wr_reset),

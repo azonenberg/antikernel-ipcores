@@ -229,16 +229,24 @@ module APB_EthernetRxBuffer_x32(
 		.underflow()
 	);
 
+	logic	wr_full_end = 0;
+	logic	wr_full_start = 0;
+	logic	header_almost_full = 0;
+
 	always_ff @(posedge apb.pclk) begin
 
 		rxfifo_wr_drop		<= 0;
 		rxfifo_wr_commit	<= eth_rx_bus.commit;
 
+		wr_full_end			<= (rxfifo_wr_size < 3);
+		wr_full_start		<= (rxfifo_wr_size < 375);
+		header_almost_full	<= (rxheader_wr_size < 2);
+
 		//Frame delimiter
 		if(eth_rx_bus.start) begin
 
 			//Not enough space for a full sized frame? Give up
-			if( (rxfifo_wr_size < 375) || header_wfull )
+			if(wr_full_start || header_almost_full )
 				dropping	<= 1;
 
 			//Nope, start a new frame
@@ -250,7 +258,7 @@ module APB_EthernetRxBuffer_x32(
 		end
 
 		//If we hit max length frame or run out of space, drop the frame
-		else if( (rxfifo_wr_size < 2) || (framelen > 1500) ) begin
+		else if(wr_full_end || (framelen > 1500) ) begin
 			rxfifo_wr_drop	<= 1;
 			dropping		<= 1;
 		end
