@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -46,7 +46,8 @@ module CrossClockPacketFifo #(
 
 	parameter ADDR_BITS = $clog2(DEPTH),
 
-	parameter USE_BLOCK	= 1
+	parameter USE_BLOCK	= 1,
+	parameter OUT_REG	= 1
 )(
 	//WRITE port (all signals in wr_clk domain)
 	input wire					wr_clk,			//Clock for write port
@@ -85,7 +86,7 @@ module CrossClockPacketFifo #(
 		.WIDTH(WIDTH),
 		.DEPTH(DEPTH),
 		.USE_BLOCK(USE_BLOCK),
-		.OUT_REG(1),
+		.OUT_REG(OUT_REG),
 		.DUAL_PORT(1),
 		.TRUE_DUAL(0),
 		.PORTA_WRONLY(1),	//remove read logic on port A
