@@ -134,10 +134,6 @@ module APB_MDIO #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// APB interface logic
 
-	logic[4:0]	phy_reg_addr_ff	= 0;
-	logic[4:0]	phy_md_addr_ff	= 0;
-	logic[15:0]	phy_wr_data_ff	= 0;
-
 	always_comb begin
 
 		//Combinatorially assert PREADY when selected
@@ -146,13 +142,6 @@ module APB_MDIO #(
 		//Default to no errors and no read data
 		apb.prdata	= 0;
 		apb.pslverr	= 0;
-
-		//Clear MDIO control signals
-		phy_reg_wr		= 0;
-		phy_reg_rd		= 0;
-		phy_reg_addr	= phy_reg_addr_ff;
-		phy_md_addr		= phy_md_addr_ff;
-		phy_wr_data		= phy_wr_data_ff;
 
 		if(apb.pready) begin
 
@@ -163,23 +152,9 @@ module APB_MDIO #(
 
 					//Command and address
 					CMD_ADDR: begin
-
-						//start read operation on write with MSB clear
-						if(!apb.pwdata[15])
-							phy_reg_rd	= 1;
-
-						//extract address
-						phy_reg_addr	= apb.pwdata[12:8];
-						phy_md_addr		= apb.pwdata[4:0];
-
 					end
 
 					DATA: begin
-
-						//start write operation
-						phy_reg_wr		= 1;
-						phy_wr_data		= apb.pwdata;
-
 					end
 
 					//invalid address
@@ -213,21 +188,50 @@ module APB_MDIO #(
 
 		//Reset
 		if(!apb.preset_n) begin
-			phy_reg_addr_ff		<= 0;
-			phy_md_addr_ff		<= 0;
-			phy_wr_data_ff		<= 0;
+			phy_reg_wr		<= 0;
+			phy_reg_rd		<= 0;
+			phy_md_addr		<= 0;
+			phy_reg_addr	<= 0;
 		end
 
 		//Normal path
 		else begin
 
-			if(phy_reg_wr || phy_reg_rd) begin
-				phy_md_addr_ff	<= phy_md_addr;
-				phy_reg_addr_ff	<= phy_reg_addr;
-			end
+			//Clear MDIO control signals
+			phy_reg_wr		<= 0;
+			phy_reg_rd		<= 0;
 
-			if(phy_reg_wr)
-				phy_wr_data_ff	<= phy_wr_data;
+			//Registered writes
+			if(apb.pready && apb.pwrite) begin
+
+				case(apb.paddr)
+
+					//Command and address
+					CMD_ADDR: begin
+
+						//start read operation on write with MSB clear
+						if(!apb.pwdata[15])
+							phy_reg_rd	<= 1;
+
+						//extract address
+						phy_reg_addr	<= apb.pwdata[12:8];
+						phy_md_addr		<= apb.pwdata[4:0];
+
+					end
+
+					DATA: begin
+
+						//start write operation
+						phy_reg_wr		<= 1;
+						phy_wr_data		<= apb.pwdata;
+
+					end
+
+					default: begin
+					end
+
+				endcase
+			end
 
 		end
 
