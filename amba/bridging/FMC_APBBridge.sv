@@ -36,7 +36,10 @@
  */
 module FMC_APBBridge #(
 	parameter EARLY_READ 	= 1,	//do not change unless altering latency on FMC IP
-	parameter CLOCK_PHASE	= 90	//phase shift for internal PLL to optimize read capture timing
+	parameter CLOCK_PHASE	= 90,	//phase shift for internal PLL to optimize read capture timing
+
+	parameter CLOCK_PERIOD	= 8,	//FMC clock period in ns (default 250 MHz)
+	parameter VCO_MULT		= 8		//PLL multiplier (default 4 for 1 GHz with 250 MHz PCLK)
 )(
 
 	//APB root bus to interconnect bridge
@@ -88,13 +91,13 @@ module FMC_APBBridge #(
 
 	PLLE2_BASE #(
 		.BANDWIDTH("OPTIMIZED"),
-		.CLKFBOUT_MULT(8),	//1 GHz VCO
+		.CLKFBOUT_MULT(VCO_MULT),
 		.DIVCLK_DIVIDE(1),
 		.CLKFBOUT_PHASE(0),
-		.CLKIN1_PERIOD(8),	//125 MHz FMC clock
+		.CLKIN1_PERIOD(CLOCK_PERIOD),
 		.STARTUP_WAIT("FALSE"),
 
-		.CLKOUT0_DIVIDE(8),	//125 MHz PCLK
+		.CLKOUT0_DIVIDE(VCO_MULT),	//Fout = Fin
 		.CLKOUT1_DIVIDE(8),
 		.CLKOUT2_DIVIDE(8),
 		.CLKOUT3_DIVIDE(8),
