@@ -36,11 +36,14 @@
  */
 module FMC_APBBridge #(
 	parameter EARLY_READ 	= 1,	//do not change unless altering latency on FMC IP
-	parameter CLOCK_PHASE	= 90,	//phase shift for internal PLL to optimize read capture timing
+	parameter CLOCK_PHASE	= 50,	//phase shift for internal PLL to optimize read capture timing
 
 	parameter CLOCK_PERIOD	= 8,	//FMC clock period in ns (default 250 MHz)
 	parameter VCO_MULT		= 8		//PLL multiplier (default 4 for 1 GHz with 250 MHz PCLK)
 )(
+
+	//Slow management clock
+	input wire			clk_mgmt,
 
 	//APB root bus to interconnect bridge
 	APB.requester		apb,
@@ -80,6 +83,100 @@ module FMC_APBBridge #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// VIO for adjusting output clock phase
+	// TODO: make this APB programmable??
+
+	wire		phase_en;
+	wire[2:0]	phase_mux;
+	wire[5:0]	phase_delay;
+
+	vio_0 vio(
+		.clk(clk_mgmt),
+		.probe_out0(phase_en),
+		.probe_out1(phase_mux),
+		.probe_out2(phase_delay)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// DRP controls
+
+	logic		drp_en	= 0;
+	logic		drp_we	= 0;
+	logic[15:0]	drp_di	= 0;
+	wire[15:0]	drp_do;
+	wire		drp_ready;
+	logic[6:0]	drp_addr;
+
+	enum logic[3:0]
+	{
+		DRP_STATE_IDLE		= 'h0,
+		DRP_STATE_READ1		= 'h1,
+		DRP_STATE_WRITE1	= 'h2,
+		DRP_STATE_READ2		= 'h3,
+		DRP_STATE_WRITE2	= 'h4,
+
+		DRP_STATE_DONE		= 'hf
+	} drp_state = DRP_STATE_IDLE;
+
+	always_ff @(posedge clk_mgmt) begin
+
+		drp_en	<= 0;
+
+		case(drp_state)
+
+			DRP_STATE_IDLE: begin
+
+				if(phase_en) begin
+					drp_state	<= DRP_STATE_READ1;
+					drp_we		<= 0;
+					drp_en		<= 1;
+					drp_addr	<= 7'h08;	//CLKOUT0 register 1
+				end
+
+			end
+
+			DRP_STATE_READ1: begin
+				if(drp_ready) begin
+					drp_state	<= DRP_STATE_WRITE1;
+					drp_we		<= 1;
+					drp_en		<= 1;
+					drp_di		<= { phase_mux, drp_do[12:0] };
+				end
+			end
+
+			DRP_STATE_WRITE1: begin
+				if(drp_ready) begin
+					drp_state	<= DRP_STATE_READ2;
+					drp_we		<= 0;
+					drp_en		<= 1;
+					drp_addr	<= 7'h09;	//CLKOUT0 register 2
+				end
+			end
+
+			DRP_STATE_READ2: begin
+				if(drp_ready) begin
+					drp_state	<= DRP_STATE_WRITE2;
+					drp_we		<= 1;
+					drp_en		<= 1;
+					drp_di		<= { drp_do[15:6], phase_delay };
+				end
+			end
+
+			DRP_STATE_WRITE2: begin
+				drp_state	<= DRP_STATE_DONE;
+			end
+
+			DRP_STATE_DONE: begin
+				if(!phase_en) begin
+					drp_state	<= DRP_STATE_IDLE;
+				end
+			end
+
+		endcase
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// PLL for deskewing clock buffer delay
 
 	//TODO: portable cross generation PLL for UltraScale etc
@@ -89,7 +186,7 @@ module FMC_APBBridge #(
 	wire	pclk_raw;
 	wire	pll_lock;
 
-	PLLE2_BASE #(
+	PLLE2_ADV #(
 		.BANDWIDTH("OPTIMIZED"),
 		.CLKFBOUT_MULT(VCO_MULT),
 		.DIVCLK_DIVIDE(1),
@@ -119,17 +216,31 @@ module FMC_APBBridge #(
 		.CLKOUT5_DUTY_CYCLE(0.5)
 	) fmc_pll (
 		.CLKIN1(fmc_clk),
+		.CLKIN2(1'b0),
+		.CLKINSEL(1'b1),	//select CLKIN1
+
 		.CLKFBIN(clk_fb_bufg),
 		.CLKFBOUT(clk_fb),
+
 		.RST(1'b0),
+		.PWRDWN(0),
+		.LOCKED(pll_lock),
+
 		.CLKOUT0(pclk_raw),
 		.CLKOUT1(),
 		.CLKOUT2(),
 		.CLKOUT3(),
 		.CLKOUT4(),
 		.CLKOUT5(),
-		.LOCKED(pll_lock),
-		.PWRDWN(0)
+
+		//DRP
+		.DI(drp_di),
+		.DADDR(drp_addr),
+		.DWE(drp_we),
+		.DEN(drp_en),
+		.DCLK(clk_mgmt),
+		.DO(drp_do),
+		.DRDY(drp_ready)
 	);
 
 	BUFG bufg_clk_fb(

@@ -60,15 +60,20 @@ module EthernetRxClockCrossing(
 	logic[34:0]	rxfifo_wr_data		= 0;
 
 	logic		rxfifo_rd_en			= 0;
-	logic		rxfifo_rd_pop_single	= 0;
-	wire[2:0]	rxfifo_rd_bytes_valid;
-	wire[31:0]	rxfifo_rd_data;
+	logic		rxfifo_rd_pop_packet	= 0;
 	wire[10:0]	rxfifo_rd_size;
+	logic[10:0]	rxfifo_rd_offset		= 0;
+	logic[10:0]	rxfifo_rd_packet_size	= 0;
+
+	logic[2:0]	rxfifo_rd_bytes_valid;
+	logic[31:0]	rxfifo_rd_data;
 
 	//An all-zero word indicates packet boundaries
 	CrossClockPacketFifo #(
 		.WIDTH(35),		//3 bits valid + 32 data
-		.DEPTH(1024)	//at least 2 packets worth
+		.DEPTH(1024),	//at least 2 packets worth
+		.USE_BLOCK(1),
+		.OUT_REG(2)
 	) rx_cdc_fifo (
 		.wr_clk(gmii_rxc),
 		.wr_en(rxfifo_wr_en),
@@ -80,10 +85,10 @@ module EthernetRxClockCrossing(
 
 		.rd_clk(sys_clk),
 		.rd_en(rxfifo_rd_en),
-		.rd_offset(10'h0),
-		.rd_pop_single(rxfifo_rd_pop_single),
-		.rd_pop_packet(1'b0),
-		.rd_packet_size(10'h0),
+		.rd_offset(rxfifo_rd_offset),
+		.rd_pop_single(1'b0),
+		.rd_pop_packet(rxfifo_rd_pop_packet),
+		.rd_packet_size(rxfifo_rd_packet_size),
 		.rd_data( {rxfifo_rd_bytes_valid, rxfifo_rd_data} ),
 		.rd_size(rxfifo_rd_size),
 		.rd_reset(1'b0)
@@ -113,22 +118,29 @@ module EthernetRxClockCrossing(
 		RXFIFO_STATE_WAIT_FOR_HEADER_0	= 4'h1,
 		RXFIFO_STATE_WAIT_FOR_HEADER_1	= 4'h2,
 		RXFIFO_STATE_WAIT_FOR_HEADER_2	= 4'h3,
-		RXFIFO_STATE_PACKET_0			= 4'h4,
-		RXFIFO_STATE_PACKET_1			= 4'h5,
-		RXFIFO_STATE_PACKET_2			= 4'h6,
-		RXFIFO_STATE_PACKET_3			= 4'h7
+		RXFIFO_STATE_WAIT_FOR_HEADER_3	= 4'h4,
+		RXFIFO_STATE_PACKET_0			= 4'h5,
+		RXFIFO_STATE_PACKET_1			= 4'h6,
+		RXFIFO_STATE_PACKET_2			= 4'h7,
+		RXFIFO_STATE_PACKET_3			= 4'h8
 	} rxfifo_pop_state = RXFIFO_STATE_WAIT_FOR_HEADER_0;
 
 	//True if we're idle but have a valid word from the previous packet
 	logic	last_word_valid = 0;
 
+	logic	data_valid_adv	= 0;
+
 	always_ff @(posedge sys_clk) begin
 		rxfifo_rd_en				<= 0;
-		rxfifo_rd_pop_single		<= 0;
+		rxfifo_rd_pop_packet		<= 0;
 		cdc_rx_bus.start			<= 0;
 		cdc_rx_bus.data_valid		<= 0;
-		cdc_rx_bus.bytes_valid		<= 0;
 		cdc_rx_bus.commit			<= 0;
+
+		//Push data down the pipeline
+		cdc_rx_bus.bytes_valid		<= rxfifo_rd_bytes_valid;
+		cdc_rx_bus.data				<= rxfifo_rd_data;
+		cdc_rx_bus.data_valid		<= (rxfifo_pop_state == RXFIFO_STATE_PACKET_2) && (rxfifo_rd_bytes_valid != 0);
 
 		case(rxfifo_pop_state)
 
@@ -137,13 +149,16 @@ module EthernetRxClockCrossing(
 
 			RXFIFO_STATE_WAIT_FOR_HEADER_0: begin
 
+				cdc_rx_bus.data_valid	<= 0;
+
 				//Wait for pop to complete before doing anything
-				if(rxfifo_rd_pop_single) begin
+				if(rxfifo_rd_pop_packet) begin
 				end
 
 				//Data in the fifo! Go read a word.
 				else if(rxfifo_rd_size != 0) begin
 					rxfifo_rd_en		<= 1;
+					rxfifo_rd_offset	<= 0;
 					rxfifo_pop_state	<= RXFIFO_STATE_WAIT_FOR_HEADER_1;
 				end
 
@@ -154,18 +169,23 @@ module EthernetRxClockCrossing(
 			end	//end RXFIFO_STATE_WAIT_FOR_HEADER_1
 
 			RXFIFO_STATE_WAIT_FOR_HEADER_2: begin
+				rxfifo_pop_state	<= RXFIFO_STATE_WAIT_FOR_HEADER_3;
+			end
 
-				rxfifo_rd_pop_single	<= 1;
+			RXFIFO_STATE_WAIT_FOR_HEADER_3: begin
 
-				//FIFO data available. Should be all zeroes. Ignore anything else.
+				//FIFO data available. Should be all zeroes (inter-frame gap).
 				if( (rxfifo_rd_bytes_valid == 0) )
-					rxfifo_pop_state	<= RXFIFO_STATE_IDLE;
+					rxfifo_pop_state		<= RXFIFO_STATE_IDLE;
 
-				//Something nonsensical, ignore it
-				else
-					rxfifo_pop_state	<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
+				//Something nonsensical, throw it out
+				else begin
+					rxfifo_pop_state		<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
+					rxfifo_rd_pop_packet	<= 1;
+					rxfifo_rd_packet_size	<= 1;
+				end
 
-			end	//end RXFIFO_STATE_WAIT_FOR_HEADER_2
+			end	//end RXFIFO_STATE_WAIT_FOR_HEADER_3
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Sit around and wait for new stuff to arrive
@@ -174,13 +194,13 @@ module EthernetRxClockCrossing(
 
 				//If there's anything in the FIFO, there's an entire packet ready for us to handle.
 				//Kick off the RX decoder.
-				if( (rxfifo_rd_size != 0) && !rxfifo_rd_pop_single) begin
+				if( (rxfifo_rd_size != 0) && !rxfifo_rd_pop_packet) begin
 					cdc_rx_bus.start		<= 1;
+					rxfifo_rd_offset		<= 1;
 
 					//If we didn't get a valid word at the end of the previous packet, read now
 					if(!last_word_valid) begin
-						rxfifo_rd_en			<= 1;
-						rxfifo_rd_pop_single	<= 1;
+						rxfifo_rd_en		<= 1;
 					end
 					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_0;
 				end
@@ -196,9 +216,9 @@ module EthernetRxClockCrossing(
 
 				//First word is en route. Pop the second
 				if(rxfifo_rd_size > 2) begin
-					rxfifo_rd_en			<= 1;
-					rxfifo_rd_pop_single	<= 1;
-					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_1;
+					rxfifo_rd_en		<= 1;
+					rxfifo_rd_offset	<= rxfifo_rd_offset + 1;
+					rxfifo_pop_state	<= RXFIFO_STATE_PACKET_1;
 				end
 
 			end	//end RXFIFO_STATE_PACKET_0
@@ -206,67 +226,44 @@ module EthernetRxClockCrossing(
 			//Read second word of packet (packet must be at least 2 words long anyway)
 			RXFIFO_STATE_PACKET_1: begin
 
-				//Don't fully understand why this is needed for 1G but not 10G...
-				if(rxfifo_rd_bytes_valid != 0) begin
-					cdc_rx_bus.data_valid	<= 1;
-					cdc_rx_bus.bytes_valid	<= rxfifo_rd_bytes_valid;
-					cdc_rx_bus.data			<= rxfifo_rd_data;
-				end
-
 				//First word is en route. Pop the second
 				rxfifo_rd_en			<= 1;
-				rxfifo_rd_pop_single	<= 1;
+				rxfifo_rd_offset		<= rxfifo_rd_offset + 1;
 				rxfifo_pop_state		<= RXFIFO_STATE_PACKET_2;
 			end	//end RXFIFO_STATE_PACKET_1
 
 			//Data words are ready, deal with them
 			RXFIFO_STATE_PACKET_2: begin
 
-				//If we hit an all-zeroes word we've just popped the inter-frame gap for the next packet.
-				//Jump straight to the idle state
-				if(rxfifo_rd_bytes_valid == 0) begin
-					cdc_rx_bus.commit		<= 1;
-					rxfifo_pop_state		<= RXFIFO_STATE_IDLE;
-
-					//But if the FIFO isn't empty, we read the first word of the next packet!
-					last_word_valid	<=		(rxfifo_rd_size > 1);
-				end
+				//If we hit a value other than 4 (i.e. partial word) this is the end of the packet
+				if(rxfifo_rd_bytes_valid != 4)
+					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_3;
 
 				//If we hit the end of the packet and there's nothing left in the FIFO, commit this one
-				else if(rxfifo_rd_size == 0) begin
-
-					//Push the last data word
-					cdc_rx_bus.data_valid	<= 1;
-					cdc_rx_bus.bytes_valid	<= rxfifo_rd_bytes_valid;
-					cdc_rx_bus.data			<= rxfifo_rd_data;
-
-					//Commit it next cycle
+				else if(rxfifo_rd_size == 0)
 					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_3;
-				end
 
+				//Nope, normal operation
 				else begin
-
-					//If the FIFO is going to be emptied this clock, don't pop it (there's a pending read already)
-					if(rxfifo_rd_size == 1) begin
-					end
-
-					//Not empty, pop the next word
-					else begin
-						rxfifo_rd_en			<= 1;
-						rxfifo_rd_pop_single	<= 1;
-					end
+					rxfifo_rd_en			<= 1;
+					rxfifo_rd_offset		<= rxfifo_rd_offset + 1;
 
 					//Valid data - forward it to layer 2 and keep going
 					cdc_rx_bus.data_valid	<= 1;
-					cdc_rx_bus.bytes_valid	<= rxfifo_rd_bytes_valid;
-					cdc_rx_bus.data			<= rxfifo_rd_data;
 
 				end
-
 
 			end	//end RXFIFO_STATE_PACKET_2
 
 			RXFIFO_STATE_PACKET_3: begin
+				rxfifo_rd_pop_packet	<= 1;
+
+				//Bounds check: shouldn't happen but make sure we don't run into negative size territory
+				if(rxfifo_rd_offset >= rxfifo_rd_size)
+					rxfifo_rd_packet_size	<= rxfifo_rd_size;
+				else
+					rxfifo_rd_packet_size	<= rxfifo_rd_offset;
+
 				cdc_rx_bus.commit		<= 1;
 				perf_rx_cdc_frames		<= perf_rx_cdc_frames + 1'h1;
 				rxfifo_pop_state		<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
@@ -275,5 +272,32 @@ module EthernetRxClockCrossing(
 		endcase
 
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Debug ILA
+	/*
+	ila_0 ila0(
+		.clk(gmii_rxc),
+		.probe0(mac_rx_bus),
+		.probe1(rxfifo_wr_en),
+		.probe2(rxfifo_wr_data)
+	);
+
+	ila_1 ila(
+		.clk(sys_clk),
+		.probe0(rxfifo_rd_en),
+		.probe1(rxfifo_rd_pop_packet),
+		.probe2(rxfifo_pop_state),
+		.probe3(cdc_rx_bus.commit),
+		.probe4(cdc_rx_bus.data_valid),
+		.probe5(cdc_rx_bus.bytes_valid),
+		.probe6(cdc_rx_bus.data),
+		.probe7(rxfifo_rd_size),
+		.probe8(cdc_rx_bus.start),
+		.probe9(rxfifo_rd_offset),
+		.probe10(rxfifo_rd_packet_size),
+		.probe11(rxfifo_rd_bytes_valid),
+		.probe12(rxfifo_rd_data)
+	);*/
 
 endmodule
