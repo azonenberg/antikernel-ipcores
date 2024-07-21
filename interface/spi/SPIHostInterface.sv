@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -114,6 +114,8 @@ module SPIHostInterface(
 	end
 
 	logic almost_done	= 0;
+	logic toggle_ff		= 0;
+
 	always_ff @(posedge clk) begin
 		shift_done_adv	<= 0;
 
@@ -130,6 +132,7 @@ module SPIHostInterface(
 		//Wait for a start request
 		if(shift_en) begin
 			active		<= 1;
+			toggle_ff	<= 0;
 			clkcount	<= 0;
 
 			if(SAMPLE_EDGE == "FALLING") begin
@@ -147,8 +150,10 @@ module SPIHostInterface(
 
 		//Toggle processing
 		else if(active) begin
-			clkcount <= clkcount + 15'h1;
-			if(clkcount >= clkdiv[15:1]) begin
+			clkcount 	<= clkcount + 15'h1;
+			toggle_ff	<= clkcount >= clkdiv[15:1];
+
+			if(toggle_ff) begin
 
 				//Reset the counter and toggle the clock
 				clkcount <= 0;
