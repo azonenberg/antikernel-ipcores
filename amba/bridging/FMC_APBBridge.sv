@@ -35,11 +35,15 @@
 	The FMC clock is used as the APB PCLK and is expected to be free-running.
  */
 module FMC_APBBridge #(
-	parameter EARLY_READ 	= 1,	//do not change unless altering latency on FMC IP
-	parameter CLOCK_PHASE	= 50,	//phase shift for internal PLL to optimize read capture timing
+	parameter EARLY_READ_DISPATCH	= 0,	//set true to dispatch reads one clock earlier (less latency, worse timing)
+	parameter CAPTURE_CLOCK_PHASE	= 0,	//phase shift for internal PLL to optimize data capture timing
+	parameter LAUNCH_CLOCK_PHASE	= 0,	//phase shift for internal PLL to optimize data launch timing
 
-	parameter CLOCK_PERIOD	= 8,	//FMC clock period in ns (default 250 MHz)
-	parameter VCO_MULT		= 8		//PLL multiplier (default 4 for 1 GHz with 250 MHz PCLK)
+	parameter CLOCK_PERIOD			= 8,	//FMC clock period in ns (default 125 MHz)
+	parameter VCO_MULT				= 8,	//PLL multiplier (default 8 for 1 GHz with 125 MHz PCLK)
+
+	//number of cycles it takes for a wait cycle on write to end before the new data gets here
+	localparam WAIT_CYCLE_RTT		= 1
 )(
 
 	//Slow management clock
@@ -50,7 +54,7 @@ module FMC_APBBridge #(
 
 	//FMC pins to MCU
 	input wire			fmc_clk,
-	(* iob = "true" *) output logic		fmc_nwait,
+	(* iob="true" *) output logic		fmc_nwait = 1,
 	input wire			fmc_noe,
 	inout wire[15:0]	fmc_ad,
 	input wire			fmc_nwe,
@@ -181,10 +185,13 @@ module FMC_APBBridge #(
 
 	//TODO: portable cross generation PLL for UltraScale etc
 
+	wire	clk_launch;
+	wire	pll_lock;
+
 	wire	clk_fb;
 	wire	clk_fb_bufg;
 	wire	pclk_raw;
-	wire	pll_lock;
+	wire	launch_clk_raw;
 
 	PLLE2_ADV #(
 		.BANDWIDTH("OPTIMIZED"),
@@ -195,14 +202,14 @@ module FMC_APBBridge #(
 		.STARTUP_WAIT("FALSE"),
 
 		.CLKOUT0_DIVIDE(VCO_MULT),	//Fout = Fin
-		.CLKOUT1_DIVIDE(8),
+		.CLKOUT1_DIVIDE(VCO_MULT),	//same speed as PCLK but phase shifted
 		.CLKOUT2_DIVIDE(8),
 		.CLKOUT3_DIVIDE(8),
 		.CLKOUT4_DIVIDE(8),
 		.CLKOUT5_DIVIDE(8),
 
-		.CLKOUT0_PHASE(CLOCK_PHASE),	//phase shift on clock to center data eyes better
-		.CLKOUT1_PHASE(0),
+		.CLKOUT0_PHASE(CAPTURE_CLOCK_PHASE),	//phase shift on clock to center data eyes better
+		.CLKOUT1_PHASE(LAUNCH_CLOCK_PHASE),
 		.CLKOUT2_PHASE(0),
 		.CLKOUT3_PHASE(0),
 		.CLKOUT4_PHASE(0),
@@ -219,7 +226,8 @@ module FMC_APBBridge #(
 		.CLKIN2(1'b0),
 		.CLKINSEL(1'b1),	//select CLKIN1
 
-		.CLKFBIN(clk_fb_bufg),
+		//.CLKFBIN(clk_fb_bufg),
+		.CLKFBIN(clk_fb),	//do not compensate for bufg insertion delay
 		.CLKFBOUT(clk_fb),
 
 		.RST(1'b0),
@@ -227,7 +235,7 @@ module FMC_APBBridge #(
 		.LOCKED(pll_lock),
 
 		.CLKOUT0(pclk_raw),
-		.CLKOUT1(),
+		.CLKOUT1(launch_clk_raw),
 		.CLKOUT2(),
 		.CLKOUT3(),
 		.CLKOUT4(),
@@ -251,6 +259,13 @@ module FMC_APBBridge #(
 		.I(pclk_raw),
 		.O(apb.pclk),
 		.CE(pll_lock));
+	/*
+	BUFGCE bufg_launch_clk(
+		.I(launch_clk_raw),
+		.O(clk_launch),
+		.CE(pll_lock));
+	*/
+	assign clk_launch = apb.pclk;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Hold APB in reset until PLL locks, then keep asserted for a few clocks after
@@ -286,9 +301,9 @@ module FMC_APBBridge #(
 
 	enum logic[3:0]
 	{
-		STATE_IDLE,
 		STATE_ADDR,
 		STATE_WAIT,
+		STATE_WAIT2,
 		STATE_WDATA_LO,
 		STATE_WDATA_HI,
 		STATE_WDATA_WAIT,
@@ -298,7 +313,7 @@ module FMC_APBBridge #(
 		STATE_ACTIVE,
 
 		STATE_LAST	//unused
-	} state = STATE_IDLE;
+	} state = STATE_ADDR;
 
 	//Saved address/write enable flag before we started a write
 	logic[18:0]		pending_addr	= 0;
@@ -309,25 +324,59 @@ module FMC_APBBridge #(
 	//Saved read data
 	logic[31:0]		prdata_latched	= 0;
 
-	//number of cycles it takes for a wait cycle to end before the new data gets here
-	localparam WAIT_CYCLE_RTT		= 2;
+	//send NWAIT on launch clock
+	always_ff @(posedge clk_launch or negedge pll_lock) begin
 
-	always_comb begin
+		if(!pll_lock) begin
+			fmc_nwait	<= 1;
+		end
 
-		//Not waiting if no transaction active
-		if(fmc_cs_n)
-			fmc_nwait	= 1;
+		else begin
 
-		//Waiting if blocking on previous transaction
-		else if( (state == STATE_WAIT) && apb_busy)
-			fmc_nwait	= 0;
+			//Default to not waiting
+			fmc_nwait		<= 1;
 
-		else
-			fmc_nwait	= !apb_busy;
+			//Transaction active? Might have wait states
+			if(!fmc_cs_n) begin
+
+				//Block if APB is busy
+				if(apb_busy)
+					fmc_nwait	<= 0;
+
+				//Block if transaction is being dispatched
+				//if( (state == STATE_WAIT) || (state == STATE_WAIT2) || (state == STATE_ADDR) )
+				//	fmc_nwait	<= 0;
+
+			end
+
+		end
 
 	end
 
+	//send read data on launch clock
+	always_ff @(posedge clk_launch) begin
+
+		case(state)
+			STATE_RDATA_LO:	begin
+				/*if(apb.pready)
+					adbus_out	<= apb.prdata[15:0];
+				else*/
+					adbus_out	<= prdata_latched[15:0];
+			end
+			STATE_RDATA_HI:	adbus_out	<= prdata_latched[31:16];
+
+			//DEBUG
+			STATE_RD_END:	adbus_out	<= 16'h4141;
+
+			default:		adbus_out	<= 0;
+		endcase
+
+	end
+
+	logic		apb_busy_ff	= 0;
 	always_ff @(posedge apb.pclk) begin
+
+		apb_busy_ff	<= apb_busy;
 
 		//Activate
 		if(apb.penable && !apb.psel)
@@ -349,26 +398,32 @@ module FMC_APBBridge #(
 				////////////////////////////////////////////////////////////////////////////////////////////////////////
 				// Common path
 
-				STATE_IDLE: begin
-					state			<= STATE_ADDR;
-				end
-
 				//Save address and write enable flag
 				//LSB of address is always implicitly zero because of 16 bit bus width
 				STATE_ADDR: begin
+
+					//Update as much of the buses as we can outside of nl_nadv to improve timing
+					//(this may be worse for power but its not a lot of signals and they toggle slow)
 					pending_addr	<= { fmc_a_hi, adbus_in, 1'b0};
 					pending_write	<= !fmc_nwe;
-					state			<= STATE_WAIT;
+					apb.pwrite		<= !fmc_nwe;
+					apb.paddr		<= { fmc_a_hi, adbus_in, 1'b0};
 
-					//Dispatch reads as soon as we can
-					if(!apb_busy && fmc_nwe) begin
-						apb.paddr		<= { fmc_a_hi, adbus_in, 1'b0};;
-						apb.pwrite		<= 0;
-						apb.penable		<= 1;
-						apb_busy		<= 1;
+					//DEBUG: clear prdata_latched
+					prdata_latched	<= 16'hcccc;
 
-						//Waiting for read data to come back
-						state			<= STATE_RDATA_LO;
+					//Move on as soon as we get the address latched
+					if(!fmc_nl_nadv) begin
+						state			<= STATE_WAIT;
+
+						//Dispatch reads as soon as we can
+						if(!apb_busy && fmc_nwe && EARLY_READ_DISPATCH) begin
+							apb.penable		<= 1;
+							apb_busy		<= 1;
+
+							//Waiting for read data to come back
+							state			<= STATE_RDATA_LO;
+						end
 					end
 
 				end
@@ -378,27 +433,26 @@ module FMC_APBBridge #(
 
 					//it's a write
 					if(pending_write)
-						state			<= STATE_WDATA_LO;
+						state			<= STATE_WAIT2;
 
-					//it's a read, dispatch it
-					else begin
-						if(apb_busy) begin
-							//wait until the previous transaction finishes
-						end
+					//it's a read, dispatch it when available
+					else if(!apb_busy) begin
 
-						else begin
+						//Kick off the read request
+						apb.paddr			<= pending_addr;
+						apb.penable			<= 1;
+						apb_busy			<= 1;
 
-							//Kick off the read request
-							apb.paddr			<= pending_addr;
-							apb.pwrite			<= 0;
-							apb.penable			<= 1;
-							apb_busy			<= 1;
-
-							//Waiting for read data to come back
-							state				<= STATE_RDATA_LO;
-						end
+						//Waiting for read data to come back
+						state				<= STATE_RDATA_LO;
 					end
 
+				end
+
+				//second wait state
+				STATE_WAIT2: begin
+					if(!apb_busy_ff)
+						state		<= STATE_WDATA_LO;
 				end
 
 				////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -409,7 +463,7 @@ module FMC_APBBridge #(
 					apb.pstrb[1:0]		<= ~fmc_nbl;
 					apb.pwdata[15:0]	<= adbus_in;
 
-					if(!fmc_nwait) begin
+					if(apb_busy_ff) begin
 						state			<= STATE_WDATA_WAIT;
 						wait_count		<= 0;
 					end
@@ -420,7 +474,7 @@ module FMC_APBBridge #(
 
 				//wait state is active, delay for several clocks
 				STATE_WDATA_WAIT: begin
-					if(fmc_nwait) begin
+					if(!apb_busy_ff) begin
 						wait_count		<= wait_count + 1;
 						if(wait_count >= WAIT_CYCLE_RTT)
 							state		<= STATE_WDATA_HI;
@@ -444,20 +498,11 @@ module FMC_APBBridge #(
 				// Reads
 
 				STATE_RDATA_LO: begin
-
-					if(apb.pready && EARLY_READ) begin
-						adbus_out		<= apb.prdata[15:0];
+					if(!apb_busy /* || apb.pready */)
 						state			<= STATE_RDATA_HI;
-					end
-
-					if(!apb_busy) begin
-						adbus_out		<= prdata_latched[15:0];
-						state			<= STATE_RDATA_HI;
-					end
 				end
 
 				STATE_RDATA_HI: begin
-					adbus_out			<= prdata_latched[31:16];
 					state				<= STATE_RD_END;
 				end
 
@@ -478,9 +523,8 @@ module FMC_APBBridge #(
 		end
 
 		//Deselected? return to idle state
-		else begin
-			state	<= STATE_IDLE;
-		end
+		else
+			state		<= STATE_ADDR;
 
 	end
 
