@@ -130,6 +130,8 @@ module EthernetRxClockCrossing(
 
 	logic	data_valid_adv	= 0;
 
+	logic	rxfifo_has_packet	= 0;
+
 	always_ff @(posedge sys_clk) begin
 		rxfifo_rd_en				<= 0;
 		rxfifo_rd_pop_packet		<= 0;
@@ -141,6 +143,8 @@ module EthernetRxClockCrossing(
 		cdc_rx_bus.bytes_valid		<= rxfifo_rd_bytes_valid;
 		cdc_rx_bus.data				<= rxfifo_rd_data;
 		cdc_rx_bus.data_valid		<= (rxfifo_pop_state == RXFIFO_STATE_PACKET_2) && (rxfifo_rd_bytes_valid != 0);
+
+		rxfifo_has_packet			<= (rxfifo_rd_size > 2);
 
 		case(rxfifo_pop_state)
 
@@ -156,7 +160,7 @@ module EthernetRxClockCrossing(
 				end
 
 				//Data in the fifo! Go read a word.
-				else if(rxfifo_rd_size != 0) begin
+				else if(rxfifo_has_packet) begin
 					rxfifo_rd_en		<= 1;
 					rxfifo_rd_offset	<= 0;
 					rxfifo_pop_state	<= RXFIFO_STATE_WAIT_FOR_HEADER_1;
@@ -194,7 +198,7 @@ module EthernetRxClockCrossing(
 
 				//If there's anything in the FIFO, there's an entire packet ready for us to handle.
 				//Kick off the RX decoder.
-				if( (rxfifo_rd_size != 0) && !rxfifo_rd_pop_packet) begin
+				if(rxfifo_has_packet && !rxfifo_rd_pop_packet) begin
 					cdc_rx_bus.start		<= 1;
 					rxfifo_rd_offset		<= 1;
 
@@ -213,14 +217,9 @@ module EthernetRxClockCrossing(
 			//Request the read
 			//Pop at 1 word per clock regardless of push rate
 			RXFIFO_STATE_PACKET_0: begin
-
-				//First word is en route. Pop the second
-				if(rxfifo_rd_size > 2) begin
-					rxfifo_rd_en		<= 1;
-					rxfifo_rd_offset	<= rxfifo_rd_offset + 1;
-					rxfifo_pop_state	<= RXFIFO_STATE_PACKET_1;
-				end
-
+				rxfifo_rd_en		<= 1;
+				rxfifo_rd_offset	<= rxfifo_rd_offset + 1;
+				rxfifo_pop_state	<= RXFIFO_STATE_PACKET_1;
 			end	//end RXFIFO_STATE_PACKET_0
 
 			//Read second word of packet (packet must be at least 2 words long anyway)
@@ -272,32 +271,5 @@ module EthernetRxClockCrossing(
 		endcase
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
-	/*
-	ila_0 ila0(
-		.clk(gmii_rxc),
-		.probe0(mac_rx_bus),
-		.probe1(rxfifo_wr_en),
-		.probe2(rxfifo_wr_data)
-	);
-
-	ila_1 ila(
-		.clk(sys_clk),
-		.probe0(rxfifo_rd_en),
-		.probe1(rxfifo_rd_pop_packet),
-		.probe2(rxfifo_pop_state),
-		.probe3(cdc_rx_bus.commit),
-		.probe4(cdc_rx_bus.data_valid),
-		.probe5(cdc_rx_bus.bytes_valid),
-		.probe6(cdc_rx_bus.data),
-		.probe7(rxfifo_rd_size),
-		.probe8(cdc_rx_bus.start),
-		.probe9(rxfifo_rd_offset),
-		.probe10(rxfifo_rd_packet_size),
-		.probe11(rxfifo_rd_bytes_valid),
-		.probe12(rxfifo_rd_data)
-	);*/
 
 endmodule
