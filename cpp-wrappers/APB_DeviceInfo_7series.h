@@ -41,6 +41,7 @@ public:
 	uint32_t field_08;	//padding for where ultrascale has third serial word
 	uint32_t serial[2];
 	uint32_t usercode;
+	uint32_t scratch;	//unused register for testing / link training
 };
 
 #endif
