@@ -94,12 +94,17 @@ module FMC_APBBridge #(
 	wire[2:0]	phase_mux;
 	wire[5:0]	phase_delay;
 
+	/*
 	vio_0 vio(
 		.clk(clk_mgmt),
 		.probe_out0(phase_en),
 		.probe_out1(phase_mux),
 		.probe_out2(phase_delay)
 	);
+	*/
+	assign phase_en = 0;
+	assign phase_mux = 0;
+	assign phase_delay = 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// DRP controls

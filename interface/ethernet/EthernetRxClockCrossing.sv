@@ -47,6 +47,7 @@ module EthernetRxClockCrossing(
 
 	//Outgoing frames to the L2 decoder
 	input wire					sys_clk,
+	input wire					rst_n,
 	output EthernetRxBus		cdc_rx_bus = {$bits(EthernetRxBus){1'b0}},
 
 	//Performance counters
@@ -91,7 +92,7 @@ module EthernetRxClockCrossing(
 		.rd_packet_size(rxfifo_rd_packet_size),
 		.rd_data( {rxfifo_rd_bytes_valid, rxfifo_rd_data} ),
 		.rd_size(rxfifo_rd_size),
-		.rd_reset(1'b0)
+		.rd_reset(!rst_n)
 	);
 
 	//PUSH SIDE
@@ -99,14 +100,14 @@ module EthernetRxClockCrossing(
 
 		//Frame delimiter
 		if(mac_rx_bus.start) begin
-			rxfifo_wr_en	<= 1;
-			rxfifo_wr_data	<= 35'h0;
+			rxfifo_wr_en	= 1;
+			rxfifo_wr_data	= 35'h0;
 		end
 
 		//Nope, push data as needed
 		else begin
-			rxfifo_wr_en	<= mac_rx_bus.data_valid;
-			rxfifo_wr_data	<= { mac_rx_bus.bytes_valid, mac_rx_bus.data };
+			rxfifo_wr_en	= mac_rx_bus.data_valid;
+			rxfifo_wr_data	= { mac_rx_bus.bytes_valid, mac_rx_bus.data };
 		end
 
 	end
@@ -126,149 +127,164 @@ module EthernetRxClockCrossing(
 	} rxfifo_pop_state = RXFIFO_STATE_WAIT_FOR_HEADER_0;
 
 	//True if we're idle but have a valid word from the previous packet
-	logic	last_word_valid = 0;
+	logic	last_word_valid		= 0;
 
-	logic	data_valid_adv	= 0;
+	logic	data_valid_adv		= 0;
 
 	logic	rxfifo_has_packet	= 0;
 
-	always_ff @(posedge sys_clk) begin
-		rxfifo_rd_en				<= 0;
-		rxfifo_rd_pop_packet		<= 0;
-		cdc_rx_bus.start			<= 0;
-		cdc_rx_bus.data_valid		<= 0;
-		cdc_rx_bus.commit			<= 0;
+	always_ff @(posedge sys_clk or negedge rst_n) begin
+		if(!rst_n) begin
+			rxfifo_rd_en				<= 0;
+			rxfifo_rd_pop_packet		<= 0;
+			cdc_rx_bus.start			<= 0;
+			cdc_rx_bus.data_valid		<= 0;
+			cdc_rx_bus.commit			<= 0;
+			rxfifo_pop_state			<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
+			last_word_valid				<= 0;
+			data_valid_adv				<= 0;
+			rxfifo_has_packet			<= 0;
+		end
 
-		//Push data down the pipeline
-		cdc_rx_bus.bytes_valid		<= rxfifo_rd_bytes_valid;
-		cdc_rx_bus.data				<= rxfifo_rd_data;
-		cdc_rx_bus.data_valid		<= (rxfifo_pop_state == RXFIFO_STATE_PACKET_2) && (rxfifo_rd_bytes_valid != 0);
+		else begin
+			rxfifo_rd_en				<= 0;
+			rxfifo_rd_pop_packet		<= 0;
+			cdc_rx_bus.start			<= 0;
+			cdc_rx_bus.data_valid		<= 0;
+			cdc_rx_bus.commit			<= 0;
 
-		rxfifo_has_packet			<= (rxfifo_rd_size > 2);
+			//Push data down the pipeline
+			cdc_rx_bus.bytes_valid		<= rxfifo_rd_bytes_valid;
+			cdc_rx_bus.data				<= rxfifo_rd_data;
+			cdc_rx_bus.data_valid		<= (rxfifo_pop_state == RXFIFO_STATE_PACKET_2) && (rxfifo_rd_bytes_valid != 0);
 
-		case(rxfifo_pop_state)
+			rxfifo_has_packet			<= (rxfifo_rd_size > 2) && !rxfifo_rd_pop_packet;
 
-			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// First packet after reset - wait for a header
+			case(rxfifo_pop_state)
 
-			RXFIFO_STATE_WAIT_FOR_HEADER_0: begin
+				////////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// First packet after reset - wait for a header
 
-				cdc_rx_bus.data_valid	<= 0;
+				RXFIFO_STATE_WAIT_FOR_HEADER_0: begin
 
-				//Wait for pop to complete before doing anything
-				if(rxfifo_rd_pop_packet) begin
-				end
+					cdc_rx_bus.data_valid	<= 0;
 
-				//Data in the fifo! Go read a word.
-				else if(rxfifo_has_packet) begin
-					rxfifo_rd_en		<= 1;
-					rxfifo_rd_offset	<= 0;
-					rxfifo_pop_state	<= RXFIFO_STATE_WAIT_FOR_HEADER_1;
-				end
-
-			end	//end RXFIFO_STATE_WAIT_FOR_HEADER_0
-
-			RXFIFO_STATE_WAIT_FOR_HEADER_1: begin
-				rxfifo_pop_state	<= RXFIFO_STATE_WAIT_FOR_HEADER_2;
-			end	//end RXFIFO_STATE_WAIT_FOR_HEADER_1
-
-			RXFIFO_STATE_WAIT_FOR_HEADER_2: begin
-				rxfifo_pop_state	<= RXFIFO_STATE_WAIT_FOR_HEADER_3;
-			end
-
-			RXFIFO_STATE_WAIT_FOR_HEADER_3: begin
-
-				//FIFO data available. Should be all zeroes (inter-frame gap).
-				if( (rxfifo_rd_bytes_valid == 0) )
-					rxfifo_pop_state		<= RXFIFO_STATE_IDLE;
-
-				//Something nonsensical, throw it out
-				else begin
-					rxfifo_pop_state		<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
-					rxfifo_rd_pop_packet	<= 1;
-					rxfifo_rd_packet_size	<= 1;
-				end
-
-			end	//end RXFIFO_STATE_WAIT_FOR_HEADER_3
-
-			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// Sit around and wait for new stuff to arrive
-
-			RXFIFO_STATE_IDLE: begin
-
-				//If there's anything in the FIFO, there's an entire packet ready for us to handle.
-				//Kick off the RX decoder.
-				if(rxfifo_has_packet && !rxfifo_rd_pop_packet) begin
-					cdc_rx_bus.start		<= 1;
-					rxfifo_rd_offset		<= 1;
-
-					//If we didn't get a valid word at the end of the previous packet, read now
-					if(!last_word_valid) begin
-						rxfifo_rd_en		<= 1;
+					//Wait for pop to complete before doing anything
+					if(rxfifo_rd_pop_packet) begin
 					end
-					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_0;
+
+					//Data in the fifo! Go read a word.
+					else if(rxfifo_has_packet) begin
+						rxfifo_rd_en		<= 1;
+						rxfifo_rd_offset	<= 0;
+						rxfifo_pop_state	<= RXFIFO_STATE_WAIT_FOR_HEADER_1;
+					end
+
+				end	//end RXFIFO_STATE_WAIT_FOR_HEADER_0
+
+				RXFIFO_STATE_WAIT_FOR_HEADER_1: begin
+					rxfifo_pop_state	<= RXFIFO_STATE_WAIT_FOR_HEADER_2;
+				end	//end RXFIFO_STATE_WAIT_FOR_HEADER_1
+
+				RXFIFO_STATE_WAIT_FOR_HEADER_2: begin
+					rxfifo_pop_state	<= RXFIFO_STATE_WAIT_FOR_HEADER_3;
 				end
 
-			end	//end RXFIFO_STATE_IDLE
+				RXFIFO_STATE_WAIT_FOR_HEADER_3: begin
 
-			////////////////////////////////////////////////////////////////////////////////////////////////////////////
-			// Crunch packet bodies
+					//FIFO data available. Should be all zeroes (inter-frame gap).
+					if( (rxfifo_rd_bytes_valid == 0) )
+						rxfifo_pop_state		<= RXFIFO_STATE_IDLE;
 
-			//Request the read
-			//Pop at 1 word per clock regardless of push rate
-			RXFIFO_STATE_PACKET_0: begin
-				rxfifo_rd_en		<= 1;
-				rxfifo_rd_offset	<= rxfifo_rd_offset + 1;
-				rxfifo_pop_state	<= RXFIFO_STATE_PACKET_1;
-			end	//end RXFIFO_STATE_PACKET_0
+					//Something nonsensical, throw it out
+					else begin
+						rxfifo_pop_state		<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
+						rxfifo_rd_pop_packet	<= 1;
+						rxfifo_rd_packet_size	<= 1;
+					end
 
-			//Read second word of packet (packet must be at least 2 words long anyway)
-			RXFIFO_STATE_PACKET_1: begin
+				end	//end RXFIFO_STATE_WAIT_FOR_HEADER_3
 
-				//First word is en route. Pop the second
-				rxfifo_rd_en			<= 1;
-				rxfifo_rd_offset		<= rxfifo_rd_offset + 1;
-				rxfifo_pop_state		<= RXFIFO_STATE_PACKET_2;
-			end	//end RXFIFO_STATE_PACKET_1
+				////////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// Sit around and wait for new stuff to arrive
 
-			//Data words are ready, deal with them
-			RXFIFO_STATE_PACKET_2: begin
+				RXFIFO_STATE_IDLE: begin
 
-				//If we hit a value other than 4 (i.e. partial word) this is the end of the packet
-				if(rxfifo_rd_bytes_valid != 4)
-					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_3;
+					//If there's anything in the FIFO, there's an entire packet ready for us to handle.
+					//Kick off the RX decoder.
+					if(rxfifo_has_packet && !rxfifo_rd_pop_packet) begin
+						cdc_rx_bus.start		<= 1;
+						rxfifo_rd_offset		<= 1;
 
-				//If we hit the end of the packet and there's nothing left in the FIFO, commit this one
-				else if(rxfifo_rd_size == 0)
-					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_3;
+						//If we didn't get a valid word at the end of the previous packet, read now
+						if(!last_word_valid) begin
+							rxfifo_rd_en		<= 1;
+						end
+						rxfifo_pop_state		<= RXFIFO_STATE_PACKET_0;
+					end
 
-				//Nope, normal operation
-				else begin
+				end	//end RXFIFO_STATE_IDLE
+
+				////////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// Crunch packet bodies
+
+				//Request the read
+				//Pop at 1 word per clock regardless of push rate
+				RXFIFO_STATE_PACKET_0: begin
+					rxfifo_rd_en		<= 1;
+					rxfifo_rd_offset	<= rxfifo_rd_offset + 1;
+					rxfifo_pop_state	<= RXFIFO_STATE_PACKET_1;
+				end	//end RXFIFO_STATE_PACKET_0
+
+				//Read second word of packet (packet must be at least 2 words long anyway)
+				RXFIFO_STATE_PACKET_1: begin
+
+					//First word is en route. Pop the second
 					rxfifo_rd_en			<= 1;
 					rxfifo_rd_offset		<= rxfifo_rd_offset + 1;
+					rxfifo_pop_state		<= RXFIFO_STATE_PACKET_2;
+				end	//end RXFIFO_STATE_PACKET_1
 
-					//Valid data - forward it to layer 2 and keep going
-					cdc_rx_bus.data_valid	<= 1;
+				//Data words are ready, deal with them
+				RXFIFO_STATE_PACKET_2: begin
 
-				end
+					//If we hit a value other than 4 (i.e. partial word) this is the end of the packet
+					if(rxfifo_rd_bytes_valid != 4)
+						rxfifo_pop_state		<= RXFIFO_STATE_PACKET_3;
 
-			end	//end RXFIFO_STATE_PACKET_2
+					//If we hit the end of the packet and there's nothing left in the FIFO, commit this one
+					else if(rxfifo_rd_size == 0)
+						rxfifo_pop_state		<= RXFIFO_STATE_PACKET_3;
 
-			RXFIFO_STATE_PACKET_3: begin
-				rxfifo_rd_pop_packet	<= 1;
+					//Nope, normal operation
+					else begin
+						rxfifo_rd_en			<= 1;
+						rxfifo_rd_offset		<= rxfifo_rd_offset + 1;
 
-				//Bounds check: shouldn't happen but make sure we don't run into negative size territory
-				if(rxfifo_rd_offset >= rxfifo_rd_size)
-					rxfifo_rd_packet_size	<= rxfifo_rd_size;
-				else
-					rxfifo_rd_packet_size	<= rxfifo_rd_offset;
+						//Valid data - forward it to layer 2 and keep going
+						cdc_rx_bus.data_valid	<= 1;
 
-				cdc_rx_bus.commit		<= 1;
-				perf_rx_cdc_frames		<= perf_rx_cdc_frames + 1'h1;
-				rxfifo_pop_state		<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
-			end	//end RXFIFO_STATE_PACKET_3
+					end
 
-		endcase
+				end	//end RXFIFO_STATE_PACKET_2
+
+				RXFIFO_STATE_PACKET_3: begin
+					rxfifo_rd_pop_packet	<= 1;
+
+					//Bounds check: shouldn't happen but make sure we don't run into negative size territory
+					if(rxfifo_rd_offset >= rxfifo_rd_size)
+						rxfifo_rd_packet_size	<= rxfifo_rd_size;
+					else
+						rxfifo_rd_packet_size	<= rxfifo_rd_offset;
+
+					cdc_rx_bus.commit		<= 1;
+					perf_rx_cdc_frames		<= perf_rx_cdc_frames + 1'h1;
+					rxfifo_pop_state		<= RXFIFO_STATE_WAIT_FOR_HEADER_0;
+				end	//end RXFIFO_STATE_PACKET_3
+
+			endcase
+
+		end
 
 	end
 

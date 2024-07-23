@@ -196,7 +196,7 @@ module APB_EthernetRxBuffer_x32(
 		.rd_packet_size(rxfifo_packet_size),
 		.rd_data(rxfifo_rd_data),
 		.rd_size(rxfifo_rd_size),
-		.rd_reset(!eth_link_up)
+		.rd_reset(!apb.preset_n)
 	);
 
 	//PUSH SIDE
@@ -220,7 +220,7 @@ module APB_EthernetRxBuffer_x32(
 		.wsize(rxheader_wr_size),
 		.full(header_wfull),
 		.overflow(),
-		.reset(!eth_link_up),
+		.reset(!apb.preset_n),
 
 		.rd(rxheader_rd_en),
 		.dout(rxheader_rd_data),
@@ -233,41 +233,55 @@ module APB_EthernetRxBuffer_x32(
 	logic	wr_full_start = 0;
 	logic	header_almost_full = 0;
 
-	always_ff @(posedge apb.pclk) begin
+	always_ff @(posedge apb.pclk or negedge apb.preset_n) begin
 
-		rxfifo_wr_drop		<= 0;
-		rxfifo_wr_commit	<= eth_rx_bus.commit;
+		if(!apb.preset_n) begin
+			rxfifo_wr_en		<= 0;
+			rxfifo_wr_drop		<= 0;
+			rxfifo_wr_commit	<= 0;
+			wr_full_start		<= 0;
+			wr_full_end			<= 0;
+			header_almost_full	<= 0;
+			framelen			<= 0;
+			dropping			<= 0;
+		end
 
-		wr_full_end			<= (rxfifo_wr_size < 3);
-		wr_full_start		<= (rxfifo_wr_size < 375);
-		header_almost_full	<= (rxheader_wr_size < 2);
+		else begin
+			rxfifo_wr_drop		<= 0;
+			rxfifo_wr_commit	<= eth_rx_bus.commit;
+			rxfifo_wr_en		<= 0;
 
-		//Frame delimiter
-		if(eth_rx_bus.start) begin
+			wr_full_end			<= (rxfifo_wr_size < 3);
+			wr_full_start		<= (rxfifo_wr_size < 375);
+			header_almost_full	<= (rxheader_wr_size < 2);
 
-			//Not enough space for a full sized frame? Give up
-			if(wr_full_start || header_almost_full )
-				dropping	<= 1;
+			//Frame delimiter
+			if(eth_rx_bus.start) begin
 
-			//Nope, start a new frame
-			else begin
-				framelen	<= 0;
-				dropping	<= 0;
+				//Not enough space for a full sized frame? Give up
+				if(wr_full_start || header_almost_full )
+					dropping	<= 1;
+
+				//Nope, start a new frame
+				else begin
+					framelen	<= 0;
+					dropping	<= 0;
+				end
+
 			end
 
-		end
+			//If we hit max length frame or run out of space, drop the frame
+			else if(wr_full_end || (framelen > 1500) ) begin
+				rxfifo_wr_drop	<= 1;
+				dropping		<= 1;
+			end
 
-		//If we hit max length frame or run out of space, drop the frame
-		else if(wr_full_end || (framelen > 1500) ) begin
-			rxfifo_wr_drop	<= 1;
-			dropping		<= 1;
-		end
-
-		//Nope, push data as needed
-		else if(!dropping) begin
-			rxfifo_wr_en	<= eth_rx_bus.data_valid;
-			rxfifo_wr_data	<= eth_rx_bus.data;
-			framelen		<= framelen + eth_rx_bus.bytes_valid;
+			//Nope, push data as needed
+			else if(!dropping && eth_rx_bus.data_valid) begin
+				rxfifo_wr_en	<= eth_rx_bus.data_valid;
+				rxfifo_wr_data	<= eth_rx_bus.data;
+				framelen		<= framelen + eth_rx_bus.bytes_valid;
+			end
 		end
 
 	end
