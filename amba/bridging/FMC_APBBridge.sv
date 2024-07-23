@@ -54,7 +54,7 @@ module FMC_APBBridge #(
 
 	//FMC pins to MCU
 	input wire			fmc_clk,
-	(* iob="true" *) output logic		fmc_nwait = 1,
+	(* iob="true" *)  output logic		fmc_nwait = 1,
 	input wire			fmc_noe,
 	inout wire[15:0]	fmc_ad,
 	input wire			fmc_nwe,
@@ -250,22 +250,20 @@ module FMC_APBBridge #(
 		.DO(drp_do),
 		.DRDY(drp_ready)
 	);
-
+	/*
 	BUFG bufg_clk_fb(
 		.I(clk_fb),
-		.O(clk_fb_bufg));
+		.O(clk_fb_bufg));*/
 
 	BUFGCE bufg_pclk(
 		.I(pclk_raw),
 		.O(apb.pclk),
 		.CE(pll_lock));
-	/*
+
 	BUFGCE bufg_launch_clk(
 		.I(launch_clk_raw),
 		.O(clk_launch),
 		.CE(pll_lock));
-	*/
-	assign clk_launch = apb.pclk;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Hold APB in reset until PLL locks, then keep asserted for a few clocks after
@@ -344,8 +342,8 @@ module FMC_APBBridge #(
 					fmc_nwait	<= 0;
 
 				//Block if transaction is being dispatched
-				//if( (state == STATE_WAIT) || (state == STATE_WAIT2) || (state == STATE_ADDR) )
-				//	fmc_nwait	<= 0;
+				if( (state == STATE_WAIT) && !pending_write && !apb_busy )
+					fmc_nwait	<= 0;
 
 			end
 
