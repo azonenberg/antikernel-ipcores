@@ -40,9 +40,10 @@
 	Entirely combinatorial, external register stages may be added if required.
  */
 module APBBridge #(
-	parameter BASE_ADDR		= 32'h4000_0000,		//base address of the bridge
-	parameter BLOCK_SIZE	= 32'h0000_0800,		//how much address space to allocate to each peripheral
-	parameter NUM_PORTS		= 2
+	parameter BASE_ADDR			= 32'h4000_0000,		//base address of the bridge
+	parameter BLOCK_SIZE		= 32'h0000_0800,		//how much address space to allocate to each peripheral
+	parameter NUM_PORTS			= 2,
+	parameter ERR_ON_INVALID	= 1
 )(
 	APB.completer	upstream,						//single upstream port
 	APB.requester	downstream[NUM_PORTS-1:0]
@@ -133,6 +134,12 @@ module APBBridge #(
 			upstream.pruser		= pruser[devid];
 			upstream.pbuser		= pbuser[devid];
 			upstream.pslverr	= pslverr[devid];
+		end
+
+		//If upstream psel and *no* range match, force a PSLVERR to terminate the transaction
+		if(ERR_ON_INVALID && upstream.psel && !range_match) begin
+			upstream.pready		= 1;
+			upstream.pslverr 	= 1;
 		end
 
 	end
