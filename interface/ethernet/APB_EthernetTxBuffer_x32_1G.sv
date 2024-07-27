@@ -159,7 +159,7 @@ module APB_EthernetTxBuffer_x32_1G(
 			wr_en				<= 0;
 			wr_commit			<= 0;
 
-			writing_last_byte	<= (tx_expected_packetlen - tx_wr_packetlen) == 1;
+			writing_last_byte	<= (tx_expected_packetlen - (tx_wr_packetlen + wr_en)) == 1;
 
 			//Increment word count as we push
 			if(wr_en) begin
