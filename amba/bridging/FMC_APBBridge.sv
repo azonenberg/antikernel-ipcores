@@ -368,9 +368,6 @@ module FMC_APBBridge #(
 			end
 			STATE_RDATA_HI:	adbus_out	<= prdata_latched[31:16];
 
-			//DEBUG
-			STATE_RD_END:	adbus_out	<= 16'h4141;
-
 			default:		adbus_out	<= 0;
 		endcase
 
@@ -410,10 +407,6 @@ module FMC_APBBridge #(
 					pending_addr	<= { fmc_a_hi, adbus_in, 1'b0};
 					pending_write	<= !fmc_nwe;
 					apb.pwrite		<= !fmc_nwe;
-					apb.paddr		<= { fmc_a_hi, adbus_in, 1'b0};
-
-					//DEBUG: clear prdata_latched
-					prdata_latched	<= 16'hcccc;
 
 					//Move on as soon as we get the address latched
 					if(!fmc_nl_nadv) begin
@@ -423,6 +416,7 @@ module FMC_APBBridge #(
 						if(!apb_busy && fmc_nwe && EARLY_READ_DISPATCH) begin
 							apb.penable		<= 1;
 							apb_busy		<= 1;
+							apb.paddr		<= { fmc_a_hi, adbus_in, 1'b0};
 
 							//Waiting for read data to come back
 							state			<= STATE_RDATA_LO;
@@ -530,5 +524,86 @@ module FMC_APBBridge #(
 			state		<= STATE_ADDR;
 
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Performance counters (TODO make these APB readable)
+
+	//CLOCK_PERIOD is in nanoseconds, e.g. 8 = 125 MHz, convert to PCLK cycles per second
+	localparam PCLK_CYCLES_PER_SEC = 1000 * 1000 * 1000 / CLOCK_PERIOD;
+	localparam SEC_COUNT_BITS = $clog2(PCLK_CYCLES_PER_SEC);
+	integer SEC_COUNT_MAX = PCLK_CYCLES_PER_SEC - 1;
+	logic[SEC_COUNT_BITS-1:0]	count_1hz = 0;
+	logic 						tick_1hz = 0;
+	always_ff @(posedge apb.pclk) begin
+		count_1hz	<= count_1hz + 1;
+		tick_1hz	<= 0;
+		if(count_1hz >= SEC_COUNT_MAX) begin
+			tick_1hz	<= 1;
+			count_1hz	<= 0;
+		end
+	end
+
+	wire[47:0]	apb_reads_per_sec_raw;
+	PerformanceCounter perf_count_apb_reads_per_sec(
+		.clk(apb.pclk),
+		.en(apb.pready && !apb.pwrite),
+		.delta(1),
+		.rst(tick_1hz),
+		.count(apb_reads_per_sec_raw));
+
+	wire[47:0]	apb_writes_per_sec_raw;
+	PerformanceCounter perf_count_apb_writes_per_sec(
+		.clk(apb.pclk),
+		.en(apb.pready && apb.pwrite),
+		.delta(1),
+		.rst(tick_1hz),
+		.count(apb_writes_per_sec_raw));
+
+	wire[47:0]	apb_active_per_sec_raw;
+	PerformanceCounter perf_count_apb_active_per_sec(
+		.clk(apb.pclk),
+		.en(apb.penable),
+		.delta(1),
+		.rst(tick_1hz),
+		.count(apb_active_per_sec_raw));
+
+	wire[47:0]	fmc_active_per_sec_raw;
+	PerformanceCounter perf_count_fmc_active_per_sec(
+		.clk(apb.pclk),
+		.en(!fmc_cs_n),
+		.delta(1),
+		.rst(tick_1hz),
+		.count(fmc_active_per_sec_raw));
+
+	wire[47:0]	fmc_ifg_per_sec_raw;
+	PerformanceCounter perf_count_fmc_ifg_per_sec(
+		.clk(apb.pclk),
+		.en(!fmc_nl_nadv),
+		.delta(2),
+		.rst(tick_1hz),
+		.count(fmc_ifg_per_sec_raw));
+
+	logic[47:0] apb_reads_per_sec = 0;
+	logic[47:0] apb_writes_per_sec = 0;
+	logic[47:0] apb_active_per_sec = 0;
+	logic[47:0] fmc_active_per_sec = 0;
+	logic[47:0] fmc_ifg_per_sec = 0;
+	always_ff @(posedge apb.pclk) begin
+		if(tick_1hz) begin
+			apb_reads_per_sec	<= apb_reads_per_sec_raw;
+			apb_writes_per_sec	<= apb_writes_per_sec_raw;
+			apb_active_per_sec	<= apb_active_per_sec_raw;
+			fmc_active_per_sec	<= fmc_active_per_sec_raw;
+			fmc_ifg_per_sec		<= fmc_ifg_per_sec_raw;
+		end
+	end
+
+	vio_0 vio(
+		.clk(apb.pclk),
+		.probe_in0(apb_reads_per_sec),
+		.probe_in1(apb_writes_per_sec),
+		.probe_in2(apb_active_per_sec),
+		.probe_in3(fmc_active_per_sec),
+		.probe_in4(fmc_ifg_per_sec));
 
 endmodule
