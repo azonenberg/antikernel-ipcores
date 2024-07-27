@@ -89,13 +89,16 @@ module APBRegisterSlice #(
 				if(downstream.pready) begin
 					done				<= 1;
 					downstream.penable	<= 0;
+					downstream.psel		<= 0;
 				end
 
 				if(done)
 					downstream.penable	<= 0;
 
-				if(!upstream.penable)
+				if(!upstream.penable) begin
 					done				<= 0;
+					downstream.psel		<= 0;
+				end
 
 			end
 
