@@ -402,11 +402,8 @@ module FMC_APBBridge #(
 				//LSB of address is always implicitly zero because of 16 bit bus width
 				STATE_ADDR: begin
 
-					//Update as much of the buses as we can outside of nl_nadv to improve timing
-					//(this may be worse for power but its not a lot of signals and they toggle slow)
 					pending_addr	<= { fmc_a_hi, adbus_in, 1'b0};
 					pending_write	<= !fmc_nwe;
-					apb.pwrite		<= !fmc_nwe;
 
 					//Move on as soon as we get the address latched
 					if(!fmc_nl_nadv) begin
@@ -417,6 +414,7 @@ module FMC_APBBridge #(
 							apb.penable		<= 1;
 							apb_busy		<= 1;
 							apb.paddr		<= { fmc_a_hi, adbus_in, 1'b0};
+							apb.pwrite		<= 0;
 
 							//Waiting for read data to come back
 							state			<= STATE_RDATA_LO;
@@ -437,6 +435,7 @@ module FMC_APBBridge #(
 
 						//Kick off the read request
 						apb.paddr			<= pending_addr;
+						apb.pwrite			<= pending_write;
 						apb.penable			<= 1;
 						apb_busy			<= 1;
 
