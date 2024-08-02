@@ -31,9 +31,6 @@
 
 /**
 	@brief Device information block for 7 series FPGAs
-
-	TODO: add CDC support for when clk_dna and clk_icap are not the same as PCLK
-	(or do we just rely on the user to add constraints since they're pseudo-constant?)
  */
 module APB_DeviceInfo_7series(
 
