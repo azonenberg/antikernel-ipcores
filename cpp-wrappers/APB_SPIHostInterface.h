@@ -38,10 +38,14 @@
 struct APB_SPIHostInterface
 {
 	uint32_t clkdiv;
+	uint32_t field_04[7];
 	uint32_t data;
+	uint32_t field_24[7];
 	uint32_t cs_n;
-	uint32_t field_10[5];
+	uint32_t field_44[7];
 	uint32_t status;
+	uint32_t field_64[7];
+	uint32_t status2;
 };
 
 /**
@@ -57,24 +61,30 @@ public:
 		: m_lane(lane)
 	{
 		m_lane->clkdiv = baud_div;
+		asm("dmb st");
+	}
+
+	virtual void WaitUntilIdle()
+	{
+		while(m_lane->status)
+		{
+			#ifdef QSPI_CACHE_WORKAROUND
+				if(m_lane->status2)
+					break;
+			#endif
+		}
 	}
 
 	//TX side
 	virtual void PrintBinary(char ch) override
 	{
-		//Block if busy
-		while(m_lane->status)
-		{}
-
+		WaitUntilIdle();
 		m_lane->data = ch;
 	}
 
 	virtual char BlockingRead()
 	{
-		//Block if busy
-		while(m_lane->status)
-		{}
-
+		WaitUntilIdle();
 		return m_lane->data;
 	}
 

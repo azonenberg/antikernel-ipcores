@@ -66,13 +66,14 @@ module APB_SPIHostInterface(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register IDs
 
+	//Align all writable registers to 0x20 boundaries to work around STM32H7 OCTOSPI bugs
 	typedef enum logic[7:0]
 	{
 		REG_CLK_DIV		= 'h00,		//clock divider from PCLK to SCK
-		REG_DATA		= 'h04,		//[7:0] data to send/receive
-		REG_CS_N		= 'h08,		//[0] = chip select output value
-		REG_STATUS		= 'h20,		//[0] = busy flag
-		REG_STATUS_2	= 'h40		//duplicate of REG_STATUS
+		REG_DATA		= 'h20,		//[7:0] data to send/receive
+		REG_CS_N		= 'h40,		//[0] = chip select output value
+		REG_STATUS		= 'h60,		//[0] = busy flag
+		REG_STATUS_2	= 'h80		//duplicate of REG_STATUS
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

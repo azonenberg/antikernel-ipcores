@@ -156,8 +156,9 @@ module SPIHostInterface(
 			if(toggle_ff) begin
 
 				//Reset the counter and toggle the clock
-				clkcount <= 0;
-				spi_sck <= !spi_sck;
+				clkcount	<= 0;
+				spi_sck 	<= !spi_sck;
+				toggle_ff	<= 0;
 
 				//Make the done flag wait half a bit period if necessary
 				if(almost_done) begin
