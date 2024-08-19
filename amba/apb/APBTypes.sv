@@ -35,8 +35,8 @@
 	@brief An APBv5 bus, as specified in ARM IHI 0024E
  */
 interface APB #(
-	parameter DATA_WIDTH = 8,	//can be 8, 16, or 32
-	parameter ADDR_WIDTH = 16,	//can be 1-32
+	parameter DATA_WIDTH = 32,	//can be 8, 16, or 32
+	parameter ADDR_WIDTH = 32,	//can be 1-32
 	parameter USER_WIDTH = 0	//can be up to 128 bits, application specific
 );
 
