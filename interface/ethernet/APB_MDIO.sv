@@ -74,13 +74,14 @@ module APB_MDIO #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register map
 
+	//Align all writable registers to 0x20 boundaries to work around STM32H7 OCTOSPI bugs
 	typedef enum logic[apb.ADDR_WIDTH-1:0]
 	{
 		CMD_ADDR	= 'h00,		//15	1=write, 0=read (always RAZ)
 								//12:8	Register address
 								//4:0	PHY address
 
-		DATA		= 'h08,		//Read/write data
+		DATA		= 'h20,		//Read/write data
 
 		STATUS		= 'h40,		//Busy flag
 

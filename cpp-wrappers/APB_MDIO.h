@@ -36,9 +36,9 @@
 struct APB_MDIO
 {
 	uint32_t	cmd_addr;
-	uint32_t	field_04;
+	uint32_t	field_04[7];
 	uint32_t	data;
-	uint32_t	field_0c[13];
+	uint32_t	field_14[7];
 	uint32_t	status;
 	uint32_t	field_24[7];
 	uint32_t	status2;
@@ -56,7 +56,13 @@ enum base_mdioreg_t
 
 	//Extended register access
 	REG_PHY_REGCR				= 0x000d,
-	REG_PHY_ADDAR				= 0x000e
+	REG_PHY_ADDAR				= 0x000e,
+
+	//KSZ9031 specific
+	REG_KSZ9031_MDIX			= 0x001c,
+
+	//KSZ9031 MMD 2
+	REG_KSZ9031_MMD2_CLKSKEW	= 0x0008
 };
 
 /**
@@ -118,8 +124,19 @@ protected:
 	 */
 	void WaitUntilIdle()
 	{
-		while(m_mdio->status != 0)
-		{}
+		#ifdef QSPI_CACHE_WORKAROUND
+			asm("dmb st");
+			while(true)
+			{
+				uint32_t a = m_mdio->status;
+				uint32_t b = m_mdio->status2;
+				if(!a && !b)
+					break;
+			}
+		#else
+			while(m_mdio->status)
+			{}
+		#endif
 	}
 
 

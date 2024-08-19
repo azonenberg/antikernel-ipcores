@@ -66,13 +66,19 @@ public:
 
 	virtual void WaitUntilIdle()
 	{
-		while(m_lane->status)
-		{
-			#ifdef QSPI_CACHE_WORKAROUND
-				if(m_lane->status2)
+		#ifdef QSPI_CACHE_WORKAROUND
+			asm("dmb st");
+			while(true)
+			{
+				uint32_t a = m_lane->status;
+				uint32_t b = m_lane->status2;
+				if(!a && !b)
 					break;
-			#endif
-		}
+			}
+		#else
+			while(m_lane->status)
+			{}
+		#endif
 	}
 
 	//TX side
