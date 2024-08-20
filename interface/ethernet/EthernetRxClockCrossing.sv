@@ -63,7 +63,7 @@ module EthernetRxClockCrossing(
 	logic		rxfifo_rd_en			= 0;
 	logic		rxfifo_rd_pop_packet	= 0;
 	wire[10:0]	rxfifo_rd_size;
-	logic[10:0]	rxfifo_rd_offset		= 0;
+	logic[9:0]	rxfifo_rd_offset		= 0;
 	logic[10:0]	rxfifo_rd_packet_size	= 0;
 
 	logic[2:0]	rxfifo_rd_bytes_valid;
