@@ -65,9 +65,10 @@ module APB_EthernetTxBuffer_x32_1G(
 	typedef enum logic[apb.ADDR_WIDTH-1:0]
 	{
 		REG_STAT	= 'h0000,		//[0] = link up flag
-		REG_COMMIT	= 'h0004,		//Write any value to send the current frame
-		REG_LENGTH	= 'h0008,		//Write expected frame length (in bytes) here before writing to TX buffer
-		REG_TX_BUF	= 'h0010		//Write any address >= here to write to transmit buffer
+		REG_COMMIT	= 'h0020,		//Write any value to send the current frame
+		REG_LENGTH	= 'h0040,		//Write expected frame length (in bytes) here before writing to TX buffer
+		REG_TX_WORD = 'h0060,		//Write 32 bits here to write to transmit buffer (writes higher ignored)
+		REG_TX_BUF	= 'h0080		//Write any address >= here to write to transmit buffer
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -246,6 +247,17 @@ module APB_EthernetTxBuffer_x32_1G(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Synchronize link state into TX clock domain
+
+	wire		link_up_txclk;
+	ThreeStageSynchronizer sync_link_up(
+		.clk_in(apb.pclk),
+		.din(link_up_pclk),
+		.clk_out(tx_clk),
+		.dout(link_up_txclk)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual FIFOs
 
 	wire		rd_reset;
@@ -261,13 +273,6 @@ module APB_EthernetTxBuffer_x32_1G(
 	assign tx_bus.data[31:8] = 0;
 	assign tx_bus.bytes_valid = 1;
 
-	wire		link_up_txclk;
-	ThreeStageSynchronizer sync_link_up(
-		.clk_in(apb.pclk),
-		.din(link_up_pclk),
-		.clk_out(tx_clk),
-		.dout(link_up_txclk)
-	);
 	CrossClockFifo #(
 		.WIDTH(8),
 		.DEPTH(4096),

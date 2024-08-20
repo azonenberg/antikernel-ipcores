@@ -35,8 +35,9 @@
  */
 struct APB_EthernetRxBuffer
 {
-	uint8_t			rx_buf[4088];
+	uint8_t			rx_buf[4032];
 	uint32_t		rx_pop;
+	uint32_t		field_fc4[7];
 	uint32_t		rx_len;
 };
 

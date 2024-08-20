@@ -69,8 +69,8 @@ module APB_EthernetRxBuffer_x32(
 		REG_RX_BUF			= 12'h0000,	//start of receive buffer
 										//(must be mapped at zero so we can use paddr directly as FIFO read index)
 
-		REG_RX_POP			= 12'h0ff8,	//write any value to pop the current frame
-		REG_RX_LEN			= 12'h0ffc	//frame length, in bytes
+		REG_RX_POP			= 12'h0fc0,	//write any value to pop the current frame
+		REG_RX_LEN			= 12'h0fe0	//frame length, in bytes
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

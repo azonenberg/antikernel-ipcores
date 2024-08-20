@@ -54,14 +54,21 @@ module APB_EthernetTxBuffer_x32_10G(
 		apb_bus_width_is_invalid();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Tie off unused APB signals
+
+	assign apb.pruser = 0;
+	assign apb.pbuser = 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register map
 
 	typedef enum logic[apb.ADDR_WIDTH-1:0]
 	{
 		REG_STAT	= 'h0000,		//[0] = link up flag
-		REG_COMMIT	= 'h0004,		//Write any value to send the current frame
-		REG_LENGTH	= 'h0008,		//Write expected frame length (in bytes) here before writing to TX buffer
-		REG_TX_BUF	= 'h0010		//Write any address >= here to write to transmit buffer
+		REG_COMMIT	= 'h0020,		//Write any value to send the current frame
+		REG_LENGTH	= 'h0040,		//Write expected frame length (in bytes) here before writing to TX buffer
+		REG_TX_WORD = 'h0060,		//Write 32 bits here to write to transmit buffer (writes higher ignored)
+		REG_TX_BUF	= 'h0080		//Write any address >= here to write to transmit buffer
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -197,6 +204,28 @@ module APB_EthernetTxBuffer_x32_10G(
 					//Partial word
 					else
 						fifo_wr_valid	<= bytes_left;
+				end
+
+				else if(apb.paddr == REG_TX_WORD) begin
+
+					//Pushing data to FIFO (swap byte order)
+					fifo_wr_en		<= 1;
+					fifo_wr_data	<= { apb.pwdata[7:0], apb.pwdata[15:8], apb.pwdata[23:16], apb.pwdata[31:24] };
+
+					//Calculate bytes valid specially
+					if(expected_len_bytes >= 4) begin
+						fifo_wr_valid 		<= 4;
+						expected_len_bytes	<= expected_len_bytes - 4;
+					end
+					else if(expected_len_bytes > 0) begin
+						fifo_wr_valid		<= expected_len_bytes;
+						expected_len_bytes	<= 0;
+					end
+					else begin
+						fifo_wr_en			<= 0;
+						fifo_wr_valid		<= 0;
+					end
+
 				end
 
 			end

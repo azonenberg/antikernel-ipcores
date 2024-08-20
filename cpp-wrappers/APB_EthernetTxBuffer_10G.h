@@ -36,9 +36,13 @@
 struct APB_EthernetTxBuffer_10G
 {
 	uint32_t		tx_stat;
+	uint32_t		field_04[7];
 	uint32_t		tx_commit;
+	uint32_t		field_24[7];
 	uint32_t		tx_len;
-	uint32_t		field_0c;
-	uint8_t			tx_buf[4080];
+	uint32_t		field_44[7];
+	uint32_t		tx_word;
+	uint32_t		field_64[7];
+	uint8_t			tx_buf[3968];
 };
 #endif
