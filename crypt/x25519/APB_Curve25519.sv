@@ -39,9 +39,9 @@ module APB_Curve25519(
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// We only support 16-bit APB, throw synthesis error for anything else
+	// We only support 32-bit APB, throw synthesis error for anything else
 
-	if(apb.DATA_WIDTH != 16)
+	if(apb.DATA_WIDTH != 32)
 		apb_bus_width_is_invalid();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -119,8 +119,8 @@ module APB_Curve25519(
 	wire			crypt_dsa_done;
 	logic[1:0]		crypt_dsa_addr;
 
-	//index of 16-bit word within the point register
-	logic[3:0]		crypt_index;
+	//index of 32-bit word within the point register
+	logic[2:0]		crypt_index;
 
 	//register we're writing to
 	logic[3:0]		crypt_pointreg;
@@ -132,7 +132,7 @@ module APB_Curve25519(
 		apb.prdata	= 0;
 		apb.pslverr	= 0;
 
-		crypt_index		= apb.paddr[4:1];
+		crypt_index		= apb.paddr[4:2];
 		crypt_pointreg	= apb.paddr[8:5];
 
 		if(apb.pready) begin
@@ -151,11 +151,11 @@ module APB_Curve25519(
 
 				//Status register readback
 				if( (apb.paddr == REG_STATUS) || (apb.paddr == REG_STATUS_2) )
-					apb.prdata	= { 15'h0, crypto_active };
+					apb.prdata	= { 31'h0, crypto_active };
 
 				//Readback only allowed from results register
 				else if(crypt_pointreg == BLOCK_DATA_OUT)
-					apb.prdata	= crypt_work_out[crypt_index*16 +: 16];
+					apb.prdata	= crypt_work_out[crypt_index*32 +: 32];
 
 				else
 					apb.pslverr	= 1;
@@ -215,33 +215,33 @@ module APB_Curve25519(
 
 					case(crypt_pointreg)
 
-						BLOCK_E: crypt_e[crypt_index*16 +: 16]	<= apb.pwdata;
+						BLOCK_E: crypt_e[crypt_index*32 +: 32]	<= apb.pwdata;
 
-						BLOCK_WORK: crypt_work_in[crypt_index*16 +: 16]	<= apb.pwdata;
+						BLOCK_WORK: crypt_work_in[crypt_index*32 +: 32]	<= apb.pwdata;
 
 						BLOCK_Q_0: begin
-							crypt_work_in[crypt_index*16 +: 16]	<= apb.pwdata;
+							crypt_work_in[crypt_index*32 +: 32]	<= apb.pwdata;
 							crypt_dsa_addr		<= 0;
 
-							if(crypt_index == 15)
+							if(crypt_index == 7)
 								crypt_dsa_load	<= 1;
 						end
 
 						BLOCK_Q_1: begin
-							crypt_work_in[crypt_index*16 +: 16]	<= apb.pwdata;
+							crypt_work_in[crypt_index*32 +: 32]	<= apb.pwdata;
 							crypt_dsa_addr		<= 1;
 
-							if(crypt_index == 15) begin
+							if(crypt_index == 7) begin
 								crypt_dsa_load	<= 1;
 								crypt_dsa_en	<= 1;
 							end
 						end
 
 						BLOCK_BASE_Q_0: begin
-							crypt_work_in[crypt_index*16 +: 16]	<= apb.pwdata;
+							crypt_work_in[crypt_index*32 +: 32]	<= apb.pwdata;
 							crypt_dsa_addr			<= 0;
 
-							if(crypt_index == 15) begin
+							if(crypt_index == 7) begin
 								crypt_dsa_load		<= 1;
 								crypt_dsa_base_en	<= 1;
 							end
