@@ -61,7 +61,9 @@ public:
 		: m_lane(lane)
 	{
 		m_lane->clkdiv = baud_div;
-		asm("dmb st");
+		#ifdef __arm__
+			asm("dmb st");
+		#endif
 	}
 
 	virtual void WaitUntilIdle()
