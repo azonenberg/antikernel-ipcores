@@ -196,7 +196,7 @@ module APB_EthernetRxBuffer_x32(
 		.rd_packet_size(rxfifo_packet_size),
 		.rd_data(rxfifo_rd_data),
 		.rd_size(rxfifo_rd_size),
-		.rd_reset(!apb.preset_n)
+		.rd_reset(!apb.preset_n || !eth_link_up)
 	);
 
 	//PUSH SIDE
@@ -220,7 +220,7 @@ module APB_EthernetRxBuffer_x32(
 		.wsize(rxheader_wr_size),
 		.full(header_wfull),
 		.overflow(),
-		.reset(!apb.preset_n),
+		.reset(!apb.preset_n || !eth_link_up),
 
 		.rd(rxheader_rd_en),
 		.dout(rxheader_rd_data),
