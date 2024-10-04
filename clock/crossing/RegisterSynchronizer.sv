@@ -53,7 +53,7 @@ module RegisterSynchronizer #(
 	output logic			updated_b 	= 0,
 	input wire				reset_b,
 
-	(* DONT_TOUCH *)
+	(* ASYNC_REG = "TRUE" *)
 	output logic[WIDTH-1:0]	reg_b		= INIT
 	);
 
