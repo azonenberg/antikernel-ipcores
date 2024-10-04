@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2021 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -52,7 +52,25 @@ module DDRInputBuffer #(
 
 	for(genvar i=0; i<WIDTH; i++) begin: buffers
 
-		`ifdef XILINX_7SERIES
+		`ifdef XILINX_ULTRASCALEPLUS
+
+			IDDRE1 #
+			(
+				.DDR_CLK_EDGE("SAME_EDGE_PIPELINED"),
+				.IS_C_INVERTED(0),
+				.IS_CB_INVERTED(0)
+			) ddr_ibuf
+			(
+				.C(clk_p),
+				.CB(clk_n),
+				.Q1(dout0[i]),
+				.Q2(dout1[i]),
+				.R(1'b0),
+				.D(din[i])
+			);
+
+		`elsif XILINX_7SERIES
+
 			IDDR #
 			(
 				.DDR_CLK_EDGE("SAME_EDGE_PIPELINED"),
@@ -71,7 +89,7 @@ module DDRInputBuffer #(
 			);
 
 		`else
-			$fatal(1, "DDRInputBuffer: unrecognized device family (did you forget to define XILINX_7SERIES?)");
+			$fatal(1, "DDRInputBuffer: unrecognized device family (did you forget to define XILINX_7SERIES or XILINX_ULTRASCALEPLUS?)");
 		`endif
 
 	end

@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -56,7 +56,26 @@ module DDROutputBuffer #(
 
 	for(genvar i=0; i<WIDTH; i++) begin: buffers
 
-		`ifdef XILINX_7SERIES
+		`ifdef XILINX_ULTRASCALEPLUS
+
+			ODDRE1 #
+			(
+				.SRVAL(INIT[i]),
+				.IS_C_INVERTED(0),
+				.IS_D1_INVERTED(0),
+				.IS_D2_INVERTED(0),
+				.SIM_DEVICE("ULTRASCALE_PLUS")
+			) ddr_obuf
+			(
+				.C(clk_p),
+				.D1(din0[i]),
+				.D2(din1[i]),
+				.SR(1'b0),
+				.Q(dout[i])
+			);
+
+		`elsif XILINX_7SERIES
+
 			ODDR #
 			(
 				.DDR_CLK_EDGE("SAME_EDGE"),
@@ -72,6 +91,7 @@ module DDROutputBuffer #(
 				.S(1'b0),
 				.Q(dout[i])
 			);
+
 		`else
 			$fatal(1, "DDRInputBuffer: unrecognized device family (did you forget to define XILINX_7SERIES?)");
 		`endif
