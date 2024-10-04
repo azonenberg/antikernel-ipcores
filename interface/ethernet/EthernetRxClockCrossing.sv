@@ -69,6 +69,14 @@ module EthernetRxClockCrossing(
 	logic[2:0]	rxfifo_rd_bytes_valid;
 	logic[31:0]	rxfifo_rd_data;
 
+	//Synchronize reset into the GMII clock domain
+	wire	rst_wr_n;
+	ResetSynchronizer sync_rst_wr(
+		.rst_in_n(rst_n),
+
+		.clk(gmii_rxc),
+		.rst_out_n(rst_wr_n));
+
 	//An all-zero word indicates packet boundaries
 	CrossClockPacketFifo #(
 		.WIDTH(35),		//3 bits valid + 32 data
@@ -79,7 +87,7 @@ module EthernetRxClockCrossing(
 		.wr_clk(gmii_rxc),
 		.wr_en(rxfifo_wr_en),
 		.wr_data(rxfifo_wr_data),
-		.wr_reset(1'b0),
+		.wr_reset(!rst_wr_n),
 		.wr_size(),
 		.wr_commit(mac_rx_bus.commit),
 		.wr_rollback(mac_rx_bus.drop),
@@ -136,6 +144,7 @@ module EthernetRxClockCrossing(
 	always_ff @(posedge sys_clk or negedge rst_n) begin
 		if(!rst_n) begin
 			rxfifo_rd_en				<= 0;
+			rxfifo_rd_offset			<= 0;
 			rxfifo_rd_pop_packet		<= 0;
 			cdc_rx_bus.start			<= 0;
 			cdc_rx_bus.data_valid		<= 0;
