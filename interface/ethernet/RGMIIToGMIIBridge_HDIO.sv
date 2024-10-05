@@ -326,20 +326,32 @@ module RGMIIToGMIIBridge_HDIO(
 		end
 	end
 
+	//Register output data to improve timing
+	logic[3:0]	tx_data_lo_ff = 0;
+	logic[3:0]	tx_data_hi_ff = 0;
+	logic		tx_ctl_lo_ff = 0;
+	logic		tx_ctl_hi_ff = 0;
+	always_ff @(posedge gmii_txc) begin
+		tx_data_lo_ff	<= tx_data_lo;
+		tx_data_hi_ff	<= tx_data_hi;
+		tx_ctl_lo_ff	<= gmii_tx_bus.en;
+		tx_ctl_hi_ff	<= gmii_tx_bus.en ^ gmii_tx_bus.er;
+	end
+
 	DDROutputBuffer #(.WIDTH(4)) rgmii_txd_oddr(
 		.clk_p(gmii_txc),
 		.clk_n(~gmii_txc),
 		.dout(rgmii_txd),
-		.din0(tx_data_lo),
-		.din1(tx_data_hi)
+		.din0(tx_data_lo_ff),
+		.din1(tx_data_hi_ff)
 		);
 
 	DDROutputBuffer #(.WIDTH(1)) rgmii_txe_oddr(
 		.clk_p(gmii_txc),
 		.clk_n(~gmii_txc),
 		.dout(rgmii_tx_ctl),
-		.din0(gmii_tx_bus.en),
-		.din1(gmii_tx_bus.en ^ gmii_tx_bus.er)
+		.din0(tx_ctl_lo_ff),
+		.din1(tx_ctl_hi_ff)
 		);
 
 endmodule
