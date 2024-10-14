@@ -45,7 +45,7 @@ import EthernetBus::*;
 	So far, only tested with KSZ9031RNX.
 
 	Required register settings for test:
-		mmd 2 reg 8 = 3dfc (RX_CLK pad skew)
+		mmd 2 reg 8 = 3dfc (RX_CLK pad skew xx, TX_CLK pad skew xx)
  */
 module RGMIIToGMIIBridge_HDIO(
 
@@ -63,7 +63,6 @@ module RGMIIToGMIIBridge_HDIO(
 	output GmiiBus		gmii_rx_bus = {1'b0, 1'b0, 1'b0, 8'b0},
 
 	input wire			gmii_txc,		//must be 125 MHz regardless of speed
-	input wire			gmii_txc_phased,
 	//TODO: secondary clock?
 	input wire GmiiBus	gmii_tx_bus,
 
@@ -227,16 +226,17 @@ module RGMIIToGMIIBridge_HDIO(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX side clock generation
 
-	logic[3:0]	clock_dout 		= 4'b0000;
 	logic[7:0]	clock_count		= 8'h0;
 	logic		update_data		= 0;
 
 	//Clock phasing control
+	logic[1:0]	clock_dout		= 2'b01;
+	logic[1:0]	clock_dout_ff	= 2'b01;
 	always_ff @(posedge gmii_txc) begin
 
-		//Gig mode: send clock phased to rise half a cycle after our data goes out
+		//Gig mode: always pushing new data every cycle
 		if(link_speed_sync == LINK_SPEED_1000M) begin
-			clock_dout		<= 4'b1001;
+			clock_dout		<= 2'b01;
 			update_data		<= 1;
 		end
 
@@ -247,7 +247,7 @@ module RGMIIToGMIIBridge_HDIO(
 
 			if(gmii_tx_bus.dvalid) begin
 				clock_count	<= 0;
-				clock_dout	<= 4'b0000;
+				clock_dout	<= 2'b00;
 			end
 
 			clock_count <= clock_count + 1'h1;
@@ -266,12 +266,12 @@ module RGMIIToGMIIBridge_HDIO(
 
 				case(clock_count)
 
-					0:	clock_dout	<= 4'b0000;
-					1:	clock_dout	<= 4'b0000;
-					2:	clock_dout	<= 4'b1100;	//serdes sends LSB first so 1100 is a rising edge!
-					3:	clock_dout	<= 4'b1111;
+					0:	clock_dout	<= 2'b00;
+					1:	clock_dout	<= 2'b00;
+					2:	clock_dout	<= 2'b01;
+					3:	clock_dout	<= 2'b11;
 					4: begin
-						clock_dout	<= 4'b1111;
+						clock_dout	<= 2'b11;
 						clock_count	<= 0;
 						update_data	<= 1;
 					end
@@ -284,13 +284,19 @@ module RGMIIToGMIIBridge_HDIO(
 
 	end
 
-	//Initial function check: echo the 125 MHz input clock unmodified
+	//pipeline delay
+	always_ff @(posedge gmii_txc) begin
+		clock_dout_ff	<= clock_dout;
+	end
+
+	//Echo the TX clock (use constraints to phase shift clock routing a bit)
+	//This actually works better than using a second PLL phase, since vivado has trouble constraining that apparently
 	DDROutputBuffer #(.WIDTH(1)) rgmii_txc_oddr(
-		.clk_p(gmii_txc_phased),
-		.clk_n(~gmii_txc_phased),
+		.clk_p(gmii_txc),
+		.clk_n(~gmii_txc),
 		.dout(rgmii_txc),
-		.din0(1'b0),
-		.din1(1'b1)
+		.din0(clock_dout_ff[0]),
+		.din1(clock_dout_ff[1])
 		);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
