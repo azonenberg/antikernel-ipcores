@@ -45,7 +45,7 @@ import EthernetBus::*;
 	So far, only tested with KSZ9031RNX.
 
 	Required register settings for test:
-		mmd 2 reg 8 = 3dfc (RX_CLK pad skew xx, TX_CLK pad skew xx)
+		mmd 2 reg 8 = 3ffa (RX_CLK pad skew xx, TX_CLK pad skew xx)
  */
 module RGMIIToGMIIBridge_HDIO(
 
@@ -226,27 +226,29 @@ module RGMIIToGMIIBridge_HDIO(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX side clock generation
 
+	//In 10/100 mode alternate sending low nibble twice and high nibble twice
+	logic		tx_phase	= 0;
+	logic		tx_en_ff	= 0;
+
 	logic[7:0]	clock_count		= 8'h0;
-	logic		update_data		= 0;
 
 	//Clock phasing control
 	logic[1:0]	clock_dout		= 2'b01;
 	logic[1:0]	clock_dout_ff	= 2'b01;
 	always_ff @(posedge gmii_txc) begin
 
+		tx_en_ff			<= gmii_tx_bus.en;
+
 		//Gig mode: always pushing new data every cycle
 		if(link_speed_sync == LINK_SPEED_1000M) begin
 			clock_dout		<= 2'b01;
-			update_data		<= 1;
 		end
 
 		//10/100 mode: nice long delays between toggles
 		else begin
 
-			update_data		<= 0;
-
 			if(gmii_tx_bus.dvalid) begin
-				clock_count	<= 0;
+				clock_count	<= 1;
 				clock_dout	<= 2'b00;
 			end
 
@@ -256,7 +258,7 @@ module RGMIIToGMIIBridge_HDIO(
 			if( (link_speed_sync == LINK_SPEED_10M) && (clock_count == 24) ) begin
 				clock_count		<= 0;
 				if(clock_dout)
-					update_data	<= 1;
+					tx_phase	<= !tx_phase;
 				clock_dout		<= ~clock_dout;
 			end
 
@@ -268,12 +270,12 @@ module RGMIIToGMIIBridge_HDIO(
 
 					0:	clock_dout	<= 2'b00;
 					1:	clock_dout	<= 2'b00;
-					2:	clock_dout	<= 2'b01;
-					3:	clock_dout	<= 2'b11;
+					2: 	clock_dout	<= 2'b10;
+					3: 	clock_dout	<= 2'b11;
 					4: begin
 						clock_dout	<= 2'b11;
 						clock_count	<= 0;
-						update_data	<= 1;
+						tx_phase	<= !tx_phase;
 					end
 
 				endcase
@@ -301,18 +303,6 @@ module RGMIIToGMIIBridge_HDIO(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX side datapath
-
-	//In 10/100 mode alternate sending low nibble twice and high nibble twice
-	logic	tx_phase	= 0;
-	logic	tx_en_ff	= 0;
-
-	always_ff @(posedge gmii_txc) begin
-		tx_en_ff		<= gmii_tx_bus.en;
-		if(gmii_tx_bus.en && !tx_en_ff)
-			tx_phase	<= 0;
-		if(update_data)
-			tx_phase	<= !tx_phase;
-	end
 
 	logic[3:0]	tx_data_hi;
 	logic[3:0]	tx_data_lo;
