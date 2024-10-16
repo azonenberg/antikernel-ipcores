@@ -456,7 +456,8 @@ module TriSpeedEthernetMAC #(
 				TX_STATE_FRAME_DATA: begin
 
 					//Not last word? Pop it
-					if(tx_fifo_rsize > 1)
+					//Can also pop if size == 1 and we're not popping
+					if( (tx_fifo_rsize > 1) || ( (tx_fifo_rsize == 1) && !tx_fifo_pop) )
 						tx_fifo_pop	<= 1;
 
 					//Don't finish up if there's still one last byte of data being popped
