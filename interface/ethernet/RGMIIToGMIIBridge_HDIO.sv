@@ -196,31 +196,22 @@ module RGMIIToGMIIBridge_HDIO(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Synchronize link speed into TX clock domain
+	// Use separate syncs, OK if they glitch for a cycle during transition
 
-	lspeed_t	link_speed_ff		= LINK_SPEED_10M;
-	logic		link_speed_change	= 0;
+	lspeed_t	link_speed_sync;
 
-	always_ff @(posedge gmii_rxc) begin
-		link_speed_change	<= (link_speed_ff != link_speed);
-		link_speed_ff		<= link_speed;
-	end
+	ThreeStageSynchronizer sync_link_speed_0(
+		.clk_in(gmii_rxc),
+		.din(link_speed[0]),
+		.clk_out(gmii_txc),
+		.dout(link_speed_sync[0])
+	);
 
-	wire[1:0]	link_speed_sync_raw;
-	lspeed_t	link_speed_sync = lspeed_t'(link_speed_sync_raw);
-
-	RegisterSynchronizer #(
-		.WIDTH(2),
-		.INIT(0)
-	) sync_link_speed(
-		.clk_a(gmii_rxc),
-		.en_a(link_speed_change),
-		.ack_a(),
-		.reg_a(link_speed),
-
-		.clk_b(gmii_txc),
-		.updated_b(),
-		.reg_b(link_speed_sync_raw),
-		.reset_b(1'b0)
+	ThreeStageSynchronizer sync_link_speed_1(
+		.clk_in(gmii_rxc),
+		.din(link_speed[1]),
+		.clk_out(gmii_txc),
+		.dout(link_speed_sync[1])
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -274,9 +265,12 @@ module RGMIIToGMIIBridge_HDIO(
 			//10M: we want 2.5 MHz so toggle at 5 MT/s (every 25 cycles)
 			if( (link_speed_sync == LINK_SPEED_10M) && (clock_count == 24) ) begin
 				clock_count		<= 0;
-				if(clock_dout)
+				if(clock_dout) begin
 					tx_phase	<= !tx_phase;
-				clock_dout		<= ~clock_dout;
+					clock_dout	<= 2'b00;
+				end
+				else
+					clock_dout	<= 2'b11;
 			end
 
 			//100M: we want 25 MHz. this adds a bit of fun since we're dividing by 5

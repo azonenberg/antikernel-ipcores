@@ -244,33 +244,21 @@ module TriSpeedEthernetMAC #(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Synchronize link speed into TX clock domain
+	// Use separate syncs, OK if they glitch for a cycle during transition
 
-	lspeed_t	link_speed_ff		= LINK_SPEED_10M;
-	logic		link_speed_change	= 0;
-
-	always_ff @(posedge gmii_rx_clk) begin
-		link_speed_change	<= (link_speed_ff != link_speed);
-		link_speed_ff		<= link_speed;
-	end
-
-	wire[1:0]	link_speed_sync_raw;
 	lspeed_t	link_speed_sync;
-	always_comb
-		link_speed_sync <= lspeed_t'(link_speed_sync_raw);
 
-	RegisterSynchronizer #(
-		.WIDTH(2),
-		.INIT(LINK_SPEED_1000M)
-	) sync_link_speed(
-		.clk_a(gmii_rx_clk),
-		.en_a(link_speed_change),
-		.ack_a(),
-		.reg_a(link_speed),
-
-		.clk_b(gmii_tx_clk),
-		.updated_b(),
-		.reg_b(link_speed_sync_raw),
-		.reset_b(1'b0)
+	ThreeStageSynchronizer sync_link_speed_0(
+		.clk_in(gmii_rx_clk),
+		.din(link_speed[0]),
+		.clk_out(gmii_tx_clk),
+		.dout(link_speed_sync[0])
+	);
+	ThreeStageSynchronizer sync_link_speed_1(
+		.clk_in(gmii_rx_clk),
+		.din(link_speed[1]),
+		.clk_out(gmii_tx_clk),
+		.dout(link_speed_sync[1])
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
