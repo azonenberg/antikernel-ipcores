@@ -224,6 +224,28 @@ module RGMIIToGMIIBridge_HDIO(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Pipeline and edge-detect TX side data bus
+
+	logic		tx_valid_ff	= 0;
+	logic		tx_en_ff	= 0;
+	logic		tx_er_ff	= 0;
+	logic		tx_en_ff2	= 0;
+	logic[7:0]	tx_data_ff	= 0;
+	logic		tx_starting;
+
+	always_ff @(posedge gmii_txc) begin
+		tx_valid_ff	<= gmii_tx_bus.dvalid;
+		tx_en_ff	<= gmii_tx_bus.en;
+		tx_er_ff	<= gmii_tx_bus.er;
+		tx_en_ff2	<= tx_en_ff;
+		tx_data_ff	<= gmii_tx_bus.data;
+	end
+
+	always_comb begin
+		tx_starting	= gmii_tx_bus.en && !tx_en_ff;
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX side clock generation
 
 	//In 10/100 mode alternate sending low nibble twice and high nibble twice
@@ -247,11 +269,6 @@ module RGMIIToGMIIBridge_HDIO(
 		//10/100 mode: nice long delays between toggles
 		else begin
 
-			if(gmii_tx_bus.dvalid) begin
-				clock_count	<= 1;
-				clock_dout	<= 2'b00;
-			end
-
 			clock_count <= clock_count + 1'h1;
 
 			//10M: we want 2.5 MHz so toggle at 5 MT/s (every 25 cycles)
@@ -268,18 +285,25 @@ module RGMIIToGMIIBridge_HDIO(
 
 				case(clock_count)
 
-					0:	clock_dout	<= 2'b00;
-					1:	clock_dout	<= 2'b00;
-					2: 	clock_dout	<= 2'b10;
-					3: 	clock_dout	<= 2'b11;
+					0:	clock_dout	<= 2'b11;
+					1:	clock_dout	<= 2'b11;
+					2: 	clock_dout	<= 2'b01;
+					3: 	clock_dout	<= 2'b00;
 					4: begin
-						clock_dout	<= 2'b11;
+						clock_dout	<= 2'b00;
 						clock_count	<= 0;
 						tx_phase	<= !tx_phase;
 					end
 
 				endcase
 
+			end
+
+			//Reset at start of frame
+			if(tx_starting) begin
+				clock_count	<= 0;
+				clock_dout	<= 2'b00;
+				tx_phase	<= 0;
 			end
 
 		end
@@ -309,16 +333,16 @@ module RGMIIToGMIIBridge_HDIO(
 
 	always_comb begin
 		if(link_speed_sync == LINK_SPEED_1000M) begin
-			tx_data_lo	<= gmii_tx_bus.data[3:0];
-			tx_data_hi	<= gmii_tx_bus.data[7:4];
+			tx_data_lo	= tx_data_ff[3:0];
+			tx_data_hi	= tx_data_ff[7:4];
 		end
 		else if(tx_phase == 0) begin
-			tx_data_lo	<= gmii_tx_bus.data[3:0];
-			tx_data_hi	<= gmii_tx_bus.data[3:0];
+			tx_data_lo	= tx_data_ff[3:0];
+			tx_data_hi	= tx_data_ff[3:0];
 		end
 		else/* if(tx_phase == 1)*/ begin
-			tx_data_lo	<= gmii_tx_bus.data[7:4];
-			tx_data_hi	<= gmii_tx_bus.data[7:4];
+			tx_data_lo	= tx_data_ff[7:4];
+			tx_data_hi	= tx_data_ff[7:4];
 		end
 	end
 
@@ -330,8 +354,8 @@ module RGMIIToGMIIBridge_HDIO(
 	always_ff @(posedge gmii_txc) begin
 		tx_data_lo_ff	<= tx_data_lo;
 		tx_data_hi_ff	<= tx_data_hi;
-		tx_ctl_lo_ff	<= gmii_tx_bus.en;
-		tx_ctl_hi_ff	<= gmii_tx_bus.en ^ gmii_tx_bus.er;
+		tx_ctl_lo_ff	<= tx_en_ff;
+		tx_ctl_hi_ff	<= tx_en_ff ^ tx_er_ff;
 	end
 
 	DDROutputBuffer #(.WIDTH(4)) rgmii_txd_oddr(
