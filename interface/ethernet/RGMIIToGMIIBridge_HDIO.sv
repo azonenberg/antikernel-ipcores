@@ -39,13 +39,21 @@ import EthernetBus::*;
 	Note that the GMII bus isn't quite standard GMII in 10/100 mode!
 
 	Requirements from the PHY:
-		Internal delay on the RX (i.e. RGMII RX clock is center aligned to the incoming data).
 		In-band status enabled
+		Internal delay with optimized timing
+			For KSZ9031RNX:
+				mmd 2 reg 8 = 3ffa (adjust GTX_CLK / RX_CLK delay lines)
 
-	So far, only tested with KSZ9031RNX.
+	Timing constraints for above register settings:
+		set_input_delay -clock [get_clocks rgmii_rxc] -clock_fall -min -add_delay 0.54 [get_ports [ list rgmii_rxd[3] rgmii_rxd[2] rgmii_rxd[1] rgmii_rxd[0] rgmii_rx_ctl ]]
+		set_input_delay -clock [get_clocks rgmii_rxc] -clock_fall -max -add_delay 2.14 [get_ports [ list rgmii_rxd[3] rgmii_rxd[2] rgmii_rxd[1] rgmii_rxd[0] rgmii_rx_ctl ]]
+		set_input_delay -clock [get_clocks rgmii_rxc] -min -add_delay 0.54 [get_ports [ list rgmii_rxd[3] rgmii_rxd[2] rgmii_rxd[1] rgmii_rxd[0] rgmii_rx_ctl ]]
+		set_input_delay -clock [get_clocks rgmii_rxc] -max -add_delay 2.14 [get_ports [ list rgmii_rxd[3] rgmii_rxd[2] rgmii_rxd[1] rgmii_rxd[0] rgmii_rx_ctl ]]
 
-	Required register settings for test:
-		mmd 2 reg 8 = 3ffa (RX_CLK pad skew xx, TX_CLK pad skew xx)
+		set_output_delay -clock [get_clocks rgmii_txc] -clock_fall -min -add_delay 1.96 [get_ports [ list rgmii_txd[0] rgmii_txd[1] rgmii_txd[2] rgmii_txd[3] rgmii_tx_ctl ]]
+		set_output_delay -clock [get_clocks rgmii_txc] -clock_fall -max -add_delay 0.04 [get_ports [ list rgmii_txd[0] rgmii_txd[1] rgmii_txd[2] rgmii_txd[3] rgmii_tx_ctl ]]
+		set_output_delay -clock [get_clocks rgmii_txc] -min -add_delay 1.96 [get_ports [ list rgmii_txd[0] rgmii_txd[1] rgmii_txd[2] rgmii_txd[3] rgmii_tx_ctl ]]
+		set_output_delay -clock [get_clocks rgmii_txc] -max -add_delay 0.04 [get_ports [ list rgmii_txd[0] rgmii_txd[1] rgmii_txd[2] rgmii_txd[3] rgmii_tx_ctl ]]
  */
 module RGMIIToGMIIBridge_HDIO(
 
