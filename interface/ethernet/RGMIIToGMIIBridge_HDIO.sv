@@ -39,13 +39,21 @@ import EthernetBus::*;
 	Note that the GMII bus isn't quite standard GMII in 10/100 mode!
 
 	Requirements from the PHY:
-		Internal delay on the RX (i.e. RGMII RX clock is center aligned to the incoming data).
 		In-band status enabled
+		Internal delay with optimized timing
+			For KSZ9031RNX:
+				mmd 2 reg 8 = 3ffa (adjust GTX_CLK / RX_CLK delay lines)
 
-	So far, only tested with KSZ9031RNX.
+	Timing constraints for above register settings:
+		set_input_delay -clock [get_clocks rgmii_rxc] -clock_fall -min -add_delay 0.54 [get_ports [ list rgmii_rxd[3] rgmii_rxd[2] rgmii_rxd[1] rgmii_rxd[0] rgmii_rx_ctl ]]
+		set_input_delay -clock [get_clocks rgmii_rxc] -clock_fall -max -add_delay 2.14 [get_ports [ list rgmii_rxd[3] rgmii_rxd[2] rgmii_rxd[1] rgmii_rxd[0] rgmii_rx_ctl ]]
+		set_input_delay -clock [get_clocks rgmii_rxc] -min -add_delay 0.54 [get_ports [ list rgmii_rxd[3] rgmii_rxd[2] rgmii_rxd[1] rgmii_rxd[0] rgmii_rx_ctl ]]
+		set_input_delay -clock [get_clocks rgmii_rxc] -max -add_delay 2.14 [get_ports [ list rgmii_rxd[3] rgmii_rxd[2] rgmii_rxd[1] rgmii_rxd[0] rgmii_rx_ctl ]]
 
-	Required register settings for test:
-		mmd 2 reg 8 = 3dfc (RX_CLK pad skew)
+		set_output_delay -clock [get_clocks rgmii_txc] -clock_fall -min -add_delay 1.96 [get_ports [ list rgmii_txd[0] rgmii_txd[1] rgmii_txd[2] rgmii_txd[3] rgmii_tx_ctl ]]
+		set_output_delay -clock [get_clocks rgmii_txc] -clock_fall -max -add_delay 0.04 [get_ports [ list rgmii_txd[0] rgmii_txd[1] rgmii_txd[2] rgmii_txd[3] rgmii_tx_ctl ]]
+		set_output_delay -clock [get_clocks rgmii_txc] -min -add_delay 1.96 [get_ports [ list rgmii_txd[0] rgmii_txd[1] rgmii_txd[2] rgmii_txd[3] rgmii_tx_ctl ]]
+		set_output_delay -clock [get_clocks rgmii_txc] -max -add_delay 0.04 [get_ports [ list rgmii_txd[0] rgmii_txd[1] rgmii_txd[2] rgmii_txd[3] rgmii_tx_ctl ]]
  */
 module RGMIIToGMIIBridge_HDIO(
 
@@ -63,7 +71,6 @@ module RGMIIToGMIIBridge_HDIO(
 	output GmiiBus		gmii_rx_bus = {1'b0, 1'b0, 1'b0, 8'b0},
 
 	input wire			gmii_txc,		//must be 125 MHz regardless of speed
-	input wire			gmii_txc_phased,
 	//TODO: secondary clock?
 	input wire GmiiBus	gmii_tx_bus,
 
@@ -197,67 +204,81 @@ module RGMIIToGMIIBridge_HDIO(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Synchronize link speed into TX clock domain
+	// Use separate syncs, OK if they glitch for a cycle during transition
 
-	lspeed_t	link_speed_ff		= LINK_SPEED_10M;
-	logic		link_speed_change	= 0;
+	lspeed_t	link_speed_sync;
 
-	always_ff @(posedge gmii_rxc) begin
-		link_speed_change	<= (link_speed_ff != link_speed);
-		link_speed_ff		<= link_speed;
+	ThreeStageSynchronizer sync_link_speed_0(
+		.clk_in(gmii_rxc),
+		.din(link_speed[0]),
+		.clk_out(gmii_txc),
+		.dout(link_speed_sync[0])
+	);
+
+	ThreeStageSynchronizer sync_link_speed_1(
+		.clk_in(gmii_rxc),
+		.din(link_speed[1]),
+		.clk_out(gmii_txc),
+		.dout(link_speed_sync[1])
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Pipeline and edge-detect TX side data bus
+
+	logic		tx_valid_ff	= 0;
+	logic		tx_en_ff	= 0;
+	logic		tx_er_ff	= 0;
+	logic		tx_en_ff2	= 0;
+	logic[7:0]	tx_data_ff	= 0;
+	logic		tx_starting;
+
+	always_ff @(posedge gmii_txc) begin
+		tx_valid_ff	<= gmii_tx_bus.dvalid;
+		tx_en_ff	<= gmii_tx_bus.en;
+		tx_er_ff	<= gmii_tx_bus.er;
+		tx_en_ff2	<= tx_en_ff;
+		tx_data_ff	<= gmii_tx_bus.data;
 	end
 
-	wire[1:0]	link_speed_sync_raw;
-	lspeed_t	link_speed_sync = lspeed_t'(link_speed_sync_raw);
-
-	RegisterSynchronizer #(
-		.WIDTH(2),
-		.INIT(0)
-	) sync_link_speed(
-		.clk_a(gmii_rxc),
-		.en_a(link_speed_change),
-		.ack_a(),
-		.reg_a(link_speed),
-
-		.clk_b(gmii_txc),
-		.updated_b(),
-		.reg_b(link_speed_sync_raw),
-		.reset_b(1'b0)
-	);
+	always_comb begin
+		tx_starting	= gmii_tx_bus.en && !tx_en_ff;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX side clock generation
 
-	logic[3:0]	clock_dout 		= 4'b0000;
+	//In 10/100 mode alternate sending low nibble twice and high nibble twice
+	logic		tx_phase	= 0;
+	logic		tx_en_ff	= 0;
+
 	logic[7:0]	clock_count		= 8'h0;
-	logic		update_data		= 0;
 
 	//Clock phasing control
+	logic[1:0]	clock_dout		= 2'b01;
+	logic[1:0]	clock_dout_ff	= 2'b01;
 	always_ff @(posedge gmii_txc) begin
 
-		//Gig mode: send clock phased to rise half a cycle after our data goes out
+		tx_en_ff			<= gmii_tx_bus.en;
+
+		//Gig mode: always pushing new data every cycle
 		if(link_speed_sync == LINK_SPEED_1000M) begin
-			clock_dout		<= 4'b1001;
-			update_data		<= 1;
+			clock_dout		<= 2'b01;
 		end
 
 		//10/100 mode: nice long delays between toggles
 		else begin
-
-			update_data		<= 0;
-
-			if(gmii_tx_bus.dvalid) begin
-				clock_count	<= 0;
-				clock_dout	<= 4'b0000;
-			end
 
 			clock_count <= clock_count + 1'h1;
 
 			//10M: we want 2.5 MHz so toggle at 5 MT/s (every 25 cycles)
 			if( (link_speed_sync == LINK_SPEED_10M) && (clock_count == 24) ) begin
 				clock_count		<= 0;
-				if(clock_dout)
-					update_data	<= 1;
-				clock_dout		<= ~clock_dout;
+				if(clock_dout) begin
+					tx_phase	<= !tx_phase;
+					clock_dout	<= 2'b00;
+				end
+				else
+					clock_dout	<= 2'b11;
 			end
 
 			//100M: we want 25 MHz. this adds a bit of fun since we're dividing by 5
@@ -266,63 +287,64 @@ module RGMIIToGMIIBridge_HDIO(
 
 				case(clock_count)
 
-					0:	clock_dout	<= 4'b0000;
-					1:	clock_dout	<= 4'b0000;
-					2:	clock_dout	<= 4'b1100;	//serdes sends LSB first so 1100 is a rising edge!
-					3:	clock_dout	<= 4'b1111;
+					0:	clock_dout	<= 2'b11;
+					1:	clock_dout	<= 2'b11;
+					2: 	clock_dout	<= 2'b01;
+					3: 	clock_dout	<= 2'b00;
 					4: begin
-						clock_dout	<= 4'b1111;
+						clock_dout	<= 2'b00;
 						clock_count	<= 0;
-						update_data	<= 1;
+						tx_phase	<= !tx_phase;
 					end
 
 				endcase
 
 			end
 
+			//Reset at start of frame
+			if(tx_starting) begin
+				clock_count	<= 0;
+				clock_dout	<= 2'b00;
+				tx_phase	<= 0;
+			end
+
 		end
 
 	end
 
-	//Initial function check: echo the 125 MHz input clock unmodified
+	//pipeline delay
+	always_ff @(posedge gmii_txc) begin
+		clock_dout_ff	<= clock_dout;
+	end
+
+	//Echo the TX clock (use constraints to phase shift clock routing a bit)
+	//This actually works better than using a second PLL phase, since vivado has trouble constraining that apparently
 	DDROutputBuffer #(.WIDTH(1)) rgmii_txc_oddr(
-		.clk_p(gmii_txc_phased),
-		.clk_n(~gmii_txc_phased),
+		.clk_p(gmii_txc),
+		.clk_n(~gmii_txc),
 		.dout(rgmii_txc),
-		.din0(1'b0),
-		.din1(1'b1)
+		.din0(clock_dout_ff[0]),
+		.din1(clock_dout_ff[1])
 		);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX side datapath
-
-	//In 10/100 mode alternate sending low nibble twice and high nibble twice
-	logic	tx_phase	= 0;
-	logic	tx_en_ff	= 0;
-
-	always_ff @(posedge gmii_txc) begin
-		tx_en_ff		<= gmii_tx_bus.en;
-		if(gmii_tx_bus.en && !tx_en_ff)
-			tx_phase	<= 0;
-		if(update_data)
-			tx_phase	<= !tx_phase;
-	end
 
 	logic[3:0]	tx_data_hi;
 	logic[3:0]	tx_data_lo;
 
 	always_comb begin
 		if(link_speed_sync == LINK_SPEED_1000M) begin
-			tx_data_lo	<= gmii_tx_bus.data[3:0];
-			tx_data_hi	<= gmii_tx_bus.data[7:4];
+			tx_data_lo	= tx_data_ff[3:0];
+			tx_data_hi	= tx_data_ff[7:4];
 		end
 		else if(tx_phase == 0) begin
-			tx_data_lo	<= gmii_tx_bus.data[3:0];
-			tx_data_hi	<= gmii_tx_bus.data[3:0];
+			tx_data_lo	= tx_data_ff[3:0];
+			tx_data_hi	= tx_data_ff[3:0];
 		end
 		else/* if(tx_phase == 1)*/ begin
-			tx_data_lo	<= gmii_tx_bus.data[7:4];
-			tx_data_hi	<= gmii_tx_bus.data[7:4];
+			tx_data_lo	= tx_data_ff[7:4];
+			tx_data_hi	= tx_data_ff[7:4];
 		end
 	end
 
@@ -334,8 +356,8 @@ module RGMIIToGMIIBridge_HDIO(
 	always_ff @(posedge gmii_txc) begin
 		tx_data_lo_ff	<= tx_data_lo;
 		tx_data_hi_ff	<= tx_data_hi;
-		tx_ctl_lo_ff	<= gmii_tx_bus.en;
-		tx_ctl_hi_ff	<= gmii_tx_bus.en ^ gmii_tx_bus.er;
+		tx_ctl_lo_ff	<= tx_en_ff;
+		tx_ctl_hi_ff	<= tx_en_ff ^ tx_er_ff;
 	end
 
 	DDROutputBuffer #(.WIDTH(4)) rgmii_txd_oddr(
