@@ -33,6 +33,8 @@
 	@brief A bridge from the STM32 FMC to APBv5
 
 	The FMC clock is used as the APB PCLK and is expected to be free-running.
+
+	TODO: add APB completer to query performance counters
  */
 module FMC_APBBridge #(
 	parameter EARLY_READ_DISPATCH	= 0,	//set true to dispatch reads one clock earlier (less latency, worse timing)
@@ -60,8 +62,8 @@ module FMC_APBBridge #(
 	input wire			fmc_nwe,
 	input wire[1:0]		fmc_nbl,
 	input wire			fmc_nl_nadv,
-	input wire[2:0]		fmc_a_hi,
-	input wire			fmc_cs_n			//bank chip select
+	input wire[9:0]		fmc_a_hi,			//high address bits (optional, as needed for desired address space size)
+	input wire			fmc_cs_n			//bank 1 chip select (NE1)
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -597,6 +599,7 @@ module FMC_APBBridge #(
 		end
 	end
 
+	/*
 	vio_0 vio(
 		.clk(apb.pclk),
 		.probe_in0(apb_reads_per_sec),
@@ -604,5 +607,6 @@ module FMC_APBBridge #(
 		.probe_in2(apb_active_per_sec),
 		.probe_in3(fmc_active_per_sec),
 		.probe_in4(fmc_ifg_per_sec));
+	*/
 
 endmodule
