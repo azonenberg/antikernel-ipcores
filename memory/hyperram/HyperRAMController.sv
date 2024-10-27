@@ -2,9 +2,9 @@
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -40,12 +40,16 @@
  */
 module HyperRAMController(
 
-	input wire			clk,		//Main clock, up to 100 MHz in 3.3V or 166 MHz in 1.8V devices
-	input wire			clk_90,		//Copy of clk with a -90 degree phase offset (+270)
+	input wire			clk,			//Main clock, up to 100 MHz in 3.3V or 166 MHz in 1.8V devices
+	input wire			clk_90,			//Copy of clk with a -90 degree phase offset (+270)
 
 	//RAM bus
-	output wire			ram_clk_p,	//Differential clock to the RAM
-	output wire			ram_clk_n,	//(clk_n may be unused for 3.3V parts)
+	output wire			ram_clk_p,		//Differential clock to the RAM
+	output wire			ram_clk_n,		//(clk_n may be unused for 3.3V parts)
+
+	output wire			ram_clk_psc_p,	//Phase shifted clock output (not used in all designs)
+	output wire			ram_clk_psc_n,
+
 	inout wire[7:0]		ram_dq,
 	inout wire			ram_dqs,
 	output logic		ram_cs_n = 1,
@@ -74,9 +78,7 @@ module HyperRAMController(
 
 	//Echo our 90-degree clock to the RAM
 	//(clk is center aligned to all of our signals)
-
 	logic		clk_oe	= 0;
-
 	DDROutputBuffer #(
 		.WIDTH(1)
 	) clk_buf_p (
@@ -93,6 +95,27 @@ module HyperRAMController(
 		.clk_p(clk_90),
 		.clk_n(!clk_90),
 		.dout(ram_clk_n),
+		.din0(1'b1),
+		.din1(!clk_oe)
+	);
+
+	//Echo the phase-shifted clock (for now, same phase as everything else)
+	DDROutputBuffer #(
+		.WIDTH(1)
+	) clk_psc_buf_p (
+		.clk_p(clk_90),
+		.clk_n(!clk_90),
+		.dout(ram_clk_psc_p),
+		.din0(1'b0),
+		.din1(clk_oe)
+	);
+
+	DDROutputBuffer #(
+		.WIDTH(1)
+	) clk_psc_buf_n (
+		.clk_p(clk_90),
+		.clk_n(!clk_90),
+		.dout(ram_clk_psc_n),
 		.din0(1'b1),
 		.din1(!clk_oe)
 	);
@@ -639,6 +662,7 @@ module HyperRAMController(
 			trig_out_ack	<= trig_out;
 		end
 
+		/*
 		ila_0 ila(
 			.clk(clk),
 
@@ -686,6 +710,7 @@ module HyperRAMController(
 			.trig_out(trig_out),
 			.trig_out_ack(trig_out_ack)
 		);
+		*/
 
 	endgenerate
 
