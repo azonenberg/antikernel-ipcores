@@ -27,21 +27,16 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_DeviceInfo_7series_h
-#define APB_DeviceInfo_7series_h
+#ifndef APB_SerialLED_h
+#define APB_SerialLED_h
 
 /**
-	@brief Registers for device information core
+	@brief Registers for RGB LED controller
  */
-struct APB_DeviceInfo_7series
+struct APB_SerialLED
 {
 public:
-	uint32_t status;
-	uint32_t idcode;
-	uint32_t field_08;	//padding for where ultrascale has third serial word
-	uint32_t serial[2];
-	uint32_t usercode;
-	uint32_t scratch;	//unused register for testing / link training
+	uint32_t framebuffer[256];
 };
 
 #endif

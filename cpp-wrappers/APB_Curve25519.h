@@ -27,21 +27,29 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_DeviceInfo_7series_h
-#define APB_DeviceInfo_7series_h
+#ifndef APB_Curve25519_h
+#define APB_Curve25519_h
 
 /**
-	@brief Registers for device information core
+	@brief Registers for Curve25519 accelerator
  */
-struct APB_DeviceInfo_7series
+struct __attribute__((packed)) APB_Curve25519
 {
-public:
-	uint32_t status;
-	uint32_t idcode;
-	uint32_t field_08;	//padding for where ultrascale has third serial word
-	uint32_t serial[2];
-	uint32_t usercode;
-	uint32_t scratch;	//unused register for testing / link training
+	uint8_t			e[32];
+	uint32_t		status;
+	uint32_t		rd_addr;
+	uint32_t		cmd;
+	uint32_t		field_2a[5];
+	uint32_t		status2;
+	uint32_t		field_42[7];
+	uint8_t			work[32];
+	uint8_t			q0[32];
+	uint8_t			q1[32];
+	uint8_t			field_c0[32];
+	uint8_t			field_e0[32];
+	uint8_t			base_q0[32];
+	uint8_t			field_120[32];
+	uint8_t			data_out[32];
 };
 
 #endif

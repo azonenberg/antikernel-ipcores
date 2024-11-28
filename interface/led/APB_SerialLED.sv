@@ -61,11 +61,9 @@ module APB_SerialLED #(
 	assign apb.pruser = 0;
 	assign apb.pbuser = 0;
 
-	/*
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register logic
 
-	//Combinatorial readback
 	always_comb begin
 
 		apb.pready	= apb.psel && apb.penable;
@@ -74,88 +72,57 @@ module APB_SerialLED #(
 
 		if(apb.pready) begin
 
-			//read
+			//Combinatorial readback: not allowed, deny all read requests
 			if(!apb.pwrite) begin
-				case(apb.paddr)
-					REG_GPIO_OUT:	apb.prdata	= gpio_out;
-					REG_GPIO_IN:	apb.prdata	= gpio_in;
-					REG_GPIO_TRIS:	apb.prdata	= gpio_tris;
-					default:		apb.pslverr	= 1;
-				endcase
+				apb.pslverr	= 1;
 			end
 
-			//write
+			//Writes: allow all valid addresses
 			else begin
-				if( (apb.paddr != REG_GPIO_OUT) &&
-					(apb.paddr != REG_GPIO_TRIS) ) begin
-
+				if( (apb.paddr[1:0]) || (apb.paddr[apb.ADDR_WIDTH-1 : 2] >= NUM_LEDS) ) begin
 					apb.pslverr	 = 1;
-
 				end
 			end
 
 		end
 	end
 
-	always_ff @(posedge apb.pclk or negedge apb.preset_n) begin
-
-		//Reset
-		if(!apb.preset_n) begin
-			gpio_out	<= OUT_INIT;
-			gpio_tris	<= TRIS_INIT;
-		end
-
-		//Normal path
-		else begin
-
-			if(apb.pready && apb.pwrite) begin
-
-				case(apb.paddr)
-
-					REG_GPIO_OUT:	gpio_out	<= apb.pwdata;
-					REG_GPIO_TRIS:	gpio_tris	<= apb.pwdata;
-
-					default: begin
-					end
-				endcase
-
-			end
-
-		end
-
-	end
-	*/
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Framebuffer
 
 	logic[23:0]	framebuffer[NUM_LEDS-1:0];
 
+	//LEDs start out off in the idle state
 	initial begin
 		for(integer i=0; i<NUM_LEDS; i++)
-			framebuffer[i] = 24'h202020;
-
-		//DEBUG: light stuff up so we can see it
-		framebuffer[0] = 24'h200000;
-		framebuffer[1] = 24'h002000;
-
-		framebuffer[2] = 24'h000020;
-		framebuffer[3] = 24'h000020;
-		framebuffer[4] = 24'h000020;
-		framebuffer[5] = 24'h000020;
+			framebuffer[i] = 24'h000000;
 	end
 
 	logic				fb_read	= 0;
 	logic[IDX_BITS-1:0]	nled = 0;
 	logic[23:0]			pixcolor = 24'h000000;
+	logic				update_req	= 0;
 
 	always_ff @(posedge apb.pclk) begin
 
-		//todo: writes
+		if(!apb.preset_n) begin
+			update_req	<= 0;
+		end
 
-		//Reads
-		if(fb_read)
-			pixcolor	<= framebuffer[nled];
+		else begin
+
+			update_req	<= 0;
+
+			if(apb.pwrite && apb.pready) begin
+				framebuffer[apb.paddr[apb.ADDR_WIDTH-1 : 2]]	<= apb.pwdata;
+				update_req	<= 1;
+			end
+
+			//Reads
+			if(fb_read)
+				pixcolor	<= framebuffer[nled];
+
+		end
 
 	end
 
@@ -164,12 +131,10 @@ module APB_SerialLED #(
 
 	localparam IDX_BITS = $clog2(NUM_LEDS);
 
-	logic				led_update	= 1;
+	logic				update_pending	= 1;
 	logic[9:0] 			clkdiv	= 0;
 	logic[9:0] 			target	= 0;
 	logic[4:0]			nbit	= 0;
-
-	wire				trig;
 
 	enum logic[2:0]
 	{
@@ -186,7 +151,7 @@ module APB_SerialLED #(
 	always_ff @(posedge apb.pclk) begin
 
 		if(!apb.preset_n) begin
-			led_update	<= 1;
+			update_pending	<= 1;
 			clkdiv		<= 0;
 			target		<= 0;
 			nbit		<= 0;
@@ -199,17 +164,21 @@ module APB_SerialLED #(
 			//Clear single cycle flags
 			fb_read	<= 0;
 
+			//Mark update as pending
+			if(update_req)
+				update_pending	<= 1;
+
 			case(state)
 
 				STATE_IDLE: begin
 
 					//Wait for a reset request
-					if(led_update || trig) begin
+					if(update_pending) begin
 						led_ctrl	<= 0;
 						clkdiv		<= 0;
 						target		<= RESET_TIME;
 						state		<= STATE_RESET;
-						led_update	<= 0;
+						update_pending	<= 0;
 					end
 
 				end
@@ -219,7 +188,7 @@ module APB_SerialLED #(
 					led_ctrl	<= 0;
 					clkdiv		<= clkdiv_next;
 
-					if(clkdiv_next == target) begin
+					if(clkdiv_next >= target) begin
 
 						state		<= STATE_IFG;
 						nled		<= 0;
@@ -239,7 +208,7 @@ module APB_SerialLED #(
 					clkdiv		<= clkdiv_next;
 
 					//We're now ready to send the first data bit
-					if(clkdiv_next == target) begin
+					if(clkdiv_next >= target) begin
 
 						//Select pulse length
 						led_ctrl	<= 1;
@@ -261,7 +230,7 @@ module APB_SerialLED #(
 					clkdiv		<= clkdiv_next;
 
 					//Done with high pulse, bring data line low
-					if(clkdiv_next == target) begin
+					if(clkdiv_next >= target) begin
 
 						//Select pulse length
 						led_ctrl	<= 0;
@@ -282,7 +251,7 @@ module APB_SerialLED #(
 					clkdiv		<= clkdiv_next;
 
 					//Done with low pulse, move on to next data word
-					if(clkdiv_next == target) begin
+					if(clkdiv_next >= target) begin
 
 						//More bits to send?
 						if(nbit != 0) begin
@@ -331,18 +300,5 @@ module APB_SerialLED #(
 		end
 
 	end
-
-	ila_0 ila(
-		.clk(apb.pclk),
-		.probe0(led_update),
-		.probe1(clkdiv),
-		.probe2(target),
-		.probe3(nbit),
-		.probe4(state),
-		.probe5(led_update),
-
-		.trig_out(trig),
-		.trig_out_ack(trig)
-	);
 
 endmodule
