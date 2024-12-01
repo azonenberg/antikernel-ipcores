@@ -30,26 +30,31 @@
 #ifndef APB_Curve25519_h
 #define APB_Curve25519_h
 
+enum crypt_cmd_t
+{
+	CMD_CRYPTO_SCALARMULT = 1
+};
+
 /**
 	@brief Registers for Curve25519 accelerator
  */
-struct __attribute__((packed)) APB_Curve25519
+struct APB_Curve25519
 {
-	uint8_t			e[32];
+	uint32_t		e[8];
 	uint32_t		status;
 	uint32_t		rd_addr;
 	uint32_t		cmd;
 	uint32_t		field_2a[5];
 	uint32_t		status2;
 	uint32_t		field_42[7];
-	uint8_t			work[32];
-	uint8_t			q0[32];
-	uint8_t			q1[32];
+	uint32_t		work[8];
+	uint32_t		q0[8];
+	uint32_t		q1[8];
 	uint8_t			field_c0[32];
 	uint8_t			field_e0[32];
-	uint8_t			base_q0[32];
+	uint32_t		base_q0[8];
 	uint8_t			field_120[32];
-	uint8_t			data_out[32];
+	uint32_t		data_out[8];
 };
 
 #endif

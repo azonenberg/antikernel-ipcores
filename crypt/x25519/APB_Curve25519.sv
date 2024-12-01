@@ -52,7 +52,7 @@ module APB_Curve25519(
 		//Words in EC point registers may be written in any order,
 		//except for the rightmost word, which must be written last
 		//(as this write triggers the push to the accelerator block).
-		//All point registers are 256 bits (32 bytes / 16 words) long.
+		//All point registers are 256 bits (32 bytes / 8 words) long.
 		//All input point registers are read-only.
 
 		//Common
