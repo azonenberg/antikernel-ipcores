@@ -48,7 +48,7 @@ module APB_SPIHostInterface(
 	output wire						spi_sck,
 	output wire						spi_mosi,
 	input wire						spi_miso,
-	output logic					spi_cs_n
+	output logic					spi_cs_n = 1
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -166,7 +166,7 @@ module APB_SPIHostInterface(
 
 		//Reset
 		if(!apb.preset_n) begin
-			spi_cs_n	<= 0;
+			spi_cs_n	<= 1;
 			clkdiv		<= 100;
 			shift_busy	<= 0;
 		end
