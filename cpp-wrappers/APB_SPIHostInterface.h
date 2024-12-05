@@ -46,6 +46,12 @@ struct APB_SPIHostInterface
 	uint32_t status;
 	uint32_t field_64[7];
 	uint32_t status2;
+	uint32_t field_84[7];
+	uint32_t burst_rdlen;
+	uint32_t field_a4[7];
+	uint32_t field_c0[8];
+	uint32_t field_e0[8];
+	uint32_t burst_rxbuf[64];
 };
 
 /**

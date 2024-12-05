@@ -67,13 +67,17 @@ module APB_SPIHostInterface(
 	// Register IDs
 
 	//Align all writable registers to 0x20 boundaries to work around STM32H7 OCTOSPI bugs
-	typedef enum logic[7:0]
+	typedef enum logic[8:0]
 	{
 		REG_CLK_DIV		= 'h00,		//clock divider from PCLK to SCK
 		REG_DATA		= 'h20,		//[7:0] data to send/receive
 		REG_CS_N		= 'h40,		//[0] = chip select output value
 		REG_STATUS		= 'h60,		//[0] = busy flag
-		REG_STATUS_2	= 'h80		//duplicate of REG_STATUS
+		REG_STATUS_2	= 'h80,		//duplicate of REG_STATUS for use with QSPI clients
+		REG_BURST_RDLEN	= 'ha0,		//write number of bytes to read in a burst (up to 256)
+		REG_BURST_RXBUF	= 'h100		//base address for receive buffer
+									//Must be aligned to 64 byte boundary
+									//Must be last register in the peripheral
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -100,9 +104,36 @@ module APB_SPIHostInterface(
 		.rx_data(rx_data));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Burst mode data buffer (only 32 bit accesses supported)
+
+	//For now, max 256 bytes (64 32-bit words) supported.
+	//RAM64M is 3 bits per slice (4 LUTS) so for 32 bits we should use 11 slices / 44 LUTs. Not too bad.
+	logic[5:0]	burst_rptr 		= 0;
+	logic[5:0]	burst_wptr 		= 0;
+	logic[31:0] burst_wdata 	= 0;
+	logic		burst_wr		= 0;
+	logic[1:0]	burst_wvalid	= 0;
+	logic[31:0] burst_rdata;
+
+	logic[31:0] burst_buf[63:0];
+
+	//Combinatorial read
+	always_comb begin
+		burst_rdata = burst_buf[burst_rptr];
+	end
+
+	//Registered write
+	always_ff @(posedge apb.pclk) begin
+		if(burst_wr)
+			burst_buf[burst_wptr]	<= burst_wdata;
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// APB interface logic
 
-	logic	shift_busy = 0;
+	logic		shift_busy	= 0;
+	logic		burst_busy	= 0;
+	logic[8:0]	burst_count	= 0;
 
 	always_comb begin
 
@@ -116,6 +147,15 @@ module APB_SPIHostInterface(
 		//Clear control signals
 		shift_en		= 0;
 		shift_data		= 0;
+
+		//Continue an existing burst
+		if(burst_busy && shift_done && (burst_count != 0) ) begin
+			shift_en	= 1;
+			shift_data	= 8'h0;
+		end
+
+		//Combinatorially read burst buffer memory
+		burst_rptr	= apb.paddr[7:2];
 
 		if(apb.pready) begin
 
@@ -135,6 +175,12 @@ module APB_SPIHostInterface(
 					REG_CS_N: begin
 					end
 
+					//Send 0x00 and start a shift
+					REG_BURST_RDLEN: begin
+						shift_en	= 1;
+						shift_data	= 8'h0;
+					end
+
 					//unmapped address
 					default:	apb.pslverr		= 1;
 
@@ -144,18 +190,24 @@ module APB_SPIHostInterface(
 
 			else begin
 
-				case(apb.paddr)
+				//read rx buffer
+				if(apb.paddr >= REG_BURST_RXBUF)
+					apb.prdata	= burst_rdata;
 
-					REG_CLK_DIV:	apb.prdata	= clkdiv;
-					REG_DATA:		apb.prdata	= {8'h0, rx_data};
-					REG_CS_N:		apb.prdata	= {15'h0, spi_cs_n};
-					REG_STATUS:		apb.prdata	= {15'h0, shift_busy};
-					REG_STATUS_2:	apb.prdata	= {15'h0, shift_busy};
+				else begin
+					case(apb.paddr)
 
-					//unmapped address
-					default:		apb.pslverr		= 1;
+						REG_CLK_DIV:	apb.prdata	= clkdiv;
+						REG_DATA:		apb.prdata	= {8'h0, rx_data};
+						REG_CS_N:		apb.prdata	= {15'h0, spi_cs_n};
+						REG_STATUS:		apb.prdata	= {15'h0, shift_busy | burst_busy};
+						REG_STATUS_2:	apb.prdata	= {15'h0, shift_busy | burst_busy};
 
-				endcase
+						//unmapped address
+						default:		apb.pslverr		= 1;
+
+					endcase
+				end
 
 			end
 
@@ -166,9 +218,14 @@ module APB_SPIHostInterface(
 
 		//Reset
 		if(!apb.preset_n) begin
-			spi_cs_n	<= 1;
-			clkdiv		<= 100;
-			shift_busy	<= 0;
+			spi_cs_n		<= 1;
+			clkdiv			<= 100;
+			shift_busy		<= 0;
+			burst_busy		<= 0;
+			burst_count		<= 0;
+			burst_wr		<= 0;
+			burst_wdata		<= 0;
+			burst_wvalid	<= 0;
 		end
 
 		//Normal path
@@ -178,20 +235,60 @@ module APB_SPIHostInterface(
 				shift_busy	<= 1;
 			if(shift_done)
 				shift_busy	<= 0;
+			burst_wr	<= 0;
 
-			if(apb.pready) begin
+			//APB writes
+			if(apb.pready && apb.pwrite) begin
+				case(apb.paddr)
+					REG_CS_N:		spi_cs_n	<= apb.pwdata[0];
+					REG_CLK_DIV:	clkdiv		<= apb.pwdata[15:0];
 
-				//Writes
-				if(apb.pwrite) begin
+					//Start a burst read
+					REG_BURST_RDLEN: begin
+						burst_count	<= apb.pwdata[8:0];
+						burst_busy	<= 1;
+						burst_wptr	<= 0;
 
-					case(apb.paddr)
-						REG_CS_N:		spi_cs_n	<= apb.pwdata[0];
-						REG_CLK_DIV:	clkdiv		<= apb.pwdata[15:0];
+						//clamp large burst sizes
+						if(apb.pwdata[8:0] > 256)
+							burst_count	<= 256;
+					end
 
-						default: begin
+					default: begin
+					end
+				endcase
+			end
+
+			//Handle writes
+			if(burst_wr) begin
+				burst_wvalid	<= 0;
+				burst_wptr		<= burst_wptr + 1;
+			end
+
+			//Handle bursts
+			if(burst_busy) begin
+
+				//End of a burst
+				if(shift_done) begin
+
+					//Save data little endian
+					case(burst_wvalid)
+						0: burst_wdata[7:0]		<= rx_data;
+						1: burst_wdata[15:8]	<= rx_data;
+						2: burst_wdata[23:16]	<= rx_data;
+
+						3: begin
+							burst_wdata[31:24]	<= rx_data;
+							burst_wr			<= 1;
 						end
 					endcase
 
+					//Count progress
+					burst_count		<= burst_count - 1;
+					burst_wvalid	<= burst_wvalid + 1;
+
+					if(burst_count == 0)
+						burst_busy	<= 0;
 				end
 
 			end
