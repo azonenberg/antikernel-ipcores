@@ -35,7 +35,22 @@
 
 	Does not manage chip select signals, the parent code is responsible for doing this as needed.
  */
-module SPIHostInterface(
+module SPIHostInterface #(
+	//Indicates which edge of SCK the remote end samples data on.
+	parameter SAMPLE_EDGE 		= "RISING",
+
+	//Indicates which edge of SCK the local end samples data on
+	//NORMAL = same as remote
+	//INVERTED = opposite
+	parameter LOCAL_EDGE 		= "NORMAL",
+
+	//Set true to gate transitions on rx_data during a shift operation
+	//and only update when shift_done goes high. Adds one cycle of latency
+	parameter CHANGE_ON_DONE	= 0,
+
+	//If PIPE_DIV is true, clkdiv has an additional cycle of latency but timing is improved
+	parameter PIPE_DIV			= 0
+) (
 
 	//Clocking
 	input wire clk,
@@ -57,20 +72,29 @@ module SPIHostInterface(
 	`endif
     );
 
-    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Parameter declarations
+ 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Clock divider edge finding
 
-	//Indicates which edge of SCK the remote end samples data on.
-	parameter SAMPLE_EDGE = "RISING";
+	logic	toggle;
+	logic[14:0]	clkcount	= 0;
 
-	//Indicates which edge of SCK the local end samples data on
-	//NORMAL = same as remote
-	//INVERTED = opposite
-	parameter LOCAL_EDGE = "NORMAL";
+	if(PIPE_DIV) begin
+		always_ff @(posedge clk) begin
+			if(shift_en)
+				toggle	<= 0;
+			else
+				toggle	<= (clkcount >= clkdiv[15:1]) && active && !toggle;
+		end
+	end
 
-	//Set true to gate transitions on rx_data during a shift operation
-	//and only update when shift_done goes high. Adds one cycle of latency
-	parameter CHANGE_ON_DONE	= 0;
+	else begin
+		always_comb begin
+			if(shift_en)
+				toggle	= 0;
+			else
+				toggle	= (clkcount >= clkdiv[15:1]) && active;
+		end
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main state machine
@@ -80,7 +104,6 @@ module SPIHostInterface(
 	`endif
 
 	logic[3:0]	count		= 0;
-	logic[14:0]	clkcount	= 0;
 
 	logic[6:0]	tx_shreg		= 0;
 
@@ -114,7 +137,6 @@ module SPIHostInterface(
 	end
 
 	logic almost_done	= 0;
-	logic toggle_ff		= 0;
 
 	always_ff @(posedge clk) begin
 		shift_done_adv	<= 0;
@@ -132,7 +154,6 @@ module SPIHostInterface(
 		//Wait for a start request
 		if(shift_en) begin
 			active		<= 1;
-			toggle_ff	<= 0;
 			clkcount	<= 0;
 
 			if(SAMPLE_EDGE == "FALLING") begin
@@ -151,14 +172,12 @@ module SPIHostInterface(
 		//Toggle processing
 		else if(active) begin
 			clkcount 	<= clkcount + 15'h1;
-			toggle_ff	<= clkcount >= clkdiv[15:1];
 
-			if(toggle_ff) begin
+			if(toggle) begin
 
 				//Reset the counter and toggle the clock
 				clkcount	<= 0;
 				spi_sck 	<= !spi_sck;
-				toggle_ff	<= 0;
 
 				//Make the done flag wait half a bit period if necessary
 				if(almost_done) begin
