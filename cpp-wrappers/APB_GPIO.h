@@ -59,23 +59,39 @@ public:
 		//no peripheral/analog mode supported
 	};
 
+	enum initmode_t
+	{
+		INIT_NOW		= 0,
+		INIT_DEFERRED	= 1
+	};
+
 	//no slew rate control supported
 
 	/**
 		@brief Initializes the pin
+
+		@param imode	If set to INIT_NOW, behaves normally
+						If set to INIT_DEFERRED, doesn't set mode register until DeferredInit() is called.
+						This allows the object to be declared at global scope before the FPGA has been brought up.
 	 */
 	APB_GPIOPin(
 		volatile APB_GPIO* gpio,
 		uint8_t pin,
-		gpiomode_t mode)
+		gpiomode_t mode,
+		initmode_t imode = INIT_NOW)
 	: m_gpio(gpio)
 	, m_pin(pin)
 	, m_setmask(1 << pin)
 	, m_clearmask(~m_setmask)
+	, m_mode(mode)
 	{
 		//Configure the pin
-		SetMode(mode);
+		if(imode != INIT_DEFERRED)
+			SetMode(mode);
 	}
+
+	void DeferredInit()
+	{ SetMode(m_mode); }
 
 	/**
 		@brief Set the pin to input or output mode
@@ -123,6 +139,7 @@ protected:
 	uint8_t				m_pin;
 	uint32_t			m_setmask;
 	uint32_t			m_clearmask;
+	gpiomode_t			m_mode;
 };
 
 #endif
