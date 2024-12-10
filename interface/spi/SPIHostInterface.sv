@@ -54,6 +54,9 @@ module SPIHostInterface #(
 
 	//Clocking
 	input wire clk,
+
+	//Clock divider is zero based with a minimum value of 1 (divide by 2)
+	//LSB is ignored (all division factors are multiples of 2).
 	input wire[15:0]	clkdiv,
 
 	//SPI interface
@@ -83,7 +86,7 @@ module SPIHostInterface #(
 			if(shift_en)
 				toggle	<= 0;
 			else
-				toggle	<= (clkcount >= clkdiv[15:1]) && active && !toggle;
+				toggle	<= (clkcount >= clkdiv[15:1]) && active;
 		end
 	end
 

@@ -39,7 +39,13 @@
 	Includes a control for a single chip select pin. Additional chip selects, if needed, must be provided by
 	a separate GPIO block.
  */
-module APB_SPIHostInterface(
+module APB_SPIHostInterface #(
+
+	//Indicates which edge of SCK the local end samples data on
+	//NORMAL = same as remote
+	//INVERTED = opposite
+	localparam LOCAL_EDGE = "INVERTED"
+)(
 
 	//The APB bus
 	APB.completer 					apb,
@@ -90,7 +96,9 @@ module APB_SPIHostInterface(
 	wire		shift_done;
 	wire[7:0]	rx_data;
 
-	SPIHostInterface spi(
+	SPIHostInterface #(
+		.LOCAL_EDGE(LOCAL_EDGE)
+	) spi(
 		.clk(apb.pclk),
 		.clkdiv(clkdiv),
 
@@ -197,7 +205,7 @@ module APB_SPIHostInterface(
 				else begin
 					case(apb.paddr)
 
-						REG_CLK_DIV:	apb.prdata	= clkdiv;
+						REG_CLK_DIV:	apb.prdata	= clkdiv + 1;
 						REG_DATA:		apb.prdata	= {8'h0, rx_data};
 						REG_CS_N:		apb.prdata	= {15'h0, spi_cs_n};
 						REG_STATUS:		apb.prdata	= {15'h0, shift_busy | burst_busy};
@@ -241,7 +249,7 @@ module APB_SPIHostInterface(
 			if(apb.pready && apb.pwrite) begin
 				case(apb.paddr)
 					REG_CS_N:		spi_cs_n	<= apb.pwdata[0];
-					REG_CLK_DIV:	clkdiv		<= apb.pwdata[15:0];
+					REG_CLK_DIV:	clkdiv		<= apb.pwdata[15:0] - 1;
 
 					//Start a burst read
 					REG_BURST_RDLEN: begin
