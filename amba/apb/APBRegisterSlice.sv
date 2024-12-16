@@ -92,8 +92,10 @@ module APBRegisterSlice #(
 					downstream.psel		<= 0;
 				end
 
-				if(done)
+				if(done) begin
 					downstream.penable	<= 0;
+					downstream.psel		<= 0;
+				end
 
 				if(!upstream.penable) begin
 					done				<= 0;
