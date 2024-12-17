@@ -34,12 +34,12 @@
 /**
 	@file
 	@author	Andrew D. Zonenberg
-	@brief	APB register access to a SPI bus controller
+	@brief	APB register access to a QSPI bus controller
 
 	Includes a control for a single chip select pin. Additional chip selects, if needed, must be provided by
 	a separate GPIO block.
  */
-module APB_SPIHostInterface #(
+module APB_QSPIHostInterface #(
 
 	//Indicates which edge of SCK the local end samples data on
 	//NORMAL = same as remote
@@ -50,17 +50,18 @@ module APB_SPIHostInterface #(
 	//The APB bus
 	APB.completer 					apb,
 
-	//SPI interface
-	output wire						spi_sck,
-	output wire						spi_mosi,
-	input wire						spi_miso,
-	output logic					spi_cs_n = 1
+	//QSPI interface
+	output wire						qspi_sck,
+	output wire[3:0]				qspi_dq_out,
+	input wire[3:0]					qspi_dq_in,
+	output wire[3:0]				qspi_dq_tris,
+	output logic					qspi_cs_n = 1
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// We only support 16 or 32 bit APB, throw synthesis error for anything else
+	// We only support 32 bit APB, throw synthesis error for anything else
 
-	if(apb.DATA_WIDTH > 32)
+	if(apb.DATA_WIDTH != 32)
 		apb_bus_width_is_invalid();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -70,9 +71,23 @@ module APB_SPIHostInterface #(
 	assign apb.pbuser = 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Initial test: just pass on the signals one level
+
+	assign qspi_dq_tris[0] 		= 0;
+	assign qspi_dq_tris[3:1] 	= 3'b111;
+
+	wire qspi_mosi;
+	assign qspi_dq_out[0] = qspi_mosi;
+	assign qspi_dq_out[3:1] = 3'b000;
+
+	wire qspi_miso;
+	assign qspi_miso = qspi_dq_in[1];
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register IDs
 
 	//Align all writable registers to 0x20 boundaries to work around STM32H7 OCTOSPI bugs
+	//Registers are a strict superset of APB_SPIHostInterface
 	typedef enum logic[8:0]
 	{
 		REG_CLK_DIV		= 'h00,		//clock divider from PCLK to SCK
@@ -97,15 +112,15 @@ module APB_SPIHostInterface #(
 	wire		shift_done;
 	wire[7:0]	rx_data;
 
-	SPIHostInterface #(
+	QSPIHostInterface #(
 		.LOCAL_EDGE(LOCAL_EDGE)
 	) spi(
 		.clk(apb.pclk),
 		.clkdiv(clkdiv),
 
-		.spi_sck(spi_sck),
-		.spi_mosi(spi_mosi),
-		.spi_miso(spi_miso),
+		.qspi_sck(qspi_sck),
+		.qspi_mosi(qspi_mosi),
+		.qspi_miso(qspi_miso),
 
 		.shift_en(shift_en),
 		.shift_done(shift_done),
@@ -207,11 +222,11 @@ module APB_SPIHostInterface #(
 					case(apb.paddr)
 
 						REG_CLK_DIV:	apb.prdata	= clkdiv + 1;
-						REG_DATA:		apb.prdata	= {8'h0, rx_data};
-						REG_CS_N:		apb.prdata	= {15'h0, spi_cs_n};
-						REG_STATUS:		apb.prdata	= {15'h0, shift_busy | burst_busy};
-						REG_STATUS_2:	apb.prdata	= {15'h0, shift_busy | burst_busy};
-						REG_QUAD_CAP:	apb.prdata	= 'h0;
+						REG_DATA:		apb.prdata	= {23'h0, rx_data};
+						REG_CS_N:		apb.prdata	= {31'h0, qspi_cs_n};
+						REG_STATUS:		apb.prdata	= {31'h0, shift_busy | burst_busy};
+						REG_STATUS_2:	apb.prdata	= {31'h0, shift_busy | burst_busy};
+						REG_QUAD_CAP:	apb.prdata	= 32'h1;
 
 						//unmapped address
 						default:		apb.pslverr		= 1;
@@ -228,7 +243,7 @@ module APB_SPIHostInterface #(
 
 		//Reset
 		if(!apb.preset_n) begin
-			spi_cs_n		<= 1;
+			qspi_cs_n		<= 1;
 			clkdiv			<= 100;
 			shift_busy		<= 0;
 			burst_busy		<= 0;
@@ -250,7 +265,7 @@ module APB_SPIHostInterface #(
 			//APB writes
 			if(apb.pready && apb.pwrite) begin
 				case(apb.paddr)
-					REG_CS_N:		spi_cs_n	<= apb.pwdata[0];
+					REG_CS_N:		qspi_cs_n	<= apb.pwdata[0];
 					REG_CLK_DIV:	clkdiv		<= apb.pwdata[15:0] - 1;
 
 					//Start a burst read

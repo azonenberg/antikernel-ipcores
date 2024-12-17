@@ -27,8 +27,8 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_APB_SPIHostInterface_h
-#define APB_APB_SPIHostInterface_h
+#ifndef APB_SPIHostInterface_h
+#define APB_SPIHostInterface_h
 
 #include <embedded-utils/CharacterDevice.h>
 
@@ -49,13 +49,14 @@ struct APB_SPIHostInterface
 	uint32_t field_84[7];
 	uint32_t burst_rdlen;
 	uint32_t field_a4[7];
-	uint32_t field_c0[8];
+	uint32_t quad_capable;
+	uint32_t field_c4[7];
 	uint32_t field_e0[8];
 	uint32_t burst_rxbuf[64];
 };
 
 /**
-	@brief Wrapper class for APB_SPIHostInterface
+	@brief Wrapper class for APB_SPIHostInterface and APB_QSPIHostInterface
 
 	Not currently compatible with stm32-cpp SPI class
  */
@@ -71,6 +72,9 @@ public:
 			asm("dmb st");
 		#endif
 	}
+
+	bool IsQuadCapable()
+	{ return (m_lane->quad_capable == 1); }
 
 	virtual void WaitUntilIdle()
 	{
