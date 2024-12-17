@@ -98,6 +98,7 @@ module APB_SerialLED #(
 			framebuffer[i] = 24'h000000;
 	end
 
+	localparam IDX_BITS = $clog2(NUM_LEDS);
 	logic				fb_read	= 0;
 	logic[IDX_BITS-1:0]	nled = 0;
 	logic[23:0]			pixcolor = 24'h000000;
@@ -128,8 +129,6 @@ module APB_SerialLED #(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// LED control logic
-
-	localparam IDX_BITS = $clog2(NUM_LEDS);
 
 	logic				update_pending	= 1;
 	logic[9:0] 			clkdiv	= 0;

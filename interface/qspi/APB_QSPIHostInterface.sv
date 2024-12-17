@@ -71,19 +71,6 @@ module APB_QSPIHostInterface #(
 	assign apb.pbuser = 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Initial test: just pass on the signals one level
-
-	assign qspi_dq_tris[0] 		= 0;
-	assign qspi_dq_tris[3:1] 	= 3'b111;
-
-	wire qspi_mosi;
-	assign qspi_dq_out[0] = qspi_mosi;
-	assign qspi_dq_out[3:1] = 3'b000;
-
-	wire qspi_miso;
-	assign qspi_miso = qspi_dq_in[1];
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register IDs
 
 	//Align all writable registers to 0x20 boundaries to work around STM32H7 OCTOSPI bugs
@@ -119,8 +106,9 @@ module APB_QSPIHostInterface #(
 		.clkdiv(clkdiv),
 
 		.qspi_sck(qspi_sck),
-		.qspi_mosi(qspi_mosi),
-		.qspi_miso(qspi_miso),
+		.qspi_dq_in(qspi_dq_in),
+		.qspi_dq_out(qspi_dq_out),
+		.qspi_dq_tris(qspi_dq_tris),
 
 		.shift_en(shift_en),
 		.shift_done(shift_done),

@@ -60,10 +60,12 @@ module QSPIHostInterface #(
 	//LSB is ignored (all division factors are multiples of 2).
 	input wire[15:0]	clkdiv,
 
-	//SPI interface
+	//QSPI interface
 	output logic		qspi_sck = 0,
-	output logic		qspi_mosi = 0,
-	input wire			qspi_miso,
+
+	output logic[3:0]	qspi_dq_out = 4'b0000,
+	input wire[3:0]		qspi_dq_in,
+	output logic[3:0]	qspi_dq_tris = 4'b1110,
 
 	//Control interface
 	input wire			shift_en,
@@ -160,6 +162,9 @@ module QSPIHostInterface #(
 			active		<= 1;
 			clkcount	<= 0;
 
+			//Default to being in regular x1 mode
+			qspi_dq_tris	<= 4'b1110;
+
 			if(SAMPLE_EDGE == "FALLING") begin
 				count	<= 1;
 				qspi_sck <= 1;
@@ -169,7 +174,7 @@ module QSPIHostInterface #(
 				qspi_sck <= 0;
 			end
 
-			qspi_mosi <= tx_data[7];
+			qspi_dq_out[0] <= tx_data[7];
 			tx_shreg <= tx_data[6:0];
 		end
 
@@ -193,12 +198,12 @@ module QSPIHostInterface #(
 
 				//ACTIVE EDGE
 				else if( (qspi_sck && (SAMPLE_EDGE == "RISING")) || (!qspi_sck && (SAMPLE_EDGE == "FALLING")) ) begin
-					qspi_mosi <= tx_shreg[6];
+					qspi_dq_out[0] <= tx_shreg[6];
 
 					tx_shreg <= {tx_shreg[5:0], 1'b0};
 
 					if(LOCAL_EDGE == "INVERTED")
-						rx_shreg <= {rx_shreg[6:0], qspi_miso};
+						rx_shreg <= {rx_shreg[6:0], qspi_dq_in[1] };
 
 				end
 
@@ -214,7 +219,7 @@ module QSPIHostInterface #(
 
 					//Sample just before the clock rises
 					else if(LOCAL_EDGE == "NORMAL")
-						rx_shreg <= {rx_shreg[6:0], qspi_miso};
+						rx_shreg <= {rx_shreg[6:0], qspi_dq_in[1] };
 
 				end
 
