@@ -100,6 +100,7 @@ module APB_QSPIHostInterface #(
 	logic[7:0]	shift_data;
 	wire		shift_done;
 	wire[7:0]	rx_data;
+	logic		auto_restart;
 
 	QSPIHostInterface #(
 		.LOCAL_EDGE(LOCAL_EDGE)
@@ -116,7 +117,8 @@ module APB_QSPIHostInterface #(
 		.quad_shift_en(quad_shift_en),
 		.shift_done(shift_done),
 		.tx_data(shift_data),
-		.rx_data(rx_data));
+		.rx_data(rx_data),
+		.auto_restart(auto_restart));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Burst mode data buffer (only 32 bit accesses supported)
@@ -174,22 +176,7 @@ module APB_QSPIHostInterface #(
 		shift_data		= 0;
 
 		//Continue an existing burst
-		if(shift_done && (burst_count > 1) ) begin
-			case(burst_mode)
-				BURST_NORMAL: begin
-					shift_en		= 1;
-					shift_data		= 8'h0;
-				end
-
-				BURST_QUAD: begin
-					quad_shift_en	= 1;
-					shift_data		= 8'h0;
-				end
-
-				default: begin
-				end
-			endcase
-		end
+		auto_restart	= (burst_count > 1);
 
 		//Combinatorially read burst buffer memory
 		burst_rptr	= apb.paddr[7:2];

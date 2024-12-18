@@ -65,7 +65,8 @@ module QSPIHostInterface #(
 	input wire			quad_shift_en,
 	output logic		shift_done = 0,
 	input wire[7:0]		tx_data,
-	output reg[7:0]		rx_data = 0
+	output reg[7:0]		rx_data = 0,
+	input wire			auto_restart	//if set, immediately start another shift operation after the previous finishes
     );
 
  	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -154,10 +155,31 @@ module QSPIHostInterface #(
 				//Make the done flag wait half a bit period if necessary
 				if(almost_done) begin
 					qspi_sck		<= 0;
-					shift_done	<= 1;
-					active			<= 0;
-					quad_active		<= 0;
+					shift_done		<= 1;
 					almost_done		<= 0;
+					count			<= 0;
+
+					//Restart the next word of the burst
+					if(auto_restart) begin
+
+						clkcount	<= 0;
+
+						if(quad_active) begin
+							qspi_dq_out		<= 4'b0000;
+							tx_shreg		<= 0;
+						end
+						else begin
+							qspi_dq_out[0]	<= tx_data[7];
+							tx_shreg		<= tx_data[6:0];
+						end
+
+					end
+
+					//Nope, burst is done
+					else begin
+						active			<= 0;
+						quad_active		<= 0;
+					end
 				end
 
 				//ACTIVE EDGE
