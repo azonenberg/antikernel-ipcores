@@ -142,6 +142,7 @@ module APB_QSPIHostInterface(
 
 	logic		shift_busy	= 0;
 	logic[8:0]	burst_count	= 0;
+	logic[7:0]	rx_data_ff	= 0;
 
 	enum logic[1:0]
 	{
@@ -243,7 +244,7 @@ module APB_QSPIHostInterface(
 					case(apb.paddr)
 
 						REG_CLK_DIV:	apb.prdata	= clkdiv + 1;
-						REG_DATA:		apb.prdata	= {23'h0, rx_data};
+						REG_DATA:		apb.prdata	= {23'h0, rx_data_ff};
 						REG_CS_N:		apb.prdata	= {31'h0, qspi_cs_n};
 						REG_STATUS:		apb.prdata	= {31'h0, shift_busy | burst_active};
 						REG_STATUS_2:	apb.prdata	= {31'h0, shift_busy | burst_active};
@@ -272,6 +273,7 @@ module APB_QSPIHostInterface(
 			burst_wr		<= 0;
 			burst_wdata		<= 0;
 			burst_wvalid	<= 0;
+			rx_data_ff		<= 0;
 		end
 
 		//Normal path
@@ -279,8 +281,10 @@ module APB_QSPIHostInterface(
 
 			if(shift_en)
 				shift_busy	<= 1;
-			if(shift_done)
+			if(shift_done) begin
 				shift_busy	<= 0;
+				rx_data_ff	<= rx_data;
+			end
 			burst_wr	<= 0;
 
 			//APB writes

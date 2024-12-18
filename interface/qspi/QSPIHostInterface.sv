@@ -35,11 +35,7 @@
 
 	Does not manage chip select signals, the parent code is responsible for doing this as needed.
  */
-module QSPIHostInterface #(
-
-	//If PIPE_DIV is true, clkdiv has an additional cycle of latency but timing is improved
-	parameter PIPE_DIV			= 0
-) (
+module QSPIHostInterface(
 
 	//Clocking
 	input wire clk,
@@ -64,49 +60,62 @@ module QSPIHostInterface #(
 	input wire			auto_restart	//if set, immediately start another shift operation after the previous finishes
     );
 
- 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Clock divider edge finding
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Main state machine
 
 	logic	toggle;
 	logic[14:0]	clkcount	= 0;
-
-	if(PIPE_DIV) begin
-		always_ff @(posedge clk) begin
-			if(shift_en || quad_shift_en)
-				toggle	<= 0;
-			else
-				toggle	<= (clkcount >= clkdiv[15:1]) && active;
-		end
-	end
-
-	else begin
-		always_comb begin
-			if(shift_en || quad_shift_en)
-				toggle	= 0;
-			else
-				toggle	= (clkcount >= clkdiv[15:1]) && active;
-		end
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Main state machine
 
 	logic		active			= 0;
 	logic		quad_active		= 0;
 
 	logic[3:0]	count			= 0;
-
 	logic[6:0]	tx_shreg		= 0;
 
-	logic[7:0]	rx_data		= 0;
-
-	logic almost_done	= 0;
 	always_ff @(posedge clk) begin
-		shift_done	= 0;
 
 		//Bump clock counter
 		if(active)
 			clkcount 	= clkcount + 15'h1;
+
+		//Figure out if clock is toggline
+		if(shift_en || quad_shift_en)
+			toggle	= 0;
+		else
+			toggle	= (clkcount >= clkdiv[15:1]) && active;
+
+		//Toggle the clock
+		if(toggle)
+			qspi_sck 	= !qspi_sck;
+
+		//Handle completion of a shift
+		if(shift_done) begin
+
+			//End of the burst? Force clock low
+			qspi_sck		= 0;
+			shift_done		= 0;
+			count			= 0;
+
+			//Restart the next word of the burst
+			if(auto_restart) begin
+
+				if(quad_active) begin
+					qspi_dq_out		= 4'b0000;
+					tx_shreg		= 0;
+				end
+				else begin
+					qspi_dq_out[0]	= tx_data[7];
+					tx_shreg		= tx_data[6:0];
+				end
+
+			end
+
+			//Nope, burst is done
+			else begin
+				active			= 0;
+				quad_active		= 0;
+			end
+		end
 
 		//Wait for a start request
 		if(shift_en || quad_shift_en) begin
@@ -132,42 +141,14 @@ module QSPIHostInterface #(
 		end
 
 		//Toggle processing
-		else if(toggle) begin
+		if(toggle && (!shift_done || auto_restart) ) begin
 
 			//Reset the counter and toggle the clock every toggle by default
 			clkcount	= 0;
-			qspi_sck 	= !qspi_sck;
 
-			//Make the done flag wait half a bit period if necessary
-			if(almost_done) begin
-
-				//End of the burst? Don't toggle the clock
-				qspi_sck		= 0;
-
-				shift_done		= 1;
-				almost_done		= 0;
-				count			= 0;
-
-				//Restart the next word of the burst
-				if(auto_restart) begin
-
-					if(quad_active) begin
-						qspi_dq_out		= 4'b0000;
-						tx_shreg		= 0;
-					end
-					else begin
-						qspi_dq_out[0]	= tx_data[7];
-						tx_shreg		= tx_data[6:0];
-					end
-
-				end
-
-				//Nope, burst is done
-				else begin
-					active			= 0;
-					quad_active		= 0;
-				end
-			end
+			//Stop if not auto restarting
+			if(shift_done && !auto_restart)
+				qspi_sck	= 0;
 
 			//ACTIVE EDGE
 			else if(!qspi_sck) begin
@@ -187,8 +168,8 @@ module QSPIHostInterface #(
 
 				//Stop on the end of the last clock
 				if( (count == 'd8) ) begin
+					shift_done		= 1;
 					qspi_sck		= 0;
-					almost_done		= 1;
 				end
 
 				if(quad_active)
