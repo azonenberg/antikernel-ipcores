@@ -39,13 +39,7 @@
 	Includes a control for a single chip select pin. Additional chip selects, if needed, must be provided by
 	a separate GPIO block.
  */
-module APB_QSPIHostInterface #(
-
-	//Indicates which edge of SCK the local end samples data on
-	//NORMAL = same as remote
-	//INVERTED = opposite
-	localparam LOCAL_EDGE = "INVERTED"
-)(
+module APB_QSPIHostInterface(
 
 	//The APB bus
 	APB.completer 					apb,
@@ -102,9 +96,7 @@ module APB_QSPIHostInterface #(
 	wire[7:0]	rx_data;
 	logic		auto_restart;
 
-	QSPIHostInterface #(
-		.LOCAL_EDGE(LOCAL_EDGE)
-	) spi(
+	QSPIHostInterface spi(
 		.clk(apb.pclk),
 		.clkdiv(clkdiv),
 

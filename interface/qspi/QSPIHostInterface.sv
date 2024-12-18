@@ -37,11 +37,6 @@
  */
 module QSPIHostInterface #(
 
-	//Indicates which edge of SCK the local end samples data on
-	//NORMAL = same as remote
-	//INVERTED = opposite
-	parameter LOCAL_EDGE 		= "NORMAL",
-
 	//If PIPE_DIV is true, clkdiv has an additional cycle of latency but timing is improved
 	parameter PIPE_DIV			= 0
 ) (
@@ -107,108 +102,99 @@ module QSPIHostInterface #(
 
 	logic almost_done	= 0;
 	always_ff @(posedge clk) begin
-		shift_done	<= 0;
+		shift_done	= 0;
 
 		//Bump clock counter
 		if(active)
-			clkcount 	<= clkcount + 15'h1;
+			clkcount 	= clkcount + 15'h1;
 
 		//Wait for a start request
 		if(shift_en || quad_shift_en) begin
-			active			<= 1;
-			clkcount		<= 0;
-			quad_active		<= quad_shift_en;
+			active			= 1;
+			clkcount		= 0;
+			quad_active		= quad_shift_en;
 
 			//For now, only support quad for reads
 			if(quad_shift_en) begin
-				qspi_dq_tris	<= 4'b1111;
-				qspi_dq_out		<= 4'b0000;
-				tx_shreg		<= 0;
+				qspi_dq_tris	= 4'b1111;
+				qspi_dq_out		= 4'b0000;
+				tx_shreg		= 0;
 			end
 			else begin
-				qspi_dq_tris	<= 4'b1110;
-				qspi_dq_out[0]	<= tx_data[7];
-				tx_shreg		<= tx_data[6:0];
+				qspi_dq_tris	= 4'b1110;
+				qspi_dq_out[0]	= tx_data[7];
+				tx_shreg		= tx_data[6:0];
 			end
 
-			count			<= 0;
-			qspi_sck 		<= 0;
+			count			= 0;
+			qspi_sck 		= 0;
 
 		end
 
 		//Toggle processing
 		else if(toggle) begin
 
-			//Reset the counter and toggle the clock
-			clkcount	<= 0;
-			qspi_sck 	<= !qspi_sck;
+			//Reset the counter and toggle the clock every toggle by default
+			clkcount	= 0;
+			qspi_sck 	= !qspi_sck;
 
 			//Make the done flag wait half a bit period if necessary
 			if(almost_done) begin
-				qspi_sck		<= 0;
-				shift_done		<= 1;
-				almost_done		<= 0;
-				count			<= 0;
+
+				//End of the burst? Don't toggle the clock
+				qspi_sck		= 0;
+
+				shift_done		= 1;
+				almost_done		= 0;
+				count			= 0;
 
 				//Restart the next word of the burst
 				if(auto_restart) begin
 
-					clkcount	<= 0;
-
 					if(quad_active) begin
-						qspi_dq_out		<= 4'b0000;
-						tx_shreg		<= 0;
+						qspi_dq_out		= 4'b0000;
+						tx_shreg		= 0;
 					end
 					else begin
-						qspi_dq_out[0]	<= tx_data[7];
-						tx_shreg		<= tx_data[6:0];
+						qspi_dq_out[0]	= tx_data[7];
+						tx_shreg		= tx_data[6:0];
 					end
 
 				end
 
 				//Nope, burst is done
 				else begin
-					active			<= 0;
-					quad_active		<= 0;
+					active			= 0;
+					quad_active		= 0;
 				end
 			end
 
 			//ACTIVE EDGE
-			else if(qspi_sck) begin
-				qspi_dq_out[0] <= tx_shreg[6];
+			else if(!qspi_sck) begin
+				qspi_dq_out[0] = tx_shreg[6];
 
-				tx_shreg <= {tx_shreg[5:0], 1'b0};
+				tx_shreg = {tx_shreg[5:0], 1'b0};
 
-				if(LOCAL_EDGE == "INVERTED") begin
-					if(quad_active)
-						rx_data <= {rx_data[3:0], qspi_dq_in[3:0] };
-					else
-						rx_data <= {rx_data[6:0], qspi_dq_in[1] };
-				end
+				if(quad_active)
+					rx_data = {rx_data[3:0], qspi_dq_in[3:0] };
+				else
+					rx_data = {rx_data[6:0], qspi_dq_in[1] };
 
 			end
 
 			//INACTIVE EDGE
 			else begin
 
-				if(quad_active)
-					count <= count + 4'h4;
-				else
-					count <= count + 4'h1;
-
 				//Stop on the end of the last clock
 				if( (count == 'd8) ) begin
-					qspi_sck		<= 0;
-					almost_done		<= 1;
+					qspi_sck		= 0;
+					almost_done		= 1;
 				end
 
-				//Sample just before the clock rises
-				else if(LOCAL_EDGE == "NORMAL") begin
-					if(quad_active)
-						rx_data <= {rx_data[3:0], qspi_dq_in[3:0] };
-					else
-						rx_data <= {rx_data[6:0], qspi_dq_in[1] };
-				end
+				if(quad_active)
+					count = count + 4'h4;
+				else
+					count = count + 4'h1;
 
 			end
 
