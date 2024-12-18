@@ -42,10 +42,6 @@ module QSPIHostInterface #(
 	//INVERTED = opposite
 	parameter LOCAL_EDGE 		= "NORMAL",
 
-	//Set true to gate transitions on rx_data during a shift operation
-	//and only update when shift_done goes high. Adds one cycle of latency
-	parameter CHANGE_ON_DONE	= 0,
-
 	//If PIPE_DIV is true, clkdiv has an additional cycle of latency but timing is improved
 	parameter PIPE_DIV			= 0
 ) (
@@ -106,33 +102,11 @@ module QSPIHostInterface #(
 
 	logic[6:0]	tx_shreg		= 0;
 
-	logic[7:0]	rx_shreg		= 0;
-	logic		shift_done_adv	= 0;
-
-	//Optionally: Only update output at end of a shift operation
-	generate
-		if(CHANGE_ON_DONE) begin
-			always_ff @(posedge clk) begin
-				shift_done		<= 0;
-				if(shift_done_adv) begin
-					rx_data		<= rx_shreg;
-					shift_done	<= 1;
-				end
-			end
-		end
-
-		else begin
-			always_comb begin
-				rx_data		= rx_shreg;
-				shift_done	= shift_done_adv;
-			end
-		end
-	endgenerate
+	logic[7:0]	rx_data		= 0;
 
 	logic almost_done	= 0;
-
 	always_ff @(posedge clk) begin
-		shift_done_adv	<= 0;
+		shift_done	<= 0;
 
 		//Wait for a start request
 		if(shift_en) begin
@@ -180,7 +154,7 @@ module QSPIHostInterface #(
 				//Make the done flag wait half a bit period if necessary
 				if(almost_done) begin
 					qspi_sck		<= 0;
-					shift_done_adv	<= 1;
+					shift_done	<= 1;
 					active			<= 0;
 					quad_active		<= 0;
 					almost_done		<= 0;
@@ -194,9 +168,9 @@ module QSPIHostInterface #(
 
 					if(LOCAL_EDGE == "INVERTED") begin
 						if(quad_active)
-							rx_shreg <= {rx_shreg[3:0], qspi_dq_in[3:0] };
+							rx_data <= {rx_data[3:0], qspi_dq_in[3:0] };
 						else
-							rx_shreg <= {rx_shreg[6:0], qspi_dq_in[1] };
+							rx_data <= {rx_data[6:0], qspi_dq_in[1] };
 					end
 
 				end
@@ -218,9 +192,9 @@ module QSPIHostInterface #(
 					//Sample just before the clock rises
 					else if(LOCAL_EDGE == "NORMAL") begin
 						if(quad_active)
-							rx_shreg <= {rx_shreg[3:0], qspi_dq_in[3:0] };
+							rx_data <= {rx_data[3:0], qspi_dq_in[3:0] };
 						else
-							rx_shreg <= {rx_shreg[6:0], qspi_dq_in[1] };
+							rx_data <= {rx_data[6:0], qspi_dq_in[1] };
 					end
 
 				end
