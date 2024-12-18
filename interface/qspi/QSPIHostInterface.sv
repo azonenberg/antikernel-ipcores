@@ -92,26 +92,16 @@ module QSPIHostInterface(
 		if(shift_done) begin
 
 			//End of the burst? Force clock low
-			qspi_sck		= 0;
 			shift_done		= 0;
-			count			= 0;
 
-			//Restart the next word of the burst
+			//If restarting, nothing special needed
 			if(auto_restart) begin
-
-				if(quad_active) begin
-					qspi_dq_out		= 4'b0000;
-					tx_shreg		= 0;
-				end
-				else begin
-					qspi_dq_out[0]	= tx_data[7];
-					tx_shreg		= tx_data[6:0];
-				end
-
 			end
 
 			//Nope, burst is done
 			else begin
+				qspi_sck		= 0;
+				count			= 0;
 				active			= 0;
 				quad_active		= 0;
 			end
@@ -169,10 +159,27 @@ module QSPIHostInterface(
 				//Stop on the end of the last clock
 				if( (count == 'd8) ) begin
 					shift_done		= 1;
+
+					if(auto_restart) begin
+
+						//Start the next word
+						if(quad_active) begin
+							qspi_dq_out		= 4'b0000;
+							tx_shreg		= 0;
+						end
+						else begin
+							qspi_dq_out[0]	= tx_data[7];
+							tx_shreg		= tx_data[6:0];
+						end
+
+					end
+
 					qspi_sck		= 0;
+					count			= 0;
+
 				end
 
-				if(quad_active)
+				else if(quad_active)
 					count = count + 4'h4;
 				else
 					count = count + 4'h1;
