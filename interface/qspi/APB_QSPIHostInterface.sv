@@ -126,7 +126,7 @@ module APB_QSPIHostInterface #(
 	//For now, max 256 bytes (64 32-bit words) supported.
 	//RAM64M is 3 bits per slice (4 LUTS) so for 32 bits we should use 11 slices / 44 LUTs. Not too bad.
 	logic[5:0]	burst_rptr 		= 0;
-	logic[5:0]	burst_wptr 		= 0;
+	logic[6:0]	burst_wptr 		= 0;
 	logic[31:0] burst_wdata 	= 0;
 	logic		burst_wr		= 0;
 	logic[1:0]	burst_wvalid	= 0;
@@ -161,6 +161,8 @@ module APB_QSPIHostInterface #(
 	wire burst_active;
 	assign burst_active = (burst_mode != BURST_IDLE);
 
+	logic	reading_rxbuf;
+
 	always_comb begin
 
 		//Combinatorially assert PREADY when selected
@@ -179,7 +181,20 @@ module APB_QSPIHostInterface #(
 		auto_restart	= (burst_count > 1);
 
 		//Combinatorially read burst buffer memory
-		burst_rptr	= apb.paddr[7:2];
+		reading_rxbuf	= apb.paddr >= REG_BURST_RXBUF;
+		burst_rptr		= apb.paddr[7:2];
+
+		if(apb.psel && apb.penable && burst_active && reading_rxbuf ) begin
+
+			//If we're trying to read ahead of the write pointer, block
+			if(burst_rptr > burst_wptr)
+				apb.pready = 0;
+
+			//If equal but not writing (i.e. not yet ready to forward), block
+			if( (burst_rptr == burst_wptr) && !burst_wr)
+				apb.pready = 0;
+
+		end
 
 		if(apb.pready) begin
 
@@ -220,8 +235,17 @@ module APB_QSPIHostInterface #(
 			else begin
 
 				//read rx buffer
-				if(apb.paddr >= REG_BURST_RXBUF)
-					apb.prdata	= burst_rdata;
+				if(reading_rxbuf) begin
+
+					//Forward write data if we try to simultaneously write and read the same address
+					if(burst_wr && (burst_wptr == burst_rptr) )
+						apb.prdata	= burst_wdata;
+
+					//Normal combinatorial read
+					else
+						apb.prdata	= burst_rdata;
+
+				end
 
 				else begin
 					case(apb.paddr)
