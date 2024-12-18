@@ -37,9 +37,6 @@
  */
 module QSPIHostInterface #(
 
-	//Indicates which edge of SCK the remote end samples data on.
-	parameter SAMPLE_EDGE 		= "RISING",
-
 	//Indicates which edge of SCK the local end samples data on
 	//NORMAL = same as remote
 	//INVERTED = opposite
@@ -69,13 +66,10 @@ module QSPIHostInterface #(
 
 	//Control interface
 	input wire			shift_en,
+	input wire			quad_shift_en,
 	output logic		shift_done = 0,
 	input wire[7:0]		tx_data,
 	output reg[7:0]		rx_data = 0
-
-	`ifdef FORMAL
-	, output logic active	= 0
-	`endif
     );
 
  	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -86,7 +80,7 @@ module QSPIHostInterface #(
 
 	if(PIPE_DIV) begin
 		always_ff @(posedge clk) begin
-			if(shift_en)
+			if(shift_en || quad_shift_en)
 				toggle	<= 0;
 			else
 				toggle	<= (clkcount >= clkdiv[15:1]) && active;
@@ -95,7 +89,7 @@ module QSPIHostInterface #(
 
 	else begin
 		always_comb begin
-			if(shift_en)
+			if(shift_en || quad_shift_en)
 				toggle	= 0;
 			else
 				toggle	= (clkcount >= clkdiv[15:1]) && active;
@@ -105,11 +99,10 @@ module QSPIHostInterface #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main state machine
 
-	`ifndef FORMAL
-	logic		active		= 0;
-	`endif
+	logic		active			= 0;
+	logic		quad_active		= 0;
 
-	logic[3:0]	count		= 0;
+	logic[3:0]	count			= 0;
 
 	logic[6:0]	tx_shreg		= 0;
 
@@ -136,26 +129,10 @@ module QSPIHostInterface #(
 		end
 	endgenerate
 
-	initial begin
-		if( (SAMPLE_EDGE != "RISING") && (SAMPLE_EDGE != "FALLING") ) begin
-			$fatal("ERROR: Invalid sample edge in SPIHostInterface");
-		end
-	end
-
 	logic almost_done	= 0;
 
 	always_ff @(posedge clk) begin
 		shift_done_adv	<= 0;
-
-		//Prevent starting in illegal states during formal verification
-		`ifdef FORMAL
-			assert(clkcount <= clkdiv[15:1]);
-			assert(count <= 9);
-
-			if(!active) begin
-				assert(!almost_done);
-			end
-		`endif
 
 		//Wait for a start request
 		if(shift_en) begin
@@ -165,17 +142,29 @@ module QSPIHostInterface #(
 			//Default to being in regular x1 mode
 			qspi_dq_tris	<= 4'b1110;
 
-			if(SAMPLE_EDGE == "FALLING") begin
-				count	<= 1;
-				qspi_sck <= 1;
-			end
-			else begin
-				count	<= 0;
-				qspi_sck <= 0;
-			end
+			count			<= 0;
+			qspi_sck 		<= 0;
 
-			qspi_dq_out[0] <= tx_data[7];
-			tx_shreg <= tx_data[6:0];
+			qspi_dq_out[0]	<= tx_data[7];
+			tx_shreg		<= tx_data[6:0];
+		end
+
+		//Start in quad mode
+		else if(quad_shift_en) begin
+
+			active			<= 1;
+			quad_active		<= 1;
+			clkcount		<= 0;
+
+			//For now, only support quad for reads
+			qspi_dq_tris	<= 4'b1111;
+
+			count			<= 0;
+			qspi_sck 		<= 0;
+
+			//tie off outputs since we're not using them
+			qspi_dq_out		<= 4'b0000;
+			tx_shreg		<= 0;
 		end
 
 		//Toggle processing
@@ -190,36 +179,49 @@ module QSPIHostInterface #(
 
 				//Make the done flag wait half a bit period if necessary
 				if(almost_done) begin
-					qspi_sck			<= 0;
+					qspi_sck		<= 0;
 					shift_done_adv	<= 1;
 					active			<= 0;
+					quad_active		<= 0;
 					almost_done		<= 0;
 				end
 
 				//ACTIVE EDGE
-				else if( (qspi_sck && (SAMPLE_EDGE == "RISING")) || (!qspi_sck && (SAMPLE_EDGE == "FALLING")) ) begin
+				else if(qspi_sck) begin
 					qspi_dq_out[0] <= tx_shreg[6];
 
 					tx_shreg <= {tx_shreg[5:0], 1'b0};
 
-					if(LOCAL_EDGE == "INVERTED")
-						rx_shreg <= {rx_shreg[6:0], qspi_dq_in[1] };
+					if(LOCAL_EDGE == "INVERTED") begin
+						if(quad_active)
+							rx_shreg <= {rx_shreg[3:0], qspi_dq_in[3:0] };
+						else
+							rx_shreg <= {rx_shreg[6:0], qspi_dq_in[1] };
+					end
 
 				end
 
 				//INACTIVE EDGE
 				else begin
-					count <= count + 4'h1;
+
+					if(quad_active)
+						count <= count + 4'h4;
+					else
+						count <= count + 4'h1;
 
 					//Stop on the end of the last clock
 					if( (count == 'd8) ) begin
 						qspi_sck		<= 0;
-						almost_done	<= 1;
+						almost_done		<= 1;
 					end
 
 					//Sample just before the clock rises
-					else if(LOCAL_EDGE == "NORMAL")
-						rx_shreg <= {rx_shreg[6:0], qspi_dq_in[1] };
+					else if(LOCAL_EDGE == "NORMAL") begin
+						if(quad_active)
+							rx_shreg <= {rx_shreg[3:0], qspi_dq_in[3:0] };
+						else
+							rx_shreg <= {rx_shreg[6:0], qspi_dq_in[1] };
+					end
 
 				end
 

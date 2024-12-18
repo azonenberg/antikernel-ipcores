@@ -158,7 +158,7 @@ module APB_SPIHostInterface #(
 		shift_data		= 0;
 
 		//Continue an existing burst
-		if(burst_busy && shift_done && (burst_count != 0) ) begin
+		if(burst_busy && shift_done && (burst_count > 1) ) begin
 			shift_en	= 1;
 			shift_data	= 8'h0;
 		end
@@ -297,7 +297,7 @@ module APB_SPIHostInterface #(
 					burst_count		<= burst_count - 1;
 					burst_wvalid	<= burst_wvalid + 1;
 
-					if(burst_count == 0)
+					if(burst_count <= 1)
 						burst_busy	<= 0;
 				end
 

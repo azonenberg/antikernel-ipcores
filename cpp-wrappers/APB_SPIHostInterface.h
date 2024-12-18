@@ -51,7 +51,8 @@ struct APB_SPIHostInterface
 	uint32_t field_a4[7];
 	uint32_t quad_capable;
 	uint32_t field_c4[7];
-	uint32_t field_e0[8];
+	uint32_t quad_burst_rdlen;
+	uint32_t field_e4[7];
 	uint32_t burst_rxbuf[64];
 };
 

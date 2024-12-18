@@ -77,16 +77,17 @@ module APB_QSPIHostInterface #(
 	//Registers are a strict superset of APB_SPIHostInterface
 	typedef enum logic[8:0]
 	{
-		REG_CLK_DIV		= 'h00,		//clock divider from PCLK to SCK
-		REG_DATA		= 'h20,		//[7:0] data to send/receive
-		REG_CS_N		= 'h40,		//[0] = chip select output value
-		REG_STATUS		= 'h60,		//[0] = busy flag
-		REG_STATUS_2	= 'h80,		//duplicate of REG_STATUS for use with QSPI clients
-		REG_BURST_RDLEN	= 'ha0,		//write number of bytes to read in a burst (up to 256)
-		REG_QUAD_CAP	= 'hc0,		//always 0 for regular SPI, 1 for QSPI
-		REG_BURST_RXBUF	= 'h100		//base address for receive buffer
-									//Must be aligned to 64 byte boundary
-									//Must be last register in the peripheral
+		REG_CLK_DIV			= 'h00,		//clock divider from PCLK to SCK
+		REG_DATA			= 'h20,		//[7:0] data to send/receive
+		REG_CS_N			= 'h40,		//[0] = chip select output value
+		REG_STATUS			= 'h60,		//[0] = busy flag
+		REG_STATUS_2		= 'h80,		//duplicate of REG_STATUS for use with QSPI clients
+		REG_BURST_RDLEN		= 'ha0,		//write number of bytes to read in a burst (up to 256)
+		REG_QUAD_CAP		= 'hc0,		//always 0 for regular SPI, 1 for QSPI
+		REG_QBURST_RDLEN	= 'he0,		//write number of bytes to read in a burst (up to 256)
+		REG_BURST_RXBUF		= 'h100		//base address for receive buffer
+										//Must be aligned to 64 byte boundary
+										//Must be last register in the peripheral
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -95,6 +96,7 @@ module APB_QSPIHostInterface #(
 	logic[15:0]	clkdiv	= 100;
 
 	logic		shift_en;
+	logic		quad_shift_en;
 	logic[7:0]	shift_data;
 	wire		shift_done;
 	wire[7:0]	rx_data;
@@ -111,6 +113,7 @@ module APB_QSPIHostInterface #(
 		.qspi_dq_tris(qspi_dq_tris),
 
 		.shift_en(shift_en),
+		.quad_shift_en(quad_shift_en),
 		.shift_done(shift_done),
 		.tx_data(shift_data),
 		.rx_data(rx_data));
@@ -144,8 +147,17 @@ module APB_QSPIHostInterface #(
 	// APB interface logic
 
 	logic		shift_busy	= 0;
-	logic		burst_busy	= 0;
 	logic[8:0]	burst_count	= 0;
+
+	enum logic[1:0]
+	{
+		BURST_IDLE,
+		BURST_NORMAL,
+		BURST_QUAD
+	} burst_mode = BURST_IDLE;
+
+	wire burst_active;
+	assign burst_active = (burst_mode != BURST_IDLE);
 
 	always_comb begin
 
@@ -157,13 +169,26 @@ module APB_QSPIHostInterface #(
 		apb.pslverr		= 0;
 
 		//Clear control signals
+		quad_shift_en	= 0;
 		shift_en		= 0;
 		shift_data		= 0;
 
 		//Continue an existing burst
-		if(burst_busy && shift_done && (burst_count != 0) ) begin
-			shift_en	= 1;
-			shift_data	= 8'h0;
+		if(shift_done && (burst_count > 1) ) begin
+			case(burst_mode)
+				BURST_NORMAL: begin
+					shift_en		= 1;
+					shift_data		= 8'h0;
+				end
+
+				BURST_QUAD: begin
+					quad_shift_en	= 1;
+					shift_data		= 8'h0;
+				end
+
+				default: begin
+				end
+			endcase
 		end
 
 		//Combinatorially read burst buffer memory
@@ -189,8 +214,13 @@ module APB_QSPIHostInterface #(
 
 					//Send 0x00 and start a shift
 					REG_BURST_RDLEN: begin
-						shift_en	= 1;
-						shift_data	= 8'h0;
+						shift_en		= 1;
+						shift_data		= 8'h0;
+					end
+
+					REG_QBURST_RDLEN: begin
+						quad_shift_en	= 1;
+						shift_data		= 8'h0;
 					end
 
 					//unmapped address
@@ -212,8 +242,8 @@ module APB_QSPIHostInterface #(
 						REG_CLK_DIV:	apb.prdata	= clkdiv + 1;
 						REG_DATA:		apb.prdata	= {23'h0, rx_data};
 						REG_CS_N:		apb.prdata	= {31'h0, qspi_cs_n};
-						REG_STATUS:		apb.prdata	= {31'h0, shift_busy | burst_busy};
-						REG_STATUS_2:	apb.prdata	= {31'h0, shift_busy | burst_busy};
+						REG_STATUS:		apb.prdata	= {31'h0, shift_busy | burst_active};
+						REG_STATUS_2:	apb.prdata	= {31'h0, shift_busy | burst_active};
 						REG_QUAD_CAP:	apb.prdata	= 32'h1;
 
 						//unmapped address
@@ -234,7 +264,7 @@ module APB_QSPIHostInterface #(
 			qspi_cs_n		<= 1;
 			clkdiv			<= 100;
 			shift_busy		<= 0;
-			burst_busy		<= 0;
+			burst_mode		<= BURST_IDLE;
 			burst_count		<= 0;
 			burst_wr		<= 0;
 			burst_wdata		<= 0;
@@ -259,7 +289,17 @@ module APB_QSPIHostInterface #(
 					//Start a burst read
 					REG_BURST_RDLEN: begin
 						burst_count	<= apb.pwdata[8:0];
-						burst_busy	<= 1;
+						burst_mode	<= BURST_NORMAL;
+						burst_wptr	<= 0;
+
+						//clamp large burst sizes
+						if(apb.pwdata[8:0] > 256)
+							burst_count	<= 256;
+					end
+
+					REG_QBURST_RDLEN: begin
+						burst_count	<= apb.pwdata[8:0];
+						burst_mode	<= BURST_QUAD;
 						burst_wptr	<= 0;
 
 						//clamp large burst sizes
@@ -279,7 +319,7 @@ module APB_QSPIHostInterface #(
 			end
 
 			//Handle bursts
-			if(burst_busy) begin
+			if(burst_mode != BURST_IDLE) begin
 
 				//End of a burst
 				if(shift_done) begin
@@ -300,8 +340,8 @@ module APB_QSPIHostInterface #(
 					burst_count		<= burst_count - 1;
 					burst_wvalid	<= burst_wvalid + 1;
 
-					if(burst_count == 0)
-						burst_busy	<= 0;
+					if(burst_count <= 1)
+						burst_mode	<= BURST_IDLE;
 				end
 
 			end
