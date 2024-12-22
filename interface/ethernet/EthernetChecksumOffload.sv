@@ -226,10 +226,10 @@ module EthernetChecksumOffload(
 		STATE_IDLE,
 		STATE_MAC_HEADER,
 		STATE_IPV4_HEADER,
-		STATE_TCP_V4_HEADER,
+		STATE_TCP_V4_PACKET,
 		STATE_UDP_V4_PACKET,
-		STATE_UDP_V4_LEN,
-		STATE_UDP_V4_CSUM,
+		STATE_LEN,
+		STATE_SAVE_CSUM,
 		STATE_UNKNOWN,
 		STATE_IGNORE
 	} state = STATE_IDLE;
@@ -328,7 +328,7 @@ module EthernetChecksumOffload(
 							count		<= 0;
 
 							if(ip_proto == 8'h6)
-								state	<= STATE_TCP_V4_HEADER;
+								state	<= STATE_TCP_V4_PACKET;
 							else if(ip_proto == 8'h11)
 								state	<= STATE_UDP_V4_PACKET;
 							else
@@ -339,8 +339,33 @@ module EthernetChecksumOffload(
 
 				end	//STATE_IPV4_HEADER
 
-				STATE_TCP_V4_HEADER: begin
-					state	<= STATE_UNKNOWN;
+				STATE_TCP_V4_PACKET: begin
+
+					count	<= count + 1;
+
+					//Append data to the checksum
+					case(count[1:0])
+						0:	csum_din[31:24]	<= buf_tx_bus.data;
+						1:	csum_din[23:16]	<= buf_tx_bus.data;
+						2:	csum_din[15:8]	<= buf_tx_bus.data;
+						3: begin
+							csum_din[7:0]	<= buf_tx_bus.data;
+							csum_process	<= 1;
+						end
+					endcase
+
+					//If this is bytes 16 or 17, it's the input checksum
+					//Save it, but don't checksum whatever garbage the stack put there
+					if(count == 16) begin
+						meta_wr_offset		<= (meta_wr_len + 1'h1);	//save position for eventual checksum insertion
+						dbg_csum[15:8]		<= buf_tx_bus.data;
+						csum_din[31:24]		<= 0;
+					end
+					if(count == 17) begin
+						dbg_csum[7:0]		<= buf_tx_bus.data;
+						csum_din[23:16]		<= 0;
+					end
+
 				end
 
 				STATE_UDP_V4_PACKET: begin
@@ -381,6 +406,21 @@ module EthernetChecksumOffload(
 			case(state)
 
 				//Checksum the last partial word
+				STATE_TCP_V4_PACKET: begin
+
+					//Trim off any incomplete trailing bytes
+					case(count[1:0])
+						0:	csum_din[31:0]	<= 0;
+						1:	csum_din[23:0]	<= 0;
+						2:	csum_din[15:0]	<= 0;
+						3:	csum_din[7:0]	<= 0;
+					endcase
+
+					csum_process	<= 1;
+					state			<= STATE_LEN;
+				end
+
+				//Checksum the last partial word
 				STATE_UDP_V4_PACKET: begin
 
 					//Trim off any incomplete trailing bytes
@@ -392,19 +432,19 @@ module EthernetChecksumOffload(
 					endcase
 
 					csum_process	<= 1;
-					state			<= STATE_UDP_V4_LEN;
+					state			<= STATE_LEN;
 				end
 
 				//Append the final packet length
-				STATE_UDP_V4_LEN: begin
+				STATE_LEN: begin
 
-					//Checksum UDP length
+					//Checksum the packet length
 					csum_din		<= count;
 					csum_process	<= 1;
-					state			<= STATE_UDP_V4_CSUM;
+					state			<= STATE_SAVE_CSUM;
 				end
 
-				STATE_UDP_V4_CSUM: begin
+				STATE_SAVE_CSUM: begin
 					if(!csum_process) begin
 
 						//Save the checksum
