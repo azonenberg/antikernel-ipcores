@@ -237,7 +237,6 @@ module EthernetChecksumOffload(
 	logic[10:0]	count				= 0;
 	logic[15:0] ethertype			= 0;
 	logic[7:0]	ip_proto			= 0;
-	logic[15:0]	dbg_csum			= 0;
 
 	always_ff @(posedge clk) begin
 
@@ -358,13 +357,10 @@ module EthernetChecksumOffload(
 					//Save it, but don't checksum whatever garbage the stack put there
 					if(count == 16) begin
 						meta_wr_offset		<= (meta_wr_len + 1'h1);	//save position for eventual checksum insertion
-						dbg_csum[15:8]		<= buf_tx_bus.data;
 						csum_din[31:24]		<= 0;
 					end
-					if(count == 17) begin
-						dbg_csum[7:0]		<= buf_tx_bus.data;
+					if(count == 17)
 						csum_din[23:16]		<= 0;
-					end
 
 				end
 
@@ -386,13 +382,10 @@ module EthernetChecksumOffload(
 					//Save it, but don't checksum whatever garbage the stack put there
 					if(count == 6) begin
 						meta_wr_offset		<= (meta_wr_len + 1'h1);	//save position for eventual checksum insertion
-						dbg_csum[15:8]		<= buf_tx_bus.data;
 						csum_din[15:8]		<= 0;
 					end
-					if(count == 7) begin
-						dbg_csum[7:0]		<= buf_tx_bus.data;
+					if(count == 7)
 						csum_din[7:0]		<= 0;
-					end
 
 				end	//STATE_UDP_V4_PACKET
 
@@ -473,44 +466,5 @@ module EthernetChecksumOffload(
 		end
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
-
-	ila_1 ila(
-		.clk(clk),
-
-		.probe0(buf_tx_ready),
-		.probe1(buf_tx_bus.start),
-		.probe2(buf_tx_bus.data_valid),
-		.probe3(buf_tx_bus.data[7:0]),
-		.probe4(mac_tx_ready),
-		.probe5(mac_tx_bus.start),
-		.probe6(mac_tx_bus.data_valid),
-		.probe7(mac_tx_bus.data[7:0]),
-		.probe8(state),
-		.probe9(count),
-		.probe10(ip_proto),
-		.probe11(csum_process),
-		.probe12(csum_din),
-		.probe13(csum_sum),
-		.probe14(dbg_csum),
-		.probe15(ethertype),
-		.probe16(fifo_rd),
-		.probe17(fifo_rd_data),
-		.probe18(fifo_empty),
-		.probe19(meta_wr_en),
-		.probe20(meta_wr_len),
-		.probe21(meta_wr_csum),
-		.probe22(meta_wr_offset),
-
-		.probe23(meta_rd_en),
-		.probe24(meta_rd_len),
-		.probe25(meta_rd_csum),
-		.probe26(meta_rd_offset),
-		.probe27(rd_state),
-		.probe28(rd_count),
-		.probe29(meta_empty)
-	);
 
 endmodule
