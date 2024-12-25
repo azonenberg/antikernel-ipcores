@@ -67,11 +67,12 @@ module APB_SerdesDRP(
 	{
 		REG_ADDR		= 'h00,	//8:0 DRP address
 								//15 = 1 to write (must have written REG_DATA first), 0 to read
-		REG_DATA		= 'h04,	//DRP read/write data
-		REG_STATUS		= 'h08,	//0 = DRP busy
+
+		REG_DATA		= 'h20,	//DRP read/write data
+		REG_STATUS		= 'h40,	//0 = DRP busy
 								//1 = RX reset done
 
-		REG_STATUS_2	= 'h28	//mirror of REG_STATUS
+		REG_STATUS_2	= 'h60	//mirror of REG_STATUS
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
