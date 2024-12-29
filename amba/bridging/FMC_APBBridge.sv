@@ -30,19 +30,23 @@
 ***********************************************************************************************************************/
 
 /**
-	@brief A bridge from the STM32 FMC to APBv5
+	@brief A bridge from the STM32 FMC to 32 and 64 bit APBv5
 
 	The FMC clock is used as the APB PCLK and is expected to be free-running.
 
 	TODO: add APB completer to query performance counters
+
+	The bridge maps to a 32-bit APB segment mapped starting at 0000_0000,
+	and a 64-bit segment mapped starting at BASE_X64.
  */
 module FMC_APBBridge #(
-	parameter EARLY_READ_DISPATCH	= 0,	//set true to dispatch reads one clock earlier (less latency, worse timing)
-	parameter CAPTURE_CLOCK_PHASE	= 0,	//phase shift for internal PLL to optimize data capture timing
-	parameter LAUNCH_CLOCK_PHASE	= 0,	//phase shift for internal PLL to optimize data launch timing
+	parameter CAPTURE_CLOCK_PHASE	= 0,			//phase shift for internal PLL to optimize data capture timing
+	parameter LAUNCH_CLOCK_PHASE	= 0,			//phase shift for internal PLL to optimize data launch timing
 
-	parameter CLOCK_PERIOD			= 8,	//FMC clock period in ns (default 125 MHz)
-	parameter VCO_MULT				= 8,	//PLL multiplier (default 8 for 1 GHz with 125 MHz PCLK)
+	parameter CLOCK_PERIOD			= 8,			//FMC clock period in ns (default 125 MHz)
+	parameter VCO_MULT				= 8,			//PLL multiplier (default 8 for 1 GHz with 125 MHz PCLK)
+
+	parameter BASE_X64				= 'h0800000,	//Base address for 64-bit segment
 
 	//number of cycles it takes for a wait cycle on write to end before the new data gets here
 	localparam WAIT_CYCLE_RTT		= 1
@@ -52,7 +56,8 @@ module FMC_APBBridge #(
 	input wire			clk_mgmt,
 
 	//APB root bus to interconnect bridge
-	APB.requester		apb,
+	APB.requester		apb_x32,
+	APB.requester		apb_x64,
 
 	//FMC pins to MCU
 	input wire			fmc_clk,
@@ -67,9 +72,11 @@ module FMC_APBBridge #(
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// We only support 32-bit APB due to the native bus width. Throw synthesis error for anything else
+	// Validate width of each bus
 
-	if(apb.DATA_WIDTH != 32)
+	if(apb_x32.DATA_WIDTH != 32)
+		apb_bus_width_is_invalid();
+	if(apb_x64.DATA_WIDTH != 64)
 		apb_bus_width_is_invalid();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -257,15 +264,14 @@ module FMC_APBBridge #(
 		.DO(drp_do),
 		.DRDY(drp_ready)
 	);
-	/*
-	BUFG bufg_clk_fb(
-		.I(clk_fb),
-		.O(clk_fb_bufg));*/
 
+	wire pclk;
 	BUFGCE bufg_pclk(
 		.I(pclk_raw),
-		.O(apb.pclk),
+		.O(pclk),
 		.CE(pll_lock));
+	assign apb_x32.pclk = pclk;
+	assign apb_x64.pclk = pclk;
 
 	BUFGCE bufg_launch_clk(
 		.I(launch_clk_raw),
@@ -273,13 +279,14 @@ module FMC_APBBridge #(
 		.CE(pll_lock));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Hold APB in reset until PLL locks, then keep asserted for a few clocks after
+	// Hold APB segments in reset until PLL locks, then keep asserted for a few clocks after
 
 	logic	rst_n	= 0;
-	assign	apb.preset_n	= rst_n;
+	assign	apb_x32.preset_n	= rst_n;
+	assign	apb_x64.preset_n	= rst_n;
 	logic[3:0]	rst_count	= 1;
 
-	always_ff @(posedge apb.pclk or negedge pll_lock) begin
+	always_ff @(posedge apb_x32.pclk or negedge pll_lock) begin
 
 		//Assert reset if PLL loses lock
 		if(!pll_lock) begin
@@ -299,10 +306,15 @@ module FMC_APBBridge #(
 	// APB interface logic
 
 	//Tie off unused signals
-	assign apb.pprot 	= 0;
-	assign apb.pwakeup 	= 0;
-	assign apb.pauser	= 0;
-	assign apb.pwuser	= 0;
+	assign apb_x32.pprot 	= 0;
+	assign apb_x32.pwakeup 	= 0;
+	assign apb_x32.pauser	= 0;
+	assign apb_x32.pwuser	= 0;
+
+	assign apb_x64.pprot 	= 0;
+	assign apb_x64.pwakeup 	= 0;
+	assign apb_x64.pauser	= 0;
+	assign apb_x64.pwuser	= 0;
 
 	enum logic[3:0]
 	{
@@ -311,6 +323,8 @@ module FMC_APBBridge #(
 		STATE_WAIT2,
 		STATE_WDATA_LO,
 		STATE_WDATA_HI,
+		STATE_WDATA_LO2,
+		STATE_WDATA_HI2,
 		STATE_WDATA_WAIT,
 		STATE_RDATA_LO,
 		STATE_RDATA_HI,
@@ -321,7 +335,7 @@ module FMC_APBBridge #(
 	} state = STATE_ADDR;
 
 	//Saved address/write enable flag before we started a write
-	logic[18:0]		pending_addr	= 0;
+	logic[25:0]		pending_addr	= 0;
 	logic			pending_write	= 0;
 	logic			apb_busy		= 0;
 	logic[3:0]		wait_count		= 0;
@@ -362,34 +376,49 @@ module FMC_APBBridge #(
 	always_ff @(posedge clk_launch) begin
 
 		case(state)
-			STATE_RDATA_LO:	begin
-				/*if(apb.pready)
-					adbus_out	<= apb.prdata[15:0];
-				else*/
-					adbus_out	<= prdata_latched[15:0];
-			end
+			STATE_RDATA_LO:	adbus_out	<= prdata_latched[15:0];
 			STATE_RDATA_HI:	adbus_out	<= prdata_latched[31:16];
-
 			default:		adbus_out	<= 0;
 		endcase
 
 	end
 
+	//Figure out if address is in the 32 or 64 bit segment
+	logic		addr_is_x64 = 0;
+
+	//DEBUG latch adbus_in so i can see in the LA
+	logic[15:0] adbus_in_ff = 0;
+
+	wire[25:0]	pending_addr_next;
+	assign pending_addr_next = { fmc_a_hi, adbus_in, 1'b0};
+
 	logic		apb_busy_ff	= 0;
-	always_ff @(posedge apb.pclk) begin
+	always_ff @(posedge pclk) begin
 
 		apb_busy_ff	<= apb_busy;
 
+		//DEBUG
+		adbus_in_ff	<= adbus_in;
+
 		//Activate
-		if(apb.penable && !apb.psel)
-			apb.psel	<= 1;
+		if(apb_x32.penable && !apb_x32.psel)
+			apb_x32.psel	<= 1;
+		if(apb_x64.penable && !apb_x64.psel)
+			apb_x64.psel	<= 1;
 
 		//Complete a transaction
-		if(apb.pready) begin
-			apb.penable		<= 0;
-			apb.psel		<= 0;
-			apb_busy		<= 0;
-			prdata_latched	<= apb.prdata;
+		if(apb_x32.pready) begin
+			apb_x32.penable		<= 0;
+			apb_x32.psel		<= 0;
+			apb_busy			<= 0;
+			prdata_latched		<= apb_x32.prdata;
+		end
+
+		if(apb_x64.pready) begin
+			apb_x64.penable		<= 0;
+			apb_x64.psel		<= 0;
+			apb_busy			<= 0;
+			prdata_latched		<= apb_x64.prdata;
 		end
 
 		//Selected! Let's do something
@@ -404,24 +433,13 @@ module FMC_APBBridge #(
 				//LSB of address is always implicitly zero because of 16 bit bus width
 				STATE_ADDR: begin
 
-					pending_addr	<= { fmc_a_hi, adbus_in, 1'b0};
+					pending_addr	<= pending_addr_next;
+					addr_is_x64		<= (pending_addr_next >= BASE_X64);
 					pending_write	<= !fmc_nwe;
 
 					//Move on as soon as we get the address latched
-					if(!fmc_nl_nadv) begin
-						state			<= STATE_WAIT;
-
-						//Dispatch reads as soon as we can
-						if(!apb_busy && fmc_nwe && EARLY_READ_DISPATCH) begin
-							apb.penable		<= 1;
-							apb_busy		<= 1;
-							apb.paddr		<= { fmc_a_hi, adbus_in, 1'b0};
-							apb.pwrite		<= 0;
-
-							//Waiting for read data to come back
-							state			<= STATE_RDATA_LO;
-						end
-					end
+					if(!fmc_nl_nadv)
+						state				<= STATE_WAIT;
 
 				end
 
@@ -430,16 +448,26 @@ module FMC_APBBridge #(
 
 					//it's a write
 					if(pending_write)
-						state			<= STATE_WAIT2;
+						state				<= STATE_WAIT2;
 
 					//it's a read, dispatch it when available
 					else if(!apb_busy) begin
 
-						//Kick off the read request
-						apb.paddr			<= pending_addr;
-						apb.pwrite			<= pending_write;
-						apb.penable			<= 1;
-						apb_busy			<= 1;
+						//32-bit requests
+						if(addr_is_x64) begin
+							apb_x64.paddr		<= pending_addr;
+							apb_x64.pwrite		<= pending_write;
+							apb_x64.penable		<= 1;
+							apb_busy			<= 1;
+						end
+
+						//64-bit requests
+						else begin
+							apb_x32.paddr		<= pending_addr;
+							apb_x32.pwrite		<= pending_write;
+							apb_x32.penable		<= 1;
+							apb_busy			<= 1;
+						end
 
 						//Waiting for read data to come back
 						state				<= STATE_RDATA_LO;
@@ -456,10 +484,13 @@ module FMC_APBBridge #(
 				////////////////////////////////////////////////////////////////////////////////////////////////////////
 				// Writes
 
-				//Bottom half of write data
+				//Word 0 of write data (low half of x32, low half of first word for x64)
 				STATE_WDATA_LO: begin
-					apb.pstrb[1:0]		<= ~fmc_nbl;
-					apb.pwdata[15:0]	<= adbus_in;
+					apb_x32.pstrb[1:0]		<= ~fmc_nbl;
+					apb_x32.pwdata[15:0]	<= adbus_in;
+
+					apb_x64.pstrb[5:4]		<= ~fmc_nbl;
+					apb_x64.pwdata[47:32]	<= adbus_in;
 
 					if(apb_busy_ff) begin
 						state			<= STATE_WDATA_WAIT;
@@ -479,24 +510,55 @@ module FMC_APBBridge #(
 					end
 				end
 
-				//High half of write data
+				//Word 1 of write data (high half of x32, high half of first word for x64)
 				STATE_WDATA_HI: begin
-					apb.pstrb[3:2]		<= ~fmc_nbl;
-					apb.pwdata[31:16]	<= adbus_in;
-					state				<= STATE_ACTIVE;
+					apb_x32.pstrb[3:2]		<= ~fmc_nbl;
+					apb_x32.pwdata[31:16]	<= adbus_in;
 
-					//Apply the pending changes
-					apb.paddr			<= pending_addr;
-					apb.pwrite			<= pending_write;
-					apb.penable			<= 1;
-					apb_busy			<= 1;
+					apb_x64.pstrb[7:6]		<= ~fmc_nbl;
+					apb_x64.pwdata[63:48]	<= adbus_in;
+
+					//If 64 bit, more to come
+					if(addr_is_x64)
+						state					<= STATE_WDATA_LO2;
+
+					//Dispatch the transaction now if it's a 32 bit
+					else begin
+						state					<= STATE_ACTIVE;
+
+						apb_x32.paddr			<= pending_addr;
+						apb_x32.pwrite			<= pending_write;
+						apb_x32.penable			<= 1;
+						apb_busy				<= 1;
+					end
+
+				end
+
+				//Word 2 of write data (low half of second word for x64)
+				STATE_WDATA_LO2: begin
+					apb_x64.pstrb[1:0]		<= ~fmc_nbl;
+					apb_x64.pwdata[15:0]	<= adbus_in;
+					state					<= STATE_WDATA_HI2;
+				end
+
+				//Word 3 of write data (high half of second word for x64)
+				STATE_WDATA_HI2: begin
+					apb_x64.pstrb[3:2]		<= ~fmc_nbl;
+					apb_x64.pwdata[31:16]	<= adbus_in;
+
+					apb_x64.paddr			<= pending_addr;
+					apb_x64.pwrite			<= pending_write;
+					apb_x64.penable			<= 1;
+					apb_busy				<= 1;
+
+					state					<= STATE_ACTIVE;
 				end
 
 				////////////////////////////////////////////////////////////////////////////////////////////////////////
 				// Reads
 
 				STATE_RDATA_LO: begin
-					if(!apb_busy /* || apb.pready */)
+					if(!apb_busy /* || apb_x32.pready */)
 						state			<= STATE_RDATA_HI;
 				end
 
@@ -535,7 +597,7 @@ module FMC_APBBridge #(
 	integer SEC_COUNT_MAX = PCLK_CYCLES_PER_SEC - 1;
 	logic[SEC_COUNT_BITS-1:0]	count_1hz = 0;
 	logic 						tick_1hz = 0;
-	always_ff @(posedge apb.pclk) begin
+	always_ff @(posedge pclk) begin
 		count_1hz	<= count_1hz + 1;
 		tick_1hz	<= 0;
 		if(count_1hz >= SEC_COUNT_MAX) begin
@@ -546,31 +608,31 @@ module FMC_APBBridge #(
 
 	wire[47:0]	apb_reads_per_sec_raw;
 	PerformanceCounter perf_count_apb_reads_per_sec(
-		.clk(apb.pclk),
-		.en(apb.pready && !apb.pwrite),
+		.clk(apb_x32.pclk),
+		.en(apb_x32.pready && !apb_x32.pwrite),
 		.delta(1),
 		.rst(tick_1hz),
 		.count(apb_reads_per_sec_raw));
 
 	wire[47:0]	apb_writes_per_sec_raw;
 	PerformanceCounter perf_count_apb_writes_per_sec(
-		.clk(apb.pclk),
-		.en(apb.pready && apb.pwrite),
+		.clk(apb_x32.pclk),
+		.en(apb_x32.pready && apb_x32.pwrite),
 		.delta(1),
 		.rst(tick_1hz),
 		.count(apb_writes_per_sec_raw));
 
 	wire[47:0]	apb_active_per_sec_raw;
 	PerformanceCounter perf_count_apb_active_per_sec(
-		.clk(apb.pclk),
-		.en(apb.penable),
+		.clk(apb_x32.pclk),
+		.en(apb_x32.penable),
 		.delta(1),
 		.rst(tick_1hz),
 		.count(apb_active_per_sec_raw));
 
 	wire[47:0]	fmc_active_per_sec_raw;
 	PerformanceCounter perf_count_fmc_active_per_sec(
-		.clk(apb.pclk),
+		.clk(apb_x32.pclk),
 		.en(!fmc_cs_n),
 		.delta(1),
 		.rst(tick_1hz),
@@ -578,7 +640,7 @@ module FMC_APBBridge #(
 
 	wire[47:0]	fmc_ifg_per_sec_raw;
 	PerformanceCounter perf_count_fmc_ifg_per_sec(
-		.clk(apb.pclk),
+		.clk(apb_x32.pclk),
 		.en(!fmc_nl_nadv),
 		.delta(2),
 		.rst(tick_1hz),
@@ -589,7 +651,7 @@ module FMC_APBBridge #(
 	logic[47:0] apb_active_per_sec = 0;
 	logic[47:0] fmc_active_per_sec = 0;
 	logic[47:0] fmc_ifg_per_sec = 0;
-	always_ff @(posedge apb.pclk) begin
+	always_ff @(posedge pclk) begin
 		if(tick_1hz) begin
 			apb_reads_per_sec	<= apb_reads_per_sec_raw;
 			apb_writes_per_sec	<= apb_writes_per_sec_raw;
@@ -601,7 +663,7 @@ module FMC_APBBridge #(
 
 	/*
 	vio_0 vio(
-		.clk(apb.pclk),
+		.clk(apb_x32.pclk),
 		.probe_in0(apb_reads_per_sec),
 		.probe_in1(apb_writes_per_sec),
 		.probe_in2(apb_active_per_sec),
