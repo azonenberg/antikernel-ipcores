@@ -87,11 +87,13 @@ module APB_EthernetTxBuffer_x32_1G(
 	wire 		tx_header_full;
 	wire 		tx_fifo_full;
 
-	logic	fifo_almost_full = 0;
-	logic	header_almost_full = 0;
+	logic		fifo_almost_full	= 0;
+	logic		header_almost_full	= 0;
 
-	wire[5:0] header_wr_size;
+	wire[5:0]	header_wr_size;
 	wire[12:0]	fifo_wr_size;
+	logic		writing_last_byte 	= 0;
+	logic		writing_padding		= 0;
 
 	//Combinatorial readback
 	always_comb begin
@@ -131,8 +133,6 @@ module APB_EthernetTxBuffer_x32_1G(
 		end
 	end
 
-	logic	writing_last_byte	= 0;
-
 	always_ff @(posedge apb.pclk or negedge apb.preset_n) begin
 
 		//Reset
@@ -162,6 +162,9 @@ module APB_EthernetTxBuffer_x32_1G(
 
 			writing_last_byte	<= (tx_expected_packetlen - (tx_wr_packetlen + wr_en)) == 1;
 
+			if(writing_last_byte && wr_en)
+				writing_padding		<= 1;
+
 			//Increment word count as we push
 			if(wr_en) begin
 				tx_wr_packetlen	<= tx_wr_packetlen + 1;
@@ -171,7 +174,7 @@ module APB_EthernetTxBuffer_x32_1G(
 			if(pending_bytes_valid) begin
 
 				//Stop if we ran off the end of the packet
-				if(writing_last_byte)
+				if(writing_last_byte || writing_padding)
 					pending_bytes_valid	<= 0;
 
 				//Nope, good to go
@@ -189,6 +192,7 @@ module APB_EthernetTxBuffer_x32_1G(
 				tx_expected_packetlen	<= 0;
 				pending_bytes			<= 0;
 				pending_bytes_valid		<= 0;
+				writing_padding			<= 0;
 			end
 
 			if(apb.pready && apb.pwrite) begin
@@ -196,23 +200,31 @@ module APB_EthernetTxBuffer_x32_1G(
 				//Write to the transmit buffer
 				if(apb.paddr >= REG_TX_BUF) begin
 
-					//Push the LSB either way
-					wr_en			<= 1;
-					wr_data			<= apb.pwdata[7:0];
+					//Skip the write if we're in the padding region of a 64-bit write burst
+					if(writing_padding) begin
+					end
 
-					//Other bytes valid too? Save and push later
-					//(assume contiguous byte range)
-					if(apb.pstrb[3] == 1) begin
-						pending_bytes		<= apb.pwdata[31:8];
-						pending_bytes_valid	<= 3;
-					end
-					else if(apb.pstrb[2] == 1) begin
-						pending_bytes		<= apb.pwdata[23:8];
-						pending_bytes_valid	<= 2;
-					end
-					else if(apb.pstrb[1] == 1) begin
-						pending_bytes		<= apb.pwdata[15:8];
-						pending_bytes_valid	<= 1;
+					else begin
+
+						//Push the LSB either way
+						wr_en			<= 1;
+						wr_data			<= apb.pwdata[7:0];
+
+						//Other bytes valid too? Save and push later
+						//(assume contiguous byte range)
+						if(apb.pstrb[3] == 1) begin
+							pending_bytes		<= apb.pwdata[31:8];
+							pending_bytes_valid	<= 3;
+						end
+						else if(apb.pstrb[2] == 1) begin
+							pending_bytes		<= apb.pwdata[23:8];
+							pending_bytes_valid	<= 2;
+						end
+						else if(apb.pstrb[1] == 1) begin
+							pending_bytes		<= apb.pwdata[15:8];
+							pending_bytes_valid	<= 1;
+						end
+
 					end
 
 				end
