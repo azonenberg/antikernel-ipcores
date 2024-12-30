@@ -64,6 +64,8 @@ module EthernetChecksumOffload(
 	wire[7:0]	fifo_rd_data;
 
 	wire		fifo_empty;
+	wire		fifo_full;
+	wire[12:0]	fifo_wsize;
 
 	SingleClockFifo #(
 		.WIDTH(8),
@@ -80,8 +82,8 @@ module EthernetChecksumOffload(
 		.overflow(),
 		.underflow(),
 		.empty(fifo_empty),
-		.full(),
-		.wsize(),
+		.full(fifo_full),
+		.wsize(fifo_wsize),
 		.rsize(),
 		.reset(1'b0)
 	);
@@ -100,6 +102,8 @@ module EthernetChecksumOffload(
 	wire[15:0]		meta_rd_csum;
 	wire[10:0]		meta_rd_offset;
 
+	wire			meta_fifo_full;
+
 	SingleClockFifo #(
 		.WIDTH(38),
 		.DEPTH(32)
@@ -115,7 +119,7 @@ module EthernetChecksumOffload(
 		.overflow(),
 		.underflow(),
 		.empty(meta_empty),
-		.full(),
+		.full(meta_fifo_full),
 		.wsize(),
 		.rsize(),
 		.reset(1'b0)
@@ -240,11 +244,15 @@ module EthernetChecksumOffload(
 
 	always_ff @(posedge clk) begin
 
-		//TODO: backpressure when fifo is full
+		//Default to being ready to accept new packets
 		buf_tx_ready	<= 1;
 
 		//If we're still in the tail end of processing a packet, don't accept a new one
 		if( (state != STATE_UNKNOWN) && (state != STATE_IGNORE) && (state != STATE_IDLE) )
+			buf_tx_ready	<= 0;
+
+		//Backpressure if we're not ready to accept any more data
+		if( (fifo_wsize < 1500) || meta_fifo_full)
 			buf_tx_ready	<= 0;
 
 		//Clear single cycle flags
