@@ -30,7 +30,8 @@
 ***********************************************************************************************************************/
 
 module GTYLane_UltraScale #(
-	parameter FOO = "BAR"
+	parameter CPLL_FBDIV = 4,
+	parameter CPLL_FBDIV_45 = 4
 ) (
 
 	//APB to DRP
@@ -53,6 +54,7 @@ module GTYLane_UltraScale #(
 	input wire[1:0]		clk_ref_north,	//Northbound reference clock from quad to our south
 	input wire[1:0]		clk_ref_south,	//Southbound reference clock from quad to our north
 	input wire[1:0]		clk_ref,		//Reference inputs to our quad
+	input wire			clk_lockdet,
 
 	//Clock IOs
 	input wire			rxusrclk,
@@ -74,10 +76,19 @@ module GTYLane_UltraScale #(
 	input wire[1:0]		qpll_refclk,
 	input wire[1:0]		qpll_lock,
 
-	//CPLL status
+	//CPLL status/control
+	input wire			cpll_pd,
 	output wire			cpll_fblost,
 	output wire			cpll_reflost,
 	output wire			cpll_lock,
+	input wire[2:0]		cpll_refclk_sel,
+
+	//RX equalizer control
+	input wire			rx_ctle_en,
+
+	//Sub-rate configuration
+	input wire[2:0]		tx_rate,
+	input wire[2:0]		rx_rate,
 
 	//Data bus
 	input wire[63:0]	tx_data,	//TXUSRCLK2
@@ -138,8 +149,63 @@ module GTYLane_UltraScale #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual channel
 
-	//unless otherwise specified all configs here were generated from 25G
+	//unless otherwise specified all configs here were generated for 25.78125 Gbps
 	GTYE4_CHANNEL #(
+
+		//CPLL config
+		//Values shown here are for 5 Gbps from a 156.25 MHz refclk
+		.CPLL_CFG0(16'b0000000111111010),
+		.CPLL_CFG1(16'b0000000000101011),
+		.CPLL_CFG2(16'b0000000000000010),
+		.CPLL_CFG3(16'b0000000000000000),
+		.CPLL_FBDIV(CPLL_FBDIV),
+		.CPLL_FBDIV_45(CPLL_FBDIV_45),
+		.CPLL_INIT_CFG0(16'b0000001010110010),
+		.CPLL_LOCK_CFG(16'b0000000111101000),
+		.CPLL_REFCLK_DIV(1),
+
+		//RX CDR config
+		//Values shown here are for 5 Gbps from a 156.25 MHz refclk
+		.RXCDRFREQRESET_TIME(5'b00001),
+		.RXCDRPHRESET_TIME(5'b00001),
+		.RXCDR_CFG0(16'b0000000000000011),
+		.RXCDR_CFG0_GEN3(16'b0000000000000011),
+		.RXCDR_CFG1(16'b0000000000000000),
+		.RXCDR_CFG1_GEN3(16'b0000000000000000),
+		.RXCDR_CFG2(16'b0000001001101001),	//for 25G use 16'b0000000111101001
+											//for 5G use  16'b0000001001101001
+		.RXCDR_CFG2_GEN2(10'b1001101001),
+		.RXCDR_CFG2_GEN3(16'b0000001001101001),
+		.RXCDR_CFG2_GEN4(16'b0000000101100100),
+		.RXCDR_CFG3(16'b0000000000010010),	//for 25G use 16'b0000000000010000
+											//for 5G use  16'b0000000000010010
+		.RXCDR_CFG3_GEN2(6'b010000),
+		.RXCDR_CFG3_GEN3(16'b0000000000010000),
+		.RXCDR_CFG3_GEN4(16'b0000000000010000),
+		.RXCDR_CFG4(16'b0101110011110110),	//no change for 5G vs 25G
+		.RXCDR_CFG4_GEN3(16'b0101110011110110),
+		.RXCDR_CFG5(16'b1011010001101011),	//no change for 5G vs 25G
+		.RXCDR_CFG5_GEN3(16'b0001010001101011),
+		.RXCDR_FR_RESET_ON_EIDLE(1'b0),
+		.RXCDR_HOLD_DURING_EIDLE(1'b0),
+		.RXCDR_LOCK_CFG0(16'b0010001000000001),
+		.RXCDR_LOCK_CFG1(16'b1001111111111111),
+		.RXCDR_LOCK_CFG2(15'b000000000000000),
+		.RXCDR_LOCK_CFG3(16'b0000000000000000),
+		.RXCDR_LOCK_CFG4(16'b0000000000000000),
+		.RXCDR_PH_RESET_ON_EIDLE(1'b0),
+
+		.PREIQ_FREQ_BST(0),					//use 0 for 5G
+											//use 3 for 25G
+
+		//RX CTLE config
+		.RXLPM_CFG(16'b0000000000000000),
+		.RXLPM_GC_CFG(16'b1111100000000000),
+		.RXLPM_KH_CFG0(16'b0000000000000000),
+		.RXLPM_KH_CFG1(16'b1010000000000010),
+		.RXLPM_OS_CFG0(16'b0000000000000000),
+		.RXLPM_OS_CFG1(16'b1000000000000010),
+
 		.ACJTAG_DEBUG_MODE(1'b0),
 		.ACJTAG_MODE(1'b0),
 		.ACJTAG_RESET(1'b0),
@@ -203,15 +269,6 @@ module GTYLane_UltraScale #(
 		.CLK_COR_SEQ_2_ENABLE(4'b1111),
 		.CLK_COR_SEQ_2_USE("FALSE"),
 		.CLK_COR_SEQ_LEN(1),
-		.CPLL_CFG0(16'b0000000111111010),
-		.CPLL_CFG1(16'b0000000000101011),
-		.CPLL_CFG2(16'b0000000000000010),
-		.CPLL_CFG3(16'b0000000000000000),
-		.CPLL_FBDIV(2),
-		.CPLL_FBDIV_45(5),
-		.CPLL_INIT_CFG0(16'b0000001010110010),
-		.CPLL_LOCK_CFG(16'b0000000111101000),
-		.CPLL_REFCLK_DIV(1),
 		.CTLE3_OCAP_EXT_CTRL(3'b000),
 		.CTLE3_OCAP_EXT_EN(1'b0),
 		.DDI_CTRL(2'b00),
@@ -304,7 +361,6 @@ module GTYLane_UltraScale #(
 		.PD_TRANS_TIME_FROM_P2(12'b000000111100),
 		.PD_TRANS_TIME_NONE_P2(8'b00011001),
 		.PD_TRANS_TIME_TO_P2(8'b01100100),
-		.PREIQ_FREQ_BST(3),
 		.RATE_SW_USE_DRP(1'b1),
 		.RCLK_SIPO_DLY_ENB(1'b0),
 		.RCLK_SIPO_INV_EN(1'b0),
@@ -322,32 +378,6 @@ module GTYLane_UltraScale #(
 		.RXBUF_THRESH_OVFLW(49),
 		.RXBUF_THRESH_OVRD("TRUE"),
 		.RXBUF_THRESH_UNDFLW(7),
-		.RXCDRFREQRESET_TIME(5'b00001),
-		.RXCDRPHRESET_TIME(5'b00001),
-		.RXCDR_CFG0(16'b0000000000000011),
-		.RXCDR_CFG0_GEN3(16'b0000000000000011),
-		.RXCDR_CFG1(16'b0000000000000000),
-		.RXCDR_CFG1_GEN3(16'b0000000000000000),
-		.RXCDR_CFG2(16'b0000000111101001),
-		.RXCDR_CFG2_GEN2(10'b1001101001),
-		.RXCDR_CFG2_GEN3(16'b0000001001101001),
-		.RXCDR_CFG2_GEN4(16'b0000000101100100),
-		.RXCDR_CFG3(16'b0000000000010000),
-		.RXCDR_CFG3_GEN2(6'b010000),
-		.RXCDR_CFG3_GEN3(16'b0000000000010000),
-		.RXCDR_CFG3_GEN4(16'b0000000000010000),
-		.RXCDR_CFG4(16'b0101110011110110),
-		.RXCDR_CFG4_GEN3(16'b0101110011110110),
-		.RXCDR_CFG5(16'b1011010001101011),
-		.RXCDR_CFG5_GEN3(16'b0001010001101011),
-		.RXCDR_FR_RESET_ON_EIDLE(1'b0),
-		.RXCDR_HOLD_DURING_EIDLE(1'b0),
-		.RXCDR_LOCK_CFG0(16'b0010001000000001),
-		.RXCDR_LOCK_CFG1(16'b1001111111111111),
-		.RXCDR_LOCK_CFG2(15'b000000000000000),
-		.RXCDR_LOCK_CFG3(16'b0000000000000000),
-		.RXCDR_LOCK_CFG4(16'b0000000000000000),
-		.RXCDR_PH_RESET_ON_EIDLE(1'b0),
 		.RXCFOK_CFG0(16'b0000000000000000),
 		.RXCFOK_CFG1(16'b1000000000010101),
 		.RXCFOK_CFG2(16'b0000001010101110),
@@ -412,12 +442,6 @@ module GTYLane_UltraScale #(
 		.RXGBOX_FIFO_INIT_RD_ADDR(3),
 		.RXGEARBOX_EN("FALSE"),
 		.RXISCANRESET_TIME(5'b00001),
-		.RXLPM_CFG(16'b0000000000000000),
-		.RXLPM_GC_CFG(16'b1111100000000000),
-		.RXLPM_KH_CFG0(16'b0000000000000000),
-		.RXLPM_KH_CFG1(16'b1010000000000010),
-		.RXLPM_OS_CFG0(16'b0000000000000000),
-		.RXLPM_OS_CFG1(16'b1000000000000010),
 		.RXOOB_CFG(9'b000000110),
 		.RXOOB_CLK_CFG("PMA"),
 		.RXOSCALRESET_TIME(5'b00011),
@@ -497,7 +521,8 @@ module GTYLane_UltraScale #(
 		.RX_TUNE_AFE_OS(2'b10),
 		.RX_VREG_CTRL(3'b010),
 		.RX_VREG_PDB(1'b1),
-		.RX_WIDEMODE_CDR(2'b10),
+		.RX_WIDEMODE_CDR(2'b00),		//5 Gbps:  2'b00
+										//25 Gbps: 2'b10
 		.RX_WIDEMODE_CDR_GEN3(2'b00),
 		.RX_WIDEMODE_CDR_GEN4(2'b01),
 		.RX_XCLK_SEL("RXDES"),
@@ -728,11 +753,17 @@ module GTYLane_UltraScale #(
 		.CPLLFBCLKLOST(cpll_fblost),
 		.CPLLLOCK(cpll_lock),
 		.CPLLREFCLKLOST(cpll_reflost),
+		.CPLLFREQLOCK(1'b0),
+		.CPLLLOCKDETCLK(clk_lockdet),
+		.CPLLLOCKEN(1'b1),
+		.CPLLPD(cpll_pd),
+		.CPLLREFCLKSEL(cpll_refclk_sel),
+		.CPLLRESET(1'b0),
 
 		//Sub-rate control
-		.RXRATE(3'b001),	//divide by 1
+		.RXRATE(rx_rate),
 		.RXRATEMODE(1'b1),	//async control
-		.TXRATE(3'b001),	//divide by 1
+		.TXRATE(tx_rate),
 		.TXRATEMODE(1'b1),	//async control
 		.RXRATEDONE(),
 		.TXRATEDONE(),
@@ -783,7 +814,7 @@ module GTYLane_UltraScale #(
 		.RXPRBSLOCKED(),
 
 		//RX 8B10B decoder and comma aligner
-		.RX8B10BEN(),
+		.RX8B10BEN(1'b0),
 		.RXCOMMADETEN(),
 		.RXMCOMMAALIGNEN(),
 		.RXPCOMMAALIGNEN(),
@@ -792,13 +823,13 @@ module GTYLane_UltraScale #(
 		.RXCOMMADET(),
 
 		//RX CDR
-		.RXCDRHOLD(),
-		.RXCDROVRDEN(),
+		.RXCDRHOLD(1'b0),
+		.RXCDROVRDEN(1'b0),
 		.RXCDRLOCK(),
 		.RXCDRPHDONE(),
 
 		//RX channel bonding
-		.RXCHBONDEN(),
+		.RXCHBONDEN(1'b0),
 		.RXCHBONDI(),
 		.RXCHBONDLEVEL(),
 		.RXCHBONDMASTER(),
@@ -809,7 +840,7 @@ module GTYLane_UltraScale #(
 		.RXCHBONDO(),
 
 		//RX CTLE
-		.RXLPMEN(),
+		.RXLPMEN(rx_ctle_en),
 		.RXLPMGCHOLD(),
 		.RXLPMGCOVRDEN(),
 		.RXLPMHFHOLD(),
@@ -877,6 +908,11 @@ module GTYLane_UltraScale #(
 		.RXPHALIGNDONE(),
 		.RXPHALIGNERR(),
 
+		//RX eye scan
+		.EYESCANRESET(1'b0),
+		.EYESCANTRIGGER(),
+		.EYESCANDATAERROR(),
+
 		//TX 8B/10B coder
 		.TX8B10BBYPASS(),
 		.TX8B10BEN(),
@@ -902,18 +938,20 @@ module GTYLane_UltraScale #(
 		.TXDLYUPDOWN(),
 
 		//TX phase aligner
-		.TXPHALIGN(),
-		.TXPHALIGNEN(),
-		.TXPHDLYPD(),
-		.TXPHINIT(),
-		.TXPHOVRDEN(),
+		.TXPHALIGN(1'b0),
+		.TXPHALIGNEN(1'b0),
+		.TXPHDLYPD(1'b0),
+		.TXPHINIT(1'b0),
+		.TXPHOVRDEN(1'b0),
+		.TXPHALIGNDONE(),
+		.TXPHINITDONE(),
 
 		//TX interpolator
-		.TXPIPPMEN(),
-		.TXPIPPMOVRDEN(),
-		.TXPIPPMPD(),
-		.TXPIPPMSEL(),
-		.TXPIPPMSTEPSIZE(),
+		.TXPIPPMEN(1'b0),
+		.TXPIPPMOVRDEN(1'b0),
+		.TXPIPPMPD(1'b0),
+		.TXPIPPMSEL(1'b1),
+		.TXPIPPMSTEPSIZE(1'b0),
 
 		//TODO
 		.TXSYNCDONE(),
@@ -949,13 +987,11 @@ module GTYLane_UltraScale #(
 		.RESETEXCEPTION(),
 		.GTPOWERGOOD(),
 		.GTREFCLKMONITOR(),
-		.EYESCANDATAERROR(),
 		.DMONITOROUT(),
 		.DMONITOROUTCLK(),
 		.TXSYNCALLIN(),
 		.TXSYNCIN(),
-		.TXSYNCMODE(),
-		.TXPISOPD(),
+		.TXSYNCMODE(1'h0),
 		.TXMUXDCDEXHOLD(),
 		.TXMUXDCDORWREN(),
 		.TXONESZEROS(),
@@ -980,27 +1016,13 @@ module GTYLane_UltraScale #(
 		.CDRSTEPDIR(),
 		.CDRSTEPSQ(),
 		.CDRSTEPSX(),
-		.CFGRESET(),
-		.CLKRSVD0(),
-		.CLKRSVD1(),
-		.CPLLFREQLOCK(),
-		.CPLLLOCKDETCLK(),
-		.CPLLLOCKEN(),
-		.CPLLPD(),
-		.CPLLREFCLKSEL(),
-		.CPLLRESET(),
-		.DMONFIFORESET(),
 		.DMONITORCLK(),
-		.EYESCANRESET(),
-		.EYESCANTRIGGER(),
 		.FREQOS(),
 		.GTRSVD(),
 		.INCPCTRL(),
 		.RXOSHOLD(),
 		.RXOSOVRDEN(),
 		.TXDCCDONE(),
-		.TXPHALIGNDONE(),
-		.TXPHINITDONE(),
 
 		//PCIe mode, ignore for now
 		.PCIEEQRXEQADAPTDONE(),
@@ -1026,9 +1048,14 @@ module GTYLane_UltraScale #(
 		.DRPRDY(apb.pready),
 		.DRPDO(apb.prdata[15:0]),
 		.DRPWE(apb.pwrite),
-		.DRPRST(!apb.preset_n)
+		.DRPRST(!apb.preset_n),
 
-		//Reserved ports, ignore or tie off.
+		//Reserved ports, ignore or tie off
+		.CLKRSVD0(1'h0),
+		.CLKRSVD1(1'h0),
+		.DMONFIFORESET(1'h0),
+		.TXPISOPD(1'b0),
+		.CFGRESET(1'b0)
 	);
 
 endmodule

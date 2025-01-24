@@ -59,6 +59,7 @@ module QuadPLL_UltraScale #(
 	//Reset inputs
 	input wire[1:0]		qpll_reset,
 	input wire[1:0]		sdm_reset,
+	input wire[1:0]		qpll_powerdown,
 
 	//Status outputs
 	output wire[1:0]	fbclk_lost,
@@ -226,7 +227,7 @@ module QuadPLL_UltraScale #(
 		.QPLL0LOCKEN(1'b1),
 		.QPLL0OUTCLK(qpll_clkout[0]),
 		.QPLL0OUTREFCLK(qpll_refout[0]),
-		.QPLL0PD(1'b0),	//power up
+		.QPLL0PD(qpll_powerdown[0]),
 		.QPLL0REFCLKLOST(refclk_lost[0]),
 		.QPLL0REFCLKSEL(qpll0_refclk_sel),
 		.QPLL0RESET(qpll_reset[0]),
@@ -242,7 +243,7 @@ module QuadPLL_UltraScale #(
 		.QPLL1LOCKEN(1'b1),
 		.QPLL1OUTCLK(qpll_clkout[1]),
 		.QPLL1OUTREFCLK(qpll_refout[1]),
-		.QPLL1PD(1'b0),	//power up
+		.QPLL1PD(qpll_powerdown[1]),
 		.QPLL1REFCLKLOST(refclk_lost[1]),
 		.QPLL1REFCLKSEL(qpll1_refclk_sel),
 		.QPLL1RESET(qpll_reset[1]),
