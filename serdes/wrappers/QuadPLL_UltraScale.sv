@@ -252,7 +252,7 @@ module QuadPLL_UltraScale #(
 		.SDM1TOGGLE(sdm_toggle[1]),
 
 		//DRP
-		.DRPADDR({6'h0, apb.paddr[9:2]}),	//DADDR is 16 bit but not entire address space is used
+		.DRPADDR({8'h0, apb.paddr[9:2]}),	//DADDR is 16 bit but not entire address space is used
 		.DRPCLK(apb.pclk),
 		.DRPEN(apb.penable),
 		.DRPDI(apb.pwdata[15:0]),
