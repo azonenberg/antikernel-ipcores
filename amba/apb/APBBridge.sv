@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -128,7 +128,7 @@ module APBBridge #(
 		upstream.pslverr	= 0;
 
 		//forward from selected device
-		if(upstream.psel && range_match) begin
+		if(upstream.penable && range_match) begin
 			upstream.pready		= pready[devid];
 			upstream.prdata		= prdata[devid];
 			upstream.pruser		= pruser[devid];
@@ -136,8 +136,8 @@ module APBBridge #(
 			upstream.pslverr	= pslverr[devid];
 		end
 
-		//If upstream psel and *no* range match, force a PSLVERR to terminate the transaction
-		if(ERR_ON_INVALID && upstream.psel && !range_match) begin
+		//If upstream penable and *no* range match, force a PSLVERR to terminate the transaction
+		if(ERR_ON_INVALID && upstream.penable && !range_match) begin
 			upstream.pready		= 1;
 			upstream.pslverr 	= 1;
 		end
