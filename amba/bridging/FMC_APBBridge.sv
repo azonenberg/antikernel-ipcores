@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -103,14 +103,6 @@ module FMC_APBBridge #(
 	wire[2:0]	phase_mux;
 	wire[5:0]	phase_delay;
 
-	/*
-	vio_0 vio(
-		.clk(clk_mgmt),
-		.probe_out0(phase_en),
-		.probe_out1(phase_mux),
-		.probe_out2(phase_delay)
-	);
-	*/
 	assign phase_en = 0;
 	assign phase_mux = 0;
 	assign phase_delay = 0;
@@ -386,9 +378,6 @@ module FMC_APBBridge #(
 	//Figure out if address is in the 32 or 64 bit segment
 	logic		addr_is_x64 = 0;
 
-	//DEBUG latch adbus_in so i can see in the LA
-	logic[15:0] adbus_in_ff = 0;
-
 	wire[25:0]	pending_addr_next;
 	assign pending_addr_next = { fmc_a_hi, adbus_in, 1'b0};
 
@@ -397,14 +386,11 @@ module FMC_APBBridge #(
 
 		apb_busy_ff	<= apb_busy;
 
-		//DEBUG
-		adbus_in_ff	<= adbus_in;
-
 		//Activate
-		if(apb_x32.penable && !apb_x32.psel)
-			apb_x32.psel	<= 1;
-		if(apb_x64.penable && !apb_x64.psel)
-			apb_x64.psel	<= 1;
+		if(apb_x32.psel && !apb_x32.penable)
+			apb_x32.penable	<= 1;
+		if(apb_x64.psel && !apb_x64.penable)
+			apb_x64.penable	<= 1;
 
 		//Complete a transaction
 		if(apb_x32.pready) begin
@@ -457,7 +443,7 @@ module FMC_APBBridge #(
 						if(addr_is_x64) begin
 							apb_x64.paddr		<= pending_addr;
 							apb_x64.pwrite		<= pending_write;
-							apb_x64.penable		<= 1;
+							apb_x64.psel		<= 1;
 							apb_busy			<= 1;
 						end
 
@@ -465,7 +451,7 @@ module FMC_APBBridge #(
 						else begin
 							apb_x32.paddr		<= pending_addr;
 							apb_x32.pwrite		<= pending_write;
-							apb_x32.penable		<= 1;
+							apb_x32.psel		<= 1;
 							apb_busy			<= 1;
 						end
 
@@ -528,7 +514,7 @@ module FMC_APBBridge #(
 
 						apb_x32.paddr			<= pending_addr;
 						apb_x32.pwrite			<= pending_write;
-						apb_x32.penable			<= 1;
+						apb_x32.psel			<= 1;
 						apb_busy				<= 1;
 					end
 
@@ -548,7 +534,7 @@ module FMC_APBBridge #(
 
 					apb_x64.paddr			<= pending_addr;
 					apb_x64.pwrite			<= pending_write;
-					apb_x64.penable			<= 1;
+					apb_x64.psel			<= 1;
 					apb_busy				<= 1;
 
 					state					<= STATE_ACTIVE;

@@ -166,7 +166,7 @@ module APB_WriteBuffer64To32(
 			DOWN_STATE_FIRST: begin
 				down.paddr		= fifo_raddr;
 				down.pwdata		= fifo_rdata[63:32];
-				down.penable	= 1;
+				down.psel		= 1;
 				down.pwrite		= 1;
 				down.pstrb 		= 4'b1111;
 			end
@@ -199,7 +199,7 @@ module APB_WriteBuffer64To32(
 
 			DOWN_STATE_READ: begin
 				down.paddr		= up.paddr;
-				down.penable	= 1;
+				down.psel		= 1;
 			end
 
 			DOWN_STATE_READ_WAIT: begin

@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -84,7 +84,7 @@ module APBRegisterSlice #(
 				downstream.pauser	<=	upstream.pauser;
 				downstream.pwuser	<=	upstream.pwuser;
 
-				//Special path needed to handle the case of PENABLE being asserted upstream
+				//Special path needed to handle the case of PSEL being asserted upstream
 				//after PREADY is asserted downstream
 				if(downstream.pready) begin
 					done				<= 1;
@@ -97,9 +97,9 @@ module APBRegisterSlice #(
 					downstream.psel		<= 0;
 				end
 
-				if(!upstream.penable) begin
+				if(!upstream.psel) begin
 					done				<= 0;
-					downstream.psel		<= 0;
+					downstream.penable	<= 0;
 				end
 
 			end
@@ -118,7 +118,7 @@ module APBRegisterSlice #(
 
 				if(downstream.pready)
 					done			<= 1;
-				if(!upstream.penable)
+				if(!upstream.psel)
 					done			<= 0;
 
 			end
@@ -137,10 +137,10 @@ module APBRegisterSlice #(
 			downstream.pauser		=	upstream.pauser;
 			downstream.pwuser		=	upstream.pwuser;
 
-			//Special path needed to handle the case of PENABLE being asserted upstream
+			//Special path needed to handle the case of PSEL being asserted upstream
 			//after PREADY is asserted downstream
 			if(done)
-				downstream.penable	= 0;
+				downstream.psel	= 0;
 
 		end
 	end
