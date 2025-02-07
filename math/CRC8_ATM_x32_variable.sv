@@ -30,85 +30,75 @@
 ***********************************************************************************************************************/
 
 /**
-	@brief Serial Chip to Chip Bus - low level bridge block without any transceiver specific wrappers
+	@file
+	@author Andrew D. Zonenberg
+	@brief ATM/CCITT CRC-8 engine
 
-	External logic is responsible for 8b10b coding/decoding and aligning commas to lane 0
+	x^8 + x^2 + x^1 + 1
+
+	Accepts 0 to 4 bytes per clock, left aligned in din
+		din_len				Action
+		0					No-op
+		1					Process din[31:24]
+		2					Process din[31:16]
+		3					Process din[31:8]
+		4...7				Process din[31:0]
  */
-module SCCB_APBBridge #(
+module CRC8_ATM_x32_variable(
+	input wire			clk,
 
-	parameter SYMBOL_WIDTH 	= 4,	//Typical config: 40 bit bus width for 7 series GTP or U+ GTY
-									//(4x 8b10b symbols per block)
-									//Note, on GTP this requires a 20 bit internal width and TXUSRCLK at 2x the rate
-									//of TXUSRCLK2
+	input wire			reset,
+	input wire[2:0]		din_len,
+	input wire[31:0]	din,
 
-	parameter TX_CDC_BYPASS	= 1,	//If set to 0, a CDC block will be added between apb_comp and the internal logic
-									//adding a small amount of latency.
-									//If set to 1, the CDC is bypassed and apb_comp.pclk must be tx_clk
-
-	localparam DATA_WIDTH	= 8*SYMBOL_WIDTH	//SERDES data width for 8-bit data portion
-) (
-	//SERDES ports
-	input wire						rx_clk,
-	input wire[SYMBOL_WIDTH-1:0]	rx_kchar,
-	input wire[DATA_WIDTH-1:0]		rx_data,
-	input wire						rx_data_valid,
-
-	input wire						tx_clk,
-	output wire[SYMBOL_WIDTH_1:0]	tx_kchar,
-	output wire[DATA_WIDTH-1:0]		tx_data,
-
-	//APB ports
-	//SERDES RX clock is used as requester clock
-	//Completer clock can be anything if TX_CDC_BYPASS = 0; if pclk is tx_clk set TX_CDC_BYPASS=1 to reduce latency
-	APB.requester					apb_req,
-	APB.completer					apb_comp
-
-	//TODO: AHB ports
-
-	//TODO: AXI ports
+	output wire[7:0]	crc_out
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TX: Clock domain crossing on the completer port
+	// ATM CRC32
 
-	APB #(.DATA_WIDTH(apb_comp.DATA_WIDTH), .ADDR_WIDTH(apb_comp.ADDR_WIDTH), .USER_WIDTH(0)) apb_comp_tx();
+	logic[7:0]	crc;
 
-	//Bypass the TX CDC
-	if(TX_CDC_BYPASS) begin
-		APBRegisterSlice #(
-			.UP_REG(0),
-			.DOW_REG(0)
-		) tx_bypass (
-			.upstream(apb_comp),
-			.downstream(apb_comp_tx)
-		);
+	//Bit twiddling for the output
+	//Complement and flip bit ordering
+	assign crc_out =
+	{
+		~crc[0],  ~crc[1],  ~crc[2],  ~crc[3],  ~crc[4],  ~crc[5],  ~crc[6],  ~crc[7]
+	};
+
+
+	logic[7:0]	current_byte;
+	logic		lsb;
+
+	always_ff @(posedge clk) begin
+
+		if(reset)
+			crc	= 8'hff;
+
+		for(integer nbyte=0; nbyte<4; nbyte++) begin
+
+			if(nbyte < din_len) begin
+
+				//Need to swap byte ordering to match canonical Ethernet ordering (LSB sent first)
+				//rather than the "sensible" MSB-LSB order
+				current_byte = din[(3-nbyte)*8 +: 8];
+
+				for(integer nbit=0; nbit<8; nbit++) begin
+
+					//Default to shifting left and mixing in the new bit
+					lsb 	= current_byte[nbit] ^ crc[31];
+					crc		= { crc[6:0], lsb };
+
+					//XOR in the polynomial
+					crc[1]	= lsb ^ crc[1];
+					crc[2]	= lsb ^ crc[2];
+				end
+
+			end
+
+		end
 
 	end
 
-	//Add a CDC
-	else begin
-		APB_CDC tx_cdc(
-			.upstream(apb_comp),
-			.downstream_pclk(tx_clk),
-			.downstream(apb_comp_tx));
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Link layer processing
-
-	SCCB_LinkLayer #(
-		.SYMBOL_WIDTH(SYMBOL_WIDTH)
-	) link_layer (
-		.rx_clk(rx_clk),
-		.rx_kchar(rx_kchar),
-		.rx_data(rx_data),
-		.rx_data_valid(rx_data_valid),
-
-		.tx_clk(tx_clk),
-		.tx_kchar(tx_kchar),
-		.tx_data(tx_data)
-
-		//TODO: link layer outputs
-	);
 
 endmodule

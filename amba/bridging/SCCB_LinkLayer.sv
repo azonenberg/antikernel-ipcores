@@ -30,22 +30,40 @@
 ***********************************************************************************************************************/
 
 /**
-	@brief Serial Chip to Chip Bus - low level bridge block without any transceiver specific wrappers
+	@brief Serial Chip to Chip Bus link layer
 
-	External logic is responsible for 8b10b coding/decoding and aligning commas to lane 0
+	Valid configurations for SYMBOL_WIDTH:
+		* TODO: support 2
+		* 4
+		* TODO: support 8?
+
+	All control characters other than K28.6 end-of-frame must occur in the lane 0 position.
+	This means that both sides of a link must have the same SYMBOL_WIDTH setting and thus use the same amount of
+	padding.
+
+	Overall frame format:
+		IDLE: K28.5 D16.2 (padded with D0.0 to SYMBOL_WIDTH if necessary)
+		START: K character
+			K30.7: LL ACK or error
+			K28.6: end of frame (not legal outside a frame)
+			All other K characters forwarded up to transaction layer
+		SEQUENCE: 8 bit unsigned, wraps around
+		DATA: transaction layer dependent
+		CRC: CRC-8-CCITT/ATM (x^8 + x^2 + x + 1) of upper layer data only
+		END: K28.6
+		PADDING: Zero or more D0.0 bytes appended after CRC to fill out a full SERDES word
  */
-module SCCB_APBBridge #(
+module SCCB_LinkLayer #(
 
 	parameter SYMBOL_WIDTH 	= 4,	//Typical config: 40 bit bus width for 7 series GTP or U+ GTY
 									//(4x 8b10b symbols per block)
 									//Note, on GTP this requires a 20 bit internal width and TXUSRCLK at 2x the rate
 									//of TXUSRCLK2
 
-	parameter TX_CDC_BYPASS	= 1,	//If set to 0, a CDC block will be added between apb_comp and the internal logic
-									//adding a small amount of latency.
-									//If set to 1, the CDC is bypassed and apb_comp.pclk must be tx_clk
+	parameter BUS_ADDR_WIDTH = 3,	//24 bit address
 
-	localparam DATA_WIDTH	= 8*SYMBOL_WIDTH	//SERDES data width for 8-bit data portion
+	localparam DATA_WIDTH	= 8*SYMBOL_WIDTH,	//SERDES data width for 8-bit data portion
+	localparam SYMBOL_BITS	= $clog2(SYMBOL_WIDTH+1)
 ) (
 	//SERDES ports
 	input wire						rx_clk,
@@ -54,61 +72,56 @@ module SCCB_APBBridge #(
 	input wire						rx_data_valid,
 
 	input wire						tx_clk,
-	output wire[SYMBOL_WIDTH_1:0]	tx_kchar,
-	output wire[DATA_WIDTH-1:0]		tx_data,
+	output logic[SYMBOL_WIDTH_1:0]	tx_kchar		= 0,
+	output logic[DATA_WIDTH-1:0]	tx_data			= 0,
 
-	//APB ports
-	//SERDES RX clock is used as requester clock
-	//Completer clock can be anything if TX_CDC_BYPASS = 0; if pclk is tx_clk set TX_CDC_BYPASS=1 to reduce latency
-	APB.requester					apb_req,
-	APB.completer					apb_comp
-
-	//TODO: AHB ports
-
-	//TODO: AXI ports
+	//Link layer data outputs (rx_clk domain) to transaction layer
+	output logic					rx_ll_start		= 0,	//start of an APB transaction
+	output logic					rx_ll_valid		= 0,	//true if data is valid
+	output logic[SYMBOL_BITS-1:0]	rx_ll_nvalid	= 0,	//number of valid bytes in rx_ll_data
+	output logic[DATA_WIDTH-1:0]	rx_ll_data		= 0,	//upper layer data (left aligned)
+															//if rx_ll_start is set, the first word is a K character
+	output logic					rx_ll_ll_commit	= 0,	//frame received and is valid
+	output logic					rx_ll_drop		= 0		//frame received but checksum was bad, dropped
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TX: Clock domain crossing on the completer port
+	// RX CRC block
 
-	APB #(.DATA_WIDTH(apb_comp.DATA_WIDTH), .ADDR_WIDTH(apb_comp.ADDR_WIDTH), .USER_WIDTH(0)) apb_comp_tx();
+	logic		rx_crc_reset	= 0;
+	logic[2:0]	rx_crc_din_len	= 0;
+	logic[31:0]	rx_crc_din		= 0;
+	wire[7:0]	rx_crc_dout;
 
-	//Bypass the TX CDC
-	if(TX_CDC_BYPASS) begin
-		APBRegisterSlice #(
-			.UP_REG(0),
-			.DOW_REG(0)
-		) tx_bypass (
-			.upstream(apb_comp),
-			.downstream(apb_comp_tx)
-		);
-
-	end
-
-	//Add a CDC
-	else begin
-		APB_CDC tx_cdc(
-			.upstream(apb_comp),
-			.downstream_pclk(tx_clk),
-			.downstream(apb_comp_tx));
-	end
+	CRC8_ATM_x32_variable rx_crc(
+		.clk(rx_clk),
+		.reset(rx_crc_reset),
+		.din_len(rx_crc_din_len),
+		.din(rx_crc_din),
+		.crc_out(rx_crc_dout)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Link layer processing
+	// Receive frames
 
-	SCCB_LinkLayer #(
-		.SYMBOL_WIDTH(SYMBOL_WIDTH)
-	) link_layer (
-		.rx_clk(rx_clk),
-		.rx_kchar(rx_kchar),
-		.rx_data(rx_data),
-		.rx_data_valid(rx_data_valid),
+	logic	rx_active	= 0;
+	logic	link_up		= 0;
 
-		.tx_clk(tx_clk),
-		.tx_kchar(tx_kchar),
-		.tx_data(tx_data)
+	always_ff @(posedge rx_clk) begin
 
-		//TODO: link layer outputs
-	);
+		//In a frame? If so, look for EOF
+		if(rx_active) begin
+			//TODO: handle delayed CRC checks etc
+		end
+
+		//Not in a frame? Expect a control character at position 0, and nowhere else
+		//(LLPs are all >2 bytes long so cannot start and end in same word)
+		else if( (rx_kchar[SYMBOL_WIDTH-1:1] == 0) && (rx_kchar[0] == 1) ) begin
+			//See what the control character is
+		end
+
+		//Link down?
+
+	end
 
 endmodule
