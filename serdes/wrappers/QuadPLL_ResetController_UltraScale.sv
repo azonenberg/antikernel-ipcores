@@ -30,135 +30,40 @@
 ***********************************************************************************************************************/
 
 /**
-	@brief A bidirectional bridge from APB to a GTY
+	@brief Reset controller for GTYE4_COMMON
  */
-module GTY_APBBridge #(
-	parameter TX_INVERT	= 0,
-	parameter RX_INVERT = 0
-) (
-	//Clocks
-	input wire		sysclk,		//Management APB clock
+module QuadPLL_ResetController_UltraScale(
+	input wire	clk_ref,
+	input wire	rst_async_in,
 
-	//GTY quad reference clocks
-	input wire[1:0]	clk_ref,
-
-	//Top level GTY pins
-	input wire	rx_p,
-	input wire	rx_n,
-
-	output wire tx_p,
-	output wire tx_n,
-
-	//QPLL clocks and control signals
-	input wire[1:0]		qpll_clkout,
-	input wire[1:0]		qpll_refout,
-	input wire[1:0]		qpll_lock
+	output wire	rst_out
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The transceiver lane
+	// Hold QPLL in reset for a short time after configuration
 
-	wire	rxoutclk;
-	wire	txoutclk;
-
-	//TODO: make the apb do something
-	APB #(.DATA_WIDTH(32), .ADDR_WIDTH(10), .USER_WIDTH(0)) serdes_apb();
-	assign serdes_apb.pclk = sysclk;
-	assign serdes_apb.preset_n = 1'b0;
-
-	wire[39:0]	rx_data;
-	wire[39:0]	tx_data;
-	wire		rx_comma_is_aligned;
-	wire[15:0]	rx_char_is_k;
-	wire[15:0]	rx_char_is_comma;
-	wire[15:0]	tx_char_is_k;
-
-	GTYLane_UltraScale #(
-		.ROUGH_RATE_GBPS(5),	//TODO parameterize
-		.DATA_WIDTH(40),
-		.RX_COMMA_ALIGN(1)
-	) lane (
-		.apb(serdes_apb),
-
-		.rx_p(rx_p),
-		.rx_n(rx_n),
-
-		.tx_p(tx_p),
-		.tx_n(tx_n),
-
-		.rx_reset(1'b0),
-		.tx_reset(1'b0),
-
-		.tx_data(tx_data),
-		.rx_data(rx_data),
-
-		.clk_ref_north(2'b0),
-		.clk_ref_south(2'b0),
-		.clk_ref(clk_ref),
-		.clk_lockdet(sysclk),
-
-		.rxoutclk(rxoutclk),
-		.rxusrclk(rxoutclk),
-		.rxusrclk2(rxoutclk),
-		.rxuserrdy(1'b1),
-
-		.txoutclk(txoutclk),
-		.txusrclk(txoutclk),
-		.txusrclk2(txoutclk),
-		.txuserrdy(1'b1),
-
-		.rxpllclksel(2'b10),			//QPLL1 hard coded for now
-		.txpllclksel(2'b10),
-
-		.qpll_clk(qpll_clkout),
-		.qpll_refclk(qpll_refout),
-		.qpll_lock(qpll_lock),
-
-		.cpll_pd(1'b1),					//Not using CPLL for now
-		.cpll_fblost(),
-		.cpll_reflost(),
-		.cpll_lock(),
-		.cpll_refclk_sel(3'd1),			//set to 1 when only using one clock source even if it's not GTREFCLK0??
-
-		.tx_rate(3'b011),				//divide by 4 (5 Gbps)
-		.rx_rate(3'b011),
-
-		.rx_ctle_en(1'b1),
-
-		.txdiffctrl(5'h8),
-		.txpostcursor(5'h0),
-		.txprecursor(5'h4),
-		.tx_invert(TX_INVERT[0]),
-		.rx_invert(RX_INVERT[0]),
-
-		.rxprbssel(4'b0),
-		.txprbssel(4'b0),
-
-		.rx_8b10b_decode(1'b1),
-		.rx_comma_is_aligned(rx_comma_is_aligned),
-		.rx_char_is_k(rx_char_is_k),
-		.rx_char_is_comma(rx_char_is_comma),
-
-		.tx_8b10b_encode(1'b1),
-		.tx_char_is_k(tx_char_is_k)
-	);
-
-	//comma in LSB position
-	assign tx_char_is_k = 16'b0001;
-
-	//K28.5 D21.5 D0.0 D0.0
-	//Least significant lane sent first on the wire; extra 8 bits are for encoder and not used
-	assign tx_data = 40'h00_00_00_b5_bc;
+	logic[3:0] rst_init_count = 1;
+	logic rst_init_ff = 1;
+	always_ff @(posedge clk_ref) begin
+		if(rst_init_count)
+			rst_init_count <= rst_init_count + 1;
+		rst_init_ff	<= (rst_init_count > 0);
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
+	// Combine all reset sources
 
-	ila_0 ila(
-		.clk(rxoutclk),
-		.probe0(rx_data),
-		.probe1(rx_comma_is_aligned),
-		.probe2(rx_char_is_k),
-		.probe3(rx_char_is_comma)
-	);
+	logic	rst_ored;
+	always_comb begin
+		rst_ored = 0;
+
+		if(rst_init_ff || rst_async_in)
+			rst_ored = 1;
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Final output
+
+	assign rst_out = rst_ored;
 
 endmodule

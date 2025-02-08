@@ -30,7 +30,7 @@
 ***********************************************************************************************************************/
 
 /**
-	Wrapper around the UltraScale+ (and probably with some small changes UltraScale) GTY.
+	@brief Wrapper around the UltraScale+ (and probably with some small changes UltraScale) GTY.
  */
 module GTYLane_UltraScale #(
 	parameter CPLL_FBDIV 		= 4,
@@ -207,6 +207,22 @@ module GTYLane_UltraScale #(
 	localparam ALIGN_COMMA_WORD = RX_COMMA_ALIGN ? comma_word(DATA_WIDTH) : 1;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Resets
+
+	wire	rst_tx_sync;
+	wire	rst_rx_sync;
+
+	GTYLane_ResetController_UltraScale rst_ctl(
+		.clk_system_in(clk_lockdet),
+
+		.rst_async_tx_in(tx_reset),
+		.rst_async_rx_in(rx_reset),
+
+		.rst_gt_tx_out(rst_tx_sync),
+		.rst_gt_rx_out(rst_rx_sync)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual channel
 
 	wire[127:0] tx_data_padded;
@@ -216,6 +232,12 @@ module GTYLane_UltraScale #(
 
 	wire[127:0] rx_data_padded;
 	assign rx_data = rx_data_padded[DATA_WIDTH-1:0];
+
+	wire txuserrdy_gated;
+	assign txuserrdy_gated = txuserrdy && !rst_tx_sync;
+
+	wire rxuserrdy_gated;
+	assign rxuserrdy_gated = rxuserrdy && !rst_rx_sync;
 
 	//unless otherwise specified all configs here were generated for 25.78125 Gbps
 	GTYE4_CHANNEL #(
@@ -784,13 +806,13 @@ module GTYLane_UltraScale #(
 
 		//Input clocks
 		.RXLATCLK(rxusrclk),
-		.RXUSERRDY(rxuserrdy),
+		.RXUSERRDY(rxuserrdy_gated),
 		.RXUSRCLK(rxusrclk),
 		.RXUSRCLK2(rxusrclk2),
 		.SIGVALIDCLK(rxusrclk),
 		.TXLATCLK(txusrclk),
 		.TXPHDLYTSTCLK(txusrclk),
-		.TXUSERRDY(txuserrdy),
+		.TXUSERRDY(txuserrdy_gated),
 		.TXUSRCLK(txusrclk),
 		.TXUSRCLK2(txusrclk2),
 
@@ -843,9 +865,9 @@ module GTYLane_UltraScale #(
 		.TXRATEDONE(),
 
 		//Resets
-		.GTRXRESET(rx_reset),
+		.GTRXRESET(rst_rx_sync),
 		.GTRXRESETSEL(1'b0),	//sequential reset
-		.GTTXRESET(tx_reset),
+		.GTTXRESET(rst_tx_sync),
 		.GTTXRESETSEL(1'b0),	//sequential reset
 		.RESETOVRD(1'b0),
 		.RXBUFRESET(1'b0),

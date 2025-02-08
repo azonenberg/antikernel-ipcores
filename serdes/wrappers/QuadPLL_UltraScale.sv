@@ -57,7 +57,7 @@ module QuadPLL_UltraScale #(
 	APB.completer 		apb,
 
 	//Reset inputs
-	input wire[1:0]		qpll_reset,
+	input wire[1:0]		qpll_reset,		//Async reset (internally synchronized to refclk)
 	input wire[1:0]		sdm_reset,
 	input wire[1:0]		qpll_powerdown,
 
@@ -95,6 +95,22 @@ module QuadPLL_UltraScale #(
 	assign apb.pslverr 			= 0;
 	assign apb.pruser			= 0;
 	assign apb.pbuser 			= 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Reset controller
+
+	wire[1:0]	qpll_clk_ref_mon;
+	wire[1:0]	qpll_rst_sync;
+
+	QuadPLL_ResetController_UltraScale qpll0_rst_ctl(
+		.clk_ref(qpll_clk_ref_mon[0]),
+		.rst_async_in(qpll_reset[0]),
+		.rst_out(qpll_rst_sync[0]));
+
+	QuadPLL_ResetController_UltraScale qpll1_rst_ctl(
+		.clk_ref(qpll_clk_ref_mon[1]),
+		.rst_async_in(qpll_reset[1]),
+		.rst_out(qpll_rst_sync[1]));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual common block
@@ -168,6 +184,14 @@ module QuadPLL_UltraScale #(
 		.QPLL0_RATE_SW_USE_DRP(1'b1)
 	) common (
 
+		//Reference clock monitor ports (used for internal reset sync)
+		.REFCLKOUTMONITOR0(qpll_clk_ref_mon[0]),
+		.REFCLKOUTMONITOR1(qpll_clk_ref_mon[1]),
+
+		//TODO: recovered clock output muxes to OBUFDS_GTE4_ADV
+		.RXRECCLK0SEL(),
+		.RXRECCLK1SEL(),
+
 		//Reserved ports, ignore or tie off
 		.QPLLDMONITOR0(),
 		.QPLLDMONITOR1(),
@@ -179,8 +203,6 @@ module QuadPLL_UltraScale #(
 		.QPLLRSVD2(5'b00000),
 		.QPLLRSVD3(5'b00000),
 		.QPLLRSVD4(8'b00000000),
-		.REFCLKOUTMONITOR0(),
-		.REFCLKOUTMONITOR1(),
 		.BGBYPASSB(1'b1),
 		.BGMONITORENB(1'b1),
 		.BGPDB(1'b1),
@@ -197,10 +219,8 @@ module QuadPLL_UltraScale #(
 		.SDM1TESTDATA(),
 		.PMARSVDOUT0(),
 		.PMARSVDOUT1(),
-		.RXRECCLK0SEL(),
-		.RXRECCLK1SEL(),
-		.PCIERATEQPLL0(),
-		.PCIERATEQPLL1(),
+		.PCIERATEQPLL0(1'b0),
+		.PCIERATEQPLL1(1'b0),
 
 		//Input reference clocks: QPLL0
 		.GTNORTHREFCLK00(clk_ref_north[0]),
@@ -230,7 +250,7 @@ module QuadPLL_UltraScale #(
 		.QPLL0PD(qpll_powerdown[0]),
 		.QPLL0REFCLKLOST(refclk_lost[0]),
 		.QPLL0REFCLKSEL(qpll0_refclk_sel),
-		.QPLL0RESET(qpll_reset[0]),
+		.QPLL0RESET(qpll_rst_sync[0]),
 		.SDM0RESET(sdm_reset[0]),
 		.SDM0DATA(sdm_data0),
 		.SDM0WIDTH(2'b00),	//24 bit denominator
@@ -246,7 +266,7 @@ module QuadPLL_UltraScale #(
 		.QPLL1PD(qpll_powerdown[1]),
 		.QPLL1REFCLKLOST(refclk_lost[1]),
 		.QPLL1REFCLKSEL(qpll1_refclk_sel),
-		.QPLL1RESET(qpll_reset[1]),
+		.QPLL1RESET(qpll_rst_sync[1]),
 		.SDM1RESET(sdm_reset[1]),
 		.SDM1DATA(sdm_data1),
 		.SDM1WIDTH(2'b00),	//24 bit denominator
@@ -262,21 +282,21 @@ module QuadPLL_UltraScale #(
 		.DRPWE(apb.pwrite),
 
 		//Hard MicroBlaze (ignore)
-		.UBDO(),
-		.UBDRDY(),
+		.UBDO(16'h0),
+		.UBDRDY(1'h0),
 		.UBENABLE(),
-		.UBGPI(),
-		.UBINTR(),
-		.UBIOLMBRST(),
-		.UBMBRST(),
-		.UBMDMCAPTURE(),
-		.UBMDMDBGRST(),
-		.UBMDMDBGUPDATE(),
-		.UBMDMREGEN(),
-		.UBMDMSHIFT(),
-		.UBMDMSYSRST(),
-		.UBMDMTCK(),
-		.UBMDMTDI(),
+		.UBGPI(2'b0),
+		.UBINTR(2'b0),
+		.UBIOLMBRST(1'b0),
+		.UBMBRST(1'b0),
+		.UBMDMCAPTURE(1'b0),
+		.UBMDMDBGRST(1'b0),
+		.UBMDMDBGUPDATE(1'b0),
+		.UBMDMREGEN(4'h0),
+		.UBMDMSHIFT(1'b0),
+		.UBMDMSYSRST(1'b0),
+		.UBMDMTCK(1'b0),
+		.UBMDMTDI(1'b0),
 		.UBDADDR(),
 		.UBDEN(),
 		.UBDI(),
@@ -284,7 +304,7 @@ module QuadPLL_UltraScale #(
 		.UBMDMTDO(),
 		.UBRSVDOUT(),
 		.UBTXUART(),
-		.UBCFGSTREAMEN()
+		.UBCFGSTREAMEN(1'b0)
 	);
 
 endmodule
