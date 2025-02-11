@@ -36,15 +36,27 @@
 
 	x^8 + x^2 + x^1 + 1
 
-	Accepts 0 to 4 bytes per clock, left aligned in din
+	Accepts 0 to 4 bytes per clock
+
+	LEFT_ALIGN=1: data left aligned in din
 		din_len				Action
 		0					No-op
 		1					Process din[31:24]
 		2					Process din[31:16]
 		3					Process din[31:8]
 		4...7				Process din[31:0]
+
+	LEFT_ALIGN=0: data right aligned in din
+		din_len				Action
+		0					No-op
+		1					Process din[7:0]
+		2					Process din[15:0]
+		3					Process din[23:0]
+		4...7				Process din[31:0]
  */
-module CRC8_ATM_x32_variable(
+module CRC8_ATM_x32_variable #(
+	parameter LEFT_ALIGN = 1
+)(
 	input wire			clk,
 
 	input wire			reset,
@@ -79,14 +91,19 @@ module CRC8_ATM_x32_variable(
 
 			if(nbyte < din_len) begin
 
-				//Need to swap byte ordering to match canonical Ethernet ordering (LSB sent first)
-				//rather than the "sensible" MSB-LSB order
-				current_byte = din[(3-nbyte)*8 +: 8];
+				if(LEFT_ALIGN) begin
+					//Need to swap byte ordering to match canonical Ethernet ordering (LSB sent first)
+					//rather than the "sensible" MSB-LSB order
+					current_byte = din[(3-nbyte)*8 +: 8];
+				end
+				else begin
+					current_byte = din[nbyte*8 +: 8];
+				end
 
 				for(integer nbit=0; nbit<8; nbit++) begin
 
 					//Default to shifting left and mixing in the new bit
-					lsb 	= current_byte[nbit] ^ crc[31];
+					lsb 	= current_byte[nbit] ^ crc[7];
 					crc		= { crc[6:0], lsb };
 
 					//XOR in the polynomial

@@ -33,6 +33,13 @@
 	@brief Serial Chip to Chip Bus - low level bridge block without any transceiver specific wrappers
 
 	External logic is responsible for 8b10b coding/decoding and aligning commas to lane 0
+
+	APB write:
+		K27.7 0xfb
+		Address
+		Data
+		K28.6 0xdc end of frame
+		CRC
  */
 module SCCB_APBBridge #(
 
