@@ -69,6 +69,8 @@ module SCCB_APBBridge #(
 	output wire[SYMBOL_WIDTH-1:0]	tx_kchar,
 	output wire[DATA_WIDTH-1:0]		tx_data,
 
+	output wire						tx_ll_link_up,
+
 	//APB ports
 	//SERDES RX clock is used as requester clock
 	//Completer clock can be anything if TX_CDC_BYPASS = 0; if pclk is tx_clk set TX_CDC_BYPASS=1 to reduce latency
@@ -118,6 +120,10 @@ module SCCB_APBBridge #(
 	wire		rx_ll_commit;
 	wire		rx_ll_drop;
 
+	logic		tx_ll_start		= 0;
+	logic[2:0]	tx_ll_valid		= 0;
+	logic[31:0]	tx_ll_data		= 0;
+
 	SCCB_LinkLayer #(
 		.SYMBOL_WIDTH(SYMBOL_WIDTH)
 	) link_layer (
@@ -130,11 +136,11 @@ module SCCB_APBBridge #(
 		.tx_kchar(tx_kchar),
 		.tx_data(tx_data),
 
-		//TODO: transmit side of the bridge
-		.tx_ll_link_up(),
-		.tx_ll_start(0),
-		.tx_ll_valid(0),
-		.tx_ll_data(0),
+		//TX side inputs from upper layer
+		.tx_ll_link_up(tx_ll_link_up),
+		.tx_ll_start(tx_ll_start),
+		.tx_ll_valid(tx_ll_valid),
+		.tx_ll_data(tx_ll_data),
 
 		//RX side outputs to upper layer
 		.rx_ll_link_up(rx_ll_link_up),
@@ -145,6 +151,103 @@ module SCCB_APBBridge #(
 		.rx_ll_commit(rx_ll_commit),
 		.rx_ll_drop(rx_ll_drop)
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// APB TX processing
+
+	//Tie off unused APB signals
+	assign apb_comp.pruser = 0;
+	assign apb_comp.pbuser = 0;
+
+	enum logic[2:0]
+	{
+		TX_STATE_IDLE,
+		TX_STATE_APB_1,
+		TX_STATE_APB_2
+	} tx_state = TX_STATE_IDLE;
+
+	logic	apb_tx_pending	= 0;
+
+	always_ff @(posedge tx_clk) begin
+
+		apb_comp.pready	<= 0;
+
+		//Default to not sending any link layer data
+		tx_ll_data	<= 0;
+		tx_ll_start	<= 0;
+		tx_ll_valid	<= 0;
+
+		case(tx_state)
+
+			TX_STATE_IDLE: begin
+
+				//Start a new APB transaction if we don't already have one in the pipe
+				if(apb_comp.penable && !apb_comp.pready && tx_ll_link_up && !apb_tx_pending) begin
+
+					tx_ll_start			<= 1;
+					tx_ll_valid			<= 2;
+
+					//select the correct header byte
+					if(apb_comp.pwrite)
+						tx_ll_data[7:0]	<= APB_WRITE;
+					else
+						tx_ll_data[7:0]	<= APB_READ;
+
+					//placeholder for sequence number
+					tx_ll_data[15:8]		<= 0;
+
+					//payload
+					if(apb_comp.ADDR_WIDTH >= 24)
+						tx_ll_data[23:16]		<= apb_comp.paddr[apb_comp.ADDR_WIDTH-1 : 24];
+					else
+						tx_ll_data[23:16]		<= 0;
+
+					if(apb_comp.ADDR_WIDTH >= 16)
+						tx_ll_data[31:24]		<= apb_comp.paddr[23:16];
+					else
+						tx_ll_data[31:24]		<= 0;
+
+					tx_state					<= TX_STATE_APB_1;
+
+				end
+
+			end //TX_STATE_IDLE
+
+			//Continue an APB read or write
+			TX_STATE_APB_1: begin
+
+				tx_ll_data[7:0]			<= apb_comp.paddr[15:8];
+				tx_ll_data[15:8]		<= apb_comp.paddr[7:0];
+
+				if(apb_comp.pwrite) begin
+					tx_ll_valid			<= 4;
+					tx_ll_data[23:16]	<= apb_comp.pwdata[31:24];
+					tx_ll_data[31:24]	<= apb_comp.pwdata[23:16];
+
+					tx_state			<= TX_STATE_APB_2;
+				end
+				else begin
+					tx_ll_valid			<= 2;
+
+					tx_state			<= TX_STATE_IDLE;
+				end
+
+			end	//TX_STATE_APB_1
+
+			//Continue an APB write
+			TX_STATE_APB_2: begin
+				tx_ll_valid			<= 2;
+				tx_ll_data[31:16]	<= 0;
+				tx_ll_data[7:0]		<= apb_comp.pwdata[15:8];
+				tx_ll_data[15:8]	<= apb_comp.pwdata[7:0];
+
+				apb_tx_pending		<= 1;
+				tx_state			<= TX_STATE_IDLE;
+			end
+
+		endcase
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// APB RX processing
