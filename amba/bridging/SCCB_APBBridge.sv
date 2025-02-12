@@ -52,7 +52,12 @@ module SCCB_APBBridge #(
 									//adding a small amount of latency.
 									//If set to 1, the CDC is bypassed and apb_comp.pclk must be tx_clk
 
-	localparam DATA_WIDTH	= 8*SYMBOL_WIDTH	//SERDES data width for 8-bit data portion
+	localparam DATA_WIDTH	= 8*SYMBOL_WIDTH,	//SERDES data width for 8-bit data portion
+
+	localparam APB_WRITE		= 8'hfb,	//K27.7
+	localparam APB_READ			= 8'h1c,	//K28.0
+	localparam APB_COMP_DATA	= 8'hfd,	//K29.7
+	localparam APB_COMP_EMPTY	= 8'hf7		//K23.7
 ) (
 	//SERDES ports
 	input wire						rx_clk,
@@ -61,7 +66,7 @@ module SCCB_APBBridge #(
 	input wire						rx_data_valid,
 
 	input wire						tx_clk,
-	output wire[SYMBOL_WIDTH_1:0]	tx_kchar,
+	output wire[SYMBOL_WIDTH-1:0]	tx_kchar,
 	output wire[DATA_WIDTH-1:0]		tx_data,
 
 	//APB ports
@@ -101,7 +106,17 @@ module SCCB_APBBridge #(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Link layer processing
+	// Link layer block
+
+	//TODO: handle widths other than 32 bits
+
+	wire		rx_ll_link_up;
+	wire		rx_ll_start;
+	wire		rx_ll_valid;
+	wire[2:0]	rx_ll_nvalid;
+	wire[31:0]	rx_ll_data;
+	wire		rx_ll_commit;
+	wire		rx_ll_drop;
 
 	SCCB_LinkLayer #(
 		.SYMBOL_WIDTH(SYMBOL_WIDTH)
@@ -113,9 +128,136 @@ module SCCB_APBBridge #(
 
 		.tx_clk(tx_clk),
 		.tx_kchar(tx_kchar),
-		.tx_data(tx_data)
+		.tx_data(tx_data),
 
-		//TODO: link layer outputs
+		//TODO: transmit side of the bridge
+		.tx_ll_link_up(),
+		.tx_ll_start(0),
+		.tx_ll_valid(0),
+		.tx_ll_data(0),
+
+		//RX side outputs to upper layer
+		.rx_ll_link_up(rx_ll_link_up),
+		.rx_ll_start(rx_ll_start),
+		.rx_ll_valid(rx_ll_valid),
+		.rx_ll_nvalid(rx_ll_nvalid),
+		.rx_ll_data(rx_ll_data),
+		.rx_ll_commit(rx_ll_commit),
+		.rx_ll_drop(rx_ll_drop)
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// APB RX processing
+
+	//Tie off unused APB signals
+	assign apb_req.pprot 	= 0;
+	assign apb_req.pwakeup 	= 0;
+	assign apb_req.pauser	= 0;
+	assign apb_req.pwuser	= 0;
+
+	//Reset starts asserted, then clears after first cycle
+	initial begin
+		apb_req.preset_n	= 0;
+		apb_req.penable 	= 0;
+		apb_req.psel		= 0;
+	end
+
+	//Hook up clock
+	assign apb_req.pclk = rx_clk;
+
+	enum logic[2:0]
+	{
+		RX_STATE_IDLE,
+		RX_STATE_WRITE_1,
+		RX_STATE_WRITE_2,
+		RX_STATE_WRITE_SELECT
+	} rx_state = RX_STATE_IDLE;
+
+	always_ff @(posedge rx_clk) begin
+
+		apb_req.preset_n	<= 0;
+
+		//Clear pending APB request when we get an acknowledgement
+		if(apb_req.pready) begin
+			apb_req.psel 	<= 0;
+			apb_req.penable <= 0;
+		end
+
+		case(rx_state)
+
+			//Wait for start of frame
+			RX_STATE_IDLE: begin
+				if(rx_ll_start) begin
+
+					//First byte is the frame type
+					case(rx_ll_data[7:0])
+
+						//Start of an APB write request
+						//Followed by address and data
+						//For now, always assume both are 32 bits in size
+						APB_WRITE: begin
+							//second byte is sequence number
+							//then high 16 of address
+							apb_req.paddr[31:24]	<= rx_ll_data[23:16];
+							apb_req.paddr[23:16]	<= rx_ll_data[31:24];
+							apb_req.pwrite			<= 1;
+							apb_req.pstrb			<= 4'b1111;
+							rx_state				<= RX_STATE_WRITE_1;
+						end
+
+						//Ignore anything we don't understand
+						default: begin
+						end
+					endcase
+
+				end
+			end //RX_STATE_IDLE
+
+			RX_STATE_WRITE_1: begin
+				apb_req.paddr[15:8]		<= rx_ll_data[7:0];
+				apb_req.paddr[7:0]		<= rx_ll_data[15:8];
+				apb_req.pwdata[31:24]	<= rx_ll_data[23:16];
+				apb_req.pwdata[23:16]	<= rx_ll_data[31:24];
+				rx_state				<= RX_STATE_WRITE_2;
+
+				//Handle drops
+				if(rx_ll_drop || !rx_ll_valid)
+					rx_state	<= RX_STATE_IDLE;
+			end
+
+			RX_STATE_WRITE_2: begin
+				apb_req.pwdata[15:8]	<= rx_ll_data[7:0];
+				apb_req.pwdata[7:0]		<= rx_ll_data[15:8];
+				apb_req.psel			<= 1;
+				rx_state				<= RX_STATE_WRITE_SELECT;
+
+				//Handle drops
+				if(rx_ll_drop || !rx_ll_valid)
+					rx_state	<= RX_STATE_IDLE;
+			end
+
+			RX_STATE_WRITE_SELECT: begin
+
+				//Handle drops
+				if(rx_ll_drop) begin
+					apb_req.psel	<= 0;
+					rx_state		<= RX_STATE_IDLE;
+				end
+
+				//Dispatch the APB traffic on commit
+				if(rx_ll_commit) begin
+					apb_req.penable	<= 1;
+					rx_state		<= RX_STATE_IDLE;
+				end
+
+			end
+
+		endcase
+
+		//If link is down, reset rx state machine
+		if(!rx_ll_link_up)
+			rx_state	<= RX_STATE_IDLE;
+
+	end
 
 endmodule
