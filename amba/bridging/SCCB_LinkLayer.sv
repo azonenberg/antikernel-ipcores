@@ -129,18 +129,41 @@ module SCCB_LinkLayer #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX side
 
-	logic		rx_active		= 0;
+	logic		rx_active				= 0;
 
-	logic		rx_is_idle		= 0;
-	logic[7:0]	rx_idle_count	= 0;
-	logic[7:0]	rx_error_count	= 0;
+	logic		rx_is_idle				= 0;
+	logic[7:0]	rx_idle_count			= 0;
+	logic[7:0]	rx_error_count			= 0;
+
+	logic[7:0]	rx_checksum_expected	= 0;
+	logic		rx_checksum_next		= 0;
+	logic		rx_done_next			= 0;
+	logic		rx_done					= 0;
+
+	//Commit if checksum is valid
+	always_comb begin
+		rx_ll_commit = rx_done && (rx_crc_dout == rx_checksum_expected);
+	end
 
 	always_ff @(posedge rx_clk) begin
 
-		rx_ll_start		<= 0;
-		rx_ll_valid		<= 0;
-		rx_ll_nvalid	<= 0;
-		rx_ll_data		<= 0;
+		rx_ll_start			<= 0;
+		rx_ll_valid			<= 0;
+		rx_ll_nvalid		<= 0;
+		rx_ll_data			<= 0;
+		rx_ll_drop			<= 0;
+
+		rx_crc_reset		<= 0;
+		rx_crc_din_len		<= 0;
+		rx_crc_din			<= rx_data;
+
+		rx_checksum_next	<= 0;
+		rx_done_next		<= 0;
+		rx_done				<= rx_done_next;
+
+		//Send drop flag if checksum is bad
+		if(rx_done && (rx_crc_dout != rx_checksum_expected) )
+			rx_ll_drop	<= 1;
 
 		//Gate all processing on data valid
 		if(rx_data_valid) begin
@@ -148,9 +171,109 @@ module SCCB_LinkLayer #(
 			//Look for idles (K28.5 D21.5 with D0.0 in remaining slots if any)
 			rx_is_idle	<= (rx_data == 'hb5_bc) && (rx_kchar == 1);
 
+			//Expecting checksum?
+			if(rx_checksum_next) begin
+				rx_checksum_expected	<= rx_data[7:0];
+				rx_done_next			<= 1;
+			end
+
 			//In a frame? If so, look for EOF
-			if(rx_active) begin
-				//TODO: handle delayed CRC checks etc
+			else if(rx_active) begin
+
+				//Look for end code or error
+				if(rx_kchar) begin
+
+					//We're no longer in a frame, no matter what
+					rx_active	<= 0;
+
+					//End in lane 0?
+					if(rx_kchar[0]) begin
+
+						if(rx_data[7:0] == STOP_CODE) begin
+							//Previous cycle's frame was done
+							//TODO: can we verify checksum a cycle ahead of time?
+							rx_checksum_expected	<= rx_data[15:8];
+							rx_done_next			<= 1;
+						end
+
+						//Malformed frame (didn't end with stop symbol)
+						else
+							rx_ll_drop	<= 1;
+
+					end
+
+					//End in lane 1?
+					else if(rx_kchar[1]) begin
+
+						if(rx_data[15:8] == STOP_CODE) begin
+							rx_checksum_expected	<= rx_data[23:16];
+							rx_done_next			<= 1;
+
+							//Still one byte of data before the stop symbol
+							rx_crc_din_len			<= 1;
+							rx_ll_data				<= { 24'h0, rx_data[7:0] };
+							rx_ll_valid				<= 1;
+							rx_ll_nvalid			<= 1;
+						end
+
+						//Malformed frame (didn't end with stop symbol)
+						else
+							rx_ll_drop	<= 1;
+
+					end
+
+					//End in lane 2?
+					else if(rx_kchar[2]) begin
+
+						if(rx_data[23:16] == STOP_CODE) begin
+							rx_checksum_expected	<= rx_data[31:24];
+							rx_done_next			<= 1;
+
+							//Still two bytes of data before the stop symbol
+							rx_crc_din_len			<= 2;
+							rx_ll_data				<= { 16'h0, rx_data[15:0] };
+							rx_ll_valid				<= 1;
+							rx_ll_nvalid			<= 2;
+						end
+
+						//Malformed frame (didn't end with stop symbol)
+						else
+							rx_ll_drop	<= 1;
+
+					end
+
+					//End in lane 3?
+					else /* if(rx_kchar[3]) */ begin
+
+						if(rx_data[31:24] == STOP_CODE) begin
+
+							//We don't have the checksum yet
+							rx_checksum_next	<= 1;
+
+							//Still three bytes of data before the stop symbol
+							rx_crc_din_len		<= 3;
+							rx_ll_data				<= { 8'h0, rx_data[23:0] };
+							rx_ll_valid				<= 1;
+							rx_ll_nvalid			<= 3;
+						end
+
+						//Malformed frame (didn't end with stop symbol)
+						else
+							rx_ll_drop	<= 1;
+
+					end
+
+				end
+
+				//Nope, still doing data
+				else begin
+					rx_crc_din_len	<= 4;
+
+					rx_ll_valid		<= 1;
+					rx_ll_nvalid	<= 4;
+					rx_ll_data		<= rx_data;
+				end
+
 			end
 
 			//Link up but not in a frame?
@@ -175,7 +298,7 @@ module SCCB_LinkLayer #(
 					end
 
 					//Anything else? start of an upper layer frame
-					//There's always going to be header + 3 data bytes (no frame is allowed to be <3 bytes long)
+					//There's always going to be header + seq + 2 data bytes (no frame is allowed to be < 2 bytes long)
 					else begin
 						rx_ll_start		<= 1;
 						rx_ll_valid		<= 1;
@@ -183,6 +306,10 @@ module SCCB_LinkLayer #(
 						rx_ll_data		<= rx_data;
 
 						rx_active		<= 1;
+
+						rx_crc_reset	<= 1;
+						rx_crc_din		<= { 16'h0, rx_data[31:16] };
+						rx_crc_din_len	<= 2;
 					end
 
 				end
@@ -222,6 +349,11 @@ module SCCB_LinkLayer #(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// RX to TX control flow
+
+	//TODO: when committing or dropping a frame, send layer 2 ACK/NAK
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// TX CRC block
 
 	logic		tx_crc_reset	= 0;
@@ -249,6 +381,8 @@ module SCCB_LinkLayer #(
 	logic		tx_crc_last_adv	= 0;
 	logic[1:0]	tx_crc_pos		= 0;
 
+	logic[7:0]	tx_seq			= 0;
+
 	//Pipeline TX data so we have time to calculate the CRC before inserting it
 	logic[SYMBOL_WIDTH-1:0]	tx_kchar_adv	= 0;
 	logic[DATA_WIDTH-1:0]	tx_data_adv		= 0;
@@ -258,6 +392,12 @@ module SCCB_LinkLayer #(
 		tx_crc_reset	= tx_ll_start;
 		tx_crc_din_len	= tx_ll_valid;
 		tx_crc_din		= tx_ll_data;
+
+		//Starting a frame? Only checksum the data
+		if(tx_ll_start) begin
+			tx_crc_din		= { 16'h0, tx_ll_data[31:16] };
+			tx_crc_din_len	= 2;
+		end
 	end
 
 	//Inject TX CRC into outbound data
@@ -265,8 +405,14 @@ module SCCB_LinkLayer #(
 		tx_kchar		<= tx_kchar_adv;
 		tx_data			<= tx_data_adv;
 
-		if(tx_crc_last)
-			tx_data[tx_crc_pos*8 +: 8]	<= tx_crc_dout;
+		if(tx_crc_last) begin
+			case(tx_crc_pos)
+				0:	tx_data <= { 24'h0, tx_crc_dout };
+				1:	tx_data <= { 16'h0, tx_crc_dout, tx_data_adv[7:0] };
+				2:	tx_data <= { 8'h0, tx_crc_dout, tx_data_adv[15:0] };
+				3:	tx_data <= { tx_crc_dout, tx_data_adv[23:0] };
+			endcase
+		end
 
 	end
 
@@ -343,6 +489,10 @@ module SCCB_LinkLayer #(
 			if(tx_ll_start) begin
 				tx_data_adv			<= tx_ll_data;
 				tx_active			<= 1;
+
+				//Inject sequence number
+				tx_data_adv[15:8]	<= tx_seq;
+				tx_seq				<= tx_seq + 1;
 			end
 
 			//Default: send idles
@@ -356,12 +506,15 @@ module SCCB_LinkLayer #(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// CDC from TX to RX domains
+	// CDC from TX to RX domain
 
 	ThreeStageSynchronizer sync_rx_to_tx_ll_link_up(
 		.clk_in(rx_clk),
 		.din(rx_ll_link_up),
 		.clk_out(tx_clk),
 		.dout(tx_ll_link_up));
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// CDC from RX to TX domain
 
 endmodule
