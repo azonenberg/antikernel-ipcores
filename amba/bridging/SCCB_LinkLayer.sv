@@ -280,7 +280,7 @@ module SCCB_LinkLayer #(
 			else if(rx_ll_link_up) begin
 
 				//Expect a control character at position 0, and nowhere else
-				//(LLPs are all >2 bytes long so cannot start and end in same word)
+				//(LLPs other than ACKs are all >2 bytes long so cannot start and end in same word)
 				if( (rx_kchar[SYMBOL_WIDTH-1:1] == 0) && (rx_kchar[0] == 1) ) begin
 
 					//Idle? No action required
@@ -311,6 +311,25 @@ module SCCB_LinkLayer #(
 						rx_crc_din		<= { 16'h0, rx_data[31:16] };
 						rx_crc_din_len	<= 2;
 					end
+
+				end
+
+				//Handle single word ACK packets (start, sequence, ack state, done), with CRC next cycle
+				else if(rx_kchar == 4'b1001) begin
+
+					rx_ll_start			<= 1;
+					rx_ll_valid			<= 1;
+					rx_ll_nvalid		<= 3;
+					rx_ll_data			<= rx_data;
+
+					//frame is already over
+					rx_active			<= 0;
+
+					rx_crc_reset		<= 1;
+					rx_crc_din			<= { 24'h0, rx_data[23:16] };
+					rx_crc_din_len		<= 1;
+
+					rx_checksum_next	<= 1;
 
 				end
 
@@ -394,10 +413,8 @@ module SCCB_LinkLayer #(
 		tx_crc_din		= tx_ll_data;
 
 		//Starting a frame? Only checksum the data
-		if(tx_ll_start) begin
+		if(tx_ll_start)
 			tx_crc_din		= { 16'h0, tx_ll_data[31:16] };
-			tx_crc_din_len	= 2;
-		end
 	end
 
 	//Inject TX CRC into outbound data
@@ -407,7 +424,10 @@ module SCCB_LinkLayer #(
 
 		if(tx_crc_last) begin
 			case(tx_crc_pos)
-				0:	tx_data <= { 24'h0, tx_crc_dout };
+				0:	begin
+					tx_data		<= { 24'h0, tx_crc_dout };
+					tx_kchar[0]	<= 0;
+				end
 				1:	tx_data <= { 16'h0, tx_crc_dout, tx_data_adv[7:0] };
 				2:	tx_data <= { 8'h0, tx_crc_dout, tx_data_adv[15:0] };
 				3:	tx_data <= { tx_crc_dout, tx_data_adv[23:0] };
@@ -493,6 +513,17 @@ module SCCB_LinkLayer #(
 				//Inject sequence number
 				tx_data_adv[15:8]	<= tx_seq;
 				tx_seq				<= tx_seq + 1;
+
+				//If the frame has only a single byte of payload, add the end symbol in lane 3
+				if(tx_ll_valid == 1) begin
+					tx_kchar_adv		<= 4'b1001;
+					tx_data_adv[31:24]	<= STOP_CODE;
+
+					tx_crc_last_adv		<= 1; //append crc *next* word
+					tx_crc_pos			<= 0;
+					tx_active			<= 0;
+				end
+
 			end
 
 			//Default: send idles

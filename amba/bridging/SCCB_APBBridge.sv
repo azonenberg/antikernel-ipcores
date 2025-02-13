@@ -91,7 +91,7 @@ module SCCB_APBBridge #(
 	if(TX_CDC_BYPASS) begin
 		APBRegisterSlice #(
 			.UP_REG(0),
-			.DOW_REG(0)
+			.DOWN_REG(0)
 		) tx_bypass (
 			.upstream(apb_comp),
 			.downstream(apb_comp_tx)
@@ -153,6 +153,62 @@ module SCCB_APBBridge #(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Send completion when an APB transaction finishes
+
+	//RX domain
+	logic		completion_req		= 0;
+	logic		completion_has_data	= 0;
+	logic		completion_success	= 0;
+	logic[31:0]	completion_data		= 0;
+
+	//TX domain
+	wire		completion_req_sync;
+	wire		completion_has_data_sync;
+	wire		completion_success_sync;
+	wire[31:0]	completion_data_sync;
+
+	RegisterSynchronizer #(
+		.WIDTH(34),
+		.INIT(34'h0),
+		.IN_REG(0)
+	) sync_apb_completion (
+		.clk_a(rx_clk),
+		.en_a(completion_req),
+		.ack_a(),
+		.reg_a({ completion_has_data, completion_success, completion_data} ),
+
+		.clk_b(tx_clk),
+		.updated_b(completion_req_sync),
+		.reset_b(1'b0),
+		.reg_b({ completion_has_data_sync, completion_success_sync, completion_data_sync})
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Receive completions and push to the TX domain so we can ACK them
+
+	logic	ack_pending = 0;
+	logic	ack_error	= 0;
+
+	wire	ack_req_sync;
+	wire	ack_error_sync;
+
+	RegisterSynchronizer #(
+		.WIDTH(1),
+		.INIT(1'h0),
+		.IN_REG(0)
+	) sync_apb_ack (
+		.clk_a(rx_clk),
+		.en_a(ack_pending && rx_ll_commit),
+		.ack_a(),
+		.reg_a(ack_error),
+
+		.clk_b(tx_clk),
+		.updated_b(ack_req_sync),
+		.reset_b(1'b0),
+		.reg_b(ack_error_sync)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// APB TX processing
 
 	//Tie off unused APB signals
@@ -163,26 +219,82 @@ module SCCB_APBBridge #(
 	{
 		TX_STATE_IDLE,
 		TX_STATE_APB_1,
-		TX_STATE_APB_2
+		TX_STATE_APB_2,
+		TX_STATE_COMPLETION_1
 	} tx_state = TX_STATE_IDLE;
 
 	logic	apb_tx_pending	= 0;
+	logic	completion_pending	= 0;
 
 	always_ff @(posedge tx_clk) begin
 
-		apb_comp.pready	<= 0;
+		apb_comp.pready		<= 0;
+		apb_comp.pslverr	<= 0;
 
 		//Default to not sending any link layer data
 		tx_ll_data	<= 0;
 		tx_ll_start	<= 0;
 		tx_ll_valid	<= 0;
 
+		//Save completion-pending flag if we don't get to it this cycle because something else is going on
+		if(completion_req_sync)
+			completion_pending	<= 1;
+
+		//When we get an ACK, assert PREADY (and PSLVERR if appropriate)
+		if(ack_req_sync) begin
+			apb_comp.pready		<= 1;
+			apb_comp.pslverr	<= !ack_error_sync;
+		end
+
 		case(tx_state)
 
 			TX_STATE_IDLE: begin
 
+				//Link down? Nothing to do
+				if(!tx_ll_link_up) begin
+				end
+
+				//Send completion if needed
+				else if(completion_req_sync || completion_pending) begin
+					completion_pending			<= 0;
+
+					tx_ll_start					<= 1;
+
+					//Does the completion have data? Send the appropriate reply
+					if(completion_has_data_sync) begin
+						tx_ll_valid				<= 2;
+						tx_ll_data[7:0]			<= APB_COMP_DATA;
+
+						//placeholder for sequence number
+						tx_ll_data[15:8]		<= 0;
+
+						tx_ll_data[23:16]		<= completion_data_sync[31:24];
+						tx_ll_data[31:24]		<= completion_data_sync[23:16];
+						tx_state				<= TX_STATE_COMPLETION_1;
+					end
+
+					//No data, just acknowledge it
+					else begin
+						tx_ll_valid				<= 1;
+
+						tx_ll_data[7:0]			<= APB_COMP_EMPTY;
+
+						//placeholder for sequence number
+						tx_ll_data[15:8]		<= 0;
+
+						if(completion_success)
+							tx_ll_data[31:16]	<= 1;
+						else
+							tx_ll_data[31:16]	<= 0;
+
+						//no state change needed, this was all we needed to do
+
+					end
+
+				end
+
 				//Start a new APB transaction if we don't already have one in the pipe
-				if(apb_comp.penable && !apb_comp.pready && tx_ll_link_up && !apb_tx_pending) begin
+				else if(apb_comp.penable && !apb_comp.pready && !apb_tx_pending) begin
 
 					tx_ll_start			<= 1;
 					tx_ll_valid			<= 2;
@@ -278,18 +390,32 @@ module SCCB_APBBridge #(
 
 	always_ff @(posedge rx_clk) begin
 
+		//Clear single cycle flags
 		apb_req.preset_n	<= 0;
+		completion_req		<= 0;
 
-		//Clear pending APB request when we get an acknowledgement
+		//Handle acknowledgements
 		if(apb_req.pready) begin
-			apb_req.psel 	<= 0;
-			apb_req.penable <= 0;
+
+			//Clear pending APB request
+			apb_req.psel 		<= 0;
+			apb_req.penable 	<= 0;
+
+			//Send a completion
+			completion_req		<= 1;
+			completion_has_data	<= !apb_req.pwrite;
+			completion_success	<= !apb_req.pslverr;
+			completion_data		<= apb_req.prdata;
 		end
+
+		if(ack_pending && (rx_ll_commit || rx_ll_drop) )
+			ack_pending	<= 0;
 
 		case(rx_state)
 
 			//Wait for start of frame
 			RX_STATE_IDLE: begin
+
 				if(rx_ll_start) begin
 
 					//First byte is the frame type
@@ -306,6 +432,12 @@ module SCCB_APBBridge #(
 							apb_req.pwrite			<= 1;
 							apb_req.pstrb			<= 4'b1111;
 							rx_state				<= RX_STATE_WRITE_1;
+						end
+
+						//APB completion with no data (write acknowledgement)
+						APB_COMP_EMPTY: begin
+							ack_pending	<= 1;
+							ack_error	<= !rx_ll_data[16];
 						end
 
 						//Ignore anything we don't understand
