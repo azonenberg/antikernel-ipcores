@@ -186,34 +186,36 @@ module SCCB_APBBridge #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Receive completions and push to the TX domain so we can ACK them
 
-	logic	ack_pending = 0;
-	logic	ack_error	= 0;
+	logic		ack_pending = 0;
+	logic		ack_error	= 0;
+	logic[31:0]	ack_data	= 0;
 
-	wire	ack_req_sync;
-	wire	ack_error_sync;
+	wire		ack_req_sync;
+	wire		ack_error_sync;
+	wire[31:0]	ack_data_sync;
 
 	RegisterSynchronizer #(
-		.WIDTH(1),
+		.WIDTH(33),
 		.INIT(1'h0),
 		.IN_REG(0)
 	) sync_apb_ack (
 		.clk_a(rx_clk),
 		.en_a(ack_pending && rx_ll_commit),
 		.ack_a(),
-		.reg_a(ack_error),
+		.reg_a({ ack_error, ack_data }),
 
 		.clk_b(tx_clk),
 		.updated_b(ack_req_sync),
 		.reset_b(1'b0),
-		.reg_b(ack_error_sync)
+		.reg_b({ ack_error_sync, ack_data_sync })
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// APB TX processing
 
 	//Tie off unused APB signals
-	assign apb_comp.pruser = 0;
-	assign apb_comp.pbuser = 0;
+	assign apb_comp_tx.pruser = 0;
+	assign apb_comp_tx.pbuser = 0;
 
 	enum logic[2:0]
 	{
@@ -228,8 +230,8 @@ module SCCB_APBBridge #(
 
 	always_ff @(posedge tx_clk) begin
 
-		apb_comp.pready		<= 0;
-		apb_comp.pslverr	<= 0;
+		apb_comp_tx.pready		<= 0;
+		apb_comp_tx.pslverr		<= 0;
 
 		//Default to not sending any link layer data
 		tx_ll_data	<= 0;
@@ -240,10 +242,12 @@ module SCCB_APBBridge #(
 		if(completion_req_sync)
 			completion_pending	<= 1;
 
-		//When we get an ACK, assert PREADY (and PSLVERR if appropriate)
+		//When we get an ACK, assert PREADY (and PSLVERR if appropriate) and update PRDATA
 		if(ack_req_sync) begin
-			apb_comp.pready		<= 1;
-			apb_comp.pslverr	<= !ack_error_sync;
+			apb_comp_tx.pready	<= 1;
+			apb_comp_tx.pslverr	<= ack_error_sync;
+			apb_comp_tx.prdata	<= ack_data_sync;
+			apb_tx_pending		<= 0;
 		end
 
 		case(tx_state)
@@ -294,32 +298,33 @@ module SCCB_APBBridge #(
 				end
 
 				//Start a new APB transaction if we don't already have one in the pipe
-				else if(apb_comp.penable && !apb_comp.pready && !apb_tx_pending) begin
+				else if(apb_comp_tx.penable && !apb_comp_tx.pready && !apb_tx_pending) begin
 
-					tx_ll_start			<= 1;
-					tx_ll_valid			<= 2;
+					tx_ll_start				<= 1;
+					tx_ll_valid				<= 2;
 
 					//select the correct header byte
-					if(apb_comp.pwrite)
-						tx_ll_data[7:0]	<= APB_WRITE;
+					if(apb_comp_tx.pwrite)
+						tx_ll_data[7:0]		<= APB_WRITE;
 					else
-						tx_ll_data[7:0]	<= APB_READ;
+						tx_ll_data[7:0]		<= APB_READ;
 
 					//placeholder for sequence number
 					tx_ll_data[15:8]		<= 0;
 
 					//payload
-					if(apb_comp.ADDR_WIDTH >= 24)
-						tx_ll_data[23:16]		<= apb_comp.paddr[apb_comp.ADDR_WIDTH-1 : 24];
+					if(apb_comp_tx.ADDR_WIDTH >= 24)
+						tx_ll_data[23:16]	<= apb_comp_tx.paddr[apb_comp_tx.ADDR_WIDTH-1 : 24];
 					else
-						tx_ll_data[23:16]		<= 0;
+						tx_ll_data[23:16]	<= 0;
 
-					if(apb_comp.ADDR_WIDTH >= 16)
-						tx_ll_data[31:24]		<= apb_comp.paddr[23:16];
+					if(apb_comp_tx.ADDR_WIDTH >= 16)
+						tx_ll_data[31:24]	<= apb_comp_tx.paddr[23:16];
 					else
-						tx_ll_data[31:24]		<= 0;
+						tx_ll_data[31:24]	<= 0;
 
-					tx_state					<= TX_STATE_APB_1;
+					tx_state				<= TX_STATE_APB_1;
+					apb_tx_pending			<= 1;
 
 				end
 
@@ -328,19 +333,20 @@ module SCCB_APBBridge #(
 			//Continue an APB read or write
 			TX_STATE_APB_1: begin
 
-				tx_ll_data[7:0]			<= apb_comp.paddr[15:8];
-				tx_ll_data[15:8]		<= apb_comp.paddr[7:0];
+				tx_ll_data[7:0]			<= apb_comp_tx.paddr[15:8];
+				tx_ll_data[15:8]		<= apb_comp_tx.paddr[7:0];
 
-				if(apb_comp.pwrite) begin
+				if(apb_comp_tx.pwrite) begin
 					tx_ll_valid			<= 4;
-					tx_ll_data[23:16]	<= apb_comp.pwdata[31:24];
-					tx_ll_data[31:24]	<= apb_comp.pwdata[23:16];
+					tx_ll_data[23:16]	<= apb_comp_tx.pwdata[31:24];
+					tx_ll_data[31:24]	<= apb_comp_tx.pwdata[23:16];
 
 					tx_state			<= TX_STATE_APB_2;
 				end
+
+				//We just sent a read
 				else begin
 					tx_ll_valid			<= 2;
-
 					tx_state			<= TX_STATE_IDLE;
 				end
 
@@ -350,12 +356,21 @@ module SCCB_APBBridge #(
 			TX_STATE_APB_2: begin
 				tx_ll_valid			<= 2;
 				tx_ll_data[31:16]	<= 0;
-				tx_ll_data[7:0]		<= apb_comp.pwdata[15:8];
-				tx_ll_data[15:8]	<= apb_comp.pwdata[7:0];
+				tx_ll_data[7:0]		<= apb_comp_tx.pwdata[15:8];
+				tx_ll_data[15:8]	<= apb_comp_tx.pwdata[7:0];
 
-				apb_tx_pending		<= 1;
 				tx_state			<= TX_STATE_IDLE;
-			end
+			end //TX_STATE_APB_2
+
+			//Continue a completion with data
+			TX_STATE_COMPLETION_1: begin
+				tx_ll_valid			<= 2;
+				tx_ll_data[31:16]	<= 0;
+				tx_ll_data[7:0]		<= completion_data_sync[15:8];
+				tx_ll_data[15:8]	<= completion_data_sync[7:0];
+
+				tx_state			<= TX_STATE_IDLE;
+			end //TX_STATE_COMPLETION_1
 
 		endcase
 
@@ -385,7 +400,10 @@ module SCCB_APBBridge #(
 		RX_STATE_IDLE,
 		RX_STATE_WRITE_1,
 		RX_STATE_WRITE_2,
-		RX_STATE_WRITE_SELECT
+		RX_STATE_WRITE_SELECT,
+		RX_STATE_READ_1,
+		RX_STATE_READ_SELECT,
+		RX_STATE_COMP_1
 	} rx_state = RX_STATE_IDLE;
 
 	always_ff @(posedge rx_clk) begin
@@ -403,7 +421,7 @@ module SCCB_APBBridge #(
 
 			//Send a completion
 			completion_req		<= 1;
-			completion_has_data	<= !apb_req.pwrite;
+			completion_has_data	<= !apb_req.pwrite && !apb_req.pslverr;
 			completion_success	<= !apb_req.pslverr;
 			completion_data		<= apb_req.prdata;
 		end
@@ -413,7 +431,8 @@ module SCCB_APBBridge #(
 
 		case(rx_state)
 
-			//Wait for start of frame
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Wait for start of frame
 			RX_STATE_IDLE: begin
 
 				if(rx_ll_start) begin
@@ -434,10 +453,27 @@ module SCCB_APBBridge #(
 							rx_state				<= RX_STATE_WRITE_1;
 						end
 
-						//APB completion with no data (write acknowledgement)
+						//Start of an APB read request
+						APB_READ: begin
+							apb_req.paddr[31:24]	<= rx_ll_data[23:16];
+							apb_req.paddr[23:16]	<= rx_ll_data[31:24];
+							apb_req.pwrite			<= 0;
+							apb_req.pstrb			<= 4'h0;
+							rx_state				<= RX_STATE_READ_1;
+						end
+
+						//APB completion with no data (write acknowledgement or failure)
 						APB_COMP_EMPTY: begin
 							ack_pending	<= 1;
+							ack_data	<= 0;
 							ack_error	<= !rx_ll_data[16];
+						end
+
+						//APB completion with data (read acknowledgement)
+						APB_COMP_DATA: begin
+							ack_data[31:24]			<= rx_ll_data[23:16];
+							ack_data[23:16]			<= rx_ll_data[31:24];
+							rx_state				<= RX_STATE_COMP_1;
 						end
 
 						//Ignore anything we don't understand
@@ -447,6 +483,9 @@ module SCCB_APBBridge #(
 
 				end
 			end //RX_STATE_IDLE
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Write path
 
 			RX_STATE_WRITE_1: begin
 				apb_req.paddr[15:8]		<= rx_ll_data[7:0];
@@ -486,6 +525,50 @@ module SCCB_APBBridge #(
 				end
 
 			end
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Read path
+
+			RX_STATE_READ_1: begin
+				apb_req.paddr[15:8]		<= rx_ll_data[7:0];
+				apb_req.paddr[7:0]		<= rx_ll_data[15:8];
+
+				apb_req.psel			<= 1;
+				rx_state				<= RX_STATE_READ_SELECT;
+
+				//Handle drops
+				if(rx_ll_drop || !rx_ll_valid)
+					rx_state	<= RX_STATE_IDLE;
+			end //RX_STATE_READ_1
+
+			RX_STATE_READ_SELECT: begin
+
+				//Handle drops
+				if(rx_ll_drop) begin
+					apb_req.psel	<= 0;
+					rx_state		<= RX_STATE_IDLE;
+				end
+
+				//Dispatch the APB traffic on commit
+				if(rx_ll_commit) begin
+					apb_req.penable	<= 1;
+					rx_state		<= RX_STATE_IDLE;
+				end
+
+			end //RX_STATE_READ_SELECT
+
+			////////////////////////////////////////////////////////////////////////////////////////////////////////////
+			// Completions
+
+			RX_STATE_COMP_1: begin
+				ack_pending			<= 1;
+				ack_error			<= 0;
+				ack_data[15:8]		<= rx_ll_data[7:0];
+				ack_data[7:0]		<= rx_ll_data[15:8];
+
+				rx_state			<= RX_STATE_IDLE;
+
+			end //RX_STATE_COMP_1
 
 		endcase
 

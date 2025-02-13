@@ -34,32 +34,43 @@
  */
 module GTY_APBBridge #(
 	parameter TX_INVERT	= 0,
-	parameter RX_INVERT = 0
+	parameter RX_INVERT = 0,
+	parameter TX_CDC_BYPASS = 0,
+
+	parameter TX_ILA = 0,
+	parameter RX_ILA = 0
 ) (
 	//Clocks
-	input wire		sysclk,		//Management APB clock
+	input wire			sysclk,		//Management APB clock
 
 	//GTY quad reference clocks
-	input wire[1:0]	clk_ref,
+	input wire[1:0]		clk_ref,
 
 	//Top level GTY pins
-	input wire	rx_p,
-	input wire	rx_n,
+	input wire			rx_p,
+	input wire			rx_n,
 
-	output wire tx_p,
-	output wire tx_n,
+	output wire			tx_p,
+	output wire			tx_n,
 
 	//QPLL clocks and control signals
 	input wire[1:0]		qpll_clkout,
 	input wire[1:0]		qpll_refout,
-	input wire[1:0]		qpll_lock
+	input wire[1:0]		qpll_lock,
+
+	//Clock outputs
+	output wire			rxoutclk,
+	output wire			txoutclk,
+
+	//APB ports for the bridge
+	//SERDES RX clock is used as requester clock
+	//Completer clock can be anything if TX_CDC_BYPASS = 0; if pclk is tx_clk set TX_CDC_BYPASS=1 to reduce latency
+	APB.requester		apb_req,
+	APB.completer		apb_comp
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The transceiver lane
-
-	wire	rxoutclk;
-	wire	txoutclk;
 
 	//TODO: make the apb do something
 	APB #(.DATA_WIDTH(32), .ADDR_WIDTH(10), .USER_WIDTH(0)) serdes_apb();
@@ -143,25 +154,76 @@ module GTY_APBBridge #(
 		.tx_char_is_k(tx_char_is_k)
 	);
 
-	//comma in LSB position
-	assign tx_char_is_k = 16'b0001;
-
-	//K28.5 D21.5 D0.0 D0.0
-	//Least significant lane sent first on the wire; extra 8 bits are for encoder and not used
-	assign tx_data = 40'h00_00_00_b5_bc;
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Bridge logic
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
+	wire	tx_ll_link_up;
 
-	ila_0 ila(
-		.clk(rxoutclk),
-		.probe0(rx_data),
-		.probe1(rx_comma_is_aligned),
-		.probe2(rx_char_is_k),
-		.probe3(rx_char_is_comma)
+	SCCB_APBBridge #(
+		.SYMBOL_WIDTH(4),
+		.TX_CDC_BYPASS(TX_CDC_BYPASS)
+	) bridge (
+
+		.rx_clk(rxoutclk),
+		.rx_kchar(rx_char_is_k),
+		.rx_data(rx_data[31:0]),
+		.rx_data_valid(rx_comma_is_aligned),
+
+		.tx_clk(txoutclk),
+		.tx_kchar(tx_char_is_k),
+		.tx_data(tx_data[31:0]),
+		.tx_ll_link_up(tx_ll_link_up),
+
+		.apb_req(apb_req),
+		.apb_comp(apb_comp)
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Debug ILA in RX clock domain
+
+	if(RX_ILA) begin
+		ila_0 rx_ila(
+			.clk(rxoutclk),
+			.probe0(rx_data),
+			.probe1(rx_comma_is_aligned),
+			.probe2(rx_char_is_k),
+			.probe3(rx_char_is_comma),
+			.probe4(apb_req.penable),
+			.probe5(apb_req.psel),
+			.probe6(apb_req.paddr),
+			.probe7(apb_req.pwrite),
+			.probe8(apb_req.pwdata),
+			.probe9(apb_req.pready),
+			.probe10(apb_req.prdata),
+			.probe11(apb_req.pslverr)
+		);
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Debug ILA in TX clock domain
+
+	if(TX_ILA) begin
+		ila_1 tx_ila(
+			.clk(txoutclk),
+			.probe0(tx_data),
+			.probe1(tx_char_is_k),
+			.probe2(tx_ll_link_up),
+			.probe3(apb_comp.pslverr),
+			.probe4(apb_comp.penable),
+			.probe5(apb_comp.psel),
+			.probe6(apb_comp.paddr),
+			.probe7(apb_comp.pwrite),
+			.probe8(apb_comp.pwdata),
+			.probe9(apb_comp.pready),
+			.probe10(apb_comp.prdata),
+			.probe11(bridge.ack_req_sync),
+			.probe12(bridge.ack_error_sync),
+
+			.probe13(bridge.apb_comp_tx.penable),
+			.probe14(bridge.apb_comp_tx.psel),
+			.probe15(bridge.apb_comp_tx.pready),
+			.probe16(bridge.apb_comp_tx.pslverr)
+		);
+	end
 
 endmodule
