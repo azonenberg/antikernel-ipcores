@@ -64,11 +64,11 @@ module SCCB_APBBridge #(
 	input wire[SYMBOL_WIDTH-1:0]	rx_kchar,
 	input wire[DATA_WIDTH-1:0]		rx_data,
 	input wire						rx_data_valid,
+	output wire						rx_ll_link_up,
 
 	input wire						tx_clk,
 	output wire[SYMBOL_WIDTH-1:0]	tx_kchar,
 	output wire[DATA_WIDTH-1:0]		tx_data,
-
 	output wire						tx_ll_link_up,
 
 	//APB ports
@@ -112,7 +112,6 @@ module SCCB_APBBridge #(
 
 	//TODO: handle widths other than 32 bits
 
-	wire		rx_ll_link_up;
 	wire		rx_ll_start;
 	wire		rx_ll_valid;
 	wire[2:0]	rx_ll_nvalid;
@@ -409,7 +408,7 @@ module SCCB_APBBridge #(
 	always_ff @(posedge rx_clk) begin
 
 		//Clear single cycle flags
-		apb_req.preset_n	<= 0;
+		apb_req.preset_n	<= 1;
 		completion_req		<= 0;
 
 		//Handle acknowledgements
