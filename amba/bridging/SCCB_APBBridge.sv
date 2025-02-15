@@ -415,6 +415,16 @@ module SCCB_APBBridge #(
 		RX_STATE_COMP_1
 	} rx_state = RX_STATE_IDLE;
 
+	//Combinatorially assert PENABLE to reduce latency
+	logic	penable_ff	= 0;
+	always_comb begin
+		apb_req.penable		= penable_ff;
+
+		if( ( (rx_state == RX_STATE_WRITE_SELECT) || (rx_state == RX_STATE_READ_SELECT) ) && rx_ll_commit)
+			apb_req.penable	= 1;
+
+	end
+
 	always_ff @(posedge rx_clk) begin
 
 		//Clear single cycle flags
@@ -426,7 +436,7 @@ module SCCB_APBBridge #(
 
 			//Clear pending APB request
 			apb_req.psel 		<= 0;
-			apb_req.penable 	<= 0;
+			penable_ff		 	<= 0;
 
 			//Send a completion
 			completion_req		<= 1;
@@ -528,10 +538,8 @@ module SCCB_APBBridge #(
 				end
 
 				//Dispatch the APB traffic on commit
-				if(rx_ll_commit) begin
-					apb_req.penable	<= 1;
+				if(rx_ll_commit)
 					rx_state		<= RX_STATE_IDLE;
-				end
 
 			end
 
@@ -559,10 +567,8 @@ module SCCB_APBBridge #(
 				end
 
 				//Dispatch the APB traffic on commit
-				if(rx_ll_commit) begin
-					apb_req.penable	<= 1;
+				if(rx_ll_commit)
 					rx_state		<= RX_STATE_IDLE;
-				end
 
 			end //RX_STATE_READ_SELECT
 

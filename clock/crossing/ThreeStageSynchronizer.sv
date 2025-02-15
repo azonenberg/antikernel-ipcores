@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -46,28 +46,27 @@ module ThreeStageSynchronizer #(
     );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The flipflops
+	// Input stage
 
 	logic dout0;
 
+	//First stage: FF in the transmitting domain
+	//TODO: Figure out why vivado doesn't let me initialize dout0!
+	if(IN_REG) begin
+		always_ff @(posedge clk_in) begin
+			dout0	<= din;
+		end
+	end
+
+	//Assume first stage is registered already in the sending module
+	else begin
+		always_comb
+			dout0	= din;
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Two stages in the receiving clock domain
 	(* ASYNC_REG = "TRUE" *) logic dout1;
-	generate
-
-		//First stage: FF in the transmitting domain
-		if(IN_REG) begin
-			always_ff @(posedge clk_in)
-				dout0	<= din;
-		end
-
-		//Assume first stage is registered already in the sending module
-		else begin
-			always_comb
-				dout0	<= din;
-		end
-
-	endgenerate
-
-	//Two stages in the receiving clock domain
 	always_ff @(posedge clk_out) begin
 		dout1	<= dout0;
 		dout	<= dout1;
