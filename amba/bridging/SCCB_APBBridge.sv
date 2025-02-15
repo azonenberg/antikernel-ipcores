@@ -227,10 +227,24 @@ module SCCB_APBBridge #(
 	logic	apb_tx_pending	= 0;
 	logic	completion_pending	= 0;
 
-	always_ff @(posedge tx_clk) begin
+	//Combinatorially assert PREADY/PSLVERR/PRDATA
+	always_comb begin
 
-		apb_comp_tx.pready		<= 0;
-		apb_comp_tx.pslverr		<= 0;
+		apb_comp_tx.prdata	= ack_data_sync;
+
+		if(ack_req_sync) begin
+			apb_comp_tx.pready	= 1;
+			apb_comp_tx.pslverr	= ack_error_sync;
+		end
+
+		else begin
+			apb_comp_tx.pready	= 0;
+			apb_comp_tx.pslverr	= 0;
+		end
+
+	end
+
+	always_ff @(posedge tx_clk) begin
 
 		//Default to not sending any link layer data
 		tx_ll_data	<= 0;
@@ -241,13 +255,9 @@ module SCCB_APBBridge #(
 		if(completion_req_sync)
 			completion_pending	<= 1;
 
-		//When we get an ACK, assert PREADY (and PSLVERR if appropriate) and update PRDATA
-		if(ack_req_sync) begin
-			apb_comp_tx.pready	<= 1;
-			apb_comp_tx.pslverr	<= ack_error_sync;
-			apb_comp_tx.prdata	<= ack_data_sync;
+		//Clear pending flag when we get an ACK
+		if(ack_req_sync)
 			apb_tx_pending		<= 0;
-		end
 
 		case(tx_state)
 

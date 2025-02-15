@@ -418,19 +418,19 @@ module SCCB_LinkLayer #(
 	end
 
 	//Inject TX CRC into outbound data
-	always_ff @(posedge tx_clk) begin
-		tx_kchar		<= tx_kchar_adv;
-		tx_data			<= tx_data_adv;
+	always_comb begin
+		tx_kchar		= tx_kchar_adv;
+		tx_data			= tx_data_adv;
 
 		if(tx_crc_last) begin
 			case(tx_crc_pos)
 				0:	begin
-					tx_data		<= { 24'h0, tx_crc_dout };
-					tx_kchar[0]	<= 0;
+					tx_data		= { 24'h0, tx_crc_dout };
+					tx_kchar[0]	= 0;
 				end
-				1:	tx_data <= { 16'h0, tx_crc_dout, tx_data_adv[7:0] };
-				2:	tx_data <= { 8'h0, tx_crc_dout, tx_data_adv[15:0] };
-				3:	tx_data <= { tx_crc_dout, tx_data_adv[23:0] };
+				1:	tx_data = { 16'h0, tx_crc_dout, tx_data_adv[7:0] };
+				2:	tx_data = { 8'h0, tx_crc_dout, tx_data_adv[15:0] };
+				3:	tx_data = { tx_crc_dout, tx_data_adv[23:0] };
 			endcase
 		end
 
