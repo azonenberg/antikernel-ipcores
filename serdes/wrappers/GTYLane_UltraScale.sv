@@ -41,8 +41,10 @@ module GTYLane_UltraScale #(
 
 	parameter DATA_WIDTH		= 32,	//same for TX and RX, we don't support mismatched widths for now
 
-	parameter ROUGH_RATE_GBPS	= 10	//CDR etc settings depend on the approximate data rate
+	parameter ROUGH_RATE_GBPS	= 10,	//CDR etc settings depend on the approximate data rate
 										//supported values for now: 5, 10, 25
+
+	parameter RX_BUF_BYPASS		= 0		//set 1 to bypass rx buffer
 ) (
 
 	//APB to DRP
@@ -206,6 +208,12 @@ module GTYLane_UltraScale #(
 
 	localparam ALIGN_COMMA_WORD = RX_COMMA_ALIGN ? comma_word(DATA_WIDTH) : 1;
 
+	//RX buffer bypass
+	localparam RXBUF_EN = RX_BUF_BYPASS ? "FALSE" : "TRUE";
+	localparam RXBUF_THRESH_OVFLW = RX_BUF_BYPASS ? 0 : 49;
+	localparam RXBUF_THRESH_OVRD = RX_BUF_BYPASS ? "FALSE" : "TRUE";
+	localparam RXBUF_THRESH_UNDFLW = RX_BUF_BYPASS ? 4 : 7;
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Resets
 
@@ -305,6 +313,21 @@ module GTYLane_UltraScale #(
 		.RXLPM_OS_CFG0(16'b0000000000000000),
 		.RXLPM_OS_CFG1(16'b1000000000000010),
 
+		//RX buffer config
+		.RXBUFRESET_TIME(5'b00011),
+		.RXBUF_ADDR_MODE("FAST"),
+		.RXBUF_EIDLE_HI_CNT(4'b1000),
+		.RXBUF_EIDLE_LO_CNT(4'b0000),
+		.RXBUF_EN(RXBUF_EN),
+		.RXBUF_RESET_ON_CB_CHANGE("TRUE"),
+		.RXBUF_RESET_ON_COMMAALIGN("FALSE"),
+		.RXBUF_RESET_ON_EIDLE("FALSE"),
+		.RXBUF_RESET_ON_RATE_CHANGE("TRUE"),
+		.RXBUF_THRESH_OVFLW(RXBUF_THRESH_OVFLW),
+		.RXBUF_THRESH_OVRD(RXBUF_THRESH_OVRD),
+		.RXBUF_THRESH_UNDFLW(RXBUF_THRESH_UNDFLW),
+
+		//TODO
 		.ACJTAG_DEBUG_MODE(1'b0),
 		.ACJTAG_MODE(1'b0),
 		.ACJTAG_RESET(1'b0),
@@ -465,18 +488,6 @@ module GTYLane_UltraScale #(
 		.RCLK_SIPO_INV_EN(1'b0),
 		.RTX_BUF_CML_CTRL(3'b111),
 		.RTX_BUF_TERM_CTRL(2'b11),
-		.RXBUFRESET_TIME(5'b00011),
-		.RXBUF_ADDR_MODE("FAST"),
-		.RXBUF_EIDLE_HI_CNT(4'b1000),
-		.RXBUF_EIDLE_LO_CNT(4'b0000),
-		.RXBUF_EN("TRUE"),
-		.RXBUF_RESET_ON_CB_CHANGE("TRUE"),
-		.RXBUF_RESET_ON_COMMAALIGN("FALSE"),
-		.RXBUF_RESET_ON_EIDLE("FALSE"),
-		.RXBUF_RESET_ON_RATE_CHANGE("TRUE"),
-		.RXBUF_THRESH_OVFLW(49),
-		.RXBUF_THRESH_OVRD("TRUE"),
-		.RXBUF_THRESH_UNDFLW(7),
 		.RXCFOK_CFG0(16'b0000000000000000),
 		.RXCFOK_CFG1(16'b1000000000010101),
 		.RXCFOK_CFG2(16'b0000001010101110),

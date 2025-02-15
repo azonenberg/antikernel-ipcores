@@ -87,7 +87,8 @@ module GTY_APBBridge #(
 	GTYLane_UltraScale #(
 		.ROUGH_RATE_GBPS(5),	//TODO parameterize
 		.DATA_WIDTH(40),
-		.RX_COMMA_ALIGN(1)
+		.RX_COMMA_ALIGN(1),
+		.RX_BUF_BYPASS(1)
 	) lane (
 		.apb(serdes_apb),
 
