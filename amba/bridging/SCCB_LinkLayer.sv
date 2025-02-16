@@ -98,7 +98,7 @@ module SCCB_LinkLayer #(
 	output logic[SYMBOL_BITS:0]		rx_ll_nvalid	= 0,	//number of valid bytes in rx_ll_data
 	output logic[DATA_WIDTH-1:0]	rx_ll_data		= 0,	//upper layer data (left aligned)
 															//if rx_ll_start is set, the first word is a K character
-	output logic					rx_ll_commit	= 0,	//frame received and is valid
+	output logic					rx_ll_commit,			//frame received and is valid
 	output logic					rx_ll_drop		= 0,	//frame received but checksum was bad, dropped
 
 	//Link layer inputs (tx_clk domain) from transaction layer
@@ -111,7 +111,7 @@ module SCCB_LinkLayer #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX CRC block
 
-	logic		rx_crc_reset	= 0;
+	logic		rx_crc_reset;
 	logic[2:0]	rx_crc_din_len	= 0;
 	logic[31:0]	rx_crc_din		= 0;
 	wire[7:0]	rx_crc_dout;
@@ -126,40 +126,94 @@ module SCCB_LinkLayer #(
 		.crc_out(rx_crc_dout)
 	);
 
+	logic		rx_active				= 0;
+	logic[7:0]	rx_checksum_expected;
+
+	//Send data to RX CRC
+	always_comb begin
+		rx_crc_reset			= 0;
+		rx_crc_din_len			= 0;
+		rx_crc_din				= rx_data;
+		rx_checksum_expected	= rx_checksum_expected_ff;
+
+		//Do nothing if no data valid, or link down
+		if(!rx_data_valid || !rx_ll_link_up) begin
+		end
+
+		//Save checksum after end of frame
+		else if(rx_checksum_next)
+			rx_checksum_expected		= rx_data[7:0];
+
+		//Link active
+		else if(rx_active) begin
+
+			//Look for end of frame
+			if(rx_kchar[0]) begin
+				rx_crc_din_len			= 0;
+				rx_checksum_expected	= rx_data[15:8];
+			end
+			else if(rx_kchar[1]) begin
+				rx_crc_din_len			= 1;
+				rx_checksum_expected	= rx_data[23:16];
+			end
+			else if(rx_kchar[2]) begin
+				rx_crc_din_len			= 2;
+				rx_checksum_expected	= rx_data[31:24];
+			end
+			else if(rx_kchar[3])
+				rx_crc_din_len			= 3;
+			else
+				rx_crc_din_len			= 4;
+
+		end
+
+		//Reset the CRC any time we see something other than an idle
+		else if( ( (rx_kchar == 4'b0001) && (rx_data[7:0] != IDLE_CODE) ) || (rx_kchar == 4'b1001) ) begin
+			rx_crc_reset		= 1;
+			rx_crc_din			= { 16'h0, rx_data[31:16] };
+
+			//Single-byte frame
+			if(rx_kchar == 4'b1001)
+				rx_crc_din_len	= 1;
+
+			//Start of multi-word frame
+			else
+				rx_crc_din_len	= 2;
+
+		end
+
+	end
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX side
-
-	logic		rx_active				= 0;
 
 	logic		rx_is_idle				= 0;
 	logic[7:0]	rx_idle_count			= 0;
 	logic[7:0]	rx_error_count			= 0;
 
-	logic[7:0]	rx_checksum_expected	= 0;
+	logic[7:0]	rx_checksum_expected_ff	= 0;
 	logic		rx_checksum_next		= 0;
 	logic		rx_done_next			= 0;
 	logic		rx_done					= 0;
 
 	//Commit if checksum is valid
 	always_comb begin
-		rx_ll_commit = rx_done && (rx_crc_dout == rx_checksum_expected);
+		rx_ll_commit	= rx_done && (rx_crc_dout == rx_checksum_expected);
 	end
 
 	always_ff @(posedge rx_clk) begin
 
-		rx_ll_start			<= 0;
-		rx_ll_valid			<= 0;
-		rx_ll_nvalid		<= 0;
-		rx_ll_data			<= 0;
-		rx_ll_drop			<= 0;
+		rx_ll_start				<= 0;
+		rx_ll_valid				<= 0;
+		rx_ll_nvalid			<= 0;
+		rx_ll_data				<= 0;
+		rx_ll_drop				<= 0;
 
-		rx_crc_reset		<= 0;
-		rx_crc_din_len		<= 0;
-		rx_crc_din			<= rx_data;
+		rx_checksum_next		<= 0;
+		rx_done_next			<= 0;
+		rx_done					<= rx_done_next;
 
-		rx_checksum_next	<= 0;
-		rx_done_next		<= 0;
-		rx_done				<= rx_done_next;
+		rx_checksum_expected_ff	<= rx_checksum_expected;
 
 		//Send drop flag if checksum is bad
 		if(rx_done && (rx_crc_dout != rx_checksum_expected) )
@@ -171,11 +225,9 @@ module SCCB_LinkLayer #(
 			//Look for idles (K28.5 D21.5 with D0.0 in remaining slots if any)
 			rx_is_idle	<= (rx_data == 'hb5_bc) && (rx_kchar == 1);
 
-			//Expecting checksum?
-			if(rx_checksum_next) begin
-				rx_checksum_expected	<= rx_data[7:0];
-				rx_done_next			<= 1;
-			end
+			//Special case for checksum one cycle after the last data word
+			if(rx_checksum_next)
+				rx_done		<= 1;
 
 			//In a frame? If so, look for EOF
 			else if(rx_active) begin
@@ -189,16 +241,12 @@ module SCCB_LinkLayer #(
 					//End in lane 0?
 					if(rx_kchar[0]) begin
 
-						if(rx_data[7:0] == STOP_CODE) begin
-							//Previous cycle's frame was done
-							//TODO: can we verify checksum a cycle ahead of time?
-							rx_checksum_expected	<= rx_data[15:8];
-							rx_done_next			<= 1;
-						end
+						if(rx_data[7:0] == STOP_CODE)
+							rx_done_next		<= 1;
 
 						//Malformed frame (didn't end with stop symbol)
 						else
-							rx_ll_drop	<= 1;
+							rx_ll_drop			<= 1;
 
 					end
 
@@ -206,14 +254,12 @@ module SCCB_LinkLayer #(
 					else if(rx_kchar[1]) begin
 
 						if(rx_data[15:8] == STOP_CODE) begin
-							rx_checksum_expected	<= rx_data[23:16];
-							rx_done_next			<= 1;
+							rx_done				<= 1;
 
 							//Still one byte of data before the stop symbol
-							rx_crc_din_len			<= 1;
-							rx_ll_data				<= { 24'h0, rx_data[7:0] };
-							rx_ll_valid				<= 1;
-							rx_ll_nvalid			<= 1;
+							rx_ll_data			<= { 24'h0, rx_data[7:0] };
+							rx_ll_valid			<= 1;
+							rx_ll_nvalid		<= 1;
 						end
 
 						//Malformed frame (didn't end with stop symbol)
@@ -226,19 +272,17 @@ module SCCB_LinkLayer #(
 					else if(rx_kchar[2]) begin
 
 						if(rx_data[23:16] == STOP_CODE) begin
-							rx_checksum_expected	<= rx_data[31:24];
-							rx_done_next			<= 1;
+							rx_done				<= 1;
 
 							//Still two bytes of data before the stop symbol
-							rx_crc_din_len			<= 2;
-							rx_ll_data				<= { 16'h0, rx_data[15:0] };
-							rx_ll_valid				<= 1;
-							rx_ll_nvalid			<= 2;
+							rx_ll_data			<= { 16'h0, rx_data[15:0] };
+							rx_ll_valid			<= 1;
+							rx_ll_nvalid		<= 2;
 						end
 
 						//Malformed frame (didn't end with stop symbol)
 						else
-							rx_ll_drop	<= 1;
+							rx_ll_drop			<= 1;
 
 					end
 
@@ -251,10 +295,9 @@ module SCCB_LinkLayer #(
 							rx_checksum_next	<= 1;
 
 							//Still three bytes of data before the stop symbol
-							rx_crc_din_len		<= 3;
-							rx_ll_data				<= { 8'h0, rx_data[23:0] };
-							rx_ll_valid				<= 1;
-							rx_ll_nvalid			<= 3;
+							rx_ll_data			<= { 8'h0, rx_data[23:0] };
+							rx_ll_valid			<= 1;
+							rx_ll_nvalid		<= 3;
 						end
 
 						//Malformed frame (didn't end with stop symbol)
@@ -267,8 +310,6 @@ module SCCB_LinkLayer #(
 
 				//Nope, still doing data
 				else begin
-					rx_crc_din_len	<= 4;
-
 					rx_ll_valid		<= 1;
 					rx_ll_nvalid	<= 4;
 					rx_ll_data		<= rx_data;
@@ -306,10 +347,6 @@ module SCCB_LinkLayer #(
 						rx_ll_data		<= rx_data;
 
 						rx_active		<= 1;
-
-						rx_crc_reset	<= 1;
-						rx_crc_din		<= { 16'h0, rx_data[31:16] };
-						rx_crc_din_len	<= 2;
 					end
 
 				end
@@ -325,11 +362,8 @@ module SCCB_LinkLayer #(
 					//frame is already over
 					rx_active			<= 0;
 
-					rx_crc_reset		<= 1;
-					rx_crc_din			<= { 24'h0, rx_data[23:16] };
-					rx_crc_din_len		<= 1;
-
 					rx_checksum_next	<= 1;
+					rx_done_next		<= 1;
 
 				end
 

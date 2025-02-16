@@ -155,10 +155,9 @@ module SCCB_APBBridge #(
 	// Send completion when an APB transaction finishes
 
 	//RX domain
-	logic		completion_req		= 0;
-	logic		completion_has_data	= 0;
-	logic		completion_success	= 0;
-	logic[31:0]	completion_data		= 0;
+	logic		completion_has_data;
+	logic		completion_success;
+	logic[31:0]	completion_data;
 
 	//TX domain
 	wire		completion_req_sync;
@@ -172,7 +171,7 @@ module SCCB_APBBridge #(
 		.IN_REG(0)
 	) sync_apb_completion (
 		.clk_a(rx_clk),
-		.en_a(completion_req),
+		.en_a(apb_req.pready),
 		.ack_a(),
 		.reg_a({ completion_has_data, completion_success, completion_data} ),
 
@@ -295,7 +294,7 @@ module SCCB_APBBridge #(
 						//placeholder for sequence number
 						tx_ll_data[15:8]		<= 0;
 
-						if(completion_success)
+						if(completion_success_sync)
 							tx_ll_data[31:16]	<= 1;
 						else
 							tx_ll_data[31:16]	<= 0;
@@ -399,6 +398,8 @@ module SCCB_APBBridge #(
 		apb_req.preset_n	= 0;
 		apb_req.penable 	= 0;
 		apb_req.psel		= 0;
+		apb_req.paddr		= 0;
+		apb_req.pstrb		= 0;
 	end
 
 	//Hook up clock
@@ -411,17 +412,54 @@ module SCCB_APBBridge #(
 		RX_STATE_WRITE_2,
 		RX_STATE_WRITE_SELECT,
 		RX_STATE_READ_1,
-		RX_STATE_READ_SELECT,
 		RX_STATE_COMP_1
 	} rx_state = RX_STATE_IDLE;
 
-	//Combinatorially assert PENABLE to reduce latency
-	logic	penable_ff	= 0;
+	//Combinatorially assert PENABLE and PSEL to reduce latency
+	logic		penable_ff	= 0;
+	logic		psel_ff		= 0;
+	logic[31:0]	pwdata_ff	= 0;
 	always_comb begin
 		apb_req.penable		= penable_ff;
+		apb_req.psel		= psel_ff;
+		apb_req.pwdata		= pwdata_ff;
 
-		if( ( (rx_state == RX_STATE_WRITE_SELECT) || (rx_state == RX_STATE_READ_SELECT) ) && rx_ll_commit)
+		if(apb_req.psel && rx_ll_commit)
 			apb_req.penable	= 1;
+
+		if(rx_ll_start  && ( (rx_ll_data[7:0] == APB_READ) || (rx_ll_data[7:0] == APB_WRITE) ) )
+			apb_req.psel	= 1;
+
+		if(rx_ll_drop) begin
+			apb_req.penable	= 0;
+			apb_req.psel	= 0;
+		end
+
+		if(rx_state == RX_STATE_WRITE_2) begin
+			apb_req.pwdata[15:8]	= rx_ll_data[7:0];
+			apb_req.pwdata[7:0]		= rx_ll_data[15:8];
+		end
+
+	end
+
+	//Combinatorially send completions
+	logic		completion_has_data_ff	= 0;
+	logic		completion_success_ff	= 0;
+	logic[31:0]	completion_data_ff		= 0;
+
+	always_comb begin
+
+		if(apb_req.pready) begin
+			completion_has_data	<= !apb_req.pwrite && !apb_req.pslverr;
+			completion_success	<= !apb_req.pslverr;
+			completion_data		<= apb_req.prdata;
+		end
+
+		else begin
+			completion_has_data	= completion_has_data_ff;
+			completion_success	= completion_success_ff;
+			completion_data		= completion_data_ff;
+		end
 
 	end
 
@@ -429,20 +467,19 @@ module SCCB_APBBridge #(
 
 		//Clear single cycle flags
 		apb_req.preset_n	<= 1;
-		completion_req		<= 0;
+
+		//Pipeline APB combinatorial signals
+		penable_ff				<= apb_req.penable;
+		psel_ff					<= apb_req.psel;
+		completion_has_data_ff	<= completion_has_data;
+		completion_success_ff	<= completion_success;
+		completion_data_ff		<= completion_data;
+		pwdata_ff				<= apb_req.pwdata;
 
 		//Handle acknowledgements
 		if(apb_req.pready) begin
-
-			//Clear pending APB request
-			apb_req.psel 		<= 0;
+			psel_ff		 		<= 0;
 			penable_ff		 	<= 0;
-
-			//Send a completion
-			completion_req		<= 1;
-			completion_has_data	<= !apb_req.pwrite && !apb_req.pslverr;
-			completion_success	<= !apb_req.pslverr;
-			completion_data		<= apb_req.prdata;
 		end
 
 		if(ack_pending && (rx_ll_commit || rx_ll_drop) )
@@ -483,15 +520,19 @@ module SCCB_APBBridge #(
 
 						//APB completion with no data (write acknowledgement or failure)
 						APB_COMP_EMPTY: begin
-							ack_pending	<= 1;
-							ack_data	<= 0;
-							ack_error	<= !rx_ll_data[16];
+							ack_pending				<= 1;
+							ack_data				<= 0;
+							ack_error				<= !rx_ll_data[16];
 						end
 
 						//APB completion with data (read acknowledgement)
 						APB_COMP_DATA: begin
 							ack_data[31:24]			<= rx_ll_data[23:16];
 							ack_data[23:16]			<= rx_ll_data[31:24];
+
+							ack_pending				<= 1;
+							ack_error				<= 0;
+
 							rx_state				<= RX_STATE_COMP_1;
 						end
 
@@ -509,38 +550,17 @@ module SCCB_APBBridge #(
 			RX_STATE_WRITE_1: begin
 				apb_req.paddr[15:8]		<= rx_ll_data[7:0];
 				apb_req.paddr[7:0]		<= rx_ll_data[15:8];
-				apb_req.pwdata[31:24]	<= rx_ll_data[23:16];
-				apb_req.pwdata[23:16]	<= rx_ll_data[31:24];
+				pwdata_ff[31:24]		<= rx_ll_data[23:16];
+				pwdata_ff[23:16]		<= rx_ll_data[31:24];
 				rx_state				<= RX_STATE_WRITE_2;
 
 				//Handle drops
 				if(rx_ll_drop || !rx_ll_valid)
-					rx_state	<= RX_STATE_IDLE;
+					rx_state			<= RX_STATE_IDLE;
 			end
 
 			RX_STATE_WRITE_2: begin
-				apb_req.pwdata[15:8]	<= rx_ll_data[7:0];
-				apb_req.pwdata[7:0]		<= rx_ll_data[15:8];
-				apb_req.psel			<= 1;
-				rx_state				<= RX_STATE_WRITE_SELECT;
-
-				//Handle drops
-				if(rx_ll_drop || !rx_ll_valid)
-					rx_state	<= RX_STATE_IDLE;
-			end
-
-			RX_STATE_WRITE_SELECT: begin
-
-				//Handle drops
-				if(rx_ll_drop) begin
-					apb_req.psel	<= 0;
-					rx_state		<= RX_STATE_IDLE;
-				end
-
-				//Dispatch the APB traffic on commit
-				if(rx_ll_commit)
-					rx_state		<= RX_STATE_IDLE;
-
+				rx_state				<= RX_STATE_IDLE;
 			end
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -550,38 +570,17 @@ module SCCB_APBBridge #(
 				apb_req.paddr[15:8]		<= rx_ll_data[7:0];
 				apb_req.paddr[7:0]		<= rx_ll_data[15:8];
 
-				apb_req.psel			<= 1;
-				rx_state				<= RX_STATE_READ_SELECT;
-
-				//Handle drops
-				if(rx_ll_drop || !rx_ll_valid)
-					rx_state	<= RX_STATE_IDLE;
+				rx_state				<= RX_STATE_IDLE;
 			end //RX_STATE_READ_1
-
-			RX_STATE_READ_SELECT: begin
-
-				//Handle drops
-				if(rx_ll_drop) begin
-					apb_req.psel	<= 0;
-					rx_state		<= RX_STATE_IDLE;
-				end
-
-				//Dispatch the APB traffic on commit
-				if(rx_ll_commit)
-					rx_state		<= RX_STATE_IDLE;
-
-			end //RX_STATE_READ_SELECT
 
 			////////////////////////////////////////////////////////////////////////////////////////////////////////////
 			// Completions
 
 			RX_STATE_COMP_1: begin
-				ack_pending			<= 1;
-				ack_error			<= 0;
-				ack_data[15:8]		<= rx_ll_data[7:0];
-				ack_data[7:0]		<= rx_ll_data[15:8];
+				ack_data[15:8]			<= rx_ll_data[7:0];
+				ack_data[7:0]			<= rx_ll_data[15:8];
 
-				rx_state			<= RX_STATE_IDLE;
+				rx_state				<= RX_STATE_IDLE;
 
 			end //RX_STATE_COMP_1
 
