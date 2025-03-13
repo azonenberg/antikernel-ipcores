@@ -326,8 +326,10 @@ module SCCB_APBBridge #(
 					else
 						tx_ll_data[23:16]	<= 0;
 
-					if(apb_comp_tx.ADDR_WIDTH >= 16)
+					if(apb_comp_tx.ADDR_WIDTH >= 24)
 						tx_ll_data[31:24]	<= apb_comp_tx.paddr[23:16];
+					else if(apb_comp_tx.ADDR_WIDTH >= 16)
+						tx_ll_data[31:24]	<= apb_comp_tx.paddr[apb_comp_tx.ADDR_WIDTH-1:16];
 					else
 						tx_ll_data[31:24]	<= 0;
 
