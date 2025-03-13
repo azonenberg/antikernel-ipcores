@@ -421,26 +421,51 @@ module SCCB_APBBridge #(
 	logic		penable_ff	= 0;
 	logic		psel_ff		= 0;
 	logic[31:0]	pwdata_ff	= 0;
+	logic[31:0]	paddr_ff	= 0;
 	always_comb begin
 		apb_req.penable		= penable_ff;
 		apb_req.psel		= psel_ff;
 		apb_req.pwdata		= pwdata_ff;
+		apb_req.paddr		= paddr_ff;
 
 		if(apb_req.psel && rx_ll_commit)
 			apb_req.penable	= 1;
 
-		if(rx_ll_start  && ( (rx_ll_data[7:0] == APB_READ) || (rx_ll_data[7:0] == APB_WRITE) ) )
-			apb_req.psel	= 1;
+		//Start a new request
+		if(rx_ll_start && ( (rx_ll_data[7:0] == APB_READ) || (rx_ll_data[7:0] == APB_WRITE) ) ) begin
+			apb_req.psel			= 1;
+
+			apb_req.paddr[31:24]	= rx_ll_data[23:16];
+			apb_req.paddr[23:16]	= rx_ll_data[31:24];
+		end
 
 		if(rx_ll_drop) begin
 			apb_req.penable	= 0;
 			apb_req.psel	= 0;
 		end
 
-		if(rx_state == RX_STATE_WRITE_2) begin
-			apb_req.pwdata[15:8]	= rx_ll_data[7:0];
-			apb_req.pwdata[7:0]		= rx_ll_data[15:8];
-		end
+		//Save address and write data
+		case(rx_state)
+
+			RX_STATE_READ_1: begin
+				apb_req.paddr[15:8]		= rx_ll_data[7:0];
+				apb_req.paddr[7:0]		= rx_ll_data[15:8];
+			end
+
+			RX_STATE_WRITE_1: begin
+				apb_req.paddr[15:8]		= rx_ll_data[7:0];
+				apb_req.paddr[7:0]		= rx_ll_data[15:8];
+			end
+
+			RX_STATE_WRITE_2: begin
+				apb_req.pwdata[15:8]	= rx_ll_data[7:0];
+				apb_req.pwdata[7:0]		= rx_ll_data[15:8];
+			end
+
+			default: begin
+			end
+
+		endcase
 
 	end
 
@@ -477,6 +502,7 @@ module SCCB_APBBridge #(
 		completion_success_ff	<= completion_success;
 		completion_data_ff		<= completion_data;
 		pwdata_ff				<= apb_req.pwdata;
+		paddr_ff				<= apb_req.paddr;
 
 		//Handle acknowledgements
 		if(apb_req.pready) begin
@@ -504,8 +530,6 @@ module SCCB_APBBridge #(
 						APB_WRITE: begin
 							//second byte is sequence number
 							//then high 16 of address
-							apb_req.paddr[31:24]	<= rx_ll_data[23:16];
-							apb_req.paddr[23:16]	<= rx_ll_data[31:24];
 							apb_req.pwrite			<= 1;
 							apb_req.pstrb			<= 4'b1111;
 							rx_state				<= RX_STATE_WRITE_1;
@@ -513,8 +537,6 @@ module SCCB_APBBridge #(
 
 						//Start of an APB read request
 						APB_READ: begin
-							apb_req.paddr[31:24]	<= rx_ll_data[23:16];
-							apb_req.paddr[23:16]	<= rx_ll_data[31:24];
 							apb_req.pwrite			<= 0;
 							apb_req.pstrb			<= 4'h0;
 							rx_state				<= RX_STATE_READ_1;
@@ -550,8 +572,6 @@ module SCCB_APBBridge #(
 			// Write path
 
 			RX_STATE_WRITE_1: begin
-				apb_req.paddr[15:8]		<= rx_ll_data[7:0];
-				apb_req.paddr[7:0]		<= rx_ll_data[15:8];
 				pwdata_ff[31:24]		<= rx_ll_data[23:16];
 				pwdata_ff[23:16]		<= rx_ll_data[31:24];
 				rx_state				<= RX_STATE_WRITE_2;
@@ -569,9 +589,6 @@ module SCCB_APBBridge #(
 			// Read path
 
 			RX_STATE_READ_1: begin
-				apb_req.paddr[15:8]		<= rx_ll_data[7:0];
-				apb_req.paddr[7:0]		<= rx_ll_data[15:8];
-
 				rx_state				<= RX_STATE_IDLE;
 			end //RX_STATE_READ_1
 
