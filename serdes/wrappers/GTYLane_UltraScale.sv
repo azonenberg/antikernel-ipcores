@@ -36,15 +36,19 @@ module GTYLane_UltraScale #(
 	parameter CPLL_FBDIV 		= 4,
 	parameter CPLL_FBDIV_45 	= 4,
 
-	parameter RX_COMMA_ALIGN	= 0,	//Set true to enable the 8b10b comma aligner.
-										//If enabled, we look for K28.5 and try to put it in lane 0
+	parameter RX_COMMA_ALIGN	= 0,		//Set true to enable the 8b10b comma aligner.
+											//If enabled, we look for K28.5 and try to put it in lane 0
+	parameter RX_COMMA_ANY_LANE	= 0,		//If set true, allows commas to be in any lane position not just 0
+											//(mostly used for QSGMII)
 
-	parameter DATA_WIDTH		= 32,	//same for TX and RX, we don't support mismatched widths for now
+	parameter DATA_WIDTH		= 32,		//same for TX and RX, we don't support mismatched widths for now
 
-	parameter ROUGH_RATE_GBPS	= 10,	//CDR etc settings depend on the approximate data rate
-										//supported values for now: 5, 10, 25
+	parameter ROUGH_RATE_GBPS	= 10,		//CDR etc settings depend on the approximate data rate
+											//supported values for now: 5, 10, 25
 
-	parameter RX_BUF_BYPASS		= 0		//set 1 to bypass rx buffer
+	parameter RX_BUF_BYPASS		= 0,		//set 1 to bypass rx buffer
+
+	parameter GEARBOX_CFG		= "OFF"		//legal values: "OFF", "64b66b" so far
 ) (
 
 	//APB to DRP
@@ -122,11 +126,20 @@ module GTYLane_UltraScale #(
 	//RX input config
 	input wire			rx_invert,
 
-	//8B/10B coder (requires RX_COMMA_ALIGN set to be useful)
+	//Synchronous gearbox
+	output wire[1:0]	rx_data_valid,
+	output wire			rx_header_valid,
+	output wire[5:0]	rx_header,
+	input wire			rx_gearbox_bitslip,
+
+	//8B/10B coder (requires RX_COMMA_ALIGN set to be useful in most cases)
 	input wire			rx_8b10b_decode,
 	output wire			rx_comma_is_aligned,
 	output wire[15:0]	rx_char_is_k,				//TODO only hook up the valid bits
 	output wire[15:0]	rx_char_is_comma,
+	output wire[15:0]	rx_disparity_err,
+	output wire[15:0]	rx_symbol_err,
+	output wire			rx_commadet_slip,
 	input wire			tx_8b10b_encode,
 	input wire[15:0]	tx_char_is_k
 );
@@ -175,7 +188,7 @@ module GTYLane_UltraScale #(
 	localparam PADDING_WIDTH = 128 - DATA_WIDTH;
 
 	//return the INT_DATAWIDTH setting to make internal and external widths equal
-	function integer int_datawidth(integer width);
+	function integer int_datawidth(input integer width);
 		case(width)
 			16: return 0;
 			20: return 0;
@@ -194,25 +207,59 @@ module GTYLane_UltraScale #(
 	localparam ALIGN_MCOMMA_DET = RX_COMMA_ALIGN : "TRUE" : "FALSE";
 	localparam ALIGN_PCOMMA_DET = RX_COMMA_ALIGN : "TRUE" : "FALSE";
 
-	//return the ALIGN_COMMA_WORD setting to put all commas in the lane 0 position
-	//TODO: allow other alignments
-	function integer comma_word(integer width);
-		case(width)
-			16: return 2;
-			20: return 2;
-			32: return 4;
-			40: return 4;
-			default: return 1;
-		endcase
+	//return the ALIGN_COMMA_WORD setting to put all commas in the lane 0 position (if RX_COMMA_ANY_LANE not set)
+	//or constant 1 if RX_COMMA_ANY_LANE is set
+	function integer comma_word(input integer width);
+
+		if(RX_COMMA_ANY_LANE)
+			return 1;
+		else begin
+			case(width)
+				16: return 2;
+				20: return 2;
+				32: return 4;
+				40: return 4;
+				default: return 1;
+			endcase
+		end
+
 	endfunction
 
 	localparam ALIGN_COMMA_WORD = RX_COMMA_ALIGN ? comma_word(DATA_WIDTH) : 1;
+
+	//Return the PREIQ_FREQ_BST setting for the given data rate
+	function integer preiq_freq_bst(input integer gbps);
+		if(gbps < 10)
+			return 0;
+		else if(gbps < 20)
+			return 1;
+		else if(gbps < 25)
+			return 2;
+		else
+			return 3;
+	endfunction
+	localparam PREIQ_FREQ_BST = preiq_freq_bst(ROUGH_RATE_GBPS);
+
+	function integer txdrv_freqband(input integer gbps);
+		if(gbps < 11)
+			return 0;
+		else if(gbps < 21)
+			return 1;
+		else
+			return 3;
+	endfunction
+	localparam TXDRV_FREQBAND = txdrv_freqband(ROUGH_RATE_GBPS);
 
 	//RX buffer bypass
 	localparam RXBUF_EN = RX_BUF_BYPASS ? "FALSE" : "TRUE";
 	localparam RXBUF_THRESH_OVFLW = RX_BUF_BYPASS ? 0 : 49;
 	localparam RXBUF_THRESH_OVRD = RX_BUF_BYPASS ? "FALSE" : "TRUE";
 	localparam RXBUF_THRESH_UNDFLW = RX_BUF_BYPASS ? 4 : 7;
+
+	//parameter RX_GEARBOX_CFG	= "OFF"
+	localparam RXGEARBOX_EN = (GEARBOX_CFG == "OFF") ? "FALSE" : "TRUE";
+	localparam TXGEARBOX_EN = (GEARBOX_CFG == "OFF") ? "FALSE" : "TRUE";
+	localparam GEARBOX_MODE = (GEARBOX_CFG == "OFF") ? 5'b00000 : 5'b00001;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Resets
@@ -278,7 +325,7 @@ module GTYLane_UltraScale #(
 		.RXCDR_CFG1_GEN3(16'b0000000000000000),
 		.RXCDR_CFG2(16'b0000001001101001),	//for 25G use 16'b0000000111101001
 											//for 10G use 16'b0000001001101001
-											//for 5G use  16'b0000001001101001
+											//for 5G use  16'b0000001001011001
 		.RXCDR_CFG2_GEN2(10'b1001101001),
 		.RXCDR_CFG2_GEN3(16'b0000001001101001),
 		.RXCDR_CFG2_GEN4(16'b0000000101100100),
@@ -301,9 +348,9 @@ module GTYLane_UltraScale #(
 		.RXCDR_LOCK_CFG4(16'b0000000000000000),
 		.RXCDR_PH_RESET_ON_EIDLE(1'b0),
 
-		.PREIQ_FREQ_BST(1),					//use 0 for 5G
-											//use 1 for 10G
-											//use 3 for 25G
+		//Data rate dependent stuff for TX and RX
+		.PREIQ_FREQ_BST(PREIQ_FREQ_BST),
+		.TXDRV_FREQBAND(3),
 
 		//RX CTLE config
 		.RXLPM_CFG(16'b0000000000000000),
@@ -327,13 +374,7 @@ module GTYLane_UltraScale #(
 		.RXBUF_THRESH_OVRD(RXBUF_THRESH_OVRD),
 		.RXBUF_THRESH_UNDFLW(RXBUF_THRESH_UNDFLW),
 
-		//TODO
-		.ACJTAG_DEBUG_MODE(1'b0),
-		.ACJTAG_MODE(1'b0),
-		.ACJTAG_RESET(1'b0),
-		.ADAPT_CFG0(16'b0000000000000000),
-		.ADAPT_CFG1(16'b1111101100011100),
-		.ADAPT_CFG2(16'b0000000000000000),
+		//RX comma aligner
 		.ALIGN_COMMA_DOUBLE("FALSE"),
 		.ALIGN_COMMA_ENABLE(ALIGN_COMMA_ENABLE),
 		.ALIGN_COMMA_WORD(ALIGN_COMMA_WORD),
@@ -341,6 +382,34 @@ module GTYLane_UltraScale #(
 		.ALIGN_MCOMMA_VALUE(10'b1010000011),
 		.ALIGN_PCOMMA_DET(ALIGN_PCOMMA_DET),
 		.ALIGN_PCOMMA_VALUE(10'b0101111100),
+		.SHOW_REALIGN_COMMA("TRUE"),
+		.RXSLIDE_AUTO_WAIT(7),
+		.RXSLIDE_MODE("OFF"),
+
+		//Gearbox
+		.GEARBOX_MODE(GEARBOX_MODE),
+		.RXGEARBOX_EN(RXGEARBOX_EN),
+		.TXGEARBOX_EN(TXGEARBOX_EN),
+		.TXGBOX_FIFO_INIT_RD_ADDR(4),
+		.RXGBOX_FIFO_INIT_RD_ADDR(3),
+
+		//Clock configuration
+		.RXOUT_DIV(1),
+		.RX_CLK25_DIV(7),
+		.RX_XCLK_SEL("RXDES"),
+
+		.TXOUT_DIV(1),
+		.TX_CLK25_DIV(7),
+		.TX_XCLK_SEL("TXOUT"),
+		.TXREFCLKDIV2_SEL(1'b0),
+
+		//TODO
+		.ACJTAG_DEBUG_MODE(1'b0),
+		.ACJTAG_MODE(1'b0),
+		.ACJTAG_RESET(1'b0),
+		.ADAPT_CFG0(16'b0000000000000000),
+		.ADAPT_CFG1(16'b1111101100011100),
+		.ADAPT_CFG2(16'b0000000000000000),
 		.A_RXOSCALRESET(1'b0),
 		.A_RXPROGDIVRESET(1'b0),
 		.A_RXTERMINATION(1'b1),
@@ -442,7 +511,6 @@ module GTYLane_UltraScale #(
 		.FTS_DESKEW_SEQ_ENABLE(4'b1111),
 		.FTS_LANE_DESKEW_CFG(4'b1111),
 		.FTS_LANE_DESKEW_EN("FALSE"),
-		.GEARBOX_MODE(5'b00000),
 		.ISCAN_CK_PH_SEL2(1'b0),
 		.LOCAL_MASTER(1'b1),
 		.LPBK_BIAS_CTRL(4),
@@ -549,13 +617,10 @@ module GTYLane_UltraScale #(
 		.RXDLY_CFG(16'b0000000000010000),
 		.RXDLY_LCFG(16'b0000000000110000),
 		.RXELECIDLE_CFG("SIGCFG_4"),
-		.RXGBOX_FIFO_INIT_RD_ADDR(3),
-		.RXGEARBOX_EN("FALSE"),
 		.RXISCANRESET_TIME(5'b00001),
 		.RXOOB_CFG(9'b000000110),
 		.RXOOB_CLK_CFG("PMA"),
 		.RXOSCALRESET_TIME(5'b00011),
-		.RXOUT_DIV(1),
 		.RXPCSRESET_TIME(5'b00011),
 		.RXPHBEACON_CFG(16'b0000000000000000),
 		.RXPHDLY_CFG(16'b0010000001110000),
@@ -569,8 +634,6 @@ module GTYLane_UltraScale #(
 		.RXPRBS_ERR_LOOPBACK(1'b0),
 		.RXPRBS_LINKACQ_CNT(15),
 		.RXREFCLKDIV2_SEL(1'b0),
-		.RXSLIDE_AUTO_WAIT(7),
-		.RXSLIDE_MODE("OFF"),
 		.RXSYNC_MULTILANE(1'b0),
 		.RXSYNC_OVRD(1'b0),
 		.RXSYNC_SKIP_DA(1'b0),
@@ -578,7 +641,6 @@ module GTYLane_UltraScale #(
 		.RX_BIAS_CFG0(16'b0001001010110000),
 		.RX_BUFFER_CFG(6'b000000),
 		.RX_CAPFF_SARC_ENB(1'b0),
-		.RX_CLK25_DIV(7),
 		.RX_CLKMUX_EN(1'b1),
 		.RX_CLK_SLIP_OVRD(5'b00000),
 		.RX_CM_BUF_CFG(4'b1010),
@@ -629,11 +691,9 @@ module GTYLane_UltraScale #(
 		.RX_TUNE_AFE_OS(2'b10),
 		.RX_VREG_CTRL(3'b010),
 		.RX_VREG_PDB(1'b1),
-		.RX_WIDEMODE_CDR(2'b00),		//5 Gbps:  2'b00
-										//25 Gbps: 2'b10
+		.RX_WIDEMODE_CDR(2'b00),		//TODO: 2'b01 up to 15 Gbps, 2'b10 for 20 and up
 		.RX_WIDEMODE_CDR_GEN3(2'b00),
 		.RX_WIDEMODE_CDR_GEN4(2'b01),
-		.RX_XCLK_SEL("RXDES"),
 		.RX_XMODE_SEL(1'b0),
 		.SAMPLE_CLK_PHASE(1'b0),
 		.SAS_12G_MODE(1'b0),
@@ -641,7 +701,6 @@ module GTYLane_UltraScale #(
 		.SATA_BURST_VAL(3'b100),
 		.SATA_CPLL_CFG("VCO_3000MHZ"),
 		.SATA_EIDLE_VAL(3'b100),
-		.SHOW_REALIGN_COMMA("TRUE"),
 		.SIM_MODE("FAST"),
 		.SIM_RECEIVER_DETECT_PASS("TRUE"),
 		.SIM_RESET_SPEEDUP("TRUE"),
@@ -658,15 +717,11 @@ module GTYLane_UltraScale #(
 		.TXBUF_RESET_ON_RATE_CHANGE("TRUE"),
 		.TXDLY_CFG(16'b1000000000010000),
 		.TXDLY_LCFG(16'b0000000000110000),
-		.TXDRV_FREQBAND(3),
 		.TXFE_CFG0(16'b0000001111000110),
 		.TXFE_CFG1(16'b1111100000000000),
 		.TXFE_CFG2(16'b1111100000000000),
 		.TXFE_CFG3(16'b1111100000000000),
 		.TXFIFO_ADDR_CFG("LOW"),
-		.TXGBOX_FIFO_INIT_RD_ADDR(4),
-		.TXGEARBOX_EN("FALSE"),
-		.TXOUT_DIV(1),
 		.TXPCSRESET_TIME(5'b00011),
 		.TXPHDLY_CFG0(16'b0110000001110000),
 		.TXPHDLY_CFG1(16'b0000000000001110),
@@ -681,16 +736,13 @@ module GTYLane_UltraScale #(
 		.TXPI_PPM_CFG(8'b000000000),
 		.TXPI_SYNFREQ_PPM(3'b001),
 		.TXPMARESET_TIME(5'b00011),
-		.TXREFCLKDIV2_SEL(1'b0),
 		.TXSWBST_BST(1),
 		.TXSWBST_EN(1),
 		.TXSWBST_MAG(4),
 		.TXSYNC_MULTILANE(1'b0),
 		.TXSYNC_OVRD(1'b0),
 		.TXSYNC_SKIP_DA(1'b0),
-		.TX_CLK25_DIV(7),
 		.TX_CLKMUX_EN(1'b1),
-
 		.TX_DCC_LOOP_RST_CFG(16'b0000000000000100),
 		.TX_DEEMPH0(6'b000000),
 		.TX_DEEMPH1(6'b000000),
@@ -732,7 +784,6 @@ module GTYLane_UltraScale #(
 		.TX_VREG_CTRL(3'b011),
 		.TX_VREG_PDB(1'b1),
 		.TX_VREG_VREFSEL(2'b10),
-		.TX_XCLK_SEL("TXOUT"),
 		.USB_BOTH_BURST_IDLE(1'b0),
 		.USB_BURSTMAX_U3WAKE(7'b1111111),
 		.USB_BURSTMIN_U3WAKE(7'b1100011),
@@ -778,9 +829,10 @@ module GTYLane_UltraScale #(
 
 		.RXDATA(rx_data_padded),
 		.RXDATAEXTENDRSVD(),
-		.RXDATAVALID(),
-		.RXHEADER(),
-		.RXHEADERVALID(),
+		.RXDATAVALID(rx_data_valid),
+		.RXHEADER(rx_header),
+		.RXHEADERVALID(rx_header_valid),
+		.RXGEARBOXSLIP(rx_gearbox_bitslip),
 
 		//Idle, power down, and loopback controls
 		.LOOPBACK(3'b000),		//normal operation
@@ -923,13 +975,16 @@ module GTYLane_UltraScale #(
 		//RX 8B10B decoder and comma aligner
 		.RX8B10BEN(rx_8b10b_decode),
 		.RXCOMMADETEN(RX_COMMA_ALIGN),
+		.RXCOMMADET(),
 		.RXMCOMMAALIGNEN(RX_COMMA_ALIGN),
 		.RXPCOMMAALIGNEN(RX_COMMA_ALIGN),
 		.RXBYTEISALIGNED(rx_comma_is_aligned),
-		.RXBYTEREALIGN(),
-		.RXCOMMADET(),
+		.RXBYTEREALIGN(rx_commadet_slip),
 		.RXCTRL0(rx_char_is_k),
-		.RXCTRL1(rx_char_is_comma),
+		.RXCTRL1(rx_disparity_err),
+		.RXCTRL2(rx_char_is_comma),
+		.RXCTRL3(rx_symbol_err),
+		.RXSLIDE(1'b0),
 
 		//RX CDR
 		.RXCDRHOLD(1'b0),
@@ -1085,8 +1140,6 @@ module GTYLane_UltraScale #(
 		.RXOSINTSTARTED(),
 		.RXOSINTSTROBEDONE(),
 		.RXOSINTSTROBESTARTED(),
-		.RXCTRL2(),
-		.RXCTRL3(),
 		.RXCKCALDONE(),
 		.RXCLKCORCNT(),
 		.RXBUFSTATUS(),
@@ -1111,11 +1164,9 @@ module GTYLane_UltraScale #(
 		.TSTIN(),
 		.RXSYNCALLIN(),
 		.RXSYNCIN(),
-		.RXSLIDE(),
 		.RXSLIPPMA(),
 		.RXMONITORSEL(),
 		.RXEQTRAINING(),
-		.RXGEARBOXSLIP(),
 		.RXCKCALSTART(),
 		.RXAFECFOKEN(),
 		.CDRSTEPDIR(),
