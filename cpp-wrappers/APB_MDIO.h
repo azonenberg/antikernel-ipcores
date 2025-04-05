@@ -2,7 +2,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -84,6 +84,15 @@ public:
 		m_mdio->cmd_addr = (regid << 8) | 0x8000 | m_phyaddr;
 		m_mdio->data = value;
 		WaitUntilIdle();
+	}
+
+	/**
+		@brief Write a bitmasked value to a MDIO register
+	 */
+	void WriteMasked(uint8_t regid, uint16_t regval, uint16_t mask)
+	{
+		uint16_t val = ReadRegister(regid);
+		WriteRegister(regid, (val & ~mask) | (regval & mask) );
 	}
 
 	/**

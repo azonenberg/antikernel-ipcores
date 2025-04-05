@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -50,7 +50,7 @@ module APB_DeviceInfo_UltraScale(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// We only support up to 32-bit APB due to register alignment, throw synthesis error for anything else
 
-	if(apb.DATA_WIDTH > 32)
+	if(apb.DATA_WIDTH != 32)
 		apb_bus_width_is_invalid();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -63,8 +63,20 @@ module APB_DeviceInfo_UltraScale(
 		REG_IDCODE		= 8'h04,		//Device IDCODE
 		REG_SERIAL_0	= 8'h08,		//Die serial bits 95:64
 		REG_SERIAL_1	= 8'h0c,		//Die serial bits 63:32
-		REG_SERIAL_2	= 8'h10			//Die serial bits 31:0
+		REG_SERIAL_2	= 8'h10,		//Die serial bits 31:0
+		REG_USERCODE	= 8'h14			//User ID
 	} regid_t;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// USERCODE register
+
+	wire[31:0] usercode;
+
+	USR_ACCESSE2 user(
+		.DATA(usercode),
+		.CFGCLK(),
+		.DATAVALID()
+		);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// DNA_PORT read logic
@@ -315,6 +327,7 @@ module APB_DeviceInfo_UltraScale(
 					REG_SERIAL_0:	apb.prdata = die_serial[95:64];
 					REG_SERIAL_1:	apb.prdata = die_serial[63:32];
 					REG_SERIAL_2:	apb.prdata = die_serial[31:0];
+					REG_USERCODE:	apb.prdata = usercode;
 					default:		apb.pslverr	= 1;
 				endcase
 			end
