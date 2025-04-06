@@ -29,212 +29,223 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+import EthernetBus::*;
+
 /**
-	@brief A bidirectional bridge from APB to a GTY
+	@brief 10Gbase-R MAC and support logic
  */
-module GTY_APBBridge #(
-	parameter TX_INVERT	= 0,
-	parameter RX_INVERT = 0,
-	parameter TX_CDC_BYPASS = 0,
+module AXIS_XGEthernetMACWrapper #(
+	parameter SERDES_TYPE = "GTY"		//legal values: GTY = UltraScale+ GTY
+)(
 
-	parameter TX_ILA = 0,
-	parameter RX_ILA = 0
-) (
-	//Clocks
-	input wire			sysclk,		//Management APB clock
+	//SFP+ signals
+	input wire			sfp_rx_p,
+	input wire			sfp_rx_n,
 
-	//GTY quad reference clocks
+	output wire			sfp_tx_p,
+	output wire			sfp_tx_n,
+
+	//System clock for resets etc
+	input wire			clk_sys,
+
+	//SERDES reference clocks
+	input wire[1:0]		clk_ref_north,
+	input wire[1:0]		clk_ref_south,
 	input wire[1:0]		clk_ref,
-
-	//Top level GTY pins
-	input wire			rx_p,
-	input wire			rx_n,
-
-	output wire			tx_p,
-	output wire			tx_n,
-
-	//QPLL clocks and control signals
-	input wire[1:0]		qpll_clkout,
-	input wire[1:0]		qpll_refout,
+	input wire			clk_lockdet,
+	input wire[1:0]		qpll_clk,
+	input wire[1:0]		qpll_refclk,
 	input wire[1:0]		qpll_lock,
 
-	//Clock outputs
-	output wire			rxoutclk,
-	output wire			txoutclk,
+	input wire[1:0]		rxpllclksel,
+	input wire[1:0]		txpllclksel
 
-	//APB ports for the bridge
-	//SERDES RX clock is used as requester clock
-	//Completer clock can be anything if TX_CDC_BYPASS = 0; if pclk is tx_clk set TX_CDC_BYPASS=1 to reduce latency
-	APB.requester		apb_req,
-	APB.completer		apb_comp
 );
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Validate parameters
+
+	initial begin
+		if(SERDES_TYPE != "GTY") begin
+			$fatal("Invalid SERDES_TYPE (expected \"GTY\")");
+		end
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The transceiver lane
+	// Reset block
+
+	wire	rst_tx;
+	wire	rst_rx;
+
+	GTYLane_ResetController_UltraScale rst_ctl(
+		.clk_system_in(clk_sys),
+
+		.rst_async_tx_in(1'b0),
+		.rst_async_rx_in(1'b0),
+
+		.rst_gt_tx_out(rst_tx),
+		.rst_gt_rx_out(rst_rx)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The transceiver
 
 	//TODO: make the apb do something
 	APB #(.DATA_WIDTH(32), .ADDR_WIDTH(10), .USER_WIDTH(0)) serdes_apb();
-	assign serdes_apb.pclk = sysclk;
+	assign serdes_apb.pclk = clk_sys;
 	assign serdes_apb.preset_n = 1'b0;
 
-	wire[39:0]	rx_data;
-	wire[39:0]	tx_data;
-	wire		rx_comma_is_aligned;
-	wire[15:0]	rx_char_is_k;
-	wire[15:0]	rx_char_is_comma;
-	wire[15:0]	tx_char_is_k;
+	wire	rxusrclk;
+	wire	txusrclk;
+
+	wire[31:0]	rx_data;
+	wire		rx_data_valid;
+	wire		rx_header_valid;
+	wire[1:0]	rx_header;
+	wire		rx_bitslip;
 
 	GTYLane_UltraScale #(
-		.ROUGH_RATE_GBPS(5),	//TODO parameterize
-		.DATA_WIDTH(40),
-		.RX_COMMA_ALIGN(1),
-		.RX_BUF_BYPASS(1),
-		.GEARBOX_CFG("OFF")
-	) lane (
+		.RX_COMMA_ALIGN(0),
+		.DATA_WIDTH(32),
+		.ROUGH_RATE_GBPS(10),
+		.GEARBOX_CFG("64b66b"),
+		.RX_BUF_BYPASS(1)
+	) serdes (
 		.apb(serdes_apb),
 
-		.rx_p(rx_p),
-		.rx_n(rx_n),
+		.rx_p(sfp_rx_p),
+		.rx_n(sfp_rx_n),
+		.tx_p(sfp_tx_p),
+		.tx_n(sfp_tx_n),
 
-		.tx_p(tx_p),
-		.tx_n(tx_n),
+		.rx_reset(rst_rx),
+		.tx_reset(rst_tx),
 
-		.rx_reset(1'b0),
-		.tx_reset(1'b0),
-
-		.tx_data(tx_data),
-		.rx_data(rx_data),
-
-		.clk_ref_north(2'b0),
-		.clk_ref_south(2'b0),
+		.clk_ref_north(clk_ref_north),
+		.clk_ref_south(clk_ref_south),
 		.clk_ref(clk_ref),
-		.clk_lockdet(sysclk),
+		.clk_lockdet(clk_lockdet),
 
-		.rxoutclk(rxoutclk),
-		.rxusrclk(rxoutclk),
-		.rxusrclk2(rxoutclk),
+		.rxusrclk(rxusrclk),
+		.rxusrclk2(rxusrclk),
 		.rxuserrdy(1'b1),
+		.rxoutclk(rxusrclk),
 
-		.txoutclk(txoutclk),
-		.txusrclk(txoutclk),
-		.txusrclk2(txoutclk),
+		.txusrclk(txusrclk),
+		.txusrclk2(txusrclk),
 		.txuserrdy(1'b1),
+		.txoutclk(txusrclk),
 
-		.rxpllclksel(2'b10),			//QPLL1 hard coded for now
-		.txpllclksel(2'b10),
+		.rxpllclksel(rxpllclksel),
+		.txpllclksel(txpllclksel),
 
-		.qpll_clk(qpll_clkout),
-		.qpll_refclk(qpll_refout),
+		.qpll_clk(qpll_clk),
+		.qpll_refclk(qpll_refclk),
 		.qpll_lock(qpll_lock),
 
-		.cpll_pd(1'b1),					//Not using CPLL for now
+		//TODO: long term we want to fix the reset derpiness and
+		//use the CPLL for 10Gbase-R to keep QPLL free for other stuff
+		.cpll_pd(1'b1),
 		.cpll_fblost(),
 		.cpll_reflost(),
 		.cpll_lock(),
-		.cpll_refclk_sel(3'd1),			//set to 1 when only using one clock source even if it's not GTREFCLK0??
+		.cpll_refclk_sel(3'b0),
 
-		.tx_rate(3'b011),				//divide by 4 (5 Gbps)
-		.rx_rate(3'b011),
+		//For now just use the CTLE not the DFE
+		.rx_ctle_en(1),
 
-		.rx_ctle_en(1'b1),
+		//Assuming QPLL is set at 2x 10.3125 Gbps we want to run in half rate mode
+		.tx_rate(3'h2),
+		.rx_rate(3'h2),
 
-		.txdiffctrl(5'h8),
-		.txpostcursor(5'h0),
-		.txprecursor(5'h4),
-		.tx_invert(TX_INVERT[0]),
-		.rx_invert(RX_INVERT[0]),
+		//Data bus TODO
+		.tx_data(),
+		.rx_data(rx_data),
 
+		//Gearbox
+		.rx_data_valid(rx_data_valid),
+		.rx_header_valid(rx_header_valid),
+		.rx_header(rx_header),
+		.rx_gearbox_bitslip(rx_bitslip),
+
+		//PRBS control
 		.rxprbssel(4'b0),
 		.txprbssel(4'b0),
+		.rxprbserr(),
+		.rxprbslocked(),
 
-		.rx_data_valid(),
-		.rx_header_valid(),
-		.rx_header(),
-		.rx_gearbox_bitslip(1'b0),
+		.txdiffctrl(8),
+		.txpostcursor(4),
+		.txprecursor(),
 
-		.rx_8b10b_decode(1'b1),
-		.rx_comma_is_aligned(rx_comma_is_aligned),
-		.rx_char_is_k(rx_char_is_k),
-		.rx_char_is_comma(rx_char_is_comma),
+		.tx_invert(1'b0),
+		.rx_invert(1'b1),
 
-		.tx_8b10b_encode(1'b1),
-		.tx_char_is_k(tx_char_is_k)
+		//not using 8b10b
+		.rx_8b10b_decode(1'b0),
+		.rx_comma_is_aligned(),
+		.rx_char_is_k(),
+		.rx_char_is_comma(),
+		.rx_disparity_err(),
+		.rx_symbol_err(),
+		.rx_commadet_slip(),
+		.tx_8b10b_encode(1'b0),
+		.tx_char_is_k(16'h0)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Bridge logic
+	// The PCS
 
-	wire	tx_ll_link_up;
+	XgmiiBus xgmii_rx_bus;
 
-	SCCB_APBBridge #(
-		.SYMBOL_WIDTH(4),
-		.TX_CDC_BYPASS(TX_CDC_BYPASS)
-	) bridge (
+	wire	block_sync_good;
+	wire	link_up;
+	wire	remote_fault;
 
-		.rx_clk(rxoutclk),
-		.rx_kchar(rx_char_is_k),
-		.rx_data(rx_data[31:0]),
-		.rx_data_valid(rx_comma_is_aligned),
+	XGEthernetPCS pcs(
+		.rx_clk(rxusrclk),
+		.tx_clk(txusrclk),
 
-		.tx_clk(txoutclk),
-		.tx_kchar(tx_char_is_k),
-		.tx_data(tx_data[31:0]),
-		.tx_ll_link_up(tx_ll_link_up),
+		.rx_data_valid(rx_data_valid),
+		.rx_header_valid(rx_header_valid),
+		.rx_data(rx_data),
+		.rx_header(rx_header),
+		.rx_bitslip(rx_bitslip),
 
-		.apb_req(apb_req),
-		.apb_comp(apb_comp)
+		.tx_sequence(),
+		.tx_header(),
+		.tx_data(),
+
+		.tx_header_valid(),
+		.tx_data_valid(),
+
+		.xgmii_rx_clk(),
+		.xgmii_rx_bus(xgmii_rx_bus),
+
+		.xgmii_tx_clk(),
+		.xgmii_tx_bus(),
+
+		.sfp_los(1'b0),
+		.block_sync_good(block_sync_good),
+		.link_up(link_up),
+		.remote_fault(remote_fault)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA in RX clock domain
+	// Debug ILA
 
-	if(RX_ILA) begin
-		ila_0 rx_ila(
-			.clk(rxoutclk),
-			.probe0(rx_data),
-			.probe1(rx_comma_is_aligned),
-			.probe2(rx_char_is_k),
-			.probe3(rx_char_is_comma),
-			.probe4(apb_req.penable),
-			.probe5(apb_req.psel),
-			.probe6(apb_req.paddr),
-			.probe7(apb_req.pwrite),
-			.probe8(apb_req.pwdata),
-			.probe9(apb_req.pready),
-			.probe10(apb_req.prdata),
-			.probe11(apb_req.pslverr),
+	ila_2 ila(
+		.clk(rxusrclk),
 
-			.probe12(bridge.rx_state),
-			.probe13(bridge.rx_ll_commit),
-			.probe14(bridge.rx_ll_start)
-		);
-	end
+		.probe0(rx_data_valid),
+		.probe1(rx_header_valid),
+		.probe2(rx_header),
+		.probe3(rx_data),
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA in TX clock domain
-
-	if(TX_ILA) begin
-		ila_1 tx_ila(
-			.clk(txoutclk),
-			.probe0(tx_data),
-			.probe1(tx_char_is_k),
-			.probe2(tx_ll_link_up),
-			.probe3(apb_comp.pslverr),
-			.probe4(apb_comp.penable),
-			.probe5(apb_comp.psel),
-			.probe6(apb_comp.paddr),
-			.probe7(apb_comp.pwrite),
-			.probe8(apb_comp.pwdata),
-			.probe9(apb_comp.pready),
-			.probe10(apb_comp.prdata),
-			.probe11(bridge.ack_req_sync),
-			.probe12(bridge.ack_error_sync),
-
-			.probe13(bridge.apb_comp_tx.penable),
-			.probe14(bridge.apb_comp_tx.psel),
-			.probe15(bridge.apb_comp_tx.pready),
-			.probe16(bridge.apb_comp_tx.pslverr)
-		);
-	end
+		.probe4(rx_bitslip),
+		.probe5(xgmii_rx_bus),
+		.probe6(block_sync_good),
+		.probe7(link_up),
+		.probe8(remote_fault)
+	);
 
 endmodule

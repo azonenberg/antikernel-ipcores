@@ -2,9 +2,9 @@
 `timescale 1ns/1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -29,7 +29,7 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "GmiiBus.svh"
+import EthernetBus::*;
 
 /**
 	@file

@@ -257,6 +257,26 @@ module GTYLane_UltraScale #(
 	endfunction
 	localparam TXDRV_FREQBAND = txdrv_freqband(ROUGH_RATE_GBPS);
 
+	localparam RX_XMODE_SEL = ROUGH_RATE_GBPS <= 10 ? 1'b1 : 1'b0;
+
+	//no idea what this does or what affects it, this is just a guesstimate
+	function integer ch_hspmux(input integer gbps);
+		if(gbps < 1)
+			return 16'b0010000000100000;
+		else if(gbps < 5)
+			return 16'b0100000001000000;
+		else if(gbps == 5)
+			return 16'b0010000000100000;
+		else if(gbps == 7)
+			return 16'b0100000001000000;
+		else if(gbps == 10)
+			return 16'b0010000000100000;
+		else if(gbps == 15)
+			return 16'b0100000001000000;
+		else return 16'b0110000001100000;
+	endfunction
+	localparam CH_HSPMUX = ch_hspmux(ROUGH_RATE_GBPS);	//16'b1001000010010000
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Parameter calculations: RX buffer bypass
 
@@ -308,16 +328,16 @@ module GTYLane_UltraScale #(
 			return 16'b0000000000000100;
 	endfunction
 
-	parameter ADAPT_CFG1 = adapt_cfg1(ROUGH_RATE_GBPS);
-	parameter RXCDR_CFG2 = rxcdr_cfg2(ROUGH_RATE_GBPS);
-	parameter RXCDR_CFG3 = rxcdr_cfg3(ROUGH_RATE_GBPS);
-	parameter RXCKCAL1_IQ_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
-	parameter RXCKCAL1_I_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
-	parameter RXCKCAL1_Q_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
-	parameter RXCKCAL2_DX_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
-	parameter RXCKCAL2_D_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
-	parameter RXCKCAL2_S_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
-	parameter RXCKCAL2_X_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	localparam ADAPT_CFG1 = adapt_cfg1(ROUGH_RATE_GBPS);
+	localparam RXCDR_CFG2 = rxcdr_cfg2(ROUGH_RATE_GBPS);
+	localparam RXCDR_CFG3 = rxcdr_cfg3(ROUGH_RATE_GBPS);
+	localparam RXCKCAL1_IQ_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	localparam RXCKCAL1_I_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	localparam RXCKCAL1_Q_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	localparam RXCKCAL2_DX_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	localparam RXCKCAL2_D_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	localparam RXCKCAL2_S_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	localparam RXCKCAL2_X_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Resets
@@ -556,6 +576,7 @@ module GTYLane_UltraScale #(
 		.RX_CLK25_DIV(7),
 		.RX_XCLK_SEL(RX_XCLK_SEL),
 		.RXPMACLK_SEL("DATA"),
+		.RX_XMODE_SEL(RX_XMODE_SEL),
 
 		.TXOUT_DIV(1),
 		.TX_CLK25_DIV(7),
@@ -671,7 +692,7 @@ module GTYLane_UltraScale #(
 		.A_TXPROGDIVRESET(1'b0),
 		.CBCC_DATA_SOURCE_SEL("ENCODED"),
 		.CFOK_PWRSVE_EN(1'b1),
-		.CH_HSPMUX(16'b1001000010010000),
+		.CH_HSPMUX(CH_HSPMUX),
 		.CKCAL1_CFG_0(16'b1100000011000000),
 		.CKCAL1_CFG_1(16'b0001000011000000),
 		.CKCAL1_CFG_2(16'b0010000000001000),
@@ -732,7 +753,7 @@ module GTYLane_UltraScale #(
 		.RXPHSLIP_CFG(16'b1001100100110011),
 		.RXPH_MONITOR_SEL(5'b00000),
 		.RXPI_CFG0(16'b0011000000000110),
-		.RXPI_CFG1(16'b0000000000000000),
+		.RXPI_CFG1(16'b0000000001010100),
 		.RXPMARESET_TIME(5'b00011),
 		.RXPRBS_ERR_LOOPBACK(1'b0),
 		.RXPRBS_LINKACQ_CNT(15),
@@ -792,7 +813,6 @@ module GTYLane_UltraScale #(
 		.RX_TUNE_AFE_OS(2'b10),
 		.RX_VREG_CTRL(3'b010),
 		.RX_VREG_PDB(1'b1),
-		.RX_XMODE_SEL(1'b0),
 		.SAMPLE_CLK_PHASE(1'b0),
 		.SAS_12G_MODE(1'b0),
 		.SATA_BURST_SEQ_LEN(4'b1111),
