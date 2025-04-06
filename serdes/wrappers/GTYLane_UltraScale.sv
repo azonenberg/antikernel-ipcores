@@ -265,6 +265,7 @@ module GTYLane_UltraScale #(
 	localparam RXBUF_THRESH_OVFLW = RX_BUF_BYPASS ? 0 : 49;
 	localparam RXBUF_THRESH_OVRD = RX_BUF_BYPASS ? "FALSE" : "TRUE";
 	localparam RXBUF_THRESH_UNDFLW = RX_BUF_BYPASS ? 4 : 7;
+	localparam RX_XCLK_SEL = RX_BUF_BYPASS : "RXUSR" : "RXDES";
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Parameter calculations: Gearbox
@@ -283,7 +284,40 @@ module GTYLane_UltraScale #(
 			return 16'b1111101100011100;
 	endfunction
 
+	//not well understood
+	function[15:0] rxcdr_cfg2(input integer gbps);
+		if(gbps == 10)
+			return 16'b0000001001101001;
+		else if(gbps == 5)
+			return 16'b0000001001011001;
+		else
+			return 16'b0000001000111001;
+	endfunction
+
+	function[15:0] rxcdr_cfg3(input integer gbps);
+		if(gbps <= 20)
+			return 16'b0000000000010010;
+		else
+			return 16'b0000000000010000;
+	endfunction
+
+	function[15:0] rxckcal1_loop_rst_cfg(input integer gbps);
+		if(gbps < 20)
+			return 16'b0000000000000000;
+		else
+			return 16'b0000000000000100;
+	endfunction
+
 	parameter ADAPT_CFG1 = adapt_cfg1(ROUGH_RATE_GBPS);
+	parameter RXCDR_CFG2 = rxcdr_cfg2(ROUGH_RATE_GBPS);
+	parameter RXCDR_CFG3 = rxcdr_cfg3(ROUGH_RATE_GBPS);
+	parameter RXCKCAL1_IQ_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	parameter RXCKCAL1_I_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	parameter RXCKCAL1_Q_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	parameter RXCKCAL2_DX_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	parameter RXCKCAL2_D_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	parameter RXCKCAL2_S_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
+	parameter RXCKCAL2_X_LOOP_RST_CFG = rxckcal1_loop_rst_cfg(ROUGH_RATE_GBPS);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Resets
@@ -383,15 +417,11 @@ module GTYLane_UltraScale #(
 		.RXCDR_CFG0_GEN3(16'b0000000000000011),
 		.RXCDR_CFG1(16'b0000000000000000),
 		.RXCDR_CFG1_GEN3(16'b0000000000000000),
-		.RXCDR_CFG2(16'b0000001001101001),	//for 25G use 16'b0000000111101001
-											//for 10G use 16'b0000001001101001
-											//for 5G use  16'b0000001001011001
+		.RXCDR_CFG2(RXCDR_CFG2),
 		.RXCDR_CFG2_GEN2(10'b1001101001),
 		.RXCDR_CFG2_GEN3(16'b0000001001101001),
 		.RXCDR_CFG2_GEN4(16'b0000000101100100),
-		.RXCDR_CFG3(16'b0000000000010010),	//for 25G use 16'b0000000000010000
-											//for 10G use 16'b0000000000010010
-											//for 5G use  16'b0000000000010010
+		.RXCDR_CFG3(RXCDR_CFG3),
 		.RXCDR_CFG3_GEN2(6'b010000),
 		.RXCDR_CFG3_GEN3(16'b0000000000010000),
 		.RXCDR_CFG3_GEN4(16'b0000000000010000),
@@ -407,13 +437,13 @@ module GTYLane_UltraScale #(
 		.RXCDR_LOCK_CFG3(16'b0000000000000000),
 		.RXCDR_LOCK_CFG4(16'b0000000000000000),
 		.RXCDR_PH_RESET_ON_EIDLE(1'b0),
-		.RXCKCAL1_IQ_LOOP_RST_CFG(16'b0000000000000100),
-		.RXCKCAL1_I_LOOP_RST_CFG(16'b0000000000000100),
-		.RXCKCAL1_Q_LOOP_RST_CFG(16'b0000000000000100),
-		.RXCKCAL2_DX_LOOP_RST_CFG(16'b0000000000000100),
-		.RXCKCAL2_D_LOOP_RST_CFG(16'b0000000000000100),
-		.RXCKCAL2_S_LOOP_RST_CFG(16'b0000000000000100),
-		.RXCKCAL2_X_LOOP_RST_CFG(16'b0000000000000100),
+		.RXCKCAL1_IQ_LOOP_RST_CFG(RXCKCAL1_IQ_LOOP_RST_CFG),
+		.RXCKCAL1_I_LOOP_RST_CFG(RXCKCAL1_I_LOOP_RST_CFG),
+		.RXCKCAL1_Q_LOOP_RST_CFG(RXCKCAL1_Q_LOOP_RST_CFG),
+		.RXCKCAL2_DX_LOOP_RST_CFG(RXCKCAL2_DX_LOOP_RST_CFG),
+		.RXCKCAL2_D_LOOP_RST_CFG(RXCKCAL2_D_LOOP_RST_CFG),
+		.RXCKCAL2_S_LOOP_RST_CFG(RXCKCAL2_S_LOOP_RST_CFG),
+		.RXCKCAL2_X_LOOP_RST_CFG(RXCKCAL2_X_LOOP_RST_CFG),
 		.RX_WIDEMODE_CDR(2'b01),		//TODO: 2'b01 up to 15 Gbps, 2'b10 for 20 and up
 		.RX_WIDEMODE_CDR_GEN3(2'b00),
 		.RX_WIDEMODE_CDR_GEN4(2'b01),
@@ -524,7 +554,7 @@ module GTYLane_UltraScale #(
 		//Clock configuration
 		.RXOUT_DIV(1),
 		.RX_CLK25_DIV(7),
-		.RX_XCLK_SEL("RXDES"),
+		.RX_XCLK_SEL(RX_XCLK_SEL),
 		.RXPMACLK_SEL("DATA"),
 
 		.TXOUT_DIV(1),
