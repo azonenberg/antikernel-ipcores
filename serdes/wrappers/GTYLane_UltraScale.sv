@@ -183,7 +183,7 @@ module GTYLane_UltraScale #(
 		.DIV(3'b000));
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Parameter calculations
+	// Parameter calculations: Padding and data width
 
 	localparam PADDING_WIDTH = 128 - DATA_WIDTH;
 
@@ -201,6 +201,9 @@ module GTYLane_UltraScale #(
 	endfunction
 
 	localparam INT_WIDTH = int_datawidth(DATA_WIDTH);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Parameter calculations: Comma detection and alignment
 
 	//RX comma align configuration (for now, only tested with 40 bit data width)
 	localparam ALIGN_COMMA_ENABLE = RX_COMMA_ALIGN ? 10'b0001111111 : 10'b0000000000;
@@ -227,6 +230,9 @@ module GTYLane_UltraScale #(
 
 	localparam ALIGN_COMMA_WORD = RX_COMMA_ALIGN ? comma_word(DATA_WIDTH) : 1;
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Parameter calculations: TX/RX unknown PHY
+
 	//Return the PREIQ_FREQ_BST setting for the given data rate
 	function integer preiq_freq_bst(input integer gbps);
 		if(gbps < 10)
@@ -240,6 +246,7 @@ module GTYLane_UltraScale #(
 	endfunction
 	localparam PREIQ_FREQ_BST = preiq_freq_bst(ROUGH_RATE_GBPS);
 
+	//TX driver
 	function integer txdrv_freqband(input integer gbps);
 		if(gbps < 11)
 			return 0;
@@ -250,16 +257,33 @@ module GTYLane_UltraScale #(
 	endfunction
 	localparam TXDRV_FREQBAND = txdrv_freqband(ROUGH_RATE_GBPS);
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Parameter calculations: RX buffer bypass
+
 	//RX buffer bypass
 	localparam RXBUF_EN = RX_BUF_BYPASS ? "FALSE" : "TRUE";
 	localparam RXBUF_THRESH_OVFLW = RX_BUF_BYPASS ? 0 : 49;
 	localparam RXBUF_THRESH_OVRD = RX_BUF_BYPASS ? "FALSE" : "TRUE";
 	localparam RXBUF_THRESH_UNDFLW = RX_BUF_BYPASS ? 4 : 7;
 
-	//parameter RX_GEARBOX_CFG	= "OFF"
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Parameter calculations: Gearbox
+
 	localparam RXGEARBOX_EN = (GEARBOX_CFG == "OFF") ? "FALSE" : "TRUE";
 	localparam TXGEARBOX_EN = (GEARBOX_CFG == "OFF") ? "FALSE" : "TRUE";
 	localparam GEARBOX_MODE = (GEARBOX_CFG == "OFF") ? 5'b00000 : 5'b00001;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Parameter calculations: RX equalizers
+
+	function[15:0] adapt_cfg1(input integer gbps);
+		if(gbps < 10)
+			return 16'b1111100000011100;
+		else
+			return 16'b1111101100011100;
+	endfunction
+
+	parameter ADAPT_CFG1 = adapt_cfg1(ROUGH_RATE_GBPS);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Resets
@@ -406,6 +430,9 @@ module GTYLane_UltraScale #(
 		.RXDFELPM_KL_CFG2(16'b0000000100000000),
 
 		//RX CTLE config
+		.ADAPT_CFG0(16'b0000000000000000),
+		.ADAPT_CFG1(ADAPT_CFG1),
+		.ADAPT_CFG2(16'b0000000000000000),
 		.RXLPM_CFG(16'b0000000000000000),
 		.RXLPM_GC_CFG(16'b1111100000000000),
 		.RXLPM_KH_CFG0(16'b0000000000000000),
@@ -607,9 +634,6 @@ module GTYLane_UltraScale #(
 		.ACJTAG_DEBUG_MODE(1'b0),
 		.ACJTAG_MODE(1'b0),
 		.ACJTAG_RESET(1'b0),
-		.ADAPT_CFG0(16'b0000000000000000),
-		.ADAPT_CFG1(16'b1111101100011100),
-		.ADAPT_CFG2(16'b0000000000000000),
 		.A_RXOSCALRESET(1'b0),
 		.A_RXPROGDIVRESET(1'b0),
 		.A_RXTERMINATION(1'b1),
@@ -618,12 +642,12 @@ module GTYLane_UltraScale #(
 		.CBCC_DATA_SOURCE_SEL("ENCODED"),
 		.CFOK_PWRSVE_EN(1'b1),
 		.CH_HSPMUX(16'b1001000010010000),
-		.CKCAL1_CFG_0(16'b0100000001000000),
-		.CKCAL1_CFG_1(16'b0001000001000000),
+		.CKCAL1_CFG_0(16'b1100000011000000),
+		.CKCAL1_CFG_1(16'b0001000011000000),
 		.CKCAL1_CFG_2(16'b0010000000001000),
 		.CKCAL1_CFG_3(16'b0000000000000000),
-		.CKCAL2_CFG_0(16'b0100000001000000),
-		.CKCAL2_CFG_1(16'b0000000001000000),
+		.CKCAL2_CFG_0(16'b1100000011000000),
+		.CKCAL2_CFG_1(16'b1000000011000000),
 		.CKCAL2_CFG_2(16'b0001000000000000),
 		.CKCAL2_CFG_3(16'b0000000000000000),
 		.CKCAL2_CFG_4(16'b0000000000000000),
@@ -659,8 +683,8 @@ module GTYLane_UltraScale #(
 		.RATE_SW_USE_DRP(1'b1),
 		.RCLK_SIPO_DLY_ENB(1'b0),
 		.RCLK_SIPO_INV_EN(1'b0),
-		.RTX_BUF_CML_CTRL(3'b111),
-		.RTX_BUF_TERM_CTRL(2'b11),
+		.RTX_BUF_CML_CTRL(3'b011),
+		.RTX_BUF_TERM_CTRL(2'b00),
 		.RXCFOK_CFG0(16'b0000000000000000),
 		.RXCFOK_CFG1(16'b1000000000010101),
 		.RXCFOK_CFG2(16'b0000001010101110),
