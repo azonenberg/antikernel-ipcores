@@ -131,6 +131,8 @@ module GTYLane_UltraScale #(
 	output wire			rx_header_valid,
 	output wire[5:0]	rx_header,
 	input wire			rx_gearbox_bitslip,
+	input wire[5:0]		tx_header,
+	input wire[6:0]		tx_sequence,
 
 	//8B/10B coder (requires RX_COMMA_ALIGN set to be useful in most cases)
 	input wire			rx_8b10b_decode,
@@ -1174,8 +1176,8 @@ module GTYLane_UltraScale #(
 		.TXCTRL2(tx_char_is_k),
 
 		//TX gearbox
-		.TXHEADER(),
-		.TXSEQUENCE(),
+		.TXHEADER(tx_header),
+		.TXSEQUENCE(tx_sequence),
 
 		//SATA/SAS (not used)
 		.TXCOMINIT(),

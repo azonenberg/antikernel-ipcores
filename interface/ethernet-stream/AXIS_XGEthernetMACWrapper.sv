@@ -39,27 +39,34 @@ module AXIS_XGEthernetMACWrapper #(
 )(
 
 	//SFP+ signals
-	input wire			sfp_rx_p,
-	input wire			sfp_rx_n,
+	input wire				sfp_rx_p,
+	input wire				sfp_rx_n,
 
-	output wire			sfp_tx_p,
-	output wire			sfp_tx_n,
+	output wire				sfp_tx_p,
+	output wire				sfp_tx_n,
 
 	//System clock for resets etc
-	input wire			clk_sys,
+	input wire				clk_sys,
 
 	//SERDES reference clocks
-	input wire[1:0]		clk_ref_north,
-	input wire[1:0]		clk_ref_south,
-	input wire[1:0]		clk_ref,
-	input wire			clk_lockdet,
-	input wire[1:0]		qpll_clk,
-	input wire[1:0]		qpll_refclk,
-	input wire[1:0]		qpll_lock,
+	input wire[1:0]			clk_ref_north,
+	input wire[1:0]			clk_ref_south,
+	input wire[1:0]			clk_ref,
+	input wire				clk_lockdet,
+	input wire[1:0]			qpll_clk,
+	input wire[1:0]			qpll_refclk,
+	input wire[1:0]			qpll_lock,
 
-	input wire[1:0]		rxpllclksel,
-	input wire[1:0]		txpllclksel
+	//GPIO for loss-of-signal status
+	input wire				sfp_rx_los,
 
+	//SERDES control signals (TODO make this APB controlled?)
+	input wire[1:0]			rxpllclksel,
+	input wire[1:0]			txpllclksel,
+
+	//AXI interfaces
+	AXIStream.transmitter	eth_rx_data,
+	AXIStream.receiver		eth_tx_data
 );
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Validate parameters
@@ -94,14 +101,17 @@ module AXIS_XGEthernetMACWrapper #(
 	assign serdes_apb.pclk = clk_sys;
 	assign serdes_apb.preset_n = 1'b0;
 
-	wire	rxusrclk;
-	wire	txusrclk;
-
+	wire		rxusrclk;
 	wire[31:0]	rx_data;
 	wire		rx_data_valid;
 	wire		rx_header_valid;
 	wire[1:0]	rx_header;
 	wire		rx_bitslip;
+
+	wire		txusrclk;
+	wire[5:0]	tx_sequence;
+	wire[1:0]	tx_header;
+	wire[31:0]	tx_data;
 
 	GTYLane_UltraScale #(
 		.RX_COMMA_ALIGN(0),
@@ -158,7 +168,7 @@ module AXIS_XGEthernetMACWrapper #(
 		.rx_rate(3'h2),
 
 		//Data bus TODO
-		.tx_data(),
+		.tx_data(tx_data),
 		.rx_data(rx_data),
 
 		//Gearbox
@@ -166,6 +176,8 @@ module AXIS_XGEthernetMACWrapper #(
 		.rx_header_valid(rx_header_valid),
 		.rx_header(rx_header),
 		.rx_gearbox_bitslip(rx_bitslip),
+		.tx_header(tx_header),
+		.tx_sequence(tx_sequence),
 
 		//PRBS control
 		.rxprbssel(4'b0),
@@ -195,11 +207,15 @@ module AXIS_XGEthernetMACWrapper #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The PCS
 
-	XgmiiBus xgmii_rx_bus;
+	wire		xgmii_rx_clk;
+	XgmiiBus 	xgmii_rx_bus;
 
-	wire	block_sync_good;
-	wire	link_up;
-	wire	remote_fault;
+	wire		xgmii_tx_clk;
+	XgmiiBus	xgmii_tx_bus;
+
+	wire		block_sync_good;
+	wire		link_up;
+	wire		remote_fault;
 
 	XGEthernetPCS pcs(
 		.rx_clk(rxusrclk),
@@ -211,23 +227,43 @@ module AXIS_XGEthernetMACWrapper #(
 		.rx_header(rx_header),
 		.rx_bitslip(rx_bitslip),
 
-		.tx_sequence(),
-		.tx_header(),
-		.tx_data(),
+		.tx_sequence(tx_sequence),
+		.tx_header(tx_header),
+		.tx_data(tx_data),
 
 		.tx_header_valid(),
 		.tx_data_valid(),
 
-		.xgmii_rx_clk(),
+		.xgmii_rx_clk(xgmii_rx_clk),
 		.xgmii_rx_bus(xgmii_rx_bus),
 
-		.xgmii_tx_clk(),
-		.xgmii_tx_bus(),
+		.xgmii_tx_clk(xgmii_tx_clk),
+		.xgmii_tx_bus(xgmii_tx_bus),
 
-		.sfp_los(1'b0),
+		.sfp_los(sfp_rx_los),
 		.block_sync_good(block_sync_good),
 		.link_up(link_up),
 		.remote_fault(remote_fault)
+	);
+
+	//DEBUG: always report link up, never send any traffic
+	assign xgmii_tx_bus.ctl = 4'b1111;
+	assign xgmii_tx_bus.data = { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The MAC
+
+	AXIS_XGEthernetMAC mac(
+		.xgmii_rx_clk(xgmii_rx_clk),
+		.xgmii_rx_bus(xgmii_rx_bus),
+
+		.xgmii_tx_clk(xgmii_tx_clk),
+		//.xgmii_tx_bus(xgmii_tx_bus),
+
+		.link_up(link_up),
+
+		.axi_rx(eth_rx_data),
+		.axi_tx(eth_tx_data)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -236,16 +272,27 @@ module AXIS_XGEthernetMACWrapper #(
 	ila_2 ila(
 		.clk(rxusrclk),
 
-		.probe0(rx_data_valid),
-		.probe1(rx_header_valid),
-		.probe2(rx_header),
+		.probe0(mac.lane_has_end),
+		.probe1(mac.last_was_preamble),
+		.probe2(mac.crc_expected),
 		.probe3(rx_data),
-
-		.probe4(rx_bitslip),
+		.probe4(mac.rx_state),
 		.probe5(xgmii_rx_bus),
-		.probe6(block_sync_good),
-		.probe7(link_up),
-		.probe8(remote_fault)
+		.probe6(mac.rx_crc_reset),
+		.probe7(mac.xgmii_rx_valid_ff),
+		.probe8(mac.rx_crc_dout),
+
+		.probe9(eth_rx_data.areset_n),
+		.probe10(eth_rx_data.tvalid),
+		.probe11(eth_rx_data.tready),
+		.probe12(eth_rx_data.tdata),
+		.probe13(eth_rx_data.tlast),
+		.probe14(eth_rx_data.tstrb),
+		.probe15(eth_rx_data.tkeep),
+		.probe16(eth_rx_data.tuser),
+		.probe17(mac.fcs_pending_0),
+		.probe18(mac.fcs_pending_1),
+		.probe19(mac.crc_expected_ff2)
 	);
 
 endmodule
