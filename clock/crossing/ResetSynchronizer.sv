@@ -50,7 +50,7 @@ module ResetSynchronizer(
 	always_ff @(posedge clk or negedge rst_in_n) begin
 
 		if(!rst_in_n) begin
-			ff_0	<= 0;
+			ff_0		<= 0;
 			rst_out_n	<= 0;
 		end
 
