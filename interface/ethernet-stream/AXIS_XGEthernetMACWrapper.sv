@@ -66,7 +66,10 @@ module AXIS_XGEthernetMACWrapper #(
 
 	//AXI interfaces
 	AXIStream.transmitter	eth_rx_data,
-	AXIStream.receiver		eth_tx_data
+	AXIStream.receiver		eth_tx_data,
+
+	//Status outputs (RX clock domain)
+	output wire				link_up
 );
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Validate parameters
@@ -214,7 +217,6 @@ module AXIS_XGEthernetMACWrapper #(
 	XgmiiBus	xgmii_tx_bus;
 
 	wire		block_sync_good;
-	wire		link_up;
 	wire		remote_fault;
 
 	XGEthernetPCS pcs(
@@ -264,35 +266,6 @@ module AXIS_XGEthernetMACWrapper #(
 
 		.axi_rx(eth_rx_data),
 		.axi_tx(eth_tx_data)
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
-
-	ila_2 ila(
-		.clk(rxusrclk),
-
-		.probe0(mac.lane_has_end),
-		.probe1(mac.last_was_preamble),
-		.probe2(mac.crc_expected),
-		.probe3(rx_data),
-		.probe4(mac.rx_state),
-		.probe5(xgmii_rx_bus),
-		.probe6(mac.rx_crc_reset),
-		.probe7(mac.xgmii_rx_valid_ff),
-		.probe8(mac.rx_crc_dout),
-
-		.probe9(eth_rx_data.areset_n),
-		.probe10(eth_rx_data.tvalid),
-		.probe11(eth_rx_data.tready),
-		.probe12(eth_rx_data.tdata),
-		.probe13(eth_rx_data.tlast),
-		.probe14(eth_rx_data.tstrb),
-		.probe15(eth_rx_data.tkeep),
-		.probe16(eth_rx_data.tuser),
-		.probe17(mac.fcs_pending_0),
-		.probe18(mac.fcs_pending_1),
-		.probe19(mac.crc_expected_ff2)
 	);
 
 endmodule

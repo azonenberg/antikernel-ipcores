@@ -174,32 +174,4 @@ module AXIS_CDC #(
 		end
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILAs
-
-	ila_2 ila_rx(
-		.clk(axi_rx.aclk),
-
-		.probe0(axi_rx.tvalid),
-		.probe1(axi_rx.tready),
-		.probe2(axi_rx.tdata),
-		.probe3(axi_rx.tstrb),
-		.probe4(axi_rx.tkeep),
-		.probe5(axi_rx.tlast),
-		.probe6(wr_size)
-	);
-
-	ila_3 ila_tx(
-		.clk(axi_tx.aclk),
-
-		.probe0(axi_tx.tvalid),
-		.probe1(axi_tx.tready),
-		.probe2(axi_tx.tdata),
-		.probe3(axi_tx.tstrb),
-		.probe4(axi_tx.tkeep),
-		.probe5(axi_tx.tlast),
-		.probe6(rd_size),
-		.probe7(rd_en)
-	);
-
 endmodule

@@ -93,7 +93,8 @@ module XGEthernetPCS(
 		.clk_in(rx_clk),
 		.din(sfp_los),
 		.clk_out(rx_clk),
-		.dout(sfp_los_sync));
+		.dout(sfp_los_sync)
+	);
 
 	//TODO: detect invalid code groups etc and drop the link after too many
 	always_ff @(posedge rx_clk) begin
