@@ -311,7 +311,7 @@ module AXIS_XGEthernetMAC(
 		.din({axi_rx.tdata[7:0], axi_rx.tdata[15:8], axi_rx.tdata[23:16], axi_rx.tdata[31:24]}),
 		.crc_out(rx_crc_dout)
 	);
-	/*
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// XGMII TX logic
 
@@ -344,7 +344,30 @@ module AXIS_XGEthernetMAC(
 	logic[3:0]	xgmii_txc_next2		= 0;
 	logic[31:0]	xgmii_txd_next2		= 0;
 
+	logic[3:0]	xgmii_txc_next3		= 0;
+	logic[31:0]	xgmii_txd_next3		= 0;
+
+	logic		tx_crc_reset		= 1;
+
+	//Pipeline key AXI status signals to regenerate the "start" signal we had in our old protocol
+	logic[3:0]	tstrb_ff	= 0;
+	logic		tvalid_ff	= 0;
+	logic		tlast_ff	= 0;
+	logic[31:0]	tdata_ff	= 0;
+
 	always_ff @(posedge xgmii_tx_clk) begin
+
+		//Always ready for data by default
+		axi_tx.tready						<= 1;
+
+		//Pipeline AXI status signals
+		tstrb_ff							<= axi_tx.tstrb;
+		tvalid_ff							<= axi_tx.tvalid;
+		tlast_ff							<= axi_tx.tlast;
+		tdata_ff							<= axi_tx.tdata;
+
+		//Clear reset after one cycle
+		tx_crc_reset						<= 0;
 
 		//Default to sending idles
 		xgmii_txc_next1						<= 4'b1111;
@@ -357,14 +380,24 @@ module AXIS_XGEthernetMAC(
 		xgmii_tx_bus.data					<= xgmii_txd_next2;
 
 		//Send incoming data words to the CRC engine
-		tx_crc_din							<= tx_bus.data;
+		tx_crc_din							<= { tdata_ff[7:0], tdata_ff[15:8], tdata_ff[23:16], tdata_ff[31:24] };
 		tx_crc_bytes_valid					<= 0;
 
 		//Save second half of CRC for fractional frames
 		tx_crc_dout_ff						<= tx_crc_dout;
 
-		//Push block size down pipeline
-		tx_frame_bytes_valid_ff				<= tx_bus.bytes_valid;
+		//Calculate block size and push down pipe
+		tx_frame_bytes_valid_ff				<= 0;
+		if(tvalid_ff) begin
+			if(tstrb_ff[3])
+				tx_frame_bytes_valid_ff		<= 4;
+			else if(tstrb_ff[2])
+				tx_frame_bytes_valid_ff		<= 3;
+			else if(tstrb_ff[1])
+				tx_frame_bytes_valid_ff		<= 2;
+			else if(tstrb_ff[0])
+				tx_frame_bytes_valid_ff		<= 1;
+		end
 		tx_frame_bytes_valid_ff2			<= tx_frame_bytes_valid_ff;
 		tx_frame_bytes_valid_ff3			<= tx_frame_bytes_valid_ff2;
 		tx_frame_bytes_valid_ff4			<= tx_frame_bytes_valid_ff3;
@@ -374,7 +407,7 @@ module AXIS_XGEthernetMAC(
 			TX_STATE_IDLE: begin
 
 				//Starting a new frame? Send preamble
-				if(tx_bus.start) begin
+				if(axi_tx.tvalid) begin
 					running_frame_len		<= 0;
 					xgmii_txc_next1			<= 4'b1000;
 					xgmii_txd_next1			<= { XGMII_CTL_START, 24'h55_55_55 };
@@ -406,16 +439,24 @@ module AXIS_XGEthernetMAC(
 				xgmii_txc_next1				<= 4'b0000;
 				xgmii_txd_next1				<= tx_crc_din;
 
-				//New data coming!
-				if(tx_bus.data_valid) begin
+				//New data coming (need to check tstrb[0] to handle the case of tvalid and no data)
+				if(tvalid_ff && tstrb_ff[0]) begin
 
 					//If we have a full block of data, crunch it
-					if(tx_bus.bytes_valid == 4) begin
+					if(tstrb_ff == 4'b1111) begin
 						running_frame_len	<= running_frame_len + 3'd4;
 						tx_crc_bytes_valid	<= 4;
+
+						//End of frame?
+						//If we're greater than a 64-byte packet including the current block and FCS, move on
+						if(tlast_ff && running_frame_len >= 56)
+							tx_state		<= TX_STATE_FCS_0;
+
+						//otherwise stay in this state, we need to add padding
+
 					end
 
-					//Packet ended, but not at a 4-byte boundary.
+					//Packet ended (TLAST implied if not a full word), but not at a 4-byte boundary.
 					//If we have less than a 64-byte packet including the current block,
 					//always process a full 4 bytes (padding if needed, but leaving room for CRC)
 					else if(running_frame_len <= 56) begin
@@ -428,8 +469,21 @@ module AXIS_XGEthernetMAC(
 					//Packet ended at an unaligned boundary, but we're above the minimum packet size.
 					//Just crunch this data by itself, then finish
 					else begin
-							running_frame_len		<= running_frame_len + tx_bus.bytes_valid;
-						tx_crc_bytes_valid			<= tx_bus.bytes_valid;
+
+						//no need to check tstrb[3] because we already know this isn't a full word
+						if(tstrb_ff[2]) begin
+							running_frame_len		<= running_frame_len + 3;
+							tx_crc_bytes_valid		<= 3;
+						end
+						else if(tstrb_ff[1]) begin
+							running_frame_len		<= running_frame_len + 2;
+							tx_crc_bytes_valid		<= 2;
+						end
+						else if(tstrb_ff[0]) begin
+							running_frame_len		<= running_frame_len + 1;
+							tx_crc_bytes_valid		<= 1;
+						end
+
 						tx_state					<= TX_STATE_FCS_0;
 					end
 
@@ -439,6 +493,7 @@ module AXIS_XGEthernetMAC(
 				//CRC a block of zeroes if we need to pad.
 				else begin
 					tx_crc_din						<= 32'h0;
+					axi_tx.tready					<= 0;
 
 					if(running_frame_len <= 56) begin
 						tx_crc_bytes_valid			<= 4;
@@ -462,6 +517,8 @@ module AXIS_XGEthernetMAC(
 			//Push the last data block down the pipe while waiting for the CRC to be calculated
 			TX_STATE_FCS_0: begin
 
+				axi_tx.tready				<= 0;
+
 				//Send payload data
 				xgmii_txc_next1				<= 4'b0000;
 				xgmii_txd_next1				<= tx_crc_din;
@@ -472,16 +529,19 @@ module AXIS_XGEthernetMAC(
 
 			//Wait for CRC latency
 			TX_STATE_FCS_1: begin
+				axi_tx.tready				<= 0;
+
 				tx_crc_bytes_valid			<= 0;
 				tx_state					<= TX_STATE_FCS_2;
 			end	//end TX_STATE_FCS_1: begin
 
 			TX_STATE_FCS_2: begin
+				axi_tx.tready				<= 0;
 
 				//Bodge in the CRC as needed.
-				tx_crc_bytes_valid		<= 0;
+				tx_crc_bytes_valid			<= 0;
 
-				xgmii_tx_bus.ctl		<= 4'b0000;
+				xgmii_tx_bus.ctl			<= 4'b0000;
 
 				case(tx_frame_bytes_valid_ff3)
 
@@ -501,14 +561,14 @@ module AXIS_XGEthernetMAC(
 
 				endcase
 
-				tx_state				<= TX_STATE_FCS_3;
-				running_frame_len		<= running_frame_len + 3'd4;
+				tx_state					<= TX_STATE_FCS_3;
+				running_frame_len			<= running_frame_len + 3'd4;
 
 			end	//end TX_STATE_FCS_2
 
 			TX_STATE_FCS_3: begin
-
 				tx_state					<= TX_STATE_IDLE;
+				tx_crc_reset				<= 1;
 
 				//See how much of the CRC got sent last cycle.
 				//Add the rest of it, plus the stop marker if we have room for it
@@ -538,6 +598,7 @@ module AXIS_XGEthernetMAC(
 					//CRC was not sent at all. Send it.
 					//Need to send end marker next cycle still.
 					4: begin
+						axi_tx.tready		<= 0;
 						xgmii_tx_bus.ctl	<= 4'b0000;
 						xgmii_tx_bus.data	<= tx_crc_dout_ff;
 						tx_state			<= TX_STATE_FCS_4;
@@ -570,12 +631,11 @@ module AXIS_XGEthernetMAC(
 
 		.clk(xgmii_tx_clk),
 		.ce(1'b1),
-		.reset(tx_bus.start),
+		.reset(tx_crc_reset),
 
 		.din_len(tx_crc_bytes_valid),
 		.din(tx_crc_din),
 		.crc_out(tx_crc_dout)
 	);
-	*/
 
 endmodule

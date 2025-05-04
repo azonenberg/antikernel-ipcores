@@ -109,9 +109,10 @@ module APB_AXIS_EthernetRxBuffer(
 				else if(apb.paddr == REG_RX_POP)
 					apb.pslverr = 1;
 
-				//anything else is reading from the rx buffer (endian swapped)
+				//anything else is reading from the rx buffer
+				//(no endian swap needed, AXI byte ordering matches what the MCU expects)
 				else
-					apb.prdata = { rxfifo_rd_data[7:0], rxfifo_rd_data[15:8], rxfifo_rd_data[23:16], rxfifo_rd_data[31:24] };
+					apb.prdata = rxfifo_rd_data;
 			end
 
 			//write
@@ -175,6 +176,9 @@ module APB_AXIS_EthernetRxBuffer(
 	wire[12:0]	rxfifo_rd_size;
 	logic		rxfifo_wr_drop;
 
+	wire		fifo_reset;
+	assign		fifo_reset	= !apb.preset_n || !eth_link_up && !axi_rx.areset_n;
+
 	CrossClockPacketFifo #(
 		.WIDTH(32),
 		.DEPTH(4096)	//at least 8 packets worth
@@ -182,7 +186,7 @@ module APB_AXIS_EthernetRxBuffer(
 		.wr_clk(axi_rx.aclk),
 		.wr_en(rxfifo_wr_en),
 		.wr_data(rxfifo_wr_data),
-		.wr_reset(!eth_link_up),
+		.wr_reset(fifo_reset),
 		.wr_size(rxfifo_wr_size),
 		.wr_commit(rxfifo_wr_commit),
 		.wr_rollback(rxfifo_wr_drop),
@@ -196,7 +200,7 @@ module APB_AXIS_EthernetRxBuffer(
 		.rd_packet_size(rxfifo_packet_size),
 		.rd_data(rxfifo_rd_data),
 		.rd_size(rxfifo_rd_size),
-		.rd_reset(!apb.preset_n || !eth_link_up)
+		.rd_reset(fifo_reset)
 	);
 
 	//PUSH SIDE
@@ -223,7 +227,7 @@ module APB_AXIS_EthernetRxBuffer(
 		.wsize(rxheader_wr_size),
 		.full(header_wfull),
 		.overflow(),
-		.reset(!axi_rx.areset_n),
+		.reset(fifo_reset),
 
 		.rd(rxheader_rd_en),
 		.dout(rxheader_rd_data),
@@ -236,21 +240,23 @@ module APB_AXIS_EthernetRxBuffer(
 
 		if(!axi_rx.areset_n) begin
 			rxfifo_wr_en		<= 0;
+			rxfifo_wr_data		<= 0;
 			rxfifo_wr_drop		<= 0;
 			rxfifo_wr_commit	<= 0;
 			framelen			<= 0;
+			axi_rx.tready		<= 0;
 		end
 
 		else begin
 
-			rxfifo_wr_drop		<= 0;
+			rxfifo_wr_drop		<= axi_rx.tvalid && axi_rx.tready && axi_rx.tuser[0];
 			rxfifo_wr_commit	<= axi_rx.tlast && !axi_rx.tuser[0] && !rxfifo_wr_drop;
 			rxfifo_wr_en		<= 0;
 
 			axi_rx.tready		<= (rxheader_wr_size > 1) && (rxfifo_wr_size > 1);
 
 			//Push data as needed
-			if(axi_rx.tready && axi_rx.tvalid && axi_rx.tstrb) begin
+			if(axi_rx.tready && axi_rx.tvalid && axi_rx.tstrb && !axi_rx.tuser[0]) begin
 				rxfifo_wr_en	<= 1;
 				rxfifo_wr_data	<= axi_rx.tdata;
 
@@ -263,8 +269,10 @@ module APB_AXIS_EthernetRxBuffer(
 				endcase
 			end
 
-			//Clear frame length after a push
-			if(rxfifo_wr_commit)
+			//TODO: drop if the frame gets > MTU?
+
+			//Clear frame length after a push or drop
+			if(rxfifo_wr_commit || rxfifo_wr_drop)
 				framelen	<= 0;
 
 		end

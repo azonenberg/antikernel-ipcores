@@ -67,6 +67,7 @@ module AXIS_XGEthernetMACWrapper #(
 	//AXI interfaces
 	AXIStream.transmitter	eth_rx_data,
 	AXIStream.receiver		eth_tx_data,
+	output wire				eth_tx_clk,
 
 	//Status outputs (RX clock domain)
 	output wire				link_up
@@ -115,6 +116,8 @@ module AXIS_XGEthernetMACWrapper #(
 	wire[5:0]	tx_sequence;
 	wire[1:0]	tx_header;
 	wire[31:0]	tx_data;
+
+	assign eth_tx_clk = txusrclk;
 
 	GTYLane_UltraScale #(
 		.RX_COMMA_ALIGN(0),
@@ -248,10 +251,6 @@ module AXIS_XGEthernetMACWrapper #(
 		.remote_fault(remote_fault)
 	);
 
-	//DEBUG: always report link up, never send any traffic
-	assign xgmii_tx_bus.ctl = 4'b1111;
-	assign xgmii_tx_bus.data = { XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE, XGMII_CTL_IDLE };
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The MAC
 
@@ -260,7 +259,7 @@ module AXIS_XGEthernetMACWrapper #(
 		.xgmii_rx_bus(xgmii_rx_bus),
 
 		.xgmii_tx_clk(xgmii_tx_clk),
-		//.xgmii_tx_bus(xgmii_tx_bus),
+		.xgmii_tx_bus(xgmii_tx_bus),
 
 		.link_up(link_up),
 
