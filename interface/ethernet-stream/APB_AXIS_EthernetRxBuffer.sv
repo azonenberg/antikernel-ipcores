@@ -204,7 +204,6 @@ module APB_AXIS_EthernetRxBuffer(
 	);
 
 	//PUSH SIDE
-	logic dropping = 0;
 	logic[10:0] framelen = 0;
 
 	wire		header_wfull;
@@ -253,7 +252,9 @@ module APB_AXIS_EthernetRxBuffer(
 			rxfifo_wr_commit	<= axi_rx.tlast && !axi_rx.tuser[0] && !rxfifo_wr_drop;
 			rxfifo_wr_en		<= 0;
 
-			axi_rx.tready		<= (rxheader_wr_size > 1) && (rxfifo_wr_size > 1);
+			//Enforce one cycle delay between TLAST and start of the next packet so we can reset properly
+			//TODO: can we just set framelen to 4 if there's a gap-free stream?
+			axi_rx.tready		<= (rxheader_wr_size > 1) && (rxfifo_wr_size > 1) && !axi_rx.tlast;
 
 			//Push data as needed
 			if(axi_rx.tready && axi_rx.tvalid && axi_rx.tstrb && !axi_rx.tuser[0]) begin
