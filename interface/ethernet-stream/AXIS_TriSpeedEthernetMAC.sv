@@ -29,8 +29,6 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "AXIStreamTypes.sv"
-
 import EthernetBus::*;
 
 /**
@@ -60,16 +58,21 @@ import EthernetBus::*;
 					If true, data should be ignored (packet contained a CRC error or in-band error notification)
 					If false, packet was valid
  */
-module AXIS_TriSpeedEthernetMAC(
+module AXIS_TriSpeedEthernetMAC #(
+	parameter RX_CRC_DISABLE	= 0,
+	parameter TX_FIFO_USE_BLOCK	= 1,
 
-	//GMII bus
+	parameter DEBUG_LANE		= 0	//TODO remove this
+)(
+	//GMII buses
 	input wire					gmii_rx_clk,
 	input wire GmiiBus			gmii_rx_bus,
 
+	input wire					gmii_tx_clk,
 	output GmiiBus				gmii_tx_bus 		= {1'b0, 1'b0, 8'b0},
 
 	//Link state flags
-	//Synchronous to RX clock
+	//Synchronous to RX clock (TODO put this on APB too)
 	input wire					link_up,
 	input wire lspeed_t			link_speed,
 
@@ -77,8 +80,6 @@ module AXIS_TriSpeedEthernetMAC(
 	AXIStream.receiver			axi_tx,
 	AXIStream.transmitter		axi_rx
 );
-
-	/*
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX CRC calculation
 
@@ -120,26 +121,37 @@ module AXIS_TriSpeedEthernetMAC(
 			rx_crc_calculated_ff2	<= rx_crc_calculated_ff;
 			rx_crc_calculated_ff	<= rx_crc_calculated;
 		end
-	end*/
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// AXI config
+
+	assign axi_rx.aclk		= gmii_rx_clk;
+	assign axi_rx.areset_n	= link_up;
+	assign axi_rx.twakeup	= 1;
+	assign axi_rx.tid		= 0;	//TID not used
+	assign axi_rx.tdest		= 0;	//TDEST not used
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main RX datapath
-/*
+
 	logic[1:0]	rx_bytepos				= 0;
 	logic[31:0]	rx_pending_data			= 0;
 
 	logic		rx_frame_data_valid_adv	= 0;
 	logic[31:0]	rx_frame_data_adv		= 0;
 
-	wire[31:0]	rx_crc_expected	= rx_pending_data;
-*/
+	wire[31:0]	rx_crc_expected;
+	assign rx_crc_expected	= { rx_pending_data[7:0], rx_pending_data[15:8], rx_pending_data[23:16], rx_pending_data[31:24] };
+
 	always_ff @(posedge gmii_rx_clk) begin
-	/*
-		rx_bus.start			<= 0;
-		rx_bus.data_valid		<= 0;
-		rx_bus.bytes_valid		<= 0;
-		rx_bus.commit			<= 0;
-		rx_bus.drop				<= 0;
+
+		axi_rx.tvalid			<= 0;
+		axi_rx.tkeep			<= 0;
+		axi_rx.tstrb			<= 0;
+		axi_rx.tdata			<= 0;
+		axi_rx.tuser			<= 0;
+		axi_rx.tlast			<= 0;
 
 		if(gmii_rx_bus.dvalid) begin
 
@@ -174,7 +186,6 @@ module AXIS_TriSpeedEthernetMAC(
 					//Tell the upper layer we are starting the frame when we hit the SFD.
 					//No point in even telling them about runt packets that end during the preamble.
 					else if(gmii_rx_bus.data == 8'hd5) begin
-						rx_bus.start			<= 1;
 						rx_bytepos				<= 0;
 						rx_state				<= RX_STATE_FRAME_DATA;
 						rx_frame_data_valid_adv	<= 0;
@@ -198,54 +209,63 @@ module AXIS_TriSpeedEthernetMAC(
 					if(!gmii_rx_bus.en) begin
 						rx_state				<= RX_STATE_CRC;
 
-						if(rx_bytepos != 0) begin
-							rx_bus.bytes_valid	<= rx_bytepos;
-							rx_bus.data_valid	<= 1;
-						end
+						axi_rx.tvalid			<= (rx_bytepos != 0);
+						axi_rx.tkeep			<= 4'b1111;
+						axi_rx.tdata			<= rx_frame_data_adv;
 
 						case(rx_bytepos)
+							0: begin
+								//should never happen, leave tvalid as 0
+							end
 
-							1: rx_bus.data		<= { rx_frame_data_adv[31:24], 24'h0 };
-							2: rx_bus.data		<= { rx_frame_data_adv[31:16], 16'h0 };
-							3: rx_bus.data		<= { rx_frame_data_adv[31:8], 8'h0 };
-
+							1:	axi_rx.tstrb	<= 4'b0001;
+							2:	axi_rx.tstrb	<= 4'b0011;
+							3:	axi_rx.tstrb	<= 4'b0111;
 						endcase
 
 					end
 
-					//Frame data
+					//Frame data still coming
 					else begin
-						rx_pending_data			<= { rx_pending_data[23:0], gmii_rx_bus.data };
-						rx_bytepos				<= rx_bytepos + 1'h1;
+
+						rx_bytepos						<= rx_bytepos + 1'h1;
+
+						case(rx_bytepos)
+							0:	rx_pending_data			<= { 23'h0, gmii_rx_bus.data };
+							1:	rx_pending_data[15:8]	<= gmii_rx_bus.data;
+							2:	rx_pending_data[23:16]	<= gmii_rx_bus.data;
+							3:	rx_pending_data[31:24]	<= gmii_rx_bus.data;
+						endcase
 
 						//We've received a full word!
 						if(rx_bytepos == 3) begin
 
 							//Save this word in the buffer for next time around
 							rx_frame_data_valid_adv	<= 1;
-							rx_frame_data_adv		<= { rx_pending_data[23:0], gmii_rx_bus.data };
+							rx_frame_data_adv		<= { gmii_rx_bus.data, rx_pending_data[23:0] };
 
 							//Send the PREVIOUS word to the host
 							//We need a pipeline delay because of the CRC - don't want to get the CRC confused with application layer data!
 							if(rx_frame_data_valid_adv) begin
-								rx_bus.data_valid	<= 1;
-								rx_bus.data			<= rx_frame_data_adv;
-								rx_bus.bytes_valid	<= 4;
+								axi_rx.tvalid		<= 1;
+								axi_rx.tdata		<= rx_frame_data_adv;
+								axi_rx.tkeep		<= 4'b1111;
+								axi_rx.tstrb		<= 4'b1111;
 							end
-
 						end
 					end
-
 				end	//end RX_STATE_FRAME_DATA
 
 				RX_STATE_CRC: begin
 					rx_state			<= RX_STATE_IDLE;
 
+					axi_rx.tlast		<= 1;
+
 					//Validate the CRC (details depend on length of the packet)
 					if( (rx_crc_calculated_ff5 == rx_crc_expected) || RX_CRC_DISABLE )
-						rx_bus.commit	<= 1;
+						axi_rx.tuser	<= 0;
 					else
-						rx_bus.drop		<= 1;
+						axi_rx.tuser	<= 1;
 
 				end
 
@@ -256,8 +276,9 @@ module AXIS_TriSpeedEthernetMAC(
 				end	//end RX_STATE_DROP
 
 			endcase
+
 		end
-		*/
+
 	end
 
 	/*
@@ -426,7 +447,7 @@ module AXIS_TriSpeedEthernetMAC(
 					if(tx_bus.start || start_pending) begin
 						tx_ready		<= 0;
 						tx_en			<= 1;
-						tx_data			<= 8'h55;
+						tx_data			<= 8'h55;1
 						tx_count		<= 1;
 						tx_state		<= TX_STATE_PREAMBLE;
 						tx_frame_len	<= 1;
@@ -539,5 +560,12 @@ module AXIS_TriSpeedEthernetMAC(
 
 	end
 	*/
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Debug ILA
+
+	if(DEBUG_LANE == 0) begin
+
+	end
 
 endmodule

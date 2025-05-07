@@ -90,8 +90,8 @@ module AXIS_XGEthernetMAC(
 	assign axi_rx.aclk		= xgmii_rx_clk;
 	assign axi_rx.areset_n	= link_up;
 	assign axi_rx.twakeup	= 1;
-	//TID not used
-	//TDEST not used
+	assign axi_rx.tid		= 0;	//TID not used
+	assign axi_rx.tdest		= 0;	//TDEST not used
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// XGMII RX control character decoding

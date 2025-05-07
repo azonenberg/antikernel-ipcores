@@ -60,7 +60,7 @@ module GigBaseXPCS #(
 	input wire			rx_disparity_err,
 	input wire			rx_symbol_err,
 
-	//RX status signals
+	//RX status signals, clk_125mhz domain
 	output logic		link_up		= 0,
 	output lspeed_t		link_speed,
 

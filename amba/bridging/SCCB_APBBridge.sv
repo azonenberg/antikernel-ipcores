@@ -477,9 +477,9 @@ module SCCB_APBBridge #(
 	always_comb begin
 
 		if(apb_req.pready) begin
-			completion_has_data	<= !apb_req.pwrite && !apb_req.pslverr;
-			completion_success	<= !apb_req.pslverr;
-			completion_data		<= apb_req.prdata;
+			completion_has_data	= !apb_req.pwrite && !apb_req.pslverr;
+			completion_success	= !apb_req.pslverr;
+			completion_data		= apb_req.prdata;
 		end
 
 		else begin
