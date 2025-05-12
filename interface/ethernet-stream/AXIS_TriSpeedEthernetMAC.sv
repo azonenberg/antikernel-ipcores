@@ -60,9 +60,7 @@ import EthernetBus::*;
  */
 module AXIS_TriSpeedEthernetMAC #(
 	parameter RX_CRC_DISABLE	= 0,
-	parameter TX_FIFO_USE_BLOCK	= 1,
-
-	parameter DEBUG_LANE		= 0	//TODO remove this
+	parameter DEBUG_LANE		= 42	//TODO remove this
 )(
 	//GMII buses
 	input wire					gmii_rx_clk,
@@ -141,8 +139,15 @@ module AXIS_TriSpeedEthernetMAC #(
 	logic		rx_frame_data_valid_adv	= 0;
 	logic[31:0]	rx_frame_data_adv		= 0;
 
-	wire[31:0]	rx_crc_expected;
-	assign rx_crc_expected	= { rx_pending_data[7:0], rx_pending_data[15:8], rx_pending_data[23:16], rx_pending_data[31:24] };
+	//Need separate shift register in AXI receiver since we don't left align the data
+	logic[31:0]	rx_crc_expected;
+	logic[31:0]	rx_crc_expected_ff;
+	always_comb begin
+		rx_crc_expected	= rx_crc_expected_ff;
+
+		if(gmii_rx_bus.dvalid && gmii_rx_bus.en)
+			rx_crc_expected	= { rx_crc_expected_ff[23:0], gmii_rx_bus.data };
+	end
 
 	always_ff @(posedge gmii_rx_clk) begin
 
@@ -152,6 +157,8 @@ module AXIS_TriSpeedEthernetMAC #(
 		axi_rx.tdata			<= 0;
 		axi_rx.tuser			<= 0;
 		axi_rx.tlast			<= 0;
+
+		rx_crc_expected_ff		<= rx_crc_expected;
 
 		if(gmii_rx_bus.dvalid) begin
 
@@ -281,7 +288,6 @@ module AXIS_TriSpeedEthernetMAC #(
 
 	end
 
-	/*
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Synchronize link speed into TX clock domain
 	// Use separate syncs, OK if they glitch for a cycle during transition
@@ -316,56 +322,102 @@ module AXIS_TriSpeedEthernetMAC #(
 	}
 	tx_state = TX_STATE_IDLE;
 
-	logic[3:0] tx_count	= 0;
+	logic[3:0] tx_count		= 0;
 
-	//Need a larger FIFO to support 10/100 mode since packets always show up at gigabit rate
-	//Has to have room for an entire packet. No jumbo frame support for the moment.
-	logic		tx_fifo_pop	= 0;
-	wire[7:0]	tx_fifo_rdata;
-	wire[11:0]	tx_fifo_rsize;
+	//Generally require the source to be capable of sending stall-free, so don't use a FIFO
+	//Just some DFFs to latch the incoming data and cover flow control latency
+	logic[31:0]	tx_inbox			= 0;
+	logic[2:0]	tx_pending			= 0;
+	logic		tx_last				= 0;
+	logic		dvalid_adv			= 0;
+	always_ff @(posedge gmii_tx_clk) begin
+
+		//Default to NOT ready for new data
+		axi_tx.tready	<= 0;
+
+		//If idle, we're ready for new data
+		if(tx_state == TX_STATE_IDLE)
+			axi_tx.tready	<= 1;
+
+		//If we previously asserted TREADY and didn't get any data this cycle, keep it on until the data shows up
+		if(axi_tx.tready && !axi_tx.tvalid)
+			axi_tx.tready	<= 1;
+
+		//Mark data consumed when we eat it
+		if(dvalid_adv && tx_pending && (tx_state == TX_STATE_FRAME_DATA) ) begin
+			tx_pending	 	<= tx_pending - 1;
+
+			//if we're consuming the last word, accept more data
+			//Note that in gig mode we have to request it pretty early to allow for AXI flow control latency
+			//while in 10/100 we have enough delays from division that we don't advance until we're consuming the last word
+			case(link_speed_sync)
+
+				LINK_SPEED_1000M: begin
+					if(tx_pending == 2)
+						axi_tx.tready	<= 1;
+				end
+
+				default: begin
+					if(tx_pending == 1)
+						axi_tx.tready	<= 1;
+				end
+
+			endcase
+		end
+
+		//Track incoming data
+		if(axi_tx.tvalid && axi_tx.tready) begin
+			tx_inbox		<= axi_tx.tdata;
+			if(axi_tx.tstrb[3])
+				tx_pending	<= 4;
+			else if(axi_tx.tstrb[2])
+				tx_pending	<= 3;
+			else if(axi_tx.tstrb[1])
+				tx_pending	<= 2;
+			else if(axi_tx.tstrb[0])
+				tx_pending	<= 1;
+			else
+				tx_pending	<= 0;
+
+			tx_last			<= axi_tx.tlast;
+
+			//Not ready for new data if we've accepted a word this cycle
+			axi_tx.tready	<= 0;
+		end
+
+	end
 
 	logic[10:0]	tx_frame_len = 0;
 
-	SingleClockFifo #(
-		.WIDTH(8),
-		.DEPTH(2048),
-		.USE_BLOCK(TX_FIFO_USE_BLOCK)
-	) tx_fifo (
-		.clk(gmii_tx_clk),
-
-		.wr(tx_bus.data_valid),
-		.din(tx_bus.data[7:0]),
-
-		.rd(tx_fifo_pop),
-		.dout(tx_fifo_rdata),
-
-		.overflow(),
-		.underflow(),
-		.empty(),
-		.full(),
-		.rsize(tx_fifo_rsize),
-		.wsize(),
-		.reset(tx_bus.start)		//wipe any existing junk when a frame starts
-	);
-
-	logic		dvalid_adv			= 0;
 
 	logic		tx_en			= 0;
 	logic[7:0]	tx_data			= 0;
+
 	wire		tx_crc_update	= ( (tx_state == TX_STATE_FRAME_DATA) || (tx_state == TX_STATE_PADDING) ) && dvalid_adv;
 	wire[31:0]	tx_crc;
 	logic[7:0]	tx_crc_din;
+	logic		tx_crc_reset	= 0;
+
+	logic[7:0]	tx_data_muxed;
 
 	always_comb begin
+
+		case(tx_count[1:0])
+			0:	tx_data_muxed	= tx_inbox[7:0];
+			1:	tx_data_muxed	= tx_inbox[15:8];
+			2:	tx_data_muxed	= tx_inbox[23:16];
+			3:	tx_data_muxed	= tx_inbox[31:24];
+		endcase
+
 		if(tx_state == TX_STATE_FRAME_DATA)
-			tx_crc_din	<= tx_fifo_rdata;
+			tx_crc_din	= tx_data_muxed;
 		else
-			tx_crc_din	<= 0;
+			tx_crc_din	= 0;
 	end
 
 	CRC32_Ethernet tx_crc_calc(
 		.clk(gmii_tx_clk),
-		.reset(tx_bus.start),
+		.reset(tx_crc_reset),
 		.update(tx_crc_update),
 		.din(tx_crc_din),
 		.crc_flipped(tx_crc)
@@ -416,11 +468,10 @@ module AXIS_TriSpeedEthernetMAC #(
 	logic	start_pending	= 0;
 	always_ff @(posedge gmii_tx_clk) begin
 
-		tx_fifo_pop	<= 0;
-
+		tx_crc_reset		<= 0;
 		gmii_tx_bus.dvalid	<= dvalid_adv;
 
-		if(tx_bus.start)
+		if( (tx_state == TX_STATE_IDLE) && axi_tx.tvalid && axi_tx.tready)
 			start_pending	<= 1;
 
 		if(dvalid_adv) begin
@@ -443,11 +494,11 @@ module AXIS_TriSpeedEthernetMAC #(
 				//If a new frame is starting, begin the preamble while buffering the message content
 				TX_STATE_IDLE: begin
 					tx_frame_len		<= 0;
+					tx_crc_reset		<= 1;
 
-					if(tx_bus.start || start_pending) begin
-						tx_ready		<= 0;
+					if( (axi_tx.tvalid && axi_tx.tready) || start_pending) begin
 						tx_en			<= 1;
-						tx_data			<= 8'h55;1
+						tx_data			<= 8'h55;
 						tx_count		<= 1;
 						tx_state		<= TX_STATE_PREAMBLE;
 						tx_frame_len	<= 1;
@@ -463,16 +514,6 @@ module AXIS_TriSpeedEthernetMAC #(
 
 					tx_count		<= tx_count + 1'h1;
 
-					//Start popping message data a cycle early in gig mode to allow for FIFO latency
-					if(link_speed_sync == LINK_SPEED_1000M) begin
-						if(tx_count >= 6)
-							tx_fifo_pop	<= 1;
-					end
-
-					//In 10/100 mode, we have plenty of time so don't advance the pop
-					else if(tx_count == 7)
-						tx_fifo_pop	<= 1;
-
 					if(tx_count == 7) begin
 						tx_data		<= 8'hd5;
 						tx_count	<= 0;
@@ -483,32 +524,29 @@ module AXIS_TriSpeedEthernetMAC #(
 
 				TX_STATE_FRAME_DATA: begin
 
-					//Not last word? Pop it
-					//Can also pop if size == 1 and we're not popping
-					if( (tx_fifo_rsize > 1) || ( (tx_fifo_rsize == 1) && !tx_fifo_pop) )
-						tx_fifo_pop	<= 1;
+					tx_count	<= tx_count + 1;
 
-					//Don't finish up if there's still one last byte of data being popped
-					else if(tx_fifo_pop) begin
-					end
+					//Last byte?
+					if(tx_last && (tx_pending == 1)) begin
 
-					//Packet must be at least 66 bytes including preamble
-					//Add padding if we didn't get there yet
-					else begin
+						//Packet must be at least 66 bytes including preamble
+						//Add padding if we didn't get there yet
 						if(tx_frame_len > 66)
 							tx_state	<= TX_STATE_CRC_0;
-						else if(tx_fifo_rsize == 0)				//wait for last byte before paddingy
+						else if(tx_last)				//wait for last byte before padding
 							tx_state	<= TX_STATE_PADDING;
+
 					end
 
 					tx_en	<= 1;
-					tx_data	<= tx_fifo_rdata;
+					tx_data	<= tx_data_muxed;
 
 				end	//end TX_STATE_FRAME_DATA
 
 				//Wait for CRC calculation
 				TX_STATE_CRC_0: begin
 					tx_state	<= TX_STATE_CRC_1;
+					tx_count	<= 0;
 				end	//end TX_STATE_CRC_0
 
 				//Actually send the CRC
@@ -535,8 +573,9 @@ module AXIS_TriSpeedEthernetMAC #(
 
 				//Pad frame out to 68 bytes including preamble but not FCS
 				TX_STATE_PADDING: begin
-					tx_en	<= 1;
-					tx_data	<= 0;
+					tx_en			<= 1;
+					tx_data			<= 0;
+					tx_count		<= 0;
 
 					if(tx_frame_len > 66)
 						tx_state	<= TX_STATE_CRC_0;
@@ -547,25 +586,72 @@ module AXIS_TriSpeedEthernetMAC #(
 				TX_STATE_IFG: begin
 					tx_count		<= tx_count + 1'h1;
 
-					if(tx_count == 11) begin
-						tx_ready	<= 1;
+					if(tx_count == 11)
 						tx_state	<= TX_STATE_IDLE;
-					end
 
 				end	//end TX_STATE_IFG
 
 			endcase
-
 		end
 
+		//synchronous reset for state machine, everything else will self clear
+		if(!axi_tx.areset_n)
+			tx_state	 <= TX_STATE_IDLE;
+
 	end
-	*/
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Debug ILA
 
 	if(DEBUG_LANE == 0) begin
+		ila_2 ila(
+			.clk(axi_tx.aclk),
+			.probe0(axi_tx.areset_n),
+			.probe1(axi_tx.tvalid),
+			.probe2(axi_tx.tready),
+			.probe3(axi_tx.tdata),
+			.probe4(axi_tx.tlast),
+			.probe5(axi_tx.tstrb),
+			.probe6(axi_tx.tkeep),
+			.probe7(gmii_tx_bus.en),
+			.probe8(gmii_tx_bus.data),
+			.probe9(gmii_tx_bus.dvalid),
+			.probe10(link_speed_sync),
+			.probe11(tx_state),
+			.probe12(tx_count),
+			.probe13(tx_inbox),
+			.probe14(tx_pending),
+			.probe15(tx_last),
+			.probe16(dvalid_adv),
+			.probe17(tx_en),
+			.probe18(tx_data),
+			.probe19(start_pending),
+			.probe20(tx_frame_len),
+			.probe21(tx_crc_update),
+			.probe22(tx_crc_din),
+			.probe23(tx_crc),
+			.probe24(tx_crc_reset),
 
+			//NOTE: for 1GbaseX, tx/rx are same clock domain! so no need for separate ILA
+			.probe25(axi_rx.tready),
+			.probe26(axi_rx.tvalid),
+			.probe27(axi_rx.tuser),
+			.probe28(axi_rx.tdata),
+			.probe29(axi_rx.tkeep),
+			.probe30(axi_rx.tstrb),
+			.probe31(axi_rx.tlast),
+			.probe32(gmii_rx_bus.en),
+			.probe33(gmii_rx_bus.dvalid),
+			.probe34(gmii_rx_bus.data),
+			.probe35(rx_state),
+			.probe36(rx_bytepos),
+			.probe37(rx_crc_calculated_ff5),
+			.probe38(rx_crc_expected),
+			.probe39(rx_crc_reset),
+			.probe40(rx_crc_update),
+			.probe41(rx_crc_calculated),
+			.probe42(rx_pending_data)
+		);
 	end
 
 endmodule

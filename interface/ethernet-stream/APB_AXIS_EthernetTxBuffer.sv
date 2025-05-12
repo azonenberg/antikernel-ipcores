@@ -248,7 +248,7 @@ module APB_AXIS_EthernetTxBuffer(
 	);
 
 	assign axi_tx.aclk		= tx_clk;
-	assign axi_tx.areset_n	= wr_reset;
+	assign axi_tx.areset_n	= !wr_reset;
 	assign axi_tx.twakeup	= 1;
 	//TID not used
 	//TDEST not used
