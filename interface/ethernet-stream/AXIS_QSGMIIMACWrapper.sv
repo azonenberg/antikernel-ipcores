@@ -61,8 +61,6 @@ module AXIS_QSGMIIMACWrapper(
 	AXIStream.transmitter		axi_rx[3:0]
 );
 
-	parameter DEBUG_LANE = 0;
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// QSGMII splitter
 
@@ -139,9 +137,7 @@ module AXIS_QSGMIIMACWrapper(
 
 		//MAC
 		//(note that we cross to tx_clk domain in the PCS so everything is in that domain here)
-		AXIS_TriSpeedEthernetMAC #(
-			.DEBUG_LANE(DEBUG_LANE*4 + g)
-		) mac (
+		AXIS_TriSpeedEthernetMAC mac (
 			.gmii_rx_clk(tx_clk),
 			.gmii_rx_bus(gmii_rx_bus),
 

@@ -59,8 +59,7 @@ import EthernetBus::*;
 					If false, packet was valid
  */
 module AXIS_TriSpeedEthernetMAC #(
-	parameter RX_CRC_DISABLE	= 0,
-	parameter DEBUG_LANE		= 42	//TODO remove this
+	parameter RX_CRC_DISABLE	= 0
 )(
 	//GMII buses
 	input wire					gmii_rx_clk,
@@ -335,34 +334,40 @@ module AXIS_TriSpeedEthernetMAC #(
 		//Default to NOT ready for new data
 		axi_tx.tready	<= 0;
 
-		//If idle, we're ready for new data
-		if(tx_state == TX_STATE_IDLE)
-			axi_tx.tready	<= 1;
-
 		//If we previously asserted TREADY and didn't get any data this cycle, keep it on until the data shows up
 		if(axi_tx.tready && !axi_tx.tvalid)
 			axi_tx.tready	<= 1;
 
-		//Mark data consumed when we eat it
-		if(dvalid_adv && tx_pending && (tx_state == TX_STATE_FRAME_DATA) ) begin
-			tx_pending	 	<= tx_pending - 1;
+		//All other state changes only happen on dvalid when working with gated clocks
+		if(dvalid_adv) begin
 
-			//if we're consuming the last word, accept more data
-			//Note that in gig mode we have to request it pretty early to allow for AXI flow control latency
-			//while in 10/100 we have enough delays from division that we don't advance until we're consuming the last word
-			case(link_speed_sync)
+			//If idle, we're ready for new data
+			//UNLESS we have data in the inbox already (may happen in 10/100 mode since we don't leave IDLE state
+			//until the next dvalid cycle
+			if( (tx_state == TX_STATE_IDLE) && (tx_pending == 0) )
+				axi_tx.tready	<= 1;
 
-				LINK_SPEED_1000M: begin
-					if(tx_pending == 2)
-						axi_tx.tready	<= 1;
-				end
+			//Mark data consumed when we eat it
+			if(tx_pending && (tx_state == TX_STATE_FRAME_DATA) ) begin
+				tx_pending	 	<= tx_pending - 1;
 
-				default: begin
-					if(tx_pending == 1)
-						axi_tx.tready	<= 1;
-				end
+				//if we're consuming the last word, accept more data
+				//Note that in gig mode we have to request it pretty early to allow for AXI flow control latency
+				//while in 10/100 we have enough delays from division that we don't advance until we're consuming the last word
+				case(link_speed_sync)
 
-			endcase
+					LINK_SPEED_1000M: begin
+						if(tx_pending == 2)
+							axi_tx.tready	<= 1;
+					end
+
+					default: begin
+						if(tx_pending == 1)
+							axi_tx.tready	<= 1;
+					end
+
+				endcase
+			end
 		end
 
 		//Track incoming data
@@ -598,60 +603,6 @@ module AXIS_TriSpeedEthernetMAC #(
 		if(!axi_tx.areset_n)
 			tx_state	 <= TX_STATE_IDLE;
 
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
-
-	if(DEBUG_LANE == 0) begin
-		ila_2 ila(
-			.clk(axi_tx.aclk),
-			.probe0(axi_tx.areset_n),
-			.probe1(axi_tx.tvalid),
-			.probe2(axi_tx.tready),
-			.probe3(axi_tx.tdata),
-			.probe4(axi_tx.tlast),
-			.probe5(axi_tx.tstrb),
-			.probe6(axi_tx.tkeep),
-			.probe7(gmii_tx_bus.en),
-			.probe8(gmii_tx_bus.data),
-			.probe9(gmii_tx_bus.dvalid),
-			.probe10(link_speed_sync),
-			.probe11(tx_state),
-			.probe12(tx_count),
-			.probe13(tx_inbox),
-			.probe14(tx_pending),
-			.probe15(tx_last),
-			.probe16(dvalid_adv),
-			.probe17(tx_en),
-			.probe18(tx_data),
-			.probe19(start_pending),
-			.probe20(tx_frame_len),
-			.probe21(tx_crc_update),
-			.probe22(tx_crc_din),
-			.probe23(tx_crc),
-			.probe24(tx_crc_reset),
-
-			//NOTE: for 1GbaseX, tx/rx are same clock domain! so no need for separate ILA
-			.probe25(axi_rx.tready),
-			.probe26(axi_rx.tvalid),
-			.probe27(axi_rx.tuser),
-			.probe28(axi_rx.tdata),
-			.probe29(axi_rx.tkeep),
-			.probe30(axi_rx.tstrb),
-			.probe31(axi_rx.tlast),
-			.probe32(gmii_rx_bus.en),
-			.probe33(gmii_rx_bus.dvalid),
-			.probe34(gmii_rx_bus.data),
-			.probe35(rx_state),
-			.probe36(rx_bytepos),
-			.probe37(rx_crc_calculated_ff5),
-			.probe38(rx_crc_expected),
-			.probe39(rx_crc_reset),
-			.probe40(rx_crc_update),
-			.probe41(rx_crc_calculated),
-			.probe42(rx_pending_data)
-		);
 	end
 
 endmodule
