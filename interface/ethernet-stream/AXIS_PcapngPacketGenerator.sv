@@ -50,7 +50,7 @@ module AXIS_PcapngPacketGenerator #(
 
 	assign axi_tx.aclk		= clk;
 	assign axi_tx.twakeup	= 1;
-	assign axi_tx.tuser		= 1;	//we never have bad packets in the pcap
+	assign axi_tx.tuser		= 0;	//we never have bad packets in the pcap
 									//TODO: where should we inject bad FCSes to test?
 
 	initial begin
