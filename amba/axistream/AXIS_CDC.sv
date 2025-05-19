@@ -79,12 +79,16 @@ module AXIS_CDC #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The FIFO
 
+	localparam MID_WIDTH = (axi_rx.ID_WIDTH == 0) ? 1 : axi_rx.ID_WIDTH;
+	localparam MUSER_WIDTH = (axi_rx.USER_WIDTH == 0) ? 1 : axi_rx.USER_WIDTH;
+	localparam MDEST_WIDTH = (axi_rx.DEST_WIDTH == 0) ? 1 : axi_rx.DEST_WIDTH;
+
 	typedef struct packed
 	{
 		logic[axi_rx.DATA_WIDTH-1:0]		tdata;
-		logic[axi_rx.USER_WIDTH-1:0]		tuser;
-		logic[axi_rx.ID_WIDTH-1:0]			tid;
-		logic[axi_rx.DEST_WIDTH-1:0]		tdest;
+		logic[MUSER_WIDTH-1:0]				tuser;
+		logic[MID_WIDTH-1:0]				tid;
+		logic[MDEST_WIDTH-1:0]				tdest;
 		logic[(axi_rx.DATA_WIDTH/8)-1:0]	tstrb;
 		logic[(axi_rx.DATA_WIDTH/8)-1:0]	tkeep;
 		logic								tlast;
@@ -109,7 +113,7 @@ module AXIS_CDC #(
 	FifoContents 		rd_data;
 
 	CrossClockFifo #(
-		.WIDTH($bits(FifoContents)),
+		.WIDTH(axi_rx.DATA_WIDTH + MUSER_WIDTH + MID_WIDTH + MDEST_WIDTH + axi_rx.DATA_WIDTH/4 + 1),
 		.DEPTH(FIFO_DEPTH),
 		.USE_BLOCK(USE_BLOCK),
 		.OUT_REG(1)	//TODO: support OUT_REG=2

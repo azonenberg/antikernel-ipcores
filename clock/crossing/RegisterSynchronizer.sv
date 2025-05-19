@@ -62,25 +62,25 @@ module RegisterSynchronizer #(
 
 	wire				update_b;
 
-	logic[WIDTH-1:0]	reg_a_ff;
+	//Newer vivado seems to not like having an always_ff and always_comb driving the same block
+	//even if mutually exclusive at synthesis time, it causes problems in simulation
+	//so we have to jump through some hoops here...
 
-	if(IN_REG) begin
-		initial begin
-			reg_a_ff = INIT;
-		end
+	logic[WIDTH-1:0]	reg_a_muxed;
 
-		always_ff @(posedge clk_a) begin
-			reg_a_ff		<= reg_a;
-		end
-
+	//Registered path
+	logic[WIDTH-1:0]	reg_a_ff = INIT;
+	always_ff @(posedge clk_a) begin
+		reg_a_ff	<= reg_a;
 	end
 
-	else begin
-		always_comb begin
-			reg_a_ff = reg_a;
-		end
+	//Mux it
+	always_comb begin
+		if(IN_REG)
+			reg_a_muxed	= reg_a_ff;
+		else
+			reg_a_muxed	= reg_a;
 	end
-
 
 	PulseSynchronizer sync_en(
 		.clk_a(clk_a),
@@ -103,7 +103,7 @@ module RegisterSynchronizer #(
 		updated_b	<= update_b;
 
 		if(update_b)
-			reg_b	<= reg_a_ff;
+			reg_b	<= reg_a_muxed;
 
 		if(reset_b)
 			reg_b	<= INIT;
