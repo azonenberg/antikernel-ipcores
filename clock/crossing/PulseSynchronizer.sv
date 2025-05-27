@@ -36,7 +36,9 @@
 	Note that it takes several clocks for the pulse to propagate. If clk_a is faster than clk_b, there is a "dead time"
 	window in which two consecutive pulses may be read as one.
  */
-module PulseSynchronizer(
+module PulseSynchronizer #(
+	parameter SYNC_IN_REG = 0
+)(
 	input wire		clk_a,
 	input wire		pulse_a,
 
@@ -62,7 +64,7 @@ module PulseSynchronizer(
 
 	ThreeStageSynchronizer #(
 		.INIT(0),
-		.IN_REG(0)
+		.IN_REG(SYNC_IN_REG)
 	) sync (
 		.clk_in(clk_a),
 		.din(tx_a),

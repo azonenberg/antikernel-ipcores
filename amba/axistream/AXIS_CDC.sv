@@ -82,16 +82,17 @@ module AXIS_CDC #(
 	localparam MID_WIDTH = (axi_rx.ID_WIDTH == 0) ? 1 : axi_rx.ID_WIDTH;
 	localparam MUSER_WIDTH = (axi_rx.USER_WIDTH == 0) ? 1 : axi_rx.USER_WIDTH;
 	localparam MDEST_WIDTH = (axi_rx.DEST_WIDTH == 0) ? 1 : axi_rx.DEST_WIDTH;
+	localparam STROBE_WIDTH = (axi_rx.DATA_WIDTH/8);
 
 	typedef struct packed
 	{
-		logic[axi_rx.DATA_WIDTH-1:0]		tdata;
-		logic[MUSER_WIDTH-1:0]				tuser;
-		logic[MID_WIDTH-1:0]				tid;
-		logic[MDEST_WIDTH-1:0]				tdest;
-		logic[(axi_rx.DATA_WIDTH/8)-1:0]	tstrb;
-		logic[(axi_rx.DATA_WIDTH/8)-1:0]	tkeep;
-		logic								tlast;
+		logic[axi_rx.DATA_WIDTH-1:0]	tdata;
+		logic[MUSER_WIDTH-1:0]			tuser;
+		logic[MID_WIDTH-1:0]			tid;
+		logic[MDEST_WIDTH-1:0]			tdest;
+		logic[STROBE_WIDTH-1:0]			tstrb;
+		logic[STROBE_WIDTH-1:0]			tkeep;
+		logic							tlast;
 	} FifoContents;
 
 	FifoContents wr_data;
@@ -113,7 +114,7 @@ module AXIS_CDC #(
 	FifoContents 		rd_data;
 
 	CrossClockFifo #(
-		.WIDTH(axi_rx.DATA_WIDTH + MUSER_WIDTH + MID_WIDTH + MDEST_WIDTH + axi_rx.DATA_WIDTH/4 + 1),
+		.WIDTH(axi_rx.DATA_WIDTH + MUSER_WIDTH + MID_WIDTH + MDEST_WIDTH + 2*STROBE_WIDTH + 1),
 		.DEPTH(FIFO_DEPTH),
 		.USE_BLOCK(USE_BLOCK),
 		.OUT_REG(1)	//TODO: support OUT_REG=2
@@ -148,6 +149,8 @@ module AXIS_CDC #(
 	assign axi_tx.tdest = rd_data.tdest;
 	assign axi_tx.tuser = rd_data.tuser;
 
+	logic	rd_en_ff	= 0;
+
 	//manage pop
 	always_comb begin
 		rd_en	= 0;
@@ -166,9 +169,13 @@ module AXIS_CDC #(
 	always_ff @(posedge axi_tx.aclk or negedge axi_tx.areset_n) begin
 		if(!axi_tx.areset_n) begin
 			axi_tx.tvalid	<= 0;
+			rd_en_ff		<= 0;
 		end
 
 		else begin
+
+			rd_en_ff		<= rd_en;
+
 			if(axi_tx.tready)
 				axi_tx.tvalid	<= 0;
 			if(rd_en)

@@ -241,9 +241,9 @@ module APB_AXIS_EthernetTxBuffer(
 		.dout(link_up_txclk));
 
 	ThreeStageSynchronizer sync_fifo_rst(
-		.clk_in(apb.pclk),
+		.clk_in(tx_clk),
 		.din(rd_reset),
-		.clk_out(tx_clk),
+		.clk_out(apb.pclk),
 		.dout(wr_reset)
 	);
 

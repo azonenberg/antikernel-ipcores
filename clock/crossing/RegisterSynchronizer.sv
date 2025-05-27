@@ -31,8 +31,9 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief Wrapper around PulseSynchronizer for synchronizing a register from a management/JTAG domain to
-	a SoC internal domain.
+	@brief Wrapper around PulseSynchronizer for moving a multi-bit value between clock domains
+
+	Often used for synchronizing a register from a management/JTAG domain to a SoC internal domain.
 
 	If IN_REG is set to 1, the input is registered prior to the clock domain crossing.
 
@@ -67,11 +68,13 @@ module RegisterSynchronizer #(
 	//so we have to jump through some hoops here...
 
 	logic[WIDTH-1:0]	reg_a_muxed;
+	logic				en_a_muxed;
 
 	//Registered path
 	logic[WIDTH-1:0]	reg_a_ff = INIT;
 	always_ff @(posedge clk_a) begin
-		reg_a_ff	<= reg_a;
+		if(en_a)
+			reg_a_ff	<= reg_a;
 	end
 
 	//Mux it
@@ -82,14 +85,18 @@ module RegisterSynchronizer #(
 			reg_a_muxed	= reg_a;
 	end
 
-	PulseSynchronizer sync_en(
+	PulseSynchronizer #(
+		.SYNC_IN_REG(IN_REG)
+	) sync_en (
 		.clk_a(clk_a),
 		.pulse_a(en_a),
 		.clk_b(clk_b),
 		.pulse_b(update_b)
 	);
 
-	PulseSynchronizer sync_ack(
+	PulseSynchronizer #(
+		.SYNC_IN_REG(IN_REG)
+	) sync_ack (
 		.clk_a(clk_b),
 		.pulse_a(update_b),
 		.clk_b(clk_a),
@@ -99,14 +106,25 @@ module RegisterSynchronizer #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Data plane
 
-	always_ff @(posedge clk_b) begin
-		updated_b	<= update_b;
+	//Add one extra full cycle on the output side of the sync
+	//to make sure we get a clean capture (i.e. data path is always min of one cycle longer than control path)
+	logic	update_b_ff	= 0;
 
-		if(update_b)
-			reg_b	<= reg_a_muxed;
+	always_ff @(posedge clk_b or posedge reset_b) begin
 
-		if(reset_b)
-			reg_b	<= INIT;
+		if(reset_b) begin
+			updated_b	<= 0;
+			reg_b		<= INIT;
+			update_b_ff	<= 0;
+		end
+
+		else begin
+			update_b_ff	<= update_b;
+
+			updated_b	<= update_b_ff;
+			if(update_b_ff)
+				reg_b	<= reg_a_muxed;
+		end
 
 	end
 
