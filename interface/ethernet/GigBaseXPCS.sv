@@ -2,9 +2,9 @@
 `timescale 1ns/1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -29,7 +29,7 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "GmiiBus.svh"
+import EthernetBus::*;
 
 /**
 	@file
@@ -60,7 +60,7 @@ module GigBaseXPCS #(
 	input wire			rx_disparity_err,
 	input wire			rx_symbol_err,
 
-	//RX status signals
+	//RX status signals, clk_125mhz domain
 	output logic		link_up		= 0,
 	output lspeed_t		link_speed,
 
@@ -701,15 +701,44 @@ module GigBaseXPCS #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX frame decoding
 
+	logic[6:0]	rx_slow_count	= 0;
+
 	always_ff @(posedge clk_125mhz) begin
 
-		gmii_rx_bus.dvalid	<= rx_fifo_rd_valid;	//TODO: handle 10/100 mode
-		gmii_rx_bus.er		<= 0;
+		//Handle valid bit in SGMII 10/100 mode
+		gmii_rx_bus.dvalid	<= 0;
+		if(rx_fifo_rd_valid) begin
+
+			case(link_speed)
+
+				LINK_SPEED_10M: begin
+					rx_slow_count	<= rx_slow_count + 1;
+					if(rx_slow_count == 99) begin
+						rx_slow_count		<= 0;
+						gmii_rx_bus.dvalid	<= 1;
+					end
+				end
+
+				LINK_SPEED_100M: begin
+					rx_slow_count	<= rx_slow_count + 1;
+					if(rx_slow_count == 9) begin
+						rx_slow_count		<= 0;
+						gmii_rx_bus.dvalid	<= 1;
+					end
+				end
+
+				LINK_SPEED_1000M:	gmii_rx_bus.dvalid	<= 1;
+				default:			gmii_rx_bus.dvalid	<= 1;
+			endcase
+		end
+
+		gmii_rx_bus.er			<= 0;
 
 		//Wait for start-of-frame character K27.7
 		if(rx_fdata_is_ctl && (rx_fdata == 8'hfb) ) begin
 			gmii_rx_bus.en		<= 1;
 			gmii_rx_bus.data	<= 8'h55;
+			rx_slow_count		<= 0;
 		end
 
 		//If we see an idle, the frame is over

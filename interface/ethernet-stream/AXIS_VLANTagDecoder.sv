@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
@@ -31,56 +32,125 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief Unidirectional pulse synchronizer for sharing single cycle pulses across clock domains
+	@brief AXI4-Stream VLAN tag decoding
 
-	Note that it takes several clocks for the pulse to propagate. If clk_a is faster than clk_b, there is a "dead time"
-	window in which two consecutive pulses may be read as one.
+	TDEST will be populated with the VLAN ID, derived from the port ID or the 802.1q tag as appropriate
  */
-module PulseSynchronizer #(
-	parameter SYNC_IN_REG = 0
-)(
-	input wire		clk_a,
-	input wire		pulse_a,
+module AXIS_VLANTagDecoder(
 
-	input wire		clk_b,
-	output logic	pulse_b = 0
-	);
+	//AXI buses for packets
+	AXIStream.receiver			axi_rx,
+	AXIStream.transmitter		axi_tx,
+
+	//VLAN control signals
+	input wire[11:0]			port_vlan,
+	input wire					drop_tagged,
+	input wire					drop_untagged
+);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Transmit side
+	// Validate bus width (this core only works for 32 bits wide)
 
-	logic		tx_a	= 0;
+	if(axi_rx.DATA_WIDTH != 32)
+		axi_bus_width_inconsistent();
+	if(axi_rx.DATA_WIDTH != 32)
+		axi_bus_width_inconsistent();
+	if(axi_tx.DEST_WIDTH != 12)
+		axi_bus_width_inconsistent();
 
-	//Toggle every time we get a pulse
-	always_ff @(posedge clk_a) begin
-		if(pulse_a)
-			tx_a	<= ~tx_a;
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Forward AXI control signals
+
+	assign axi_tx.aclk		= axi_rx.aclk;
+	assign axi_tx.areset_n	= axi_rx.areset_n;
+	assign axi_tx.twakeup	= axi_rx.twakeup;
+
+	assign axi_rx.tready	= axi_tx.tready;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// VLAN tag decoding
+
+	/*
+		Word 0: mac dest
+		Word 1: mac dest + src
+		Word 2: mac src
+		Word 3: 802.1q tag or gap
+	 */
+
+	logic[10:0] count = 0;
+
+	logic		is_ethertype;
+	logic		is_dot1q_tagged;
+	logic		dropping	= 0;
+
+	always_comb begin
+
+		//Match position of ethertype field
+		is_ethertype		= (count == 3);
+
+		//Match 802.1q tag (only valid if is_ethertype)
+		is_dot1q_tagged		= (axi_rx.tdata[7:0] == 8'h81) && (axi_rx.tdata[15:8] == 8'h00);
+
+		//Forward everything by default
+		axi_tx.tvalid		= axi_rx.tvalid;
+		axi_tx.tdata		= axi_rx.tdata;
+		axi_tx.tuser		= axi_rx.tuser;
+		axi_tx.tlast		= axi_rx.tlast;
+		axi_tx.tstrb		= axi_rx.tstrb;
+		axi_tx.tkeep		= axi_rx.tkeep;
+
+		//Don't forward ethertype on tagged frames
+		if(is_ethertype && is_dot1q_tagged) begin
+			axi_tx.tvalid	= 0;
+			axi_tx.tstrb	= 0;
+			axi_tx.tkeep	= 0;
+		end
+
+		//Drop on request
+		if(axi_tx.tlast && dropping)
+			axi_tx.tuser	= 1;
+
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The synchronizer
+	always_ff @(posedge axi_rx.aclk or negedge axi_rx.areset_n) begin
+		if(!axi_rx.areset_n) begin
+			count			<= 0;
+			axi_tx.tdest	<= 0;
+			dropping		<= 0;
+		end
 
-	wire	rx_a;
+		else begin
 
-	ThreeStageSynchronizer #(
-		.INIT(0),
-		.IN_REG(SYNC_IN_REG)
-	) sync (
-		.clk_in(clk_a),
-		.din(tx_a),
-		.clk_out(clk_b),
-		.dout(rx_a)
-	);
+			//increment every word
+			if(axi_rx.tvalid && axi_rx.tready)
+				count	<= count + 1;
+			if(axi_rx.tlast) begin
+				count		<= 0;
+				dropping	<= 0;
+			end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Receive side
+			//Look for VLAN tag
+			if(is_ethertype && axi_rx.tvalid && axi_rx.tready) begin
 
-	logic		rx_a_ff	= 0;
+				//Ethertype 0x8100?
+				if(is_dot1q_tagged) begin
 
-	//Pulse every time we get a toggle
-	always_ff @(posedge clk_b) begin
-		rx_a_ff	<= rx_a;
-		pulse_b	<= (rx_a_ff != rx_a);
+					//Discard PCP/DEI, just grab the VLAN ID
+					axi_tx.tdest	<=  { axi_rx.tdata[19:16], axi_rx.tdata[31:24] };
+
+					dropping		<= drop_tagged;
+
+				end
+
+				//Untagged frame, use the port VLAN ID
+				else begin
+					axi_tx.tdest	<= port_vlan;
+					dropping		<= drop_untagged;
+				end
+
+			end
+
+		end
 	end
 
 endmodule

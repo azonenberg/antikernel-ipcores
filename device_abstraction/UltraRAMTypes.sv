@@ -28,59 +28,35 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+`ifndef UltraRAMTypes_sv
+`define UltraRAMTypes_sv
+
 /**
-	@file
-	@author Andrew D. Zonenberg
-	@brief Unidirectional pulse synchronizer for sharing single cycle pulses across clock domains
-
-	Note that it takes several clocks for the pulse to propagate. If clk_a is faster than clk_b, there is a "dead time"
-	window in which two consecutive pulses may be read as one.
+	@brief Unidirectional cascade bus for an UltraRAM
  */
-module PulseSynchronizer #(
-	parameter SYNC_IN_REG = 0
-)(
-	input wire		clk_a,
-	input wire		pulse_a,
+interface UltraRAMCascadeBus();
 
-	input wire		clk_b,
-	output logic	pulse_b = 0
+	//on the primitive, names are "in" from below and "out" to above
+	//we use "south" and "north" to make the spatial relationships more clear
+
+	logic[22:0]	addr;
+	logic		en;
+	logic[8:0]	bwe;
+	logic		rdb;
+	logic[71:0]	din;
+	logic[71:0]	dout;
+	logic		rdaccess;
+	logic		sbiterr;
+	logic		dbiterr;
+
+	modport south(
+		input	addr, en, bwe, rdb, din, dout, rdaccess, sbiterr, dbiterr
 	);
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Transmit side
-
-	logic		tx_a	= 0;
-
-	//Toggle every time we get a pulse
-	always_ff @(posedge clk_a) begin
-		if(pulse_a)
-			tx_a	<= ~tx_a;
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The synchronizer
-
-	wire	rx_a;
-
-	ThreeStageSynchronizer #(
-		.INIT(0),
-		.IN_REG(SYNC_IN_REG)
-	) sync (
-		.clk_in(clk_a),
-		.din(tx_a),
-		.clk_out(clk_b),
-		.dout(rx_a)
+	modport north(
+		output	addr, en, bwe, rdb, din, dout, rdaccess, sbiterr, dbiterr
 	);
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Receive side
+endinterface
 
-	logic		rx_a_ff	= 0;
-
-	//Pulse every time we get a toggle
-	always_ff @(posedge clk_b) begin
-		rx_a_ff	<= rx_a;
-		pulse_b	<= (rx_a_ff != rx_a);
-	end
-
-endmodule
+`endif

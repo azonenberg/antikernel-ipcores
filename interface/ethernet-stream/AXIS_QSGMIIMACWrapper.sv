@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
@@ -28,59 +29,128 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
+import EthernetBus::*;
+
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief Unidirectional pulse synchronizer for sharing single cycle pulses across clock domains
-
-	Note that it takes several clocks for the pulse to propagate. If clk_a is faster than clk_b, there is a "dead time"
-	window in which two consecutive pulses may be read as one.
+	@brief	Convenience wrapper around QSGMIIToSGMIIBridge, GigBaseXPCS, and AXIS_TriSpeedEthernetMAC
  */
-module PulseSynchronizer #(
-	parameter SYNC_IN_REG = 0
-)(
-	input wire		clk_a,
-	input wire		pulse_a,
+module AXIS_QSGMIIMACWrapper(
 
-	input wire		clk_b,
-	output logic	pulse_b = 0
+	//SERDES interface: 125 MHz, 32 bit data plus control flags
+	//(8B/10B coding handled by transceiver)
+	input wire					rx_clk,
+	input wire					rx_data_valid,
+	input wire[3:0]				rx_data_is_ctl,
+	input wire[31:0]			rx_data,
+	input wire[3:0]				rx_disparity_err,
+	input wire[3:0]				rx_symbol_err,
+
+	input wire					tx_clk,
+	output wire[3:0]			tx_data_is_ctl,
+	output wire[31:0]			tx_data,
+	output wire[3:0]			tx_force_disparity_negative,
+
+	//Status signals in tx_clk domain (TODO also provide over APB or something)
+	output wire[3:0]			link_up,
+	output lspeed_t[3:0]		link_speed,
+
+	//AXI interfaces (tx_clk domain for both)
+	AXIStream.receiver			axi_tx[3:0],
+	AXIStream.transmitter		axi_rx[3:0]
+);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// QSGMII splitter
+
+	wire		sgmii_rx_data_valid;
+	wire[3:0]	sgmii_rx_data_is_ctl;
+	wire[31:0]	sgmii_rx_data;
+	wire[3:0]	sgmii_rx_disparity_err;
+	wire[3:0]	sgmii_rx_symbol_err;
+
+	wire[3:0]	sgmii_tx_data_is_ctl;
+	wire[31:0]	sgmii_tx_data;
+	wire[3:0]	sgmii_tx_force_disparity_negative;
+	wire[3:0]	sgmii_tx_disparity_negative;
+
+	QSGMIIToSGMIIBridge quadsplit(
+		.rx_clk(rx_clk),
+		.rx_data_valid(rx_data_valid),
+		.rx_data_is_ctl(rx_data_is_ctl),
+		.rx_data(rx_data),
+		.rx_disparity_err(rx_disparity_err),
+		.rx_symbol_err(rx_symbol_err),
+
+		.tx_clk(tx_clk),
+		.tx_data_is_ctl(tx_data_is_ctl),
+		.tx_data(tx_data),
+		.tx_force_disparity_negative(tx_force_disparity_negative),
+
+		.sgmii_rx_data_valid(sgmii_rx_data_valid),
+		.sgmii_rx_data_is_ctl(sgmii_rx_data_is_ctl),
+		.sgmii_rx_data(sgmii_rx_data),
+		.sgmii_rx_disparity_err(sgmii_rx_disparity_err),
+		.sgmii_rx_symbol_err(sgmii_rx_symbol_err),
+
+		.sgmii_tx_data_is_ctl(sgmii_tx_data_is_ctl),
+		.sgmii_tx_data(sgmii_tx_data),
+		.sgmii_tx_force_disparity_negative(sgmii_tx_force_disparity_negative),
+		.sgmii_tx_disparity_negative(sgmii_tx_disparity_negative)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Transmit side
+	// Per channel stuff
 
-	logic		tx_a	= 0;
+	for(genvar g=0; g<4; g=g+1) begin : lanes
 
-	//Toggle every time we get a pulse
-	always_ff @(posedge clk_a) begin
-		if(pulse_a)
-			tx_a	<= ~tx_a;
-	end
+		GmiiBus gmii_rx_bus;
+		GmiiBus gmii_tx_bus;
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The synchronizer
+		//Line coding
+		GigBaseXPCS #(
+			.ADVERTISE_SGMII_FDX(0)
+		) pcs (
+			.clk_125mhz(tx_clk),
+			.sgmii_mode(1'b1),
 
-	wire	rx_a;
+			.rx_clk(rx_clk),
+			.rx_data_valid(sgmii_rx_data_valid),
+			.rx_data_is_ctl(sgmii_rx_data_is_ctl[g]),
+			.rx_data(sgmii_rx_data[g*8 +: 8]),
+			.rx_disparity_err(sgmii_rx_disparity_err[g]),
+			.rx_symbol_err(sgmii_rx_symbol_err[g]),
 
-	ThreeStageSynchronizer #(
-		.INIT(0),
-		.IN_REG(SYNC_IN_REG)
-	) sync (
-		.clk_in(clk_a),
-		.din(tx_a),
-		.clk_out(clk_b),
-		.dout(rx_a)
-	);
+			.link_up(link_up[g]),
+			.link_speed(link_speed[g]),
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Receive side
+			.gmii_rx_bus(gmii_rx_bus),
+			.gmii_tx_bus(gmii_tx_bus),
 
-	logic		rx_a_ff	= 0;
+			.tx_clk(),
+			.tx_data_is_ctl(sgmii_tx_data_is_ctl[g]),
+			.tx_data(sgmii_tx_data[g*8 +: 8]),
+			.tx_force_disparity_negative(sgmii_tx_force_disparity_negative[g]),
+			.tx_disparity_negative(sgmii_tx_disparity_negative[g])
+		);
 
-	//Pulse every time we get a toggle
-	always_ff @(posedge clk_b) begin
-		rx_a_ff	<= rx_a;
-		pulse_b	<= (rx_a_ff != rx_a);
+		//MAC
+		//(note that we cross to tx_clk domain in the PCS so everything is in that domain here)
+		AXIS_TriSpeedEthernetMAC mac (
+			.gmii_rx_clk(tx_clk),
+			.gmii_rx_bus(gmii_rx_bus),
+
+			.gmii_tx_clk(tx_clk),
+			.gmii_tx_bus(gmii_tx_bus),
+
+			.link_up(link_up[g]),
+			.link_speed(link_speed[g]),
+
+			.axi_tx(axi_tx[g]),
+			.axi_rx(axi_rx[g])
+		);
+
 	end
 
 endmodule

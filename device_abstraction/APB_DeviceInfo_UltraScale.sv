@@ -79,6 +79,23 @@ module APB_DeviceInfo_UltraScale(
 		);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Timer for ICAP availability (TODO: we probably don't need such a large counter)
+
+	localparam BOOT_INIT_VAL =  1;
+
+	logic[22:0] boot_count	= BOOT_INIT_VAL;
+	logic		boot_done	= 0;
+
+	always_ff @(posedge clk_icap) begin
+		if(!boot_done) begin
+			if(boot_count == 0)
+				boot_done	<= 1;
+			else
+				boot_count <= boot_count + 1'h1;
+		end
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// DNA_PORT read logic
 
 	wire	dna_out;
@@ -139,23 +156,6 @@ module APB_DeviceInfo_UltraScale(
 
 		endcase
 
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Timer for ICAP availability (TODO: we probably don't need such a large counter)
-
-	localparam BOOT_INIT_VAL =  1;
-
-	logic[22:0] boot_count	= BOOT_INIT_VAL;
-	logic		boot_done	= 0;
-
-	always_ff @(posedge clk_icap) begin
-		if(!boot_done) begin
-			if(boot_count == 0)
-				boot_done	<= 1;
-			else
-				boot_count <= boot_count + 1'h1;
-		end
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////

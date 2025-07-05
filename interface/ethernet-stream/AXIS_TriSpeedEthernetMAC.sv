@@ -29,8 +29,6 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "AXIStreamTypes.sv"
-
 import EthernetBus::*;
 
 /**
@@ -60,16 +58,18 @@ import EthernetBus::*;
 					If true, data should be ignored (packet contained a CRC error or in-band error notification)
 					If false, packet was valid
  */
-module AXIS_TriSpeedEthernetMAC(
-
-	//GMII bus
+module AXIS_TriSpeedEthernetMAC #(
+	parameter RX_CRC_DISABLE	= 0
+)(
+	//GMII buses
 	input wire					gmii_rx_clk,
 	input wire GmiiBus			gmii_rx_bus,
 
+	input wire					gmii_tx_clk,
 	output GmiiBus				gmii_tx_bus 		= {1'b0, 1'b0, 8'b0},
 
 	//Link state flags
-	//Synchronous to RX clock
+	//Synchronous to RX clock (TODO put this on APB too)
 	input wire					link_up,
 	input wire lspeed_t			link_speed,
 
@@ -77,8 +77,6 @@ module AXIS_TriSpeedEthernetMAC(
 	AXIStream.receiver			axi_tx,
 	AXIStream.transmitter		axi_rx
 );
-
-	/*
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX CRC calculation
 
@@ -120,26 +118,46 @@ module AXIS_TriSpeedEthernetMAC(
 			rx_crc_calculated_ff2	<= rx_crc_calculated_ff;
 			rx_crc_calculated_ff	<= rx_crc_calculated;
 		end
-	end*/
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// AXI config
+
+	assign axi_rx.aclk		= gmii_rx_clk;
+	assign axi_rx.areset_n	= link_up;
+	assign axi_rx.twakeup	= 1;
+	assign axi_rx.tid		= 0;	//TID not used
+	assign axi_rx.tdest		= 0;	//TDEST not used
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main RX datapath
-/*
+
 	logic[1:0]	rx_bytepos				= 0;
 	logic[31:0]	rx_pending_data			= 0;
 
 	logic		rx_frame_data_valid_adv	= 0;
 	logic[31:0]	rx_frame_data_adv		= 0;
 
-	wire[31:0]	rx_crc_expected	= rx_pending_data;
-*/
+	//Need separate shift register in AXI receiver since we don't left align the data
+	logic[31:0]	rx_crc_expected;
+	logic[31:0]	rx_crc_expected_ff;
+	always_comb begin
+		rx_crc_expected	= rx_crc_expected_ff;
+
+		if(gmii_rx_bus.dvalid && gmii_rx_bus.en)
+			rx_crc_expected	= { rx_crc_expected_ff[23:0], gmii_rx_bus.data };
+	end
+
 	always_ff @(posedge gmii_rx_clk) begin
-	/*
-		rx_bus.start			<= 0;
-		rx_bus.data_valid		<= 0;
-		rx_bus.bytes_valid		<= 0;
-		rx_bus.commit			<= 0;
-		rx_bus.drop				<= 0;
+
+		axi_rx.tvalid			<= 0;
+		axi_rx.tkeep			<= 0;
+		axi_rx.tstrb			<= 0;
+		axi_rx.tdata			<= 0;
+		axi_rx.tuser			<= 0;
+		axi_rx.tlast			<= 0;
+
+		rx_crc_expected_ff		<= rx_crc_expected;
 
 		if(gmii_rx_bus.dvalid) begin
 
@@ -174,7 +192,6 @@ module AXIS_TriSpeedEthernetMAC(
 					//Tell the upper layer we are starting the frame when we hit the SFD.
 					//No point in even telling them about runt packets that end during the preamble.
 					else if(gmii_rx_bus.data == 8'hd5) begin
-						rx_bus.start			<= 1;
 						rx_bytepos				<= 0;
 						rx_state				<= RX_STATE_FRAME_DATA;
 						rx_frame_data_valid_adv	<= 0;
@@ -198,54 +215,63 @@ module AXIS_TriSpeedEthernetMAC(
 					if(!gmii_rx_bus.en) begin
 						rx_state				<= RX_STATE_CRC;
 
-						if(rx_bytepos != 0) begin
-							rx_bus.bytes_valid	<= rx_bytepos;
-							rx_bus.data_valid	<= 1;
-						end
+						axi_rx.tvalid			<= (rx_bytepos != 0);
+						axi_rx.tkeep			<= 4'b1111;
+						axi_rx.tdata			<= rx_frame_data_adv;
 
 						case(rx_bytepos)
+							0: begin
+								//should never happen, leave tvalid as 0
+							end
 
-							1: rx_bus.data		<= { rx_frame_data_adv[31:24], 24'h0 };
-							2: rx_bus.data		<= { rx_frame_data_adv[31:16], 16'h0 };
-							3: rx_bus.data		<= { rx_frame_data_adv[31:8], 8'h0 };
-
+							1:	axi_rx.tstrb	<= 4'b0001;
+							2:	axi_rx.tstrb	<= 4'b0011;
+							3:	axi_rx.tstrb	<= 4'b0111;
 						endcase
 
 					end
 
-					//Frame data
+					//Frame data still coming
 					else begin
-						rx_pending_data			<= { rx_pending_data[23:0], gmii_rx_bus.data };
-						rx_bytepos				<= rx_bytepos + 1'h1;
+
+						rx_bytepos						<= rx_bytepos + 1'h1;
+
+						case(rx_bytepos)
+							0:	rx_pending_data			<= { 23'h0, gmii_rx_bus.data };
+							1:	rx_pending_data[15:8]	<= gmii_rx_bus.data;
+							2:	rx_pending_data[23:16]	<= gmii_rx_bus.data;
+							3:	rx_pending_data[31:24]	<= gmii_rx_bus.data;
+						endcase
 
 						//We've received a full word!
 						if(rx_bytepos == 3) begin
 
 							//Save this word in the buffer for next time around
 							rx_frame_data_valid_adv	<= 1;
-							rx_frame_data_adv		<= { rx_pending_data[23:0], gmii_rx_bus.data };
+							rx_frame_data_adv		<= { gmii_rx_bus.data, rx_pending_data[23:0] };
 
 							//Send the PREVIOUS word to the host
 							//We need a pipeline delay because of the CRC - don't want to get the CRC confused with application layer data!
 							if(rx_frame_data_valid_adv) begin
-								rx_bus.data_valid	<= 1;
-								rx_bus.data			<= rx_frame_data_adv;
-								rx_bus.bytes_valid	<= 4;
+								axi_rx.tvalid		<= 1;
+								axi_rx.tdata		<= rx_frame_data_adv;
+								axi_rx.tkeep		<= 4'b1111;
+								axi_rx.tstrb		<= 4'b1111;
 							end
-
 						end
 					end
-
 				end	//end RX_STATE_FRAME_DATA
 
 				RX_STATE_CRC: begin
 					rx_state			<= RX_STATE_IDLE;
 
+					axi_rx.tlast		<= 1;
+
 					//Validate the CRC (details depend on length of the packet)
 					if( (rx_crc_calculated_ff5 == rx_crc_expected) || RX_CRC_DISABLE )
-						rx_bus.commit	<= 1;
+						axi_rx.tuser	<= 0;
 					else
-						rx_bus.drop		<= 1;
+						axi_rx.tuser	<= 1;
 
 				end
 
@@ -256,11 +282,11 @@ module AXIS_TriSpeedEthernetMAC(
 				end	//end RX_STATE_DROP
 
 			endcase
+
 		end
-		*/
+
 	end
 
-	/*
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Synchronize link speed into TX clock domain
 	// Use separate syncs, OK if they glitch for a cycle during transition
@@ -295,56 +321,108 @@ module AXIS_TriSpeedEthernetMAC(
 	}
 	tx_state = TX_STATE_IDLE;
 
-	logic[3:0] tx_count	= 0;
+	logic[3:0] tx_count		= 0;
 
-	//Need a larger FIFO to support 10/100 mode since packets always show up at gigabit rate
-	//Has to have room for an entire packet. No jumbo frame support for the moment.
-	logic		tx_fifo_pop	= 0;
-	wire[7:0]	tx_fifo_rdata;
-	wire[11:0]	tx_fifo_rsize;
+	//Generally require the source to be capable of sending stall-free, so don't use a FIFO
+	//Just some DFFs to latch the incoming data and cover flow control latency
+	logic[31:0]	tx_inbox			= 0;
+	logic[2:0]	tx_pending			= 0;
+	logic		tx_last				= 0;
+	logic		dvalid_adv			= 0;
+	always_ff @(posedge gmii_tx_clk) begin
+
+		//Default to NOT ready for new data
+		axi_tx.tready	<= 0;
+
+		//If we previously asserted TREADY and didn't get any data this cycle, keep it on until the data shows up
+		if(axi_tx.tready && !axi_tx.tvalid)
+			axi_tx.tready	<= 1;
+
+		//All other state changes only happen on dvalid when working with gated clocks
+		if(dvalid_adv) begin
+
+			//If idle, we're ready for new data
+			//UNLESS we have data in the inbox already (may happen in 10/100 mode since we don't leave IDLE state
+			//until the next dvalid cycle
+			if( (tx_state == TX_STATE_IDLE) && (tx_pending == 0) )
+				axi_tx.tready	<= 1;
+
+			//Mark data consumed when we eat it
+			if(tx_pending && (tx_state == TX_STATE_FRAME_DATA) ) begin
+				tx_pending	 	<= tx_pending - 1;
+
+				//if we're consuming the last word, accept more data
+				//Note that in gig mode we have to request it pretty early to allow for AXI flow control latency
+				//while in 10/100 we have enough delays from division that we don't advance until we're consuming the last word
+				case(link_speed_sync)
+
+					LINK_SPEED_1000M: begin
+						if(tx_pending == 2)
+							axi_tx.tready	<= 1;
+					end
+
+					default: begin
+						if(tx_pending == 1)
+							axi_tx.tready	<= 1;
+					end
+
+				endcase
+			end
+		end
+
+		//Track incoming data
+		if(axi_tx.tvalid && axi_tx.tready) begin
+			tx_inbox		<= axi_tx.tdata;
+			if(axi_tx.tstrb[3])
+				tx_pending	<= 4;
+			else if(axi_tx.tstrb[2])
+				tx_pending	<= 3;
+			else if(axi_tx.tstrb[1])
+				tx_pending	<= 2;
+			else if(axi_tx.tstrb[0])
+				tx_pending	<= 1;
+			else
+				tx_pending	<= 0;
+
+			tx_last			<= axi_tx.tlast;
+
+			//Not ready for new data if we've accepted a word this cycle
+			axi_tx.tready	<= 0;
+		end
+
+	end
 
 	logic[10:0]	tx_frame_len = 0;
 
-	SingleClockFifo #(
-		.WIDTH(8),
-		.DEPTH(2048),
-		.USE_BLOCK(TX_FIFO_USE_BLOCK)
-	) tx_fifo (
-		.clk(gmii_tx_clk),
-
-		.wr(tx_bus.data_valid),
-		.din(tx_bus.data[7:0]),
-
-		.rd(tx_fifo_pop),
-		.dout(tx_fifo_rdata),
-
-		.overflow(),
-		.underflow(),
-		.empty(),
-		.full(),
-		.rsize(tx_fifo_rsize),
-		.wsize(),
-		.reset(tx_bus.start)		//wipe any existing junk when a frame starts
-	);
-
-	logic		dvalid_adv			= 0;
 
 	logic		tx_en			= 0;
 	logic[7:0]	tx_data			= 0;
+
 	wire		tx_crc_update	= ( (tx_state == TX_STATE_FRAME_DATA) || (tx_state == TX_STATE_PADDING) ) && dvalid_adv;
 	wire[31:0]	tx_crc;
 	logic[7:0]	tx_crc_din;
+	logic		tx_crc_reset	= 0;
+
+	logic[7:0]	tx_data_muxed;
 
 	always_comb begin
+
+		case(tx_count[1:0])
+			0:	tx_data_muxed	= tx_inbox[7:0];
+			1:	tx_data_muxed	= tx_inbox[15:8];
+			2:	tx_data_muxed	= tx_inbox[23:16];
+			3:	tx_data_muxed	= tx_inbox[31:24];
+		endcase
+
 		if(tx_state == TX_STATE_FRAME_DATA)
-			tx_crc_din	<= tx_fifo_rdata;
+			tx_crc_din	= tx_data_muxed;
 		else
-			tx_crc_din	<= 0;
+			tx_crc_din	= 0;
 	end
 
 	CRC32_Ethernet tx_crc_calc(
 		.clk(gmii_tx_clk),
-		.reset(tx_bus.start),
+		.reset(tx_crc_reset),
 		.update(tx_crc_update),
 		.din(tx_crc_din),
 		.crc_flipped(tx_crc)
@@ -395,11 +473,10 @@ module AXIS_TriSpeedEthernetMAC(
 	logic	start_pending	= 0;
 	always_ff @(posedge gmii_tx_clk) begin
 
-		tx_fifo_pop	<= 0;
-
+		tx_crc_reset		<= 0;
 		gmii_tx_bus.dvalid	<= dvalid_adv;
 
-		if(tx_bus.start)
+		if( (tx_state == TX_STATE_IDLE) && axi_tx.tvalid && axi_tx.tready)
 			start_pending	<= 1;
 
 		if(dvalid_adv) begin
@@ -422,9 +499,9 @@ module AXIS_TriSpeedEthernetMAC(
 				//If a new frame is starting, begin the preamble while buffering the message content
 				TX_STATE_IDLE: begin
 					tx_frame_len		<= 0;
+					tx_crc_reset		<= 1;
 
-					if(tx_bus.start || start_pending) begin
-						tx_ready		<= 0;
+					if( (axi_tx.tvalid && axi_tx.tready) || start_pending) begin
 						tx_en			<= 1;
 						tx_data			<= 8'h55;
 						tx_count		<= 1;
@@ -442,16 +519,6 @@ module AXIS_TriSpeedEthernetMAC(
 
 					tx_count		<= tx_count + 1'h1;
 
-					//Start popping message data a cycle early in gig mode to allow for FIFO latency
-					if(link_speed_sync == LINK_SPEED_1000M) begin
-						if(tx_count >= 6)
-							tx_fifo_pop	<= 1;
-					end
-
-					//In 10/100 mode, we have plenty of time so don't advance the pop
-					else if(tx_count == 7)
-						tx_fifo_pop	<= 1;
-
 					if(tx_count == 7) begin
 						tx_data		<= 8'hd5;
 						tx_count	<= 0;
@@ -462,32 +529,29 @@ module AXIS_TriSpeedEthernetMAC(
 
 				TX_STATE_FRAME_DATA: begin
 
-					//Not last word? Pop it
-					//Can also pop if size == 1 and we're not popping
-					if( (tx_fifo_rsize > 1) || ( (tx_fifo_rsize == 1) && !tx_fifo_pop) )
-						tx_fifo_pop	<= 1;
+					tx_count	<= tx_count + 1;
 
-					//Don't finish up if there's still one last byte of data being popped
-					else if(tx_fifo_pop) begin
-					end
+					//Last byte?
+					if(tx_last && (tx_pending == 1)) begin
 
-					//Packet must be at least 66 bytes including preamble
-					//Add padding if we didn't get there yet
-					else begin
+						//Packet must be at least 66 bytes including preamble
+						//Add padding if we didn't get there yet
 						if(tx_frame_len > 66)
 							tx_state	<= TX_STATE_CRC_0;
-						else if(tx_fifo_rsize == 0)				//wait for last byte before paddingy
+						else if(tx_last)				//wait for last byte before padding
 							tx_state	<= TX_STATE_PADDING;
+
 					end
 
 					tx_en	<= 1;
-					tx_data	<= tx_fifo_rdata;
+					tx_data	<= tx_data_muxed;
 
 				end	//end TX_STATE_FRAME_DATA
 
 				//Wait for CRC calculation
 				TX_STATE_CRC_0: begin
 					tx_state	<= TX_STATE_CRC_1;
+					tx_count	<= 0;
 				end	//end TX_STATE_CRC_0
 
 				//Actually send the CRC
@@ -514,8 +578,9 @@ module AXIS_TriSpeedEthernetMAC(
 
 				//Pad frame out to 68 bytes including preamble but not FCS
 				TX_STATE_PADDING: begin
-					tx_en	<= 1;
-					tx_data	<= 0;
+					tx_en			<= 1;
+					tx_data			<= 0;
+					tx_count		<= 0;
 
 					if(tx_frame_len > 66)
 						tx_state	<= TX_STATE_CRC_0;
@@ -526,18 +591,18 @@ module AXIS_TriSpeedEthernetMAC(
 				TX_STATE_IFG: begin
 					tx_count		<= tx_count + 1'h1;
 
-					if(tx_count == 11) begin
-						tx_ready	<= 1;
+					if(tx_count == 11)
 						tx_state	<= TX_STATE_IDLE;
-					end
 
 				end	//end TX_STATE_IFG
 
 			endcase
-
 		end
 
+		//synchronous reset for state machine, everything else will self clear
+		if(!axi_tx.areset_n)
+			tx_state	 <= TX_STATE_IDLE;
+
 	end
-	*/
 
 endmodule

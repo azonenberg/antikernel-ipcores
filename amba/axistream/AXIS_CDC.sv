@@ -1,4 +1,5 @@
 `timescale 1ns / 1ps
+`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
@@ -31,56 +32,155 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief Unidirectional pulse synchronizer for sharing single cycle pulses across clock domains
-
-	Note that it takes several clocks for the pulse to propagate. If clk_a is faster than clk_b, there is a "dead time"
-	window in which two consecutive pulses may be read as one.
+	@brief Clock domain crossing FIFO for AXI stream data
  */
-module PulseSynchronizer #(
-	parameter SYNC_IN_REG = 0
+module AXIS_CDC #(
+	parameter FIFO_DEPTH	= 256,
+	parameter USE_BLOCK		= 1
 )(
-	input wire		clk_a,
-	input wire		pulse_a,
 
-	input wire		clk_b,
-	output logic	pulse_b = 0
+	//Input data bus
+	AXIStream.receiver			axi_rx,
+
+	//Output data bus
+	input wire					tx_clk,
+	AXIStream.transmitter		axi_tx
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Transmit side
+	// Validate buses are the same size
 
-	logic		tx_a	= 0;
+	if(axi_rx.DATA_WIDTH != axi_tx.DATA_WIDTH)
+		axi_bus_width_inconsistent();
+	if(axi_rx.USER_WIDTH != axi_tx.USER_WIDTH)
+		axi_bus_width_inconsistent();
+	if(axi_rx.ID_WIDTH != axi_tx.ID_WIDTH)
+		axi_bus_width_inconsistent();
+	if(axi_rx.DEST_WIDTH != axi_tx.DEST_WIDTH)
+		axi_bus_width_inconsistent();
 
-	//Toggle every time we get a pulse
-	always_ff @(posedge clk_a) begin
-		if(pulse_a)
-			tx_a	<= ~tx_a;
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Hook up AXI control signals
+
+	assign axi_tx.aclk		= tx_clk;
+	assign axi_tx.twakeup	= 1;
+
+	//ResetSynchronizer is having weird timing issues, we can work on solving those later
+	//For now, use a ThreeStageSynchronizer and assume the reset is asserted for a decent chunk of time
+	ThreeStageSynchronizer #(
+		.IN_REG(1)
+	) rst_sync (
+		.clk_in(axi_rx.aclk),
+		.din(axi_rx.areset_n),
+		.clk_out(tx_clk),
+		.dout(axi_tx.areset_n)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The FIFO
+
+	localparam MID_WIDTH = (axi_rx.ID_WIDTH == 0) ? 1 : axi_rx.ID_WIDTH;
+	localparam MUSER_WIDTH = (axi_rx.USER_WIDTH == 0) ? 1 : axi_rx.USER_WIDTH;
+	localparam MDEST_WIDTH = (axi_rx.DEST_WIDTH == 0) ? 1 : axi_rx.DEST_WIDTH;
+	localparam STROBE_WIDTH = (axi_rx.DATA_WIDTH/8);
+
+	typedef struct packed
+	{
+		logic[axi_rx.DATA_WIDTH-1:0]	tdata;
+		logic[MUSER_WIDTH-1:0]			tuser;
+		logic[MID_WIDTH-1:0]			tid;
+		logic[MDEST_WIDTH-1:0]			tdest;
+		logic[STROBE_WIDTH-1:0]			tstrb;
+		logic[STROBE_WIDTH-1:0]			tkeep;
+		logic							tlast;
+	} FifoContents;
+
+	FifoContents wr_data;
+	always_comb begin
+		wr_data.tdata	= axi_rx.tdata;
+		wr_data.tuser	= axi_rx.tuser;
+		wr_data.tid		= axi_rx.tid;
+		wr_data.tdest	= axi_rx.tdest;
+		wr_data.tstrb	= axi_rx.tstrb;
+		wr_data.tkeep	= axi_rx.tkeep;
+		wr_data.tlast	= axi_rx.tlast;
 	end
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The synchronizer
+	localparam	ADDR_BITS = $clog2(FIFO_DEPTH);
+	wire[ADDR_BITS:0]	wr_size;
 
-	wire	rx_a;
+	logic				rd_en	= 0;
+	wire[ADDR_BITS:0]	rd_size;
+	FifoContents 		rd_data;
 
-	ThreeStageSynchronizer #(
-		.INIT(0),
-		.IN_REG(SYNC_IN_REG)
-	) sync (
-		.clk_in(clk_a),
-		.din(tx_a),
-		.clk_out(clk_b),
-		.dout(rx_a)
+	CrossClockFifo #(
+		.WIDTH(axi_rx.DATA_WIDTH + MUSER_WIDTH + MID_WIDTH + MDEST_WIDTH + 2*STROBE_WIDTH + 1),
+		.DEPTH(FIFO_DEPTH),
+		.USE_BLOCK(USE_BLOCK),
+		.OUT_REG(1)	//TODO: support OUT_REG=2
+	) cdc_fifo (
+		.wr_clk(axi_rx.aclk),
+		.wr_en( (axi_rx.tvalid && axi_rx.tready) || axi_rx.tlast ),
+		.wr_data(wr_data),
+		.wr_size(wr_size),
+		.wr_full(),
+		.wr_overflow(),
+		.wr_reset(!axi_rx.areset_n),
+
+		.rd_clk(axi_tx.aclk),
+		.rd_en(rd_en),
+		.rd_data(rd_data),
+		.rd_size(rd_size),
+		.rd_empty(),
+		.rd_underflow(),
+		.rd_reset(!axi_tx.areset_n)
 	);
 
+	assign axi_rx.tready = (wr_size > 1);
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Receive side
+	// Pop logic
 
-	logic		rx_a_ff	= 0;
+	assign axi_tx.tstrb = rd_data.tstrb;
+	assign axi_tx.tkeep = rd_data.tkeep;
+	assign axi_tx.tlast = rd_data.tlast && axi_tx.tvalid;
+	assign axi_tx.tdata = rd_data.tdata;
+	assign axi_tx.tid	= rd_data.tid;
+	assign axi_tx.tdest = rd_data.tdest;
+	assign axi_tx.tuser = rd_data.tuser;
 
-	//Pulse every time we get a toggle
-	always_ff @(posedge clk_b) begin
-		rx_a_ff	<= rx_a;
-		pulse_b	<= (rx_a_ff != rx_a);
+	logic	rd_en_ff	= 0;
+
+	//manage pop
+	always_comb begin
+		rd_en	= 0;
+
+		//if nothing to read, we have nothing to do
+		if(rd_size == 0) begin
+		end
+
+		//if we have data, only pop if the existing data was accepted, or nothing is on deck
+		else if(axi_tx.tready || !axi_tx.tvalid)
+			rd_en	= 1;
+
+	end
+
+	//manage TVALID
+	always_ff @(posedge axi_tx.aclk or negedge axi_tx.areset_n) begin
+		if(!axi_tx.areset_n) begin
+			axi_tx.tvalid	<= 0;
+			rd_en_ff		<= 0;
+		end
+
+		else begin
+
+			rd_en_ff		<= rd_en;
+
+			if(axi_tx.tready)
+				axi_tx.tvalid	<= 0;
+			if(rd_en)
+				axi_tx.tvalid	<= 1;
+		end
 	end
 
 endmodule
