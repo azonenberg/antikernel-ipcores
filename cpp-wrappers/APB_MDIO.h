@@ -71,10 +71,20 @@ enum base_mdioreg_t
 class MDIODevice
 {
 public:
-	MDIODevice(volatile APB_MDIO* mdio, uint8_t phyaddr)
+	MDIODevice(volatile APB_MDIO* mdio = nullptr, uint8_t phyaddr = 0)
 	: m_mdio(mdio)
 	, m_phyaddr(phyaddr)
 	{}
+
+	///@brief Get the PHY address of this device
+	uint8_t GetAddress()
+	{ return m_phyaddr; }
+
+	void DeferredInit(volatile APB_MDIO* mdio, uint8_t phyaddr)
+	{
+		m_mdio = mdio;
+		m_phyaddr = phyaddr;
+	}
 
 	/**
 		@brief Write a value to a MDIO register
