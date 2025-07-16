@@ -94,23 +94,39 @@ module AXIS_XGEthernetMAC(
 	assign axi_rx.tdest		= 0;	//TDEST not used
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// XGMII RX control character decoding
+	// XGMII RX control character decoding and pipelining
 
-	wire[3:0] lane_has_end =
-	{
-		xgmii_rx_bus.ctl[3] && (xgmii_rx_bus.data[31:24] == XGMII_CTL_END),
-		xgmii_rx_bus.ctl[2] && (xgmii_rx_bus.data[23:16] == XGMII_CTL_END),
-		xgmii_rx_bus.ctl[1] && (xgmii_rx_bus.data[15:8]  == XGMII_CTL_END),
-		xgmii_rx_bus.ctl[0] && (xgmii_rx_bus.data[7:0]   == XGMII_CTL_END)
-	};
+	logic[31:0] rx_data 		= 0;
+	logic[3:0]	lane_has_end	= 0;
+	logic[3:0]	lane_has_error	= 0;
+	logic[3:0]	rx_ctl_ff		= 0;
 
-	wire[3:0] lane_has_error =
-	{
-		xgmii_rx_bus.ctl[3] && (xgmii_rx_bus.data[31:24] == XGMII_CTL_ERROR),
-		xgmii_rx_bus.ctl[2] && (xgmii_rx_bus.data[23:16] == XGMII_CTL_ERROR),
-		xgmii_rx_bus.ctl[1] && (xgmii_rx_bus.data[15:8]  == XGMII_CTL_ERROR),
-		xgmii_rx_bus.ctl[0] && (xgmii_rx_bus.data[7:0]   == XGMII_CTL_ERROR)
-	};
+	logic		rx_valid_ff		= 0;
+	logic		rx_valid_ff2	= 0;
+
+	always_ff @(posedge xgmii_rx_clk) begin
+		lane_has_end	<=
+		{
+			xgmii_rx_bus.ctl[3] && (xgmii_rx_bus.data[31:24] == XGMII_CTL_END),
+			xgmii_rx_bus.ctl[2] && (xgmii_rx_bus.data[23:16] == XGMII_CTL_END),
+			xgmii_rx_bus.ctl[1] && (xgmii_rx_bus.data[15:8]  == XGMII_CTL_END),
+			xgmii_rx_bus.ctl[0] && (xgmii_rx_bus.data[7:0]   == XGMII_CTL_END)
+		};
+
+		lane_has_error 	<=
+		{
+			xgmii_rx_bus.ctl[3] && (xgmii_rx_bus.data[31:24] == XGMII_CTL_ERROR),
+			xgmii_rx_bus.ctl[2] && (xgmii_rx_bus.data[23:16] == XGMII_CTL_ERROR),
+			xgmii_rx_bus.ctl[1] && (xgmii_rx_bus.data[15:8]  == XGMII_CTL_ERROR),
+			xgmii_rx_bus.ctl[0] && (xgmii_rx_bus.data[7:0]   == XGMII_CTL_ERROR)
+		};
+
+		rx_data			<= xgmii_rx_bus.data;
+
+		rx_valid_ff		<= xgmii_rx_bus.valid;
+		rx_valid_ff2	<= rx_valid_ff;
+		rx_ctl_ff		<= xgmii_rx_bus.ctl;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// XGMII RX logic
@@ -129,8 +145,6 @@ module AXIS_XGEthernetMAC(
 	logic[31:0]	crc_expected_ff;
 	logic[31:0]	crc_expected_ff2;
 	logic[2:0]	rx_crc_bytes_valid;
-
-	logic		xgmii_rx_valid_ff	= 0;
 
 	//Combinatorially figure out how many bytes of data in the current block are valid
 	always_comb begin
@@ -157,27 +171,27 @@ module AXIS_XGEthernetMAC(
 					axi_rx.tkeep 		= 4'b1111;
 					axi_rx.tvalid		= 1;
 					rx_crc_bytes_valid	= 1;
-					crc_expected		= { axi_rx.tdata[15:8], axi_rx.tdata[23:16], axi_rx.tdata[31:24], xgmii_rx_bus.data[31:24] };
+					crc_expected		= { axi_rx.tdata[15:8], axi_rx.tdata[23:16], axi_rx.tdata[31:24], rx_data[31:24] };
 				end
 				else if(lane_has_end[1]) begin
 					axi_rx.tstrb 		= 4'b0011;
 					axi_rx.tkeep 		= 4'b1111;
 					axi_rx.tvalid		= 1;
 					rx_crc_bytes_valid	= 2;
-					crc_expected		= { axi_rx.tdata[23:16], axi_rx.tdata[31:24], xgmii_rx_bus.data[31:16] };
+					crc_expected		= { axi_rx.tdata[23:16], axi_rx.tdata[31:24], rx_data[31:16] };
 				end
 				else /* if(lane_has_end[0])*/  begin
 					axi_rx.tstrb 		= 4'b0111;
 					axi_rx.tkeep 		= 4'b1111;
 					axi_rx.tvalid		= 1;
 					rx_crc_bytes_valid	= 3;
-					crc_expected		= { axi_rx.tdata[31:24], xgmii_rx_bus.data[31:8] };
+					crc_expected		= { axi_rx.tdata[31:24], rx_data[31:8] };
 				end
 
 			end
 
 			//output nothing if the input is stalling
-			else if(!xgmii_rx_valid_ff) begin
+			else if(!rx_valid_ff2) begin
 			end
 
 			//Packet is NOT ending this block. Feed the last 4 bytes to the CRC engine.
@@ -205,19 +219,11 @@ module AXIS_XGEthernetMAC(
 		axi_rx.tuser	<= 0;
 		rx_crc_reset	<= 0;
 
-		xgmii_rx_valid_ff	<= xgmii_rx_bus.valid;
-
-		if(xgmii_rx_bus.valid) begin
+		if(rx_valid_ff) begin
 
 			last_was_preamble	<= 0;
 
-			axi_rx.tdata		<=
-			{
-				xgmii_rx_bus.data[7:0],
-				xgmii_rx_bus.data[15:8],
-				xgmii_rx_bus.data[23:16],
-				xgmii_rx_bus.data[31:24]
-			};
+			axi_rx.tdata		<= { rx_data[7:0], rx_data[15:8], rx_data[23:16], rx_data[31:24] };
 			crc_expected_ff		<= crc_expected;
 			crc_expected_ff2	<= crc_expected_ff;
 
@@ -242,7 +248,7 @@ module AXIS_XGEthernetMAC(
 
 					//Ignore idles and errors
 					//Look for start of frame (can only occur in leftmost XGMII lane)
-					if(xgmii_rx_bus.ctl[3] && (xgmii_rx_bus.data[31:24] == XGMII_CTL_START) )
+					if(rx_ctl_ff[3] && (rx_data[31:24] == XGMII_CTL_START) )
 						rx_state		<= STATE_PREAMBLE;
 
 				end	//end STATE_IDLE
@@ -256,7 +262,7 @@ module AXIS_XGEthernetMAC(
 
 					//We should have exactly one XGMII clock in this stage
 					//and it should be data 55 55 55 D5. Anything else is an error, drop the frame.
-					if( (xgmii_rx_bus.ctl != 0) || (xgmii_rx_bus.data != 32'h555555d5) )
+					if( (rx_ctl_ff != 0) || (rx_data != 32'h555555d5) )
 						rx_state		<= STATE_IDLE;
 
 					//If we get here we're good, go on to the body

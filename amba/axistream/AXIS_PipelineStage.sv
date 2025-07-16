@@ -55,8 +55,6 @@ module AXIS_PipelineStage(
 	// Pass-through on control signals
 
 	assign axi_tx.aclk		= axi_rx.aclk;
-	assign axi_tx.twakeup	= axi_rx.twakeup;
-	assign axi_tx.areset_n	= axi_rx.areset_n;
 
 	//Ignore flow control
 	assign axi_rx.tready	= 1;
@@ -72,6 +70,8 @@ module AXIS_PipelineStage(
 		axi_tx.tstrb	<= axi_rx.tstrb;
 		axi_tx.tkeep	<= axi_rx.tkeep;
 		axi_tx.tlast	<= axi_rx.tlast;
+		axi_tx.areset_n	<= axi_rx.areset_n;
+		axi_tx.twakeup	<= axi_rx.twakeup;
 	end
 
 endmodule
