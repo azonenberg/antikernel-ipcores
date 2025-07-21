@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -347,7 +347,7 @@ module APB_DeviceInfo_7series(
 
 	RegisterSynchronizer #(
 		.WIDTH(64),
-		.IN_REG(0)
+		.IN_REG(1)
 	) sync_die_serial (
 		.clk_a(clk_dna),
 		.en_a(die_serial_updated),
@@ -374,7 +374,7 @@ module APB_DeviceInfo_7series(
 
 	RegisterSynchronizer #(
 		.WIDTH(32),
-		.IN_REG(0)
+		.IN_REG(1)
 	) sync_idcode (
 		.clk_a(clk_icap),
 		.en_a(idcode_updated),
