@@ -253,7 +253,7 @@ module APB_AXIS_EthernetTxBuffer(
 	//TDEST not used
 
 	always_ff @(posedge axi_tx.aclk) begin
-		axi_tx.areset_n	<= !wr_reset;
+		axi_tx.areset_n	<= !link_up_txclk;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
