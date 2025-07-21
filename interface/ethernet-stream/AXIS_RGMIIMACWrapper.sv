@@ -1,8 +1,9 @@
+`timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -27,19 +28,90 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_DeviceInfo_UltraScale_h
-#define APB_DeviceInfo_UltraScale_h
+import EthernetBus::*;
 
 /**
-	@brief Registers for device information core
+	@file
+	@author Andrew D. Zonenberg
+	@brief Convenience wrapper around RGMIIToGMIIBridge and AXIS_TriSpeedEthernetMAC
  */
-struct APB_DeviceInfo_UltraScale
-{
-public:
-	uint32_t status;
-	uint32_t idcode;
-	uint32_t serial[3];
-	uint32_t usercode;
-};
+module AXIS_RGMIIMACWrapper #(
+	parameter PHY_INTERNAL_DELAY_RX = 1,
+	parameter CLK_BUF_TYPE = "GLOBAL"
+)(
 
-#endif
+	//Clocking
+	input wire					clk_125mhz,
+	input wire					clk_250mhz,
+
+	//RGMII signals to off-chip device
+	input wire					rgmii_rxc,
+	input wire[3:0]				rgmii_rxd,
+	input wire					rgmii_rx_ctl,
+
+	output wire					rgmii_txc,
+	output wire[3:0]			rgmii_txd,
+	output wire					rgmii_tx_ctl,
+
+	//MAC signals to TCP/IP stack
+	AXIStream.receiver			axi_tx,
+	AXIStream.transmitter		axi_rx,
+
+	//axi_rx aclk domain
+	output wire					link_up,
+	output lspeed_t				link_speed
+
+	//TODO: performance counters
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Bridge to GMII
+
+	wire		gmii_rxc;
+	GmiiBus		gmii_rx_bus;
+	GmiiBus		gmii_tx_bus;
+
+	assign		mac_rx_clk	= gmii_rxc;
+
+	RGMIIToGMIIBridge #(
+		.PHY_INTERNAL_DELAY_RX(PHY_INTERNAL_DELAY_RX),
+		.CLK_BUF_TYPE(CLK_BUF_TYPE)
+	) rgmii_bridge(
+		.rgmii_rxc(rgmii_rxc),
+		.rgmii_rxd(rgmii_rxd),
+		.rgmii_rx_ctl(rgmii_rx_ctl),
+
+		.rgmii_txc(rgmii_txc),
+		.rgmii_txd(rgmii_txd),
+		.rgmii_tx_ctl(rgmii_tx_ctl),
+
+		.gmii_rxc(gmii_rxc),
+		.gmii_rx_bus(gmii_rx_bus),
+
+		.gmii_txc(clk_125mhz),
+		.clk_250mhz(clk_250mhz),
+		.gmii_tx_bus(gmii_tx_bus),
+
+		.link_up(link_up),
+		.link_speed(link_speed)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The actual MAC
+
+	AXIS_TriSpeedEthernetMAC mac(
+		.gmii_rx_clk(gmii_rxc),
+		.gmii_rx_bus(gmii_rx_bus),
+
+		.gmii_tx_clk(clk_125mhz),
+		.gmii_tx_bus(gmii_tx_bus),
+
+		.link_up(link_up),
+		.link_speed(link_speed),
+
+		.axi_rx(axi_rx),
+		.axi_tx(axi_tx)
+		);
+
+
+endmodule

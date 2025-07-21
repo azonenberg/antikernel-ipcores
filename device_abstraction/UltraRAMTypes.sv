@@ -1,3 +1,4 @@
+`timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
@@ -27,19 +28,35 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_DeviceInfo_UltraScale_h
-#define APB_DeviceInfo_UltraScale_h
+`ifndef UltraRAMTypes_sv
+`define UltraRAMTypes_sv
 
 /**
-	@brief Registers for device information core
+	@brief Unidirectional cascade bus for an UltraRAM
  */
-struct APB_DeviceInfo_UltraScale
-{
-public:
-	uint32_t status;
-	uint32_t idcode;
-	uint32_t serial[3];
-	uint32_t usercode;
-};
+interface UltraRAMCascadeBus();
 
-#endif
+	//on the primitive, names are "in" from below and "out" to above
+	//we use "south" and "north" to make the spatial relationships more clear
+
+	logic[22:0]	addr;
+	logic		en;
+	logic[8:0]	bwe;
+	logic		rdb;
+	logic[71:0]	din;
+	logic[71:0]	dout;
+	logic		rdaccess;
+	logic		sbiterr;
+	logic		dbiterr;
+
+	modport south(
+		input	addr, en, bwe, rdb, din, dout, rdaccess, sbiterr, dbiterr
+	);
+
+	modport north(
+		output	addr, en, bwe, rdb, din, dout, rdaccess, sbiterr, dbiterr
+	);
+
+endinterface
+
+`endif

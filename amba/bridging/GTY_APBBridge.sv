@@ -88,7 +88,8 @@ module GTY_APBBridge #(
 		.ROUGH_RATE_GBPS(5),	//TODO parameterize
 		.DATA_WIDTH(40),
 		.RX_COMMA_ALIGN(1),
-		.RX_BUF_BYPASS(1)
+		.RX_BUF_BYPASS(1),
+		.GEARBOX_CFG("OFF")
 	) lane (
 		.apb(serdes_apb),
 
@@ -146,6 +147,11 @@ module GTY_APBBridge #(
 		.rxprbssel(4'b0),
 		.txprbssel(4'b0),
 
+		.rx_data_valid(),
+		.rx_header_valid(),
+		.rx_header(),
+		.rx_gearbox_bitslip(1'b0),
+
 		.rx_8b10b_decode(1'b1),
 		.rx_comma_is_aligned(rx_comma_is_aligned),
 		.rx_char_is_k(rx_char_is_k),
@@ -196,7 +202,11 @@ module GTY_APBBridge #(
 			.probe8(apb_req.pwdata),
 			.probe9(apb_req.pready),
 			.probe10(apb_req.prdata),
-			.probe11(apb_req.pslverr)
+			.probe11(apb_req.pslverr),
+
+			.probe12(bridge.rx_state),
+			.probe13(bridge.rx_ll_commit),
+			.probe14(bridge.rx_ll_start)
 		);
 	end
 

@@ -1,3 +1,5 @@
+`timescale 1ns / 1ps
+`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
@@ -27,19 +29,49 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_DeviceInfo_UltraScale_h
-#define APB_DeviceInfo_UltraScale_h
-
 /**
-	@brief Registers for device information core
+	@file
+	@author Andrew D. Zonenberg
+	@brief Pipeline stage for AXI4-Stream with no flow control
  */
-struct APB_DeviceInfo_UltraScale
-{
-public:
-	uint32_t status;
-	uint32_t idcode;
-	uint32_t serial[3];
-	uint32_t usercode;
-};
+module AXIS_PipelineStage(
+	AXIStream.receiver			axi_rx,
+	AXIStream.transmitter		axi_tx
+);
 
-#endif
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Validate buses are the same size
+
+	if(axi_rx.DATA_WIDTH != axi_tx.DATA_WIDTH)
+		axi_bus_width_inconsistent();
+	if(axi_rx.USER_WIDTH != axi_tx.USER_WIDTH)
+		axi_bus_width_inconsistent();
+	if(axi_rx.ID_WIDTH != axi_tx.ID_WIDTH)
+		axi_bus_width_inconsistent();
+	if(axi_rx.DEST_WIDTH != axi_tx.DEST_WIDTH)
+		axi_bus_width_inconsistent();
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Pass-through on control signals
+
+	assign axi_tx.aclk		= axi_rx.aclk;
+
+	//Ignore flow control
+	assign axi_rx.tready	= 1;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Pipeline register on control signals
+
+	always_ff @(posedge axi_rx.aclk) begin
+		axi_tx.tdata	<= axi_rx.tdata;
+		axi_tx.tuser	<= axi_rx.tuser;
+		axi_tx.tid		<= axi_rx.tid;
+		axi_tx.tdest	<= axi_rx.tdest;
+		axi_tx.tstrb	<= axi_rx.tstrb;
+		axi_tx.tkeep	<= axi_rx.tkeep;
+		axi_tx.tlast	<= axi_rx.tlast;
+		axi_tx.areset_n	<= axi_rx.areset_n;
+		axi_tx.twakeup	<= axi_rx.twakeup;
+	end
+
+endmodule

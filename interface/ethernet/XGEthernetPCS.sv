@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -72,7 +72,7 @@ module XGEthernetPCS(
 	//Link state etc signals (RX clock domain)
 	input wire			sfp_los,
 	output wire			block_sync_good,	//indicates valid 64/66b synchronization
-	output wire			link_up,
+	output logic		link_up = 0,		//registered so we can use it as a reset better
 	output logic		remote_fault
 	);
 
@@ -88,15 +88,18 @@ module XGEthernetPCS(
 	wire	sfp_los_sync;
 
 	ThreeStageSynchronizer #(
-		.IN_REG(0)
+		.IN_REG(1)
 	) sync_sfp_los(
 		.clk_in(rx_clk),
 		.din(sfp_los),
 		.clk_out(rx_clk),
-		.dout(sfp_los_sync));
+		.dout(sfp_los_sync)
+	);
 
 	//TODO: detect invalid code groups etc and drop the link after too many
-	assign link_up	= block_sync_good && !remote_fault && !sfp_los_sync;
+	always_ff @(posedge rx_clk) begin
+		link_up	<= block_sync_good && !remote_fault && !sfp_los_sync;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Ethernet protocol constants
