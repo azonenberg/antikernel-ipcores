@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -248,10 +248,13 @@ module APB_AXIS_EthernetTxBuffer(
 	);
 
 	assign axi_tx.aclk		= tx_clk;
-	assign axi_tx.areset_n	= !wr_reset;
 	assign axi_tx.twakeup	= 1;
 	//TID not used
 	//TDEST not used
+
+	always_ff @(posedge axi_tx.aclk) begin
+		axi_tx.areset_n	<= !wr_reset;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual FIFOs
