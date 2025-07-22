@@ -333,25 +333,25 @@ module X25519_ScalarMult #(
 		logic		select_en;
 		logic		addsub_en;
 		logic		mult_en;
-		xregid_t		addsub_a;
-		xregid_t		addsub_b;
-		xregid_t		mult_a;
-		xregid_t		mult_b;
+		xregid_t	addsub_a;
+		xregid_t	addsub_b;
+		xregid_t	mult_a;
+		xregid_t	mult_b;
 
 		/////
 
 		//new block for selection
-		xregid_t		select_r;	//inputs
-		xregid_t		select_s;
-		xregid_t		select_p;	//outputs
-		xregid_t		select_q;
+		xregid_t	select_r;	//inputs
+		xregid_t	select_s;
+		xregid_t	select_p;	//outputs
+		xregid_t	select_q;
 
 		/////
 
 		//outputs
-		xregid_t		add_out;
-		xregid_t		sub_out;
-		xregid_t		mult_out;
+		xregid_t	add_out;
+		xregid_t	sub_out;
+		xregid_t	mult_out;
 
 		//control flow
 		logic		next_on_add;
@@ -954,6 +954,7 @@ module X25519_ScalarMult #(
 	logic	want_mult_result = 0;
 	logic	want_select_result = 0;
 
+	//redundant, need to delete
 	logic	ml_rd_en = 0;
 
 	(* KEEP = "true" *)
@@ -979,18 +980,36 @@ module X25519_ScalarMult #(
 	xregid_t	select_s_ff	= REG_TEMP_0;
 
 	logic		advancing;
-	logic		advancing_ff	= 0;
-	logic		advancing_ff2	= 0;
+	logic		advancing_ff		= 0;
+	logic		advancing_ff2		= 0;
+
+	logic		regfile_rd_en;
+	logic		regfile_rd_en_ff	= 0;
+	logic		regfile_rd_valid;
+
+	always_comb begin
+		regfile_rd_en	= advancing_ff2;
+
+		if(REGFILE_OUT_REG)
+			regfile_rd_valid	= regfile_rd_en_ff;
+		else
+			regfile_rd_valid	= regfile_rd_en;
+	end
 
 	always_ff @(posedge clk) begin
+
 		if(advancing_ff) begin
-			addsub_a_ff	<= line.addsub_a;
-			addsub_b_ff	<= line.addsub_b;
-			mult_a_ff	<= line.mult_a;
-			mult_b_ff	<= line.mult_b;
-			select_r_ff	<= line.select_r;
-			select_s_ff	<= line.select_s;
+			addsub_a_ff		<= line.addsub_a;
+			addsub_b_ff		<= line.addsub_b;
+			mult_a_ff		<= line.mult_a;
+			mult_b_ff		<= line.mult_b;
+			select_r_ff		<= line.select_r;
+			select_s_ff		<= line.select_s;
 		end
+
+		advancing_ff		<= advancing || dh_iter_en || dsa_iter_en;
+		advancing_ff2		<= advancing_ff;
+		regfile_rd_en_ff	<= regfile_rd_en;
 	end
 
 	microcode_t line;
@@ -1033,8 +1052,7 @@ module X25519_ScalarMult #(
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// Reads
 
-		.rd_en(advancing_ff2),
-		.ml_rd_en(ml_rd_en),
+		.rd_en(regfile_rd_en),
 		.share_freeze_en(share_freeze_en),
 
 		.addsub_a_regid(addsub_a_ff),
@@ -1076,9 +1094,6 @@ module X25519_ScalarMult #(
 		iter_out_valid	<= 0;
 
 		out_valid 		<= share_freeze_en || dsa_rd;
-
-		advancing_ff	<= advancing;
-		advancing_ff2	<= advancing_ff;
 
 		//Save flags indicating whether output should be processed
 		want_add_result		<= (line.add_out <= REG_TEMP_10);
@@ -1125,7 +1140,8 @@ module X25519_ScalarMult #(
 
 			end
 		end
-		if(advancing_ff2) begin
+
+		if(regfile_rd_valid) begin
 
 			//Enable blocks as needed
 			share_select_en		<= line.select_en;
@@ -1140,7 +1156,6 @@ module X25519_ScalarMult #(
 		//Special case initialization
 		//select(xzmb,xzm1b,xzm,xzm1,b);
 		if(dh_iter_en) begin
-			advancing_ff	<= 1;
 			if(iter_first)
 				state		<= STATE_ECDH_START_FIRST;
 			else
@@ -1148,7 +1163,6 @@ module X25519_ScalarMult #(
 		end
 
 		if(dsa_iter_en) begin
-			advancing_ff	<= 1;
 
 			//scalarbase one-time init
 			if(load_base)
@@ -1271,7 +1285,6 @@ module X25519_ScalarMult #(
 
 					if(round == 0) begin
 						loopstate	<= LSTATE_SCALARDONE;
-						ml_rd_en	<= 1;
 					end
 					else
 						loopstate	<= LSTATE_SCALARSTART;
