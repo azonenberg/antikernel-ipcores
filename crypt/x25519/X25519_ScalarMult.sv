@@ -75,7 +75,9 @@
 		same as scalarmult() from here
  */
 import Curve25519Registers::*;
-module X25519_ScalarMult(
+module X25519_ScalarMult #(
+	parameter REGFILE_OUT_REG = 0
+)(
 	input wire			clk,
 
 	//Common inputs
