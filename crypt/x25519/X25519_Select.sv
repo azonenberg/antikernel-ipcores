@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -42,10 +42,17 @@ module X25519_Select(
 	input wire			b,
 	input wire[255:0]	r,
 	input wire[255:0]	s,
-	output logic[255:0]	p			= 0,
-	output logic[255:0]	q			= 0,
-	output logic		out_valid	= 0
+	output logic[255:0]	p,
+	output logic[255:0]	q,
+	output logic		out_valid
 	);
+
+	//output initialization for efinix toolchain compatibility
+	initial begin
+		p = 0;
+		q = 0;
+		out_valid = 0;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Copy input to output, optionally swapping

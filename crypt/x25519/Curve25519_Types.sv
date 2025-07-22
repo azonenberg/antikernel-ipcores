@@ -1,10 +1,8 @@
-`timescale 1ns/1ps
-`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -29,8 +27,12 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`ifndef X25519_Types
-`define X25519_Types
+/**
+	@file Curve25519_Types.sv
+	@author Andrew D. Zonenberg
+	@brief Structure definitions for Curve25519 stuff
+ */
+package Curve25519Registers;
 
 typedef struct packed
 {
@@ -79,4 +81,4 @@ typedef enum logic[3:0]
 
 typedef logic[263:0] regval_t;
 
-`endif
+endpackage

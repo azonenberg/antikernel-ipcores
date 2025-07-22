@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -36,17 +36,22 @@
 
 	Derived from mainloop() and crypto_scalarmult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
 
-	Typical area (Kintex-7):
-		7632 LUT, 5737 FF, 32 DSP
+	Typical area:
+		Kintex-7: 7632 LUT, 5737 FF, 32 DSP
+		Trion: 21625 LUT, 11528 FF, 96 MULT (30644 LE total)
+			Limited in large part by lack of LUTRAM...
+			TODO consider optional synchronous regfile to enable BRAM packing
 
 	Run time (constant cycle count):
 		crypto_scalarmult (ECDH): 567786 clocks
 		scalarmult (ECDSA):       957287 clocks
 
 	Typical achievable performance:
-		250 MHz in Kintex-7, -2 speed
+		Kintex-7, -2 speed: 250 MHz
 			crypto_scalarmult (ECDH):	2.27 ms
 			scalarmult (ECDSA):			3.90 ms
+
+		Trion T35, C4 speed
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid
@@ -67,7 +72,7 @@
 			assert dsa_base_en
 		same as scalarmult() from here
  */
-
+import Curve25519Registers::*;
 module X25519_ScalarMult(
 	input wire			clk,
 
@@ -89,10 +94,14 @@ module X25519_ScalarMult(
 	input wire[1:0]		dsa_addr,
 
 	//Common outputs
-	output logic		out_valid = 0,
+	output logic		out_valid,
 	output wire[255:0]	work_out
 );
-	`include "X25519_Types.svh"
+
+	//output initialization for efinix toolchain compatibility
+	initial begin
+		out_valid = 0;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Loop contents

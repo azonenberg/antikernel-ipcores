@@ -2,9 +2,9 @@
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -47,9 +47,15 @@ module ReductionAdder #(
 	input wire									en,
 	input wire[IN_WORD_WIDTH*IN_BLOCKS-1:0]		din,
 
-	output logic								dout_valid	= 0,
-	output logic[OUT_WORD_WIDTH*OUT_BLOCKS-1:0]	dout		= 0
+	output logic								dout_valid,
+	output logic[OUT_WORD_WIDTH*OUT_BLOCKS-1:0]	dout
 	);
+
+	//output initialization for efinix toolchain compatibility
+	initial begin
+		dout_valid = 0;
+		dout = 0;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Adder tree

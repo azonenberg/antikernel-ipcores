@@ -2,9 +2,9 @@
 `default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2019 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -29,7 +29,7 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "X25519_Types.svh"
+import Curve25519Registers::*;
 
 //enable this to turn on KEEP_HIERARCHY for better area feedback during optimization
 //turn off to enable flattening and improve performance/area
@@ -122,10 +122,17 @@ module X25519_MultMuxing(
 	input wire			pass_out_valid,
 	input bignum_t		b_bignum,
 
-	output logic		stage1_en	= 0,
-	output logic[4:0]	stage1_i	= 0,
-	output bignum_t		b_rotated	= 0
+	output logic		stage1_en,
+	output logic[4:0]	stage1_i,
+	output bignum_t		b_rotated
 );
+
+	//output initialization for efinix toolchain compatibility
+	initial begin
+		stage1_en = 0;
+		stage1_i = 0;
+		b_rotated = 0;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// We need to rotate B by one block to the left each iteration

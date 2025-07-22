@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -29,11 +29,7 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "X25519_Types.svh"
-
-`ifdef XILINX_7SERIES
-`define HAVE_DSP48
-`endif
+import Curve25519Registers::*;
 
 //enable this to turn on KEEP_HIERARCHY for better area feedback during optimization
 //turn off to enable flattening and improve performance/area
@@ -165,12 +161,17 @@ module X25519_MultPass_stage1(
 	input wire bignum_t	a,
 	input wire bignum_t	b,
 
-	output logic		stage2_en	= 0,
-	output logic[31:0]	stage2_do38	= 0,
+	output logic		stage2_en,
+	output logic[31:0]	stage2_do38,
 
 	output bignum32_t	stage2_tmp
 	);
 
+	//output initialization for efinix toolchain compatibility
+	initial begin
+		stage2_en = 0;
+		stage2_do38 = 0;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// First stage of multiplication
@@ -211,9 +212,15 @@ module X25519_MultPass_stage2(
 	input wire[31:0]		stage2_do38,
 	input wire bignum32_t	stage2_tmp,
 
-	output logic			stage3_en	= 0,
-	output bignum32_t		stage3_tmp	= 0
+	output logic			stage3_en,
+	output bignum32_t		stage3_tmp
 	);
+
+	//output initialization for efinix toolchain compatibility
+	initial begin
+		stage3_en = 0;
+		stage3_tmp = 0;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Second multiplication stage
