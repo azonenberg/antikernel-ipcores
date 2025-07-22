@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -40,8 +40,8 @@ module APB_GPIO #(
 	APB.completer 						apb,
 
 	//The GPIO signals
-	output logic[apb.DATA_WIDTH-1:0]	gpio_out	= OUT_INIT,
-	output logic[apb.DATA_WIDTH-1:0]	gpio_tris	= TRIS_INIT,
+	output logic[apb.DATA_WIDTH-1:0]	gpio_out,
+	output logic[apb.DATA_WIDTH-1:0]	gpio_tris,
 	input wire[apb.DATA_WIDTH-1:0]		gpio_in
 );
 
@@ -50,6 +50,14 @@ module APB_GPIO #(
 
 	if(apb.DATA_WIDTH > 32)
 		apb_bus_width_is_invalid();
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Initialize outputs (efinix tools don't allow this in module header)
+
+	initial begin
+		gpio_out	= OUT_INIT;
+		gpio_tris	= TRIS_INIT;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Tie off unused APB signals
