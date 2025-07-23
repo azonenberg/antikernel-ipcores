@@ -38,9 +38,9 @@
 
 	Typical area:
 		REGFILE_OUT_REG = 0
-			FIXME
+			Kintex-7: 7775 LUT, 1408 LUTRAM, 6769 FF, 32 DSP
 		REGFILE_OUT_REG = 1
-			Kintex-7: 7328 LUT, 1408 LUTRAM, 9246 FF, 32 DSP
+			Kintex-7: 7351 LUT, 1408 LUTRAM, 8903 FF, 32 DSP
 
 	Run time (constant cycle count):
 		REGFILE_OUT_REG = 0:
