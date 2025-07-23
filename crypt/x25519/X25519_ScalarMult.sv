@@ -954,6 +954,9 @@ module X25519_ScalarMult #(
 	logic	want_mult_result = 0;
 	logic	want_select_result = 0;
 
+	//redundant, need to delete
+	logic	ml_rd_en = 0;
+
 	(* KEEP = "true" *)
 	xregid_t	add_rd_ff = REG_TEMP_0;
 
@@ -1200,6 +1203,7 @@ module X25519_ScalarMult #(
 		dsa_iter_en		<= 0;
 		iter_first		<= 0;
 		ml_out_valid	<= 0;
+		ml_rd_en		<= 0;
 		dsa_done		<= 0;
 		load_base		<= 0;
 
@@ -1249,8 +1253,10 @@ module X25519_ScalarMult #(
 				if(iter_out_valid) begin
 					round			<= round - 1;
 
-					if(round == 0)
+					if(round == 0) begin
 						loopstate	<= LSTATE_MLDONE;
+						ml_rd_en	<= 1;
+					end
 					else
 						loopstate	<= LSTATE_MLSTART;
 
