@@ -38,9 +38,6 @@
 
 	Typical area:
 		Kintex-7: 7632 LUT, 5737 FF, 32 DSP
-		Trion: 21625 LUT, 11528 FF, 96 MULT (30644 LE total)
-			Limited in large part by lack of LUTRAM...
-			TODO consider optional synchronous regfile to enable BRAM packing
 
 	Run time (constant cycle count):
 		crypto_scalarmult (ECDH): 567786 clocks
@@ -50,8 +47,6 @@
 		Kintex-7, -2 speed: 250 MHz
 			crypto_scalarmult (ECDH):	2.27 ms
 			scalarmult (ECDSA):			3.90 ms
-
-		Trion T35, C4 speed
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid
@@ -94,14 +89,16 @@ module X25519_ScalarMult(
 	input wire[1:0]		dsa_addr,
 
 	//Common outputs
-	output logic		out_valid,
+	output logic		out_valid = 0,
 	output wire[255:0]	work_out
 );
 
 	//output initialization for efinix toolchain compatibility
+	`ifndef XILINX
 	initial begin
 		out_valid = 0;
 	end
+	`endif
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Loop contents
@@ -1189,11 +1186,11 @@ module X25519_ScalarMult(
 		dsa_done		<= 0;
 		load_base		<= 0;
 
-		if(share_mult_valid && (round < 5))
+		if(share_mult_valid && (round > 250))
 			$display("Multiply complete: %x", share_mult_out);
-		if(share_add_valid && (round < 5))
+		if(share_add_valid && (round > 250))
 			$display("Add complete: %x", share_add_out);
-		if(share_sub_valid && (round < 5))
+		if(share_sub_valid && (round > 250))
 			$display("Sub complete: %x", share_sub_out);
 
 		case(loopstate)
