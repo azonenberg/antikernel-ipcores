@@ -205,7 +205,7 @@ endmodule
 
 	x38 is only 3 bits (32 + 4 + 2) so makes sense to save DSPs for other stuff
  */
-(* USE_DSP="no" *)
+(* USE_DSP="no" *)	//this constraint is xilinx specific, still use hard multipliers on efinix platforms
 module X25519_MultPass_stage2(
 	input wire				clk,
 

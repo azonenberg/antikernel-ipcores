@@ -36,11 +36,14 @@
 
 	Derived from mainloop() and crypto_scalarmult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
 
-	Typical area:
+	Typical area (using DSPs for stage 1 only on Xilinx and stage 1+2 for Efinix)
 		REGFILE_OUT_REG = 0
 			Kintex-7: 7775 LUT, 1408 LUTRAM, 6769 FF, 32 DSP
 		REGFILE_OUT_REG = 1
 			Kintex-7: 7351 LUT, 1408 LUTRAM, 8903 FF, 32 DSP
+			Trion: 5201 LUT4, 2796 ADD, 6316 FF, 96 MULT, xx LE
+			Topaz: 5162 LUT4, 2349 ADD, 6257 FF, 96 DSP, 8989 XLR
+			Titanium: 5162 LUT4, 2349 ADD, 6257 FF, 96 DSP, 8989 XLR
 
 	Run time (constant cycle count):
 		REGFILE_OUT_REG = 0:
@@ -61,7 +64,10 @@
 				scalarmult (ECDSA):			3.90 ms
 		REGFILE_OUT_REG = 1
 			Kintex-7, -2 speed: 250 MHz
-				FIXME
+			Trion, C3 speed: 71 MHz
+			Trion, C4 speed: 89.8 MHz
+			Topaz, C2 speed: 175 MHz
+			Titanium, C4 speed: 280 MHz
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid
@@ -106,7 +112,7 @@ module X25519_ScalarMult #(
 	input wire[1:0]		dsa_addr,
 
 	//Common outputs
-	output logic		out_valid = 0,
+	output logic		out_valid `ifdef XILINX = 0 `endif,
 	output wire[255:0]	work_out
 );
 
