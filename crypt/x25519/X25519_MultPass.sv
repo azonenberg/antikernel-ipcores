@@ -161,9 +161,9 @@ module X25519_MultPass_stage1(
 	input wire bignum_t	a,
 	input wire bignum_t	b,
 
-	output logic		stage2_en		= 0,
-	output logic[31:0]	stage2_do38		= 0,
-	output bignum32_t	stage2_tmp		= 0
+	output logic		stage2_en		`ifdef XILINX = 0 `endif,
+	output logic[31:0]	stage2_do38		`ifdef XILINX = 0 `endif,
+	output bignum32_t	stage2_tmp		`ifdef XILINX = 0 `endif
 	);
 
 	//output initialization for efinix toolchain compatibility
@@ -213,8 +213,8 @@ module X25519_MultPass_stage2(
 	input wire[31:0]		stage2_do38,
 	input wire bignum32_t	stage2_tmp,
 
-	output logic			stage3_en	= 0,
-	output bignum32_t		stage3_tmp	= 0
+	output logic			stage3_en	`ifdef XILINX = 0 `endif,
+	output bignum32_t		stage3_tmp	`ifdef XILINX = 0 `endif
 	);
 
 	//output initialization for efinix toolchain compatibility

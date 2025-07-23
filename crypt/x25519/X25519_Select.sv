@@ -42,9 +42,9 @@ module X25519_Select(
 	input wire			b,
 	input wire[255:0]	r,
 	input wire[255:0]	s,
-	output logic[255:0]	p			= 0,
-	output logic[255:0]	q			= 0,
-	output logic		out_valid	= 0
+	output logic[255:0]	p			`ifdef XILINX = 0 `endif,
+	output logic[255:0]	q			`ifdef XILINX = 0 `endif,
+	output logic		out_valid	`ifdef XILINX = 0 `endif
 	);
 
 	//output initialization for efinix toolchain compatibility
