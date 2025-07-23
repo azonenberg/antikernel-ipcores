@@ -48,6 +48,7 @@
 			Kintex-7: 7421 LUT, 1408 LUTRAM, 6774 FF, 32 DSP
 			Trion: 5156 LUT, 2798 ADD, 6297 FF, 96 MULT, 112 RAM5K, 9471 LE
 			Titanium: 5159 LUT, 2349 ADD, 6240 FF, 96 DSP, 112 RAM10, 8976 XLR
+			Topaz: 5159 LUT, 2349 ADD, 6240 FF, 96 DSP48, 112 RAM10, 8976 XLR
 
 	Run time (constant cycle count):
 		REGFILE_OUT_REG = 0:
@@ -66,6 +67,7 @@
 
 		REGFILE_OUT_REG = 1
 			Trion T35, C4 speed: 96 MHz
+			Topaz TZ50, C2 speed: 171 MHz
 			Titanium 375, C4 speed: 288 MHz
 
 	To do a crypto_scalarmult():
