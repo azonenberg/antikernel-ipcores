@@ -213,10 +213,6 @@ module X25519_MultPass_stage2(
 	input wire bignum32_t	stage2_tmp,
 
 	output logic			stage3_en,
-
-	//We *do* want to use DSPs on efinix architectures
-	//because putting this multiplier in logic hurts Fmax and almost doubles our LUT area
-	//(* syn_use_dsp = "no" *)
 	output bignum32_t		stage3_tmp
 	);
 
