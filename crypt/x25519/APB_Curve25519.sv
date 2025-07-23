@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -36,12 +36,7 @@ import Curve25519Registers::*;
 	@author Andrew D. Zonenberg
 	@brief	APB wrapper around Curve25519 accelerator block
  */
-module APB_Curve25519 #(
-	parameter REGFILE_OUT_REG = 0	//Enable pipeline register on register file
-									//This adds latency and increases the number of clock cycles needed per crypto op,
-									//but may increase Fmax and also enables the register file to be implemented as
-									//block RAM on platforms that do not have LUT RAM support (e.g. Efinix)
-)(
+module APB_Curve25519(
 	APB.completer 				apb
 );
 
@@ -270,9 +265,7 @@ module APB_Curve25519 #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The crypto accelerator
 
-	X25519_ScalarMult #(
-		.REGFILE_OUT_REG(REGFILE_OUT_REG)
-	) crypto (
+	X25519_ScalarMult crypto(
 		.clk(apb.pclk),
 
 		//Common inputs
