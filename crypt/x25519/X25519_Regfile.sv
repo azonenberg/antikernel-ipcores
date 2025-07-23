@@ -100,35 +100,10 @@ module X25519_RegfileBank #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Reading
 
-	//Registered read
-	regval_t rd_data0_ff;
-	regval_t rd_data1_ff;
-	regval_t rd_data2_ff;
-	regval_t rd_data3_ff;
-
-	if(REGFILE_OUT_REG) begin
-
-		//TODO: gate read enable so we dont burn so much power
-		always_ff @(posedge clk) begin
-			rd_data0_ff <= mem[rd_addr0];
-			rd_data1_ff <= mem[rd_addr1];
-			rd_data2_ff <= mem[rd_addr2];
-			rd_data3_ff <= mem[p3_addr];
-		end
-
-		assign rd_data0 = rd_data0_ff;
-		assign rd_data1 = rd_data1_ff;
-		assign rd_data2 = rd_data2_ff;
-		assign rd_data3 = rd_data3_ff;
-
-	end
-
-	else begin
-		assign rd_data0 = mem[rd_addr0];
-		assign rd_data1 = mem[rd_addr1];
-		assign rd_data2 = mem[rd_addr2];
-		assign rd_data3 = mem[p3_addr];
-	end
+	assign rd_data0 = mem[rd_addr0];
+	assign rd_data1 = mem[rd_addr1];
+	assign rd_data2 = mem[rd_addr2];
+	assign rd_data3 = mem[p3_addr];
 
 endmodule
 
@@ -415,23 +390,12 @@ module X25519_Regfile #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Output registers
 
-	logic	rd_en_ff	= 0;
-
-	logic	rd_valid;
-	always_comb begin
-		if(REGFILE_OUT_REG)
-			rd_valid	= rd_en_ff;
-		else
-			rd_valid	= rd_en;
-	end
-
 	always_ff @(posedge clk) begin
-		rd_en_ff	<= rd_en;
 
 		if(share_freeze_en || dsa_rd)
 			share_freeze_a	<= p0_rd_data;
 
-		if(rd_valid) begin
+		if(rd_en) begin
 			share_addsub_a	<= p0_rd_data;
 			share_addsub_b	<= p1_rd_data;
 			share_mult_a	<= p2_rd_data;

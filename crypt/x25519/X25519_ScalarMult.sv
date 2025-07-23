@@ -37,32 +37,23 @@
 	Derived from mainloop() and crypto_scalarmult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
 
 	Typical area:
-		REGFILE_OUT_REG = 0
-			Kintex-7: 7632 LUT, 5737 FF, 32 DSP
-			Trion: 21625 LUT, 11528 FF, 96 MULT (30644 LE total)
-				Limited in large part by lack of LUTRAM...
-				TODO consider optional synchronous regfile to enable BRAM packing
-			Titanium: 21246 LUT4, 2350 ADD, 96 DSP48, 11488 FF, 1 SRL8, 31746 XLR
-
-		REGFILE_OUT_REG = 1
-			Kintex-7: 7421 LUT, 1408 LUTRAM, 6774 FF, 32 DSP
+		Kintex-7: 7632 LUT, 5737 FF, 32 DSP
+		Trion: 21625 LUT, 11528 FF, 96 MULT (30644 LE total)
+			Limited in large part by lack of LUTRAM...
+			TODO consider optional synchronous regfile to enable BRAM packing
+		Titanium: 21246 LUT4, 2350 ADD, 96 DSP48, 11488 FF, 1 SRL8, 31746 XLR
 
 	Run time (constant cycle count):
-		REGFILE_OUT_REG = 0:
-			crypto_scalarmult (ECDH): 567786 clocks
-			scalarmult (ECDSA):       957287 clocks
-		REGFILE_OUT_REG = 1:
-			TODO
+		crypto_scalarmult (ECDH): 567786 clocks
+		scalarmult (ECDSA):       957287 clocks
 
 	Typical achievable performance:
-		REGFILE_OUT_REG = 0
-			Kintex-7, -2 speed: 250 MHz
-				crypto_scalarmult (ECDH):	2.27 ms
-				scalarmult (ECDSA):			3.90 ms
-			Trion T55, C4 speed: 59 MHz
-			Titanium 375, C4 speed: 177 MHz
+		Kintex-7, -2 speed: 250 MHz
+			crypto_scalarmult (ECDH):	2.27 ms
+			scalarmult (ECDSA):			3.90 ms
 
-		REGFILE_OUT_REG = 1
+		Trion T55, C4 speed: 59 MHz
+		Titanium 375, C4 speed: 177 MHz
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid
