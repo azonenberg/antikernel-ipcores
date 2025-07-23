@@ -328,25 +328,25 @@ module X25519_ScalarMult #(
 		logic		select_en;
 		logic		addsub_en;
 		logic		mult_en;
-		xregid_t		addsub_a;
-		xregid_t		addsub_b;
-		xregid_t		mult_a;
-		xregid_t		mult_b;
+		xregid_t	addsub_a;
+		xregid_t	addsub_b;
+		xregid_t	mult_a;
+		xregid_t	mult_b;
 
 		/////
 
 		//new block for selection
-		xregid_t		select_r;	//inputs
-		xregid_t		select_s;
-		xregid_t		select_p;	//outputs
-		xregid_t		select_q;
+		xregid_t	select_r;	//inputs
+		xregid_t	select_s;
+		xregid_t	select_p;	//outputs
+		xregid_t	select_q;
 
 		/////
 
 		//outputs
-		xregid_t		add_out;
-		xregid_t		sub_out;
-		xregid_t		mult_out;
+		xregid_t	add_out;
+		xregid_t	sub_out;
+		xregid_t	mult_out;
 
 		//control flow
 		logic		next_on_add;
