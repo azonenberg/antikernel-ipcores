@@ -46,8 +46,6 @@
 
 		REGFILE_OUT_REG = 1
 			Kintex-7: 7421 LUT, 1408 LUTRAM, 6774 FF, 32 DSP
-			Trion: 5156 LUT, 2798 ADD, 6297 FF, 96 MULT, 112 RAM5K, 9471 LE
-			Titanium: 5159 LUT, 2349 ADD, 6240 FF, 96 DSP, 112 RAM10, 8976 XLR
 
 	Run time (constant cycle count):
 		REGFILE_OUT_REG = 0:
@@ -65,8 +63,6 @@
 			Titanium 375, C4 speed: 177 MHz
 
 		REGFILE_OUT_REG = 1
-			Trion T35, C4 speed: 96 MHz
-			Titanium 375, C4 speed: 288 MHz
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid
@@ -1025,9 +1021,7 @@ module X25519_ScalarMult #(
 	microcode_t line;
 
 	(* keep_hierarchy = "yes" *)
-	X25519_Regfile #(
-		.REGFILE_OUT_REG(REGFILE_OUT_REG)
-	) regfile (
+	X25519_Regfile regfile(
 		.clk(clk),
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////

@@ -70,8 +70,6 @@ module X25519_RegfileBank #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual memory array
 
-	//Use LUT RAM if available for Xilinx
-	//(this constraint is ignored on efinix so we infer a BRAM instead)
 	(* RAM_STYLE = "distributed" *)
 	regval_t		mem[15:0];
 
@@ -88,6 +86,7 @@ module X25519_RegfileBank #(
 		mem[REG_121665]		<= 264'd121665;
 		mem[REG_D2]			<= 264'h2406d9dc56dffce7198e80f2eef3d13000e0149a8283b156ebd69b9426b2f159;
 		mem[REG_Y]			<= 264'h6666666666666666666666666666666666666666666666666666666666666658;
+
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -107,7 +106,6 @@ module X25519_RegfileBank #(
 	regval_t rd_data2_ff;
 	regval_t rd_data3_ff;
 
-	//Synchronous read
 	if(REGFILE_OUT_REG) begin
 
 		//TODO: gate read enable so we dont burn so much power
@@ -125,7 +123,6 @@ module X25519_RegfileBank #(
 
 	end
 
-	//Combinatorial read
 	else begin
 		assign rd_data0 = mem[rd_addr0];
 		assign rd_data1 = mem[rd_addr1];
