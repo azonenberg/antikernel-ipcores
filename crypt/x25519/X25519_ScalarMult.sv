@@ -113,14 +113,16 @@ module X25519_ScalarMult #(
 	input wire[1:0]		dsa_addr,
 
 	//Common outputs
-	output logic		out_valid,
+	output logic		out_valid	`ifdef XILINX = 0 `endif,
 	output wire[255:0]	work_out
 );
 
 	//output initialization for efinix toolchain compatibility
+	`ifndef XILINX
 	initial begin
 		out_valid = 0;
 	end
+	`endif
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Loop contents
@@ -134,7 +136,7 @@ module X25519_ScalarMult #(
 
 	logic			ml_out_valid	= 0;
 
-	logic[7:0] 		round = 0;
+	logic[7:0] 		round 			= 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Apply bit twiddling to "e" for ECDH
@@ -964,19 +966,19 @@ module X25519_ScalarMult #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The register file
 
-	logic	want_add_result = 0;
-	logic	want_sub_result = 0;
-	logic	want_mult_result = 0;
-	logic	want_select_result = 0;
+	logic	want_add_result		= 0;
+	logic	want_sub_result		= 0;
+	logic	want_mult_result	= 0;
+	logic	want_select_result	= 0;
 
 	(* KEEP = "true" *)
-	xregid_t	add_rd_ff = REG_TEMP_0;
+	xregid_t add_rd_ff 		= REG_TEMP_0;
 
 	(* KEEP = "true" *)
-	xregid_t sub_rd_ff = REG_TEMP_0;
+	xregid_t sub_rd_ff 		= REG_TEMP_0;
 
 	(* KEEP = "true" *)
-	xregid_t mult_rd_ff = REG_TEMP_0;
+	xregid_t mult_rd_ff 	= REG_TEMP_0;
 
 	(* KEEP = "true" *)
 	xregid_t select_p_rd_ff = REG_TEMP_0;
@@ -997,15 +999,10 @@ module X25519_ScalarMult #(
 
 	logic		regfile_rd_en;
 	logic		regfile_rd_en_ff	= 0;
-	logic		regfile_rd_valid;
+	wire		regfile_rd_valid;
 
 	always_comb begin
 		regfile_rd_en	= advancing_ff2;
-
-		if(REGFILE_OUT_REG)
-			regfile_rd_valid	= regfile_rd_en_ff;
-		else
-			regfile_rd_valid	= regfile_rd_en;
 	end
 
 	always_ff @(posedge clk) begin
@@ -1067,6 +1064,7 @@ module X25519_ScalarMult #(
 		// Reads
 
 		.rd_en(regfile_rd_en),
+		.rd_valid(regfile_rd_valid),
 		.share_freeze_en(share_freeze_en),
 
 		.addsub_a_regid(addsub_a_ff),
@@ -1100,14 +1098,14 @@ module X25519_ScalarMult #(
 	logic		load_base		= 0;
 
 	always_ff @(posedge clk) begin
-		share_addsub_en	<= 0;
-		share_select_en	<= 0;
-		share_mult_en	<= 0;
-		share_freeze_en	<= 0;
+		share_addsub_en		<= 0;
+		share_select_en		<= 0;
+		share_mult_en		<= 0;
+		share_freeze_en		<= 0;
 
-		iter_out_valid	<= 0;
+		iter_out_valid		<= 0;
 
-		out_valid 		<= share_freeze_en || dsa_rd;
+		out_valid 			<= share_freeze_en || dsa_rd;
 
 		//Save flags indicating whether output should be processed
 		want_add_result		<= (line.add_out <= REG_TEMP_10);
@@ -1311,6 +1309,27 @@ module X25519_ScalarMult #(
 		endcase
 
 	end
+
+	/*
+	//DEBUG
+	ila_0 ila(
+		.clk(clk),
+		.probe0(share_addsub_en),
+		.probe1(share_mult_en),
+		.probe2(regfile_rd_en),
+		.probe3(regfile_rd_valid),
+		.probe4(share_add_out),
+		.probe5(share_freeze_en),
+		.probe6(share_freeze_a),
+
+		.probe7(regfile.rd_en_ff),
+		.probe8(regfile.rd_valid_adv),
+		.probe9(regfile.share_freeze_en),
+		.probe10(regfile.freeze_en_ff),
+		.probe11(regfile.freeze_valid),
+		.probe12(regfile.p0_rd_data),
+		.probe13(share_addsub_a)
+	);*/
 
 endmodule
 
