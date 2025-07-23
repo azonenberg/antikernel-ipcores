@@ -44,8 +44,8 @@ module X25519_Sub(
 	input wire			en,
 	input wire[263:0]	a,
 	input wire[263:0]	b,
-	output logic		out_valid	`ifdef XILINX = 0 `endif ,
-	output logic[263:0]	out			`ifdef XILINX = 0 `endif
+	output logic		`ifdef XILINX out_valid = 0 `endif ,
+	output logic[263:0]	`ifdef XILINX out = 0 `endif
 	);
 
 	//output initialization for efinix toolchain compatibility
