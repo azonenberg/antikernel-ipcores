@@ -36,7 +36,9 @@ import Curve25519Registers::*;
 
 	Dual port, one R/W port (we cannot retire an instruction and fetch simultaneously) and three R/O ports
  */
-module X25519_RegfileBank(
+module X25519_RegfileBank #(
+	parameter REGFILE_OUT_REG	= 0		//pipeline register for register file to enable block RAM interfence on efinix
+)(
 
 	input wire			clk,
 	input wire			wr_en,
@@ -108,7 +110,9 @@ endmodule
 /**
 	@brief Register file
  */
-module X25519_Regfile(
+module X25519_Regfile #(
+	parameter REGFILE_OUT_REG	= 0		//pipeline register for register file to enable block RAM interfence on efinix
+)(
 	input wire			clk,
 
 	//Write ports
@@ -164,23 +168,25 @@ module X25519_Regfile(
 	logic		p0_wr_en;
 	logic		p1_wr_en;
 
-	xregid_t		p0_wr_addr;
-	xregid_t		p1_wr_addr;
+	xregid_t	p0_wr_addr;
+	xregid_t	p1_wr_addr;
 
 	regval_t	p0_wr_data;
 	regval_t	p1_wr_data;
 
-	xregid_t		p0_rd_addr;
-	xregid_t		p1_rd_addr;
-	xregid_t		p2_rd_addr;
-	xregid_t		p3_rd_addr;
+	xregid_t	p0_rd_addr;
+	xregid_t	p1_rd_addr;
+	xregid_t	p2_rd_addr;
+	xregid_t	p3_rd_addr;
 
 	regval_t	p0_rd_data_bank0;
 	regval_t	p1_rd_data_bank0;
 	regval_t	p2_rd_data_bank0;
 	regval_t	p3_rd_data_bank0;
 
-	X25519_RegfileBank bank0(
+	X25519_RegfileBank #(
+		.REGFILE_OUT_REG(REGFILE_OUT_REG)
+	) bank0 (
 		.clk(clk),
 
 		.wr_en(p0_wr_en),
@@ -203,7 +209,9 @@ module X25519_Regfile(
 	regval_t	p2_rd_data_bank1;
 	regval_t	p3_rd_data_bank1;
 
-	X25519_RegfileBank bank1(
+	X25519_RegfileBank #(
+		.REGFILE_OUT_REG(REGFILE_OUT_REG)
+	) bank1 (
 		.clk(clk),
 
 		.wr_en(p1_wr_en),

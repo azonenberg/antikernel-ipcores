@@ -68,7 +68,9 @@
 		same as scalarmult() from here
  */
 import Curve25519Registers::*;
-module X25519_ScalarMult(
+module X25519_ScalarMult #(
+	parameter REGFILE_OUT_REG	= 0		//pipeline register for register file to enable block RAM interfence on efinix
+)(
 	input wire			clk,
 
 	//Common inputs
@@ -989,7 +991,9 @@ module X25519_ScalarMult(
 	microcode_t line;
 
 	(* keep_hierarchy = "yes" *)
-	X25519_Regfile regfile(
+	X25519_Regfile #(
+		.REGFILE_OUT_REG(REGFILE_OUT_REG)
+	) regfile (
 		.clk(clk),
 
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
