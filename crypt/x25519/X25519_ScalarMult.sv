@@ -41,7 +41,6 @@
 		Trion: 21625 LUT, 11528 FF, 96 MULT (30644 LE total)
 			Limited in large part by lack of LUTRAM...
 			TODO consider optional synchronous regfile to enable BRAM packing
-		Titanium: 21246 LUT4, 2350 ADD, 96 DSP48, 11488 FF, 1 SRL8, 31746 XLR
 
 	Run time (constant cycle count):
 		crypto_scalarmult (ECDH): 567786 clocks
@@ -52,8 +51,7 @@
 			crypto_scalarmult (ECDH):	2.27 ms
 			scalarmult (ECDSA):			3.90 ms
 
-		Trion T55, C4 speed: 59 MHz
-		Titanium 375, C4 speed: 177 MHz
+		Trion T35, C4 speed: 59 MHz
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid
