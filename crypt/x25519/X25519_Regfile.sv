@@ -221,7 +221,7 @@ module X25519_Regfile #(
 	regval_t	p3_rd_data_bank0;
 
 	X25519_RegfileBank #(
-		.REGFILE_OUT_REG(/*REGFILE_OUT_REG*/0)
+		.REGFILE_OUT_REG(REGFILE_OUT_REG)
 	) bank0 (
 		.clk(clk),
 
@@ -246,7 +246,7 @@ module X25519_Regfile #(
 	regval_t	p3_rd_data_bank1;
 
 	X25519_RegfileBank #(
-		.REGFILE_OUT_REG(/*REGFILE_OUT_REG*/0)
+		.REGFILE_OUT_REG(REGFILE_OUT_REG)
 	) bank1 (
 		.clk(clk),
 
@@ -458,6 +458,24 @@ module X25519_Regfile #(
 
 		if(freeze_valid)
 			share_freeze_a	<= p0_rd_data;
+
+		//debug
+		if(rd_en) begin
+			share_addsub_a	<= 'hx;
+			share_addsub_b	<= 'hx;
+			share_mult_a	<= 'hx;
+			share_mult_b	<= 'hx;
+		end
+
+		//DEBUG
+		if(p0_wr_en && $isunknown(p0_wr_data)) begin
+			$display("FAIL: write of X");
+			$finish;
+		end
+		if(p1_wr_en && $isunknown(p1_wr_data)) begin
+			$display("FAIL: write of X");
+			$finish;
+		end
 
 		if(rd_valid_adv) begin
 			share_addsub_a	<= p0_rd_data;
