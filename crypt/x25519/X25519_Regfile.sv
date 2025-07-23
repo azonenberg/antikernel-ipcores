@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -70,6 +70,8 @@ module X25519_RegfileBank #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual memory array
 
+	//This constraint is only used for Xilinx targets, efinix wants syn_ramstyle
+	//Doing it this way causes Vivado to infer LUTRAM, while Efinity will infer EFX_RAM instead
 	(* RAM_STYLE = "distributed" *)
 	regval_t		mem[15:0];
 
@@ -100,10 +102,33 @@ module X25519_RegfileBank #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Reading
 
-	assign rd_data0 = mem[rd_addr0];
-	assign rd_data1 = mem[rd_addr1];
-	assign rd_data2 = mem[rd_addr2];
-	assign rd_data3 = mem[p3_addr];
+	regval_t		rd_data0_sync;
+	regval_t		rd_data1_sync;
+	regval_t		rd_data2_sync;
+	regval_t		rd_data3_sync;
+
+	//Synchronous read
+	always_ff @(posedge clk) begin
+		rd_data0_sync	<= mem[rd_addr0];
+		rd_data1_sync	<= mem[rd_addr1];
+		rd_data2_sync	<= mem[rd_addr2];
+		rd_data3_sync	<= mem[p3_addr];
+	end
+
+	//Mux to select synchronous or combinatorial read
+	if(REGFILE_OUT_REG) begin
+		assign rd_data0	= rd_data0_sync;
+		assign rd_data1	= rd_data1_sync;
+		assign rd_data2	= rd_data2_sync;
+		assign rd_data3	= rd_data3_sync;
+	end
+
+	else begin
+		assign rd_data0 = mem[rd_addr0];
+		assign rd_data1 = mem[rd_addr1];
+		assign rd_data2 = mem[rd_addr2];
+		assign rd_data3 = mem[p3_addr];
+	end
 
 endmodule
 
@@ -238,6 +263,44 @@ module X25519_Regfile #(
 		);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Port addressing for reads
+
+	xregid_t	p0_rd_addr_ff = REG_ZERO;
+	xregid_t	p1_rd_addr_ff = REG_ZERO;
+	xregid_t	p2_rd_addr_ff = REG_ZERO;
+	xregid_t	p3_rd_addr_ff = REG_ZERO;
+
+	//Pipeline delay
+	always_ff @(posedge clk) begin
+		p0_rd_addr_ff	<= p0_rd_addr;
+		p1_rd_addr_ff	<= p1_rd_addr;
+		p2_rd_addr_ff	<= p2_rd_addr;
+		p3_rd_addr_ff	<= p3_rd_addr;
+	end
+
+	//Read address aligned to px_rd_data
+	xregid_t	p0_rd_addr_out;
+	xregid_t	p1_rd_addr_out;
+	xregid_t	p2_rd_addr_out;
+	xregid_t	p3_rd_addr_out;
+
+	always_comb begin
+		if(REGFILE_OUT_REG) begin
+			p0_rd_addr_out = p0_rd_addr_ff;
+			p1_rd_addr_out = p1_rd_addr_ff;
+			p2_rd_addr_out = p2_rd_addr_ff;
+			p3_rd_addr_out = p3_rd_addr_ff;
+		end
+
+		else begin
+			p0_rd_addr_out = p0_rd_addr;
+			p1_rd_addr_out = p1_rd_addr;
+			p2_rd_addr_out = p2_rd_addr;
+			p3_rd_addr_out = p3_rd_addr;
+		end
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Live value table and read muxing
 
 	regval_t	p0_rd_data;
@@ -258,22 +321,22 @@ module X25519_Regfile #(
 
 	always_comb begin
 
-		if(lvt[p0_rd_addr])
+		if(lvt[p0_rd_addr_out])
 			p0_rd_data	= p0_rd_data_bank1;
 		else
 			p0_rd_data	= p0_rd_data_bank0;
 
-		if(lvt[p1_rd_addr])
+		if(lvt[p1_rd_addr_out])
 			p1_rd_data	= p1_rd_data_bank1;
 		else
 			p1_rd_data	= p1_rd_data_bank0;
 
-		if(lvt[p2_rd_addr])
+		if(lvt[p2_rd_addr_out])
 			p2_rd_data	= p2_rd_data_bank1;
 		else
 			p2_rd_data	= p2_rd_data_bank0;
 
-		if(lvt[p3_rd_addr])
+		if(lvt[p3_rd_addr_out])
 			p3_rd_data	= p3_rd_data_bank1;
 		else
 			p3_rd_data	= p3_rd_data_bank0;
@@ -399,26 +462,42 @@ module X25519_Regfile #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Output registers
 
-	logic	rd_en_ff	= 0;
+	logic	rd_en_ff		= 0;
+	logic	freeze_valid_ff	= 0;
+
+	logic	freeze_en;
+	logic	rd_valid_adv;
+	logic	freeze_valid_adv;
+
+	always_comb begin
+		freeze_en				= share_freeze_en || dsa_rd;
+
+		if(REGFILE_OUT_REG) begin
+			rd_valid_adv		= rd_en_ff;
+			freeze_valid_adv	= freeze_valid_ff;
+		end
+		else begin
+			rd_valid_adv		= rd_en;
+			freeze_valid_adv	= freeze_en;
+		end
+	end
 
 	always_ff @(posedge clk) begin
 
-		rd_valid	<= 0;
-		rd_en_ff	<= rd_en;
+		rd_valid		<= 0;
+		rd_en_ff		<= rd_en;
+		freeze_valid_ff	<= freeze_en;
 
-		if(share_freeze_en || dsa_rd)
+		if(freeze_valid_adv)
 			share_freeze_a	<= p0_rd_data;
 
-		if(rd_en) begin
-			//rd_valid		<= 1;
+		if(rd_valid_adv) begin
 			share_addsub_a	<= p0_rd_data;
 			share_addsub_b	<= p1_rd_data;
 			share_mult_a	<= p2_rd_data;
 			share_mult_b	<= p3_rd_data;
+			rd_valid		<= 1;
 		end
-
-		//DEBUG
-		rd_valid			<= rd_en_ff;
 
 	end
 

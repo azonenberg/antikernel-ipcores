@@ -37,16 +37,31 @@
 	Derived from mainloop() and crypto_scalarmult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
 
 	Typical area:
-		Kintex-7: 7632 LUT, 5737 FF, 32 DSP
+		REGFILE_OUT_REG = 0
+			FIXME
+		REGFILE_OUT_REG = 1
+			Kintex-7: 7328 LUT, 1408 LUTRAM, 9246 FF, 32 DSP
 
 	Run time (constant cycle count):
-		crypto_scalarmult (ECDH): 567786 clocks
-		scalarmult (ECDSA):       957287 clocks
+		REGFILE_OUT_REG = 0:
+			crypto_scalarmult (ECDH): 482019 clocks
+			scalarmult (ECDSA): TODO
+		REGFILE_OUT_REG = 1:
+			crypto_scalarmult (ECDH): 486368 clocks
+			scalarmult (ECDSA): TODO
+
+		OLD need to update after optimizations
+			crypto_scalarmult (ECDH): 567786 clocks
+			scalarmult (ECDSA):       957287 clocks
 
 	Typical achievable performance:
-		Kintex-7, -2 speed: 250 MHz
-			crypto_scalarmult (ECDH):	2.27 ms
-			scalarmult (ECDSA):			3.90 ms
+		REGFILE_OUT_REG = 0:
+			Kintex-7, -2 speed: 250 MHz
+				crypto_scalarmult (ECDH):	2.27 ms
+				scalarmult (ECDSA):			3.90 ms
+		REGFILE_OUT_REG = 1
+			Kintex-7, -2 speed: 250 MHz
+				FIXME
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid
@@ -1071,6 +1086,16 @@ module X25519_ScalarMult #(
 
 	logic		load_base		= 0;
 
+	logic		out_valid_adv		= 0;
+	logic		out_valid_adv_ff	= 0;
+
+	always_comb begin
+		if(REGFILE_OUT_REG)
+			out_valid	= out_valid_adv_ff;
+		else
+			out_valid	= out_valid_adv;
+	end
+
 	always_ff @(posedge clk) begin
 		share_addsub_en	<= 0;
 		share_select_en	<= 0;
@@ -1079,7 +1104,8 @@ module X25519_ScalarMult #(
 
 		iter_out_valid	<= 0;
 
-		out_valid 		<= share_freeze_en || dsa_rd;
+		out_valid_adv		<= share_freeze_en || dsa_rd;
+		out_valid_adv_ff	<= out_valid_adv;
 
 		advancing_ff	<= advancing;
 		advancing_ff2	<= advancing_ff;
@@ -1198,7 +1224,7 @@ module X25519_ScalarMult #(
 		load_base		<= 0;
 
 		if(share_mult_valid && (round > 250))
-			$display("Multiply complete: %x", share_mult_out);
+			$display("Multiply complete: %x  (at %t)", share_mult_out, $time);
 		if(share_add_valid && (round > 250))
 			$display("Add complete: %x (at %t)", share_add_out, $time);
 		if(share_sub_valid && (round > 250))
