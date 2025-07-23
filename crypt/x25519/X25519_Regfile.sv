@@ -155,12 +155,20 @@ module X25519_Regfile #(
 	input wire xregid_t	select_r_regid,
 	input wire xregid_t	select_s_regid,
 
+	output logic		rd_valid			`ifdef XILINX = 0 `endif,
 	output regval_t		share_addsub_a,
 	output regval_t		share_addsub_b,
 	output regval_t		share_mult_a,
 	output regval_t		share_mult_b,
 	output regval_t		share_freeze_a
 	);
+
+	//output initialization for efinix toolchain compatibility
+	`ifndef XILINX
+	initial begin
+		rd_valid = 0;
+	end
+	`endif
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Memory banks
@@ -391,17 +399,26 @@ module X25519_Regfile #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Output registers
 
+	logic	rd_en_ff	= 0;
+
 	always_ff @(posedge clk) begin
+
+		rd_valid	<= 0;
+		rd_en_ff	<= rd_en;
 
 		if(share_freeze_en || dsa_rd)
 			share_freeze_a	<= p0_rd_data;
 
 		if(rd_en) begin
+			//rd_valid		<= 1;
 			share_addsub_a	<= p0_rd_data;
 			share_addsub_b	<= p1_rd_data;
 			share_mult_a	<= p2_rd_data;
 			share_mult_b	<= p3_rd_data;
 		end
+
+		//DEBUG
+		rd_valid			<= rd_en_ff;
 
 	end
 

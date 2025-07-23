@@ -976,6 +976,7 @@ module X25519_ScalarMult #(
 	logic		advancing;
 	logic		advancing_ff	= 0;
 	logic		advancing_ff2	= 0;
+	logic		regfile_rd_en;
 
 	always_ff @(posedge clk) begin
 		if(advancing_ff) begin
@@ -988,7 +989,12 @@ module X25519_ScalarMult #(
 		end
 	end
 
+	always_comb begin
+		regfile_rd_en	= advancing_ff2 && (state != STATE_ITER_DONE);
+	end
+
 	microcode_t line;
+	wire		regfile_rd_valid;
 
 	(* keep_hierarchy = "yes" *)
 	X25519_Regfile #(
@@ -1030,7 +1036,7 @@ module X25519_ScalarMult #(
 		////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 		// Reads
 
-		.rd_en(advancing_ff2),
+		.rd_en(regfile_rd_en),
 		.ml_rd_en(ml_rd_en),
 		.share_freeze_en(share_freeze_en),
 
@@ -1041,6 +1047,7 @@ module X25519_ScalarMult #(
 		.select_r_regid(select_r_ff),
 		.select_s_regid(select_s_ff),
 
+		.rd_valid(regfile_rd_valid),
 		.share_addsub_a(share_addsub_a),
 		.share_addsub_b(share_addsub_b),
 		.share_mult_a(share_mult_a),
@@ -1122,7 +1129,7 @@ module X25519_ScalarMult #(
 
 			end
 		end
-		if(advancing_ff2) begin
+		if(regfile_rd_valid) begin
 
 			//Enable blocks as needed
 			share_select_en		<= line.select_en;
@@ -1193,7 +1200,7 @@ module X25519_ScalarMult #(
 		if(share_mult_valid && (round > 250))
 			$display("Multiply complete: %x", share_mult_out);
 		if(share_add_valid && (round > 250))
-			$display("Add complete: %x", share_add_out);
+			$display("Add complete: %x (at %t)", share_add_out, $time);
 		if(share_sub_valid && (round > 250))
 			$display("Sub complete: %x", share_sub_out);
 
