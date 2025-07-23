@@ -42,17 +42,15 @@ module X25519_Add(
 	input wire			en,
 	input wire[263:0]	a,
 	input wire[263:0]	b,
-	output logic		out_valid	`ifdef XILINX = 0 `endif,
-	output logic[263:0]	out			`ifdef XILINX = 0 `endif
+	output logic		out_valid,
+	output logic[263:0]	out
 	);
 
 	//output initialization for efinix toolchain compatibility
-	`ifndef XILINX
 	initial begin
 		out_valid = 0;
 		out = 0;
 	end
-	`endif
 
 	logic[128:0]	sum_low = 0;
 	logic[135:0]	sum_high = 0;

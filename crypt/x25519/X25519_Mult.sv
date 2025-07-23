@@ -122,19 +122,17 @@ module X25519_MultMuxing(
 	input wire			pass_out_valid,
 	input bignum_t		b_bignum,
 
-	output logic		stage1_en	`ifdef XILINX = 0 `endif,
-	output logic[4:0]	stage1_i	`ifdef XILINX = 0 `endif,
-	output bignum_t		b_rotated	`ifdef XILINX = 0 `endif
+	output logic		stage1_en,
+	output logic[4:0]	stage1_i,
+	output bignum_t		b_rotated
 );
 
 	//output initialization for efinix toolchain compatibility
-	`ifndef XILINX
 	initial begin
 		stage1_en = 0;
 		stage1_i = 0;
 		b_rotated = 0;
 	end
-	`endif
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// We need to rotate B by one block to the left each iteration

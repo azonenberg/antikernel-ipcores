@@ -168,12 +168,10 @@ module X25519_MultPass_stage1(
 	);
 
 	//output initialization for efinix toolchain compatibility
-	`ifndef SIMULATION
 	initial begin
 		stage2_en = 0;
 		stage2_do38 = 0;
 	end
-	`endif
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// First stage of multiplication
@@ -214,21 +212,19 @@ module X25519_MultPass_stage2(
 	input wire[31:0]		stage2_do38,
 	input wire bignum32_t	stage2_tmp,
 
-	output logic			stage3_en	`ifdef XILINX = 0 `endif,
+	output logic			stage3_en,
 
 	//We *do* want to use DSPs on efinix architectures
 	//because putting this multiplier in logic hurts Fmax and almost doubles our LUT area
 	//(* syn_use_dsp = "no" *)
-	output bignum32_t		stage3_tmp	`ifdef XILINX = 0 `endif
+	output bignum32_t		stage3_tmp
 	);
 
 	//output initialization for efinix toolchain compatibility
-	`ifndef XILINX
 	initial begin
 		stage3_en = 0;
 		stage3_tmp = 0;
 	end
-	`endif
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Second multiplication stage

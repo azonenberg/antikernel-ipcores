@@ -182,21 +182,12 @@ module X25519_Regfile #(
 	input wire xregid_t	select_r_regid,
 	input wire xregid_t	select_s_regid,
 
-
-	output logic		rd_valid `ifdef XILINX = 0 `endif,
 	output regval_t		share_addsub_a,
 	output regval_t		share_addsub_b,
 	output regval_t		share_mult_a,
 	output regval_t		share_mult_b,
 	output regval_t		share_freeze_a
 	);
-
-	//secondary initialization for efinix
-	`ifndef XILINX
-	initial begin
-		rd_valid	= 0;
-	end
-	`endif
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Memory banks
@@ -221,7 +212,7 @@ module X25519_Regfile #(
 	regval_t	p3_rd_data_bank0;
 
 	X25519_RegfileBank #(
-		.REGFILE_OUT_REG(/*REGFILE_OUT_REG*/0)
+		.REGFILE_OUT_REG(REGFILE_OUT_REG)
 	) bank0 (
 		.clk(clk),
 
@@ -246,7 +237,7 @@ module X25519_Regfile #(
 	regval_t	p3_rd_data_bank1;
 
 	X25519_RegfileBank #(
-		.REGFILE_OUT_REG(/*REGFILE_OUT_REG*/0)
+		.REGFILE_OUT_REG(REGFILE_OUT_REG)
 	) bank1 (
 		.clk(clk),
 
@@ -384,16 +375,6 @@ module X25519_Regfile #(
 		select can execute concurrently with add/sub but is never issued concurrently with multiply
 	 */
 
-	 //Read pipeline delay
-	logic	dsa_rd_ff			= 0;
-	logic	rd_en_ff			= 0;
-	logic	share_freeze_en_ff	= 0;
-	always_ff @(posedge clk) begin
-		rd_en_ff			<= rd_en;
-		dsa_rd_ff			<= dsa_rd_ff;
-		share_freeze_en_ff	<= share_freeze_en;
-	end
-
 	always_comb begin
 
 		//default to reading nothing
@@ -403,21 +384,21 @@ module X25519_Regfile #(
 		p3_rd_addr		= REG_ZERO;
 
 		//Freeze: port 0
-		if(share_freeze_en || share_freeze_en_ff)
+		if(share_freeze_en)
 			p0_rd_addr	= REG_TEMP_0;
 
 		//DSA output: port 0
-		if(dsa_rd || dsa_rd_ff)
+		if(dsa_rd)
 			p0_rd_addr	= xregid_t'(REG_TEMP_4 + dsa_addr);
 
 		//Add/sub: ports 0/1
-		if(rd_en || rd_en_ff) begin
+		if(rd_en) begin
 			p0_rd_addr	= addsub_a_regid;
 			p1_rd_addr	= addsub_b_regid;
 		end
 
 		//Multiply or select: ports 2/3
-		if(rd_en || rd_en_ff) begin
+		if(rd_en) begin
 
 			//TODO: maybe we can shorten critical path here by passing multiply enable line?
 			if(mult_a_regid != REG_ZERO) begin
@@ -437,29 +418,23 @@ module X25519_Regfile #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Output registers
 
-	logic	freeze_en_ff		= 0;
-	logic	rd_valid_adv		= 0;
-	logic	freeze_valid		= 0;
+	logic	rd_en_ff	= 0;
 
+	logic	rd_valid;
 	always_comb begin
-		if(REGFILE_OUT_REG) begin
-			rd_valid_adv		= rd_en_ff;
-			freeze_valid		= freeze_en_ff;
-		end
-		else begin
-			rd_valid_adv		= rd_en;
-			freeze_valid		= share_freeze_en || dsa_rd;
-		end
+		if(REGFILE_OUT_REG)
+			rd_valid	= rd_en_ff;
+		else
+			rd_valid	= rd_en;
 	end
 
 	always_ff @(posedge clk) begin
-		rd_valid			<= rd_valid_adv;
-		freeze_en_ff		<= share_freeze_en || dsa_rd;
+		rd_en_ff	<= rd_en;
 
-		if(freeze_valid)
+		if(share_freeze_en || dsa_rd)
 			share_freeze_a	<= p0_rd_data;
 
-		if(rd_valid_adv) begin
+		if(rd_valid) begin
 			share_addsub_a	<= p0_rd_data;
 			share_addsub_b	<= p1_rd_data;
 			share_mult_a	<= p2_rd_data;
