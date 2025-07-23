@@ -51,7 +51,7 @@
 			crypto_scalarmult (ECDH):	2.27 ms
 			scalarmult (ECDSA):			3.90 ms
 
-		Trion T35, C4 speed: 59 MHz
+		Trion T35, C4 speed
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid
