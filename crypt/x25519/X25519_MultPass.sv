@@ -59,7 +59,7 @@ module X25519_MultPass #(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	if(MULT_AREA_OPT == 0) begin
+	if(MULT_AREA_OPT == 0) begin : optsel
 		//Initial version: stage1/2
 		X25519_MultPass_stage12_areaopt0 stage12(
 			.clk(clk),
@@ -72,7 +72,7 @@ module X25519_MultPass #(
 		);
 	end
 
-	else if(MULT_AREA_OPT == 1) begin
+	else if(MULT_AREA_OPT == 1) begin : optsel
 		X25519_MultPass_stage12_areaopt1 stage12(
 			.clk(clk),
 			.en(en),
@@ -80,7 +80,7 @@ module X25519_MultPass #(
 			.a(a),
 			.b(b),
 			.stage3_en(stage3_en),
-			.stage3_tmp(stage3_tmp)
+			.stage3_tmp(stage3_tmp));
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -216,10 +216,8 @@ module X25519_MultPass_stage12_areaopt1(
 	end
 	`endif
 
-
 	logic		stage2_en	= 0;
 	logic[31:0]	stage2_do38 = 0;
-	bignum32_t	stage2_tmp	= 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// First stage of multiplication
@@ -233,23 +231,21 @@ module X25519_MultPass_stage12_areaopt1(
 
 			//First stage
 			if(en) begin
-				stage2_do38[j]			<= (j > i);
-				stage2_tmp.blocks[j]	<= a.blocks[j] * b.blocks[j];
+				stage2_do38[j]				<= (j > i);
+				stage3_tmp.blocks[j]		<= a.blocks[j] * b.blocks[j];
 			end
 
 			//Second stage
 			else if(stage2_en) begin
 				if(stage2_do38[j])
-					stage3_tmp.blocks[j]	<= stage2_tmp.blocks[j] * 38;
-				else
-					stage3_tmp.blocks[j]	<= stage2_tmp.blocks[j];
+					stage3_tmp.blocks[j]	<= stage3_tmp.blocks[j] * 38;
 			end
 
 		end
 
 	end
 
-end
+endmodule
 
 /**
 	@brief Helper for X25519_MultPass

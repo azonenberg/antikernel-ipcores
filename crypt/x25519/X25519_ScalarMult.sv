@@ -45,6 +45,8 @@
 			Topaz: 5162 LUT4, 2349 ADD, 6257 FF, 96 DSP, 112 BRAM, 8989 XLR
 			Titanium: 5162 LUT4, 2349 ADD, 6257 FF, 96 DSP, 112 BRAM, 8989 XLR
 		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 1
+			Trion: 5235 LUT4, 2810 ADD, 6283 FF, 98 MULT, 112 BRAM, 9511 LE
+				MultPass: 1412 FF, 1440 ADD, 1079 LUT, 96 DSP
 
 	Run time (constant cycle count):
 		REGFILE_OUT_REG = 0, MULT_AREA_OPT = 0
@@ -73,6 +75,7 @@
 			Titanium, C4 speed: 280 MHz
 
 		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 1
+			Trion, C3 speed: 73 MHz
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid

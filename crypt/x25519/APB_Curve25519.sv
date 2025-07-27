@@ -37,7 +37,9 @@ import Curve25519Registers::*;
 	@brief	APB wrapper around Curve25519 accelerator block
  */
 module APB_Curve25519 #(
-	parameter REGFILE_OUT_REG	= 0		//pipeline register for register file to enable block RAM interfence on efinix
+	parameter REGFILE_OUT_REG	= 0,	//pipeline register for register file to enable block RAM interfence on efinix
+	parameter MULT_AREA_OPT		= 0		//0 = default (32 multiplies in parallel)
+										//1 = area optimized multiplier implementation (may later support higher levels)
 )(
 	APB.completer 				apb
 );
@@ -268,7 +270,8 @@ module APB_Curve25519 #(
 	// The crypto accelerator
 
 	X25519_ScalarMult #(
-		.REGFILE_OUT_REG(REGFILE_OUT_REG)
+		.REGFILE_OUT_REG(REGFILE_OUT_REG),
+		.MULT_AREA_OPT(MULT_AREA_OPT)
 	) crypto (
 		.clk(apb.pclk),
 
