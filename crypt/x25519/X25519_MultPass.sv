@@ -208,6 +208,15 @@ module X25519_MultPass_stage12_areaopt1(
 	output bignum32_t		stage3_tmp	`ifdef XILINX = 0 `endif
 );
 
+	//output initialization for efinix toolchain compatibility
+	`ifndef XILINX
+	initial begin
+		stage3_en = 0;
+		stage3_tmp = 0;
+	end
+	`endif
+
+
 	logic		stage2_en	= 0;
 	logic[31:0]	stage2_do38 = 0;
 	bignum32_t	stage2_tmp	= 0;
@@ -218,45 +227,24 @@ module X25519_MultPass_stage12_areaopt1(
 	always_ff @(posedge clk) begin
 
 		stage2_en	<= en;
-
-		if(en) begin
-			for(integer j=0; j<32; j=j+1)
-				stage2_do38[j]			<= (j > i);
-		end
-
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The actual multipliers
-
-	for(genvar g=0; g<32; g=g+1) begin
-		always_ff @(posedge clk) begin
-			if(en)
-				stage2_tmp.blocks[g]	<= a.blocks[g] * b.blocks[g];
-		end
-	end
-
-	//output initialization for efinix toolchain compatibility
-	`ifndef XILINX
-	initial begin
-		stage3_en = 0;
-		stage3_tmp = 0;
-	end
-	`endif
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Second multiplication stage
-
-	always_ff @(posedge clk) begin
 		stage3_en	<= stage2_en;
 
-		if(stage2_en) begin
-			for(integer j=0; j<32; j=j+1) begin
+		for(integer j=0; j<32; j=j+1) begin
+
+			//First stage
+			if(en) begin
+				stage2_do38[j]			<= (j > i);
+				stage2_tmp.blocks[j]	<= a.blocks[j] * b.blocks[j];
+			end
+
+			//Second stage
+			else if(stage2_en) begin
 				if(stage2_do38[j])
 					stage3_tmp.blocks[j]	<= stage2_tmp.blocks[j] * 38;
 				else
 					stage3_tmp.blocks[j]	<= stage2_tmp.blocks[j];
 			end
+
 		end
 
 	end
