@@ -37,37 +37,42 @@
 	Derived from mainloop() and crypto_scalarmult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
 
 	Typical area (using DSPs for stage 1 only on Xilinx and stage 1+2 for Efinix)
-		REGFILE_OUT_REG = 0
+		REGFILE_OUT_REG = 0, MULT_AREA_OPT = 0
 			Kintex-7: 7775 LUT, 1408 LUTRAM, 6769 FF, 32 DSP
-		REGFILE_OUT_REG = 1
+		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 0
 			Kintex-7: 7351 LUT, 1408 LUTRAM, 8903 FF, 32 DSP
-			Trion: 5201 LUT4, 2796 ADD, 6316 FF, 96 MULT, xx LE
-			Topaz: 5162 LUT4, 2349 ADD, 6257 FF, 96 DSP, 8989 XLR
-			Titanium: 5162 LUT4, 2349 ADD, 6257 FF, 96 DSP, 8989 XLR
+			Trion: 5201 LUT4, 2796 ADD, 6316 FF, 96 MULT, 112 BRAM, 9528 LE
+			Topaz: 5162 LUT4, 2349 ADD, 6257 FF, 96 DSP, 112 BRAM, 8989 XLR
+			Titanium: 5162 LUT4, 2349 ADD, 6257 FF, 96 DSP, 112 BRAM, 8989 XLR
+		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 1
 
 	Run time (constant cycle count):
-		REGFILE_OUT_REG = 0:
+		REGFILE_OUT_REG = 0, MULT_AREA_OPT = 0
 			crypto_scalarmult (ECDH): 482019 clocks
 			scalarmult (ECDSA): TODO
-		REGFILE_OUT_REG = 1:
+		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 0
 			crypto_scalarmult (ECDH): 486368 clocks
 			scalarmult (ECDSA): TODO
+		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 1
 
 		OLD need to update after optimizations
 			crypto_scalarmult (ECDH): 567786 clocks
 			scalarmult (ECDSA):       957287 clocks
 
 	Typical achievable performance:
-		REGFILE_OUT_REG = 0:
-			Kintex-7, -2 speed: 250 MHz
+		REGFILE_OUT_REG = 0, MULT_AREA_OPT = 0
+			Kintex-7, -2 speed: 250 MHz (verify)
 				crypto_scalarmult (ECDH):	2.27 ms
 				scalarmult (ECDSA):			3.90 ms
-		REGFILE_OUT_REG = 1
-			Kintex-7, -2 speed: 250 MHz
+			Artix-7, -2 speed: 189 MHz
+		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 0
+			Kintex-7, -2 speed: 250 MHz (verify)
 			Trion, C3 speed: 71 MHz
 			Trion, C4 speed: 89.8 MHz
 			Topaz, C2 speed: 175 MHz
 			Titanium, C4 speed: 280 MHz
+
+		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 1
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid
@@ -90,7 +95,9 @@
  */
 import Curve25519Registers::*;
 module X25519_ScalarMult #(
-	parameter REGFILE_OUT_REG	= 0		//pipeline register for register file to enable block RAM interfence on efinix
+	parameter REGFILE_OUT_REG	= 0,	//pipeline register for register file to enable block RAM interfence on efinix
+	parameter MULT_AREA_OPT		= 0		//0 = default (32 multiplies in parallel)
+										//1 = area optimized multiplier implementation (may later support higher levels)
 )(
 	input wire			clk,
 
@@ -205,7 +212,9 @@ module X25519_ScalarMult #(
 	wire[263:0]	share_mult_out;
 	wire		share_mult_valid;
 
-	X25519_Mult share_mult(
+	X25519_Mult #(
+		.MULT_AREA_OPT(MULT_AREA_OPT)
+	) share_mult (
 		.clk(clk),
 		.en(share_mult_en),
 		.a(share_mult_a),

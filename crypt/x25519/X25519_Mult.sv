@@ -44,7 +44,9 @@ import Curve25519Registers::*;
 
 	NOT pipelined. a/b must not change until out_valid is asserted.
  */
-module X25519_Mult(
+module X25519_Mult #(
+	parameter MULT_AREA_OPT		= 0
+) (
 	input wire			clk,
 	input wire			en,
 	input wire[263:0]	a,
@@ -88,7 +90,9 @@ module X25519_Mult(
 	`ifdef FORCE_HIERARCHY
 	(* keep_hierarchy = "yes" *)
 	`endif
-	X25519_MultPass pass(
+	X25519_MultPass #(
+		.MULT_AREA_OPT(MULT_AREA_OPT)
+	) pass (
 		.clk(clk),
 		.en(stage1_en),
 		.i(stage1_i),

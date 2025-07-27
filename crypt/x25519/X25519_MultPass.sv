@@ -42,7 +42,9 @@ import Curve25519Registers::*;
 
 	Derived from mult() in NaCl crypto_scalarmult/curve25519/ref/smult.c (public domain)
  */
-module X25519_MultPass(
+module X25519_MultPass #(
+	parameter MULT_AREA_OPT		= 0		//0 = default
+)(
 	input wire			clk,
 	input wire			en,
 	input wire[4:0]		i,
@@ -52,41 +54,18 @@ module X25519_MultPass(
 	output wire[31:0]	out
 	);
 
+	wire				stage3_en;
+	bignum32_t			stage3_tmp;
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// First stage of multiplication
 
-	wire				stage2_en;
-	wire[31:0]			stage2_do38;
-	bignum32_t			stage2_tmp;
-
-	`ifdef FORCE_HIERARCHY
-	(* keep_hierarchy = "yes" *)
-	`endif
-	X25519_MultPass_stage1 stage1(
+	//Initial version: stage1/2
+	X25519_MultPass_stage12_areaopt0 stage12(
 		.clk(clk),
 		.en(en),
 		.i(i),
 		.a(a),
 		.b(b),
-		.stage2_en(stage2_en),
-		.stage2_do38(stage2_do38),
-		.stage2_tmp(stage2_tmp)
-	);
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Second stage of multiplication (only for one side of the diagonal)
-
-	wire				stage3_en;
-	bignum32_t			stage3_tmp;
-
-	`ifdef FORCE_HIERARCHY
-	(* keep_hierarchy = "yes" *)
-	`endif
-	X25519_MultPass_stage2 stage2(
-		.clk(clk),
-		.stage2_en(stage2_en),
-		.stage2_do38(stage2_do38),
-		.stage2_tmp(stage2_tmp),
 		.stage3_en(stage3_en),
 		.stage3_tmp(stage3_tmp)
 	);
@@ -146,6 +125,58 @@ module X25519_MultPass(
 		.din(stage5_tmp),
 		.dout_valid(out_valid),
 		.dout(out)
+	);
+
+endmodule
+
+/**
+	@brief X25519_MultPass_stage1 and X25519_MultPass_stage2 with AREA_OPT=0
+ */
+module X25519_MultPass_stage12_areaopt0(
+	input wire			clk,
+	input wire			en,
+	input wire[4:0]		i,
+	input wire bignum_t	a,
+	input wire bignum_t	b,
+
+	output wire			stage3_en,
+	output bignum32_t	stage3_tmp
+);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// First stage of multiplication
+
+	wire				stage2_en;
+	wire[31:0]			stage2_do38;
+	bignum32_t			stage2_tmp;
+
+	`ifdef FORCE_HIERARCHY
+	(* keep_hierarchy = "yes" *)
+	`endif
+	X25519_MultPass_stage1 stage1(
+		.clk(clk),
+		.en(en),
+		.i(i),
+		.a(a),
+		.b(b),
+		.stage2_en(stage2_en),
+		.stage2_do38(stage2_do38),
+		.stage2_tmp(stage2_tmp)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Second stage of multiplication (only for one side of the diagonal)
+
+	`ifdef FORCE_HIERARCHY
+	(* keep_hierarchy = "yes" *)
+	`endif
+	X25519_MultPass_stage2 stage2(
+		.clk(clk),
+		.stage2_en(stage2_en),
+		.stage2_do38(stage2_do38),
+		.stage2_tmp(stage2_tmp),
+		.stage3_en(stage3_en),
+		.stage3_tmp(stage3_tmp)
 	);
 
 endmodule
