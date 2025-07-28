@@ -35,6 +35,9 @@ import Curve25519Registers::*;
 //turn off to enable flattening and improve performance/area
 //`define FORCE_HIERARCHY
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// Top level multiplication
+
 /**
 	@file
 	@author Andrew D. Zonenberg
@@ -142,6 +145,9 @@ module X25519_MultPass #(
 
 endmodule
 
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// AREA_OPT=0
+
 /**
 	@brief X25519_MultPass_stage1 and X25519_MultPass_stage2 with AREA_OPT=0
  */
@@ -191,72 +197,6 @@ module X25519_MultPass_stage12_areaopt0(
 		.stage3_en(stage3_en),
 		.stage3_tmp(stage3_tmp)
 	);
-
-endmodule
-
-/**
-	@brief X25519_MultPass_stage1 and X25519_MultPass_stage2 with AREA_OPT=1
- */
-module X25519_MultPass_stage12_areaopt1(
-	input wire			clk,
-	input wire			en,
-	input wire[4:0]		i,
-	input wire bignum_t	a,
-	input wire bignum_t	b,
-
-	output logic			stage3_en	`ifdef XILINX = 0 `endif,
-	output bignum32_t		stage3_tmp	`ifdef XILINX = 0 `endif
-);
-
-	//output initialization for efinix toolchain compatibility
-	`ifndef XILINX
-	initial begin
-		stage3_en = 0;
-		stage3_tmp = 0;
-	end
-	`endif
-
-	logic		stage2_en	= 0;
-	logic[31:0]	stage2_do38 = 0;
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Combined multipliers with resource sharing
-
-	bignum32_t	mult_a;
-	bignum_t	mult_b;
-
-	logic[31:0] tmp1;
-	logic[31:0] tmp2;
-
-	always_ff @(posedge clk) begin
-
-		stage2_en	<= en;
-		stage3_en	<= stage2_en;
-
-		for(integer j=0; j<32; j++) begin
-
-			//Input muxing
-			if(en) begin
-				mult_a.blocks[j]		= a.blocks[j];
-				mult_b.blocks[j]		= b.blocks[j];
-			end
-			else begin
-				mult_a.blocks[j]		= stage3_tmp.blocks[j];
-				mult_b.blocks[j]		= 38;
-			end
-
-			if(en)
-				stage2_do38[j]			<= (j > i);
-			else
-				stage2_do38[j]			<= 0;
-
-			//The multipliers
-			if(en || stage2_do38[j])
-				stage3_tmp.blocks[j]	<= mult_a.blocks[j] * mult_b.blocks[j];
-
-		end
-
-	end
 
 endmodule
 
@@ -348,6 +288,75 @@ module X25519_MultPass_stage2(
 				else
 					stage3_tmp.blocks[j]	<= stage2_tmp.blocks[j];
 			end
+		end
+
+	end
+
+endmodule
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// AREA_OPT=1
+
+/**
+	@brief X25519_MultPass_stage1 and X25519_MultPass_stage2 with AREA_OPT=1
+ */
+module X25519_MultPass_stage12_areaopt1(
+	input wire			clk,
+	input wire			en,
+	input wire[4:0]		i,
+	input wire bignum_t	a,
+	input wire bignum_t	b,
+
+	output logic			stage3_en	`ifdef XILINX = 0 `endif,
+	output bignum32_t		stage3_tmp	`ifdef XILINX = 0 `endif
+);
+
+	//output initialization for efinix toolchain compatibility
+	`ifndef XILINX
+	initial begin
+		stage3_en = 0;
+		stage3_tmp = 0;
+	end
+	`endif
+
+	logic		stage2_en	= 0;
+	logic[31:0]	stage2_do38 = 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Combined multipliers with resource sharing
+
+	bignum32_t	mult_a;
+	bignum_t	mult_b;
+
+	logic[31:0] tmp1;
+	logic[31:0] tmp2;
+
+	always_ff @(posedge clk) begin
+
+		stage2_en	<= en;
+		stage3_en	<= stage2_en;
+
+		for(integer j=0; j<32; j++) begin
+
+			//Input muxing
+			if(en) begin
+				mult_a.blocks[j]		= a.blocks[j];
+				mult_b.blocks[j]		= b.blocks[j];
+			end
+			else begin
+				mult_a.blocks[j]		= stage3_tmp.blocks[j];
+				mult_b.blocks[j]		= 38;
+			end
+
+			if(en)
+				stage2_do38[j]			<= (j > i);
+			else
+				stage2_do38[j]			<= 0;
+
+			//The multipliers
+			if(en || stage2_do38[j])
+				stage3_tmp.blocks[j]	<= mult_a.blocks[j] * mult_b.blocks[j];
+
 		end
 
 	end
