@@ -407,11 +407,15 @@ module X25519_MultPass_stage12_areaopt2(
 		end
 	end
 
-	logic		stage2_en_ff = 0;
+	logic		en_ff			= 0;
+	logic		stage2_en_ff	= 0;
+	logic		stage2_en_ff2	= 0;
 	always_ff @(posedge clk) begin
 
-		stage2_en				<= en;
+		en_ff					<= en;
+		stage2_en				<= en_ff;
 		stage2_en_ff			<= stage2_en;
+		stage2_en_ff2			<= stage2_en_ff;
 
 		for(integer j=0; j<32; j++) begin
 			if(en)
@@ -423,19 +427,17 @@ module X25519_MultPass_stage12_areaopt2(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The actual multipliers
 
-	wire[31:0]	mult_done;
 	for(genvar g=0; g<32; g++) begin
 		X25519_MultPass_32x16_areaopt2 mult(
 			.clk(clk),
 			.en(en || (stage2_en && stage2_do38[g]) ),
 			.a(mult_a.blocks[g]),
 			.b(mult_b.blocks[g]),
-			.out_valid(mult_done[g]),
 			.out(stage3_tmp.blocks[g])
 		);
 	end
 
-	assign stage3_en = stage2_en_ff;
+	assign stage3_en = stage2_en_ff2;
 
 endmodule
 
@@ -445,23 +447,82 @@ module X25519_MultPass_32x16_areaopt2(
 	input wire[31:0]	a,
 	input wire[15:0]	b,
 
-	output logic		out_valid	`ifdef XILINX = 0 `endif,
 	output logic[31:0]	out			`ifdef XILINX = 0 `endif
 );
 
 	//output initialization for efinix toolchain compatibility
 	`ifndef XILINX
 	initial begin
-		out_valid	= 0;
 		out			= 0;
 	end
 	`endif
 
-	//single cycle implementation for initial testing
+	//input pipeline delays
+	logic		en_ff	= 0;
+	logic[15:0]	a_hi_ff	= 0;
+	logic[15:0]	b_ff	= 0;
 	always_ff @(posedge clk) begin
-		out_valid	<= en;
-		if(en)
-			out		<= a * b;
+
+		en_ff			<= en;
+
+		if(en) begin
+			a_hi_ff		<= a[31:16];
+			b_ff		<= b;
+		end
 	end
+
+	//multiplier input muxing
+	logic[15:0]		mult_a;
+	logic[15:0]		mult_b;
+	always_comb begin
+		if(en) begin
+			mult_a	= a[15:0];
+			mult_b	= b;
+		end
+		else begin
+			mult_a	= a_hi_ff;
+			mult_b	= b_ff;
+		end
+	end
+
+	//combinatorial multiply
+	logic[31:0]		mult_out;
+	always_comb begin
+		mult_out	= mult_a * mult_b;
+	end
+
+	//final output
+	logic[31:0] temp	= 0;
+	always_ff @(posedge clk) begin
+
+		//pipe stage 0
+		if(en)
+			temp		<= mult_out;
+
+		//pipe stage 1
+		if(en_ff) begin
+			out[31:16]	<= mult_out + temp[31:16];
+			out[15:0]	<= temp[15:0];
+		end
+
+	end
+
+	/*
+	//check results
+	logic[31:0]	out_expected 	= 0;
+	logic		validate		= 0;
+	always_ff @(posedge clk) begin
+		if(en)
+			out_expected	<= a * b;
+		validate			<= en_ff;
+
+		if(validate) begin
+			if(out_expected != out) begin
+				$display("[%m] out mismatch: got %x, expected %x", out, out_expected);
+				$finish;
+			end
+		end
+	end
+	*/
 
 endmodule

@@ -47,6 +47,7 @@
 		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 1
 			Trion: 5757 LUT4, 2842 ADD, 6291 FF, 66 MULT, 112 BRAM, 10613 LE
 		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 2
+			Trion: 6478 LUT4, 2874 ADD, 8356 FF, 34 MULT, 112 BRAM, 12356 LE
 
 	Run time (constant cycle count):
 		REGFILE_OUT_REG = 0, MULT_AREA_OPT = 0
@@ -58,7 +59,7 @@
 		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 1
 			crypto_scalarmult (ECDH): 576479 clocks
 		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 2
-			crypto_scalarmult (ECDH): FIXME clocks
+			crypto_scalarmult (ECDH): 756703 clocks
 
 		OLD need to update after optimizations
 			scalarmult (ECDSA):       957287 clocks
@@ -81,7 +82,8 @@
 			Kintex-7: much slower, don't have exact numbers handy (two DSP48s on critical path instead of 1)
 
 		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 2
-			Trion, C3 speed: x
+			Trion, C3 speed: 69 MHz
+			Trion, C4 speed: 97.8 MHz
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid
