@@ -143,25 +143,29 @@ module X25519_MultMuxing(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// We need to rotate B by one block to the left each iteration
 
+	logic	stage1_en_adv;
+	always_comb begin
+		stage1_en_adv		= 0;
+		if(en)
+			stage1_en_adv	= 1;
+		if(pass_out_valid && (stage1_i != 31) )
+			stage1_en_adv	= 1;
+	end
+
 	always_ff @(posedge clk) begin
 
-		stage1_en	= 0;
+		stage1_en		<= stage1_en_adv;
 
 		//Start the first pass when we're ready
-		if(en) begin
-			stage1_en	= 1;
+		if(en)
 			stage1_i	<= 0;
-		end
 
 		//Start the next pass when the current one finishes
-		if(pass_out_valid) begin
-			stage1_i		<= stage1_i + 1'h1;
-			if(stage1_i != 31)
-				stage1_en	= 1;
-		end
+		if(pass_out_valid)
+			stage1_i	<= stage1_i + 1'h1;
 
 		//Input muxing
-		if(stage1_en) begin
+		if(stage1_en_adv) begin
 
 			//Least significant block
 			if(en)

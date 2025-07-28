@@ -88,31 +88,6 @@ module X25519_MultPass #(
 			.b(b),
 			.stage3_en(stage3_en),
 			.stage3_tmp(stage3_tmp));
-
-		//uncomment to verify optimization level 0 against 1
-		X25519_MultPass_stage12_areaopt0 stage12_knowngood(
-			.clk(clk),
-			.en(en),
-			.i(i),
-			.a(a),
-			.b(b),
-			.stage3_en(stage3_en_ref),
-			.stage3_tmp(stage3_tmp_ref));
-
-		//Sanity check here
-		always_ff @(posedge clk) begin
-			if(stage3_en !== stage3_en_ref) begin
-				$display("en mismatch");
-				$finish;
-			end
-			if(stage3_en) begin
-				if(stage3_tmp !== stage3_tmp_ref) begin
-					$display("data mismatch");
-					$finish;
-				end
-			end
-		end
-
 	end
 
 	else if(MULT_AREA_OPT == 2) begin : optsel2
@@ -124,31 +99,6 @@ module X25519_MultPass #(
 			.b(b),
 			.stage3_en(stage3_en),
 			.stage3_tmp(stage3_tmp));
-
-		//uncomment to verify optimization level 0 against 2
-		X25519_MultPass_stage12_areaopt0 stage12_knowngood(
-			.clk(clk),
-			.en(en),
-			.i(i),
-			.a(a),
-			.b(b),
-			.stage3_en(stage3_en_ref),
-			.stage3_tmp(stage3_tmp_ref));
-
-		//Sanity check here
-		always_ff @(posedge clk) begin
-			if(stage3_en !== stage3_en_ref) begin
-				$display("en mismatch");
-				$finish;
-			end
-			if(stage3_en) begin
-				if(stage3_tmp !== stage3_tmp_ref) begin
-					$display("data mismatch");
-					$finish;
-				end
-			end
-		end
-
 	end
 
 	else begin
@@ -293,18 +243,14 @@ module X25519_MultPass_stage1(
 	end
 	`endif
 
-	logic		stage1_en;		//this SHOULD be logically equivalent to "en"
-	always_comb stage1_en = en;	//but for reasons unclear, vivado 2024.1 and 2025.1 simulator (at least) require this
-								//something somewhere is waiting on a delta cycle for something?
-
 	always_ff @(posedge clk) begin
 
 		//Pipeline timing flags
-		stage2_en						<= stage1_en;
+		stage2_en						<= en;
 
 		//The actual multipliers
 		for(integer j=0; j<32; j=j+1) begin
-			if(stage1_en) begin
+			if(en) begin
 				stage2_do38[j]			<= (j > i);
 				stage2_tmp.blocks[j]	<= a.blocks[j] * b.blocks[j];
 			end
@@ -392,20 +338,15 @@ module X25519_MultPass_stage12_areaopt1(
 	bignum32_t	mult_a;
 	bignum_t	mult_b;
 
-	logic		stage1_en;		//this SHOULD be logically equivalent to "en"
-	always_comb stage1_en = en;	//but for reasons unclear, vivado 2024.1 simulator makes
-								//en and stage2_en change the same cycle which they clearly will never do in real hardware
-								//doing this gives what looks more like a correct result
-
 	always_ff @(posedge clk) begin
 
-		stage2_en	<= stage1_en;
+		stage2_en	<= en;
 		stage3_en	<= stage2_en;
 
 		for(integer j=0; j<32; j++) begin
 
 			//Input muxing
-			if(stage1_en) begin
+			if(en) begin
 				mult_a.blocks[j]		= a.blocks[j];
 				mult_b.blocks[j]		= b.blocks[j];
 			end
@@ -414,11 +355,11 @@ module X25519_MultPass_stage12_areaopt1(
 				mult_b.blocks[j]		= 38;
 			end
 
-			if(stage1_en)
+			if(en)
 				stage2_do38[j]			<= (j > i);
 
 			//The multipliers
-			if(stage1_en || (stage2_en && stage2_do38[j]) )
+			if(en || (stage2_en && stage2_do38[j]) )
 				stage3_tmp.blocks[j]	<= mult_a.blocks[j] * mult_b.blocks[j];
 
 		end
@@ -452,10 +393,6 @@ module X25519_MultPass_stage12_areaopt2(
 
 	bignum32_t	mult_a;
 	bignum_t	mult_b;
-	logic		stage1_en;		//this SHOULD be logically equivalent to "en"
-	always_comb stage1_en = en;	//but for reasons unclear, vivado 2024.1 simulator makes
-								//en and stage2_en change the same cycle which they clearly will never do in real hardware
-								//doing this gives what looks more like a correct result
 
 	always_comb begin
 		for(integer j=0; j<32; j++) begin
@@ -473,11 +410,11 @@ module X25519_MultPass_stage12_areaopt2(
 	logic		stage2_en_ff = 0;
 	always_ff @(posedge clk) begin
 
-		stage2_en				<= stage1_en;
+		stage2_en				<= en;
 		stage2_en_ff			<= stage2_en;
 
 		for(integer j=0; j<32; j++) begin
-			if(stage1_en)
+			if(en)
 				stage2_do38[j]	<= (j > i);
 		end
 
@@ -490,7 +427,7 @@ module X25519_MultPass_stage12_areaopt2(
 	for(genvar g=0; g<32; g++) begin
 		X25519_MultPass_32x16_areaopt2 mult(
 			.clk(clk),
-			.en(stage1_en || (stage2_en && stage2_do38[g]) ),
+			.en(en || (stage2_en && stage2_do38[g]) ),
 			.a(mult_a.blocks[g]),
 			.b(mult_b.blocks[g]),
 			.out_valid(mult_done[g]),
