@@ -220,26 +220,39 @@ module X25519_MultPass_stage12_areaopt1(
 	logic[31:0]	stage2_do38 = 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// First stage of multiplication
+	// Combined multipliers with resource sharing
+
+	bignum32_t	mult_a;
+	bignum_t	mult_b;
+
+	logic[31:0] tmp1;
+	logic[31:0] tmp2;
 
 	always_ff @(posedge clk) begin
 
 		stage2_en	<= en;
 		stage3_en	<= stage2_en;
 
-		for(integer j=0; j<32; j=j+1) begin
+		for(integer j=0; j<32; j++) begin
 
-			//First stage
+			//Input muxing
 			if(en) begin
-				stage2_do38[j]				<= (j > i);
-				stage3_tmp.blocks[j]		<= a.blocks[j] * b.blocks[j];
+				mult_a.blocks[j]		= a.blocks[j];
+				mult_b.blocks[j]		= b.blocks[j];
+			end
+			else begin
+				mult_a.blocks[j]		= stage3_tmp.blocks[j];
+				mult_b.blocks[j]		= 38;
 			end
 
-			//Second stage
-			else if(stage2_en) begin
-				if(stage2_do38[j])
-					stage3_tmp.blocks[j]	<= stage3_tmp.blocks[j] * 38;
-			end
+			if(en)
+				stage2_do38[j]			<= (j > i);
+			else
+				stage2_do38[j]			<= 0;
+
+			//The multipliers
+			if(en || stage2_do38[j])
+				stage3_tmp.blocks[j]	<= mult_a.blocks[j] * mult_b.blocks[j];
 
 		end
 
