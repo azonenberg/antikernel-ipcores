@@ -405,7 +405,7 @@ module X25519_MultPass_stage12_areaopt1(
 		for(integer j=0; j<32; j++) begin
 
 			//Input muxing
-			if(en) begin
+			if(stage1_en) begin
 				mult_a.blocks[j]		= a.blocks[j];
 				mult_b.blocks[j]		= b.blocks[j];
 			end
@@ -414,11 +414,11 @@ module X25519_MultPass_stage12_areaopt1(
 				mult_b.blocks[j]		= 38;
 			end
 
-			if(en)
+			if(stage1_en)
 				stage2_do38[j]			<= (j > i);
 
 			//The multipliers
-			if(en || (stage2_en && stage2_do38[j]) )
+			if(stage1_en || (stage2_en && stage2_do38[j]) )
 				stage3_tmp.blocks[j]	<= mult_a.blocks[j] * mult_b.blocks[j];
 
 		end
