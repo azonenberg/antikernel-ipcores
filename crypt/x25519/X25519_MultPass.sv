@@ -293,34 +293,23 @@ module X25519_MultPass_stage1(
 	end
 	`endif
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// First stage of multiplication
-
 	logic		stage1_en;		//this SHOULD be logically equivalent to "en"
-	always_comb stage1_en = en;	//but for reasons unclear, vivado 2024.1 simulator makes
-								//en and stage2_en change the same cycle which they clearly will never do in real hardware
-								//doing this gives what looks more like a correct result
-
+	always_comb stage1_en = en;	//but for reasons unclear, vivado 2024.1 and 2025.1 simulator (at least) require this
+								//something somewhere is waiting on a delta cycle for something?
 
 	always_ff @(posedge clk) begin
 
-		stage2_en					<= stage1_en;
+		//Pipeline timing flags
+		stage2_en						<= stage1_en;
 
-		if(stage1_en) begin
-			for(integer j=0; j<32; j=j+1)
-				stage2_do38[j]		<= (j > i);
+		//The actual multipliers
+		for(integer j=0; j<32; j=j+1) begin
+			if(stage1_en) begin
+				stage2_do38[j]			<= (j > i);
+				stage2_tmp.blocks[j]	<= a.blocks[j] * b.blocks[j];
+			end
 		end
 
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The actual multipliers
-
-	for(genvar g=0; g<32; g=g+1) begin
-		always_ff @(posedge clk) begin
-			if(en)
-				stage2_tmp.blocks[g]	<= a.blocks[g] * b.blocks[g];
-		end
 	end
 
 endmodule
