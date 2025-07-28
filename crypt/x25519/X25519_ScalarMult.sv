@@ -46,19 +46,21 @@
 			Titanium: 5162 LUT4, 2349 ADD, 6257 FF, 96 DSP, 112 BRAM, 8989 XLR
 		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 1
 			Trion: 5757 LUT4, 2842 ADD, 6291 FF, 66 MULT, 112 BRAM, 10613 LE
+		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 2
 
 	Run time (constant cycle count):
 		REGFILE_OUT_REG = 0, MULT_AREA_OPT = 0
-			crypto_scalarmult (ECDH): 482019 clocks
+			crypto_scalarmult (ECDH): 572132 clocks
 			scalarmult (ECDSA): TODO
 		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 0
-			crypto_scalarmult (ECDH): 486368 clocks
+			crypto_scalarmult (ECDH): 576480 clocks
 			scalarmult (ECDSA): TODO
 		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 1
-			crypto_scalarmult (ECDH): 486367 clocks
+			crypto_scalarmult (ECDH): 576479 clocks
+		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 2
+			crypto_scalarmult (ECDH): FIXME clocks
 
 		OLD need to update after optimizations
-			crypto_scalarmult (ECDH): 567786 clocks
 			scalarmult (ECDSA):       957287 clocks
 
 	Typical achievable performance:
@@ -76,6 +78,10 @@
 
 		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 1
 			Trion, C3 speed: 71 MHz
+			Kintex-7: much slower, don't have exact numbers handy (two DSP48s on critical path instead of 1)
+
+		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 2
+			Trion, C3 speed: x
 
 	To do a crypto_scalarmult():
 		assert dh_en with e/work_in valid
@@ -100,7 +106,8 @@ import Curve25519Registers::*;
 module X25519_ScalarMult #(
 	parameter REGFILE_OUT_REG	= 0,	//pipeline register for register file to enable block RAM interfence on efinix
 	parameter MULT_AREA_OPT		= 0		//0 = default (32 multiplies in parallel)
-										//1 = area optimized multiplier implementation (may later support higher levels)
+										//1 = resource sharing between variable and constant multiplier
+										//2 = two cycle 32x16 multiply
 )(
 	input wire			clk,
 

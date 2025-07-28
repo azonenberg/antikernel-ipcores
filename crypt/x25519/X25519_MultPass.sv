@@ -60,9 +60,13 @@ module X25519_MultPass #(
 	wire				stage3_en;
 	bignum32_t			stage3_tmp;
 
+	//debug
+	wire				stage3_en_ref;
+	bignum32_t			stage3_tmp_ref;
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	if(MULT_AREA_OPT == 0) begin : optsel
+	if(MULT_AREA_OPT == 0) begin : optsel0
 		//Initial version: stage1/2
 		X25519_MultPass_stage12_areaopt0 stage12(
 			.clk(clk),
@@ -75,7 +79,7 @@ module X25519_MultPass #(
 		);
 	end
 
-	else if(MULT_AREA_OPT == 1) begin : optsel
+	else if(MULT_AREA_OPT == 1) begin : optsel1
 		X25519_MultPass_stage12_areaopt1 stage12(
 			.clk(clk),
 			.en(en),
@@ -84,6 +88,71 @@ module X25519_MultPass #(
 			.b(b),
 			.stage3_en(stage3_en),
 			.stage3_tmp(stage3_tmp));
+
+		//uncomment to verify optimization level 0 against 1
+		X25519_MultPass_stage12_areaopt0 stage12_knowngood(
+			.clk(clk),
+			.en(en),
+			.i(i),
+			.a(a),
+			.b(b),
+			.stage3_en(stage3_en_ref),
+			.stage3_tmp(stage3_tmp_ref));
+
+		//Sanity check here
+		always_ff @(posedge clk) begin
+			if(stage3_en !== stage3_en_ref) begin
+				$display("en mismatch");
+				$finish;
+			end
+			if(stage3_en) begin
+				if(stage3_tmp !== stage3_tmp_ref) begin
+					$display("data mismatch");
+					$finish;
+				end
+			end
+		end
+
+	end
+
+	else if(MULT_AREA_OPT == 2) begin : optsel2
+		X25519_MultPass_stage12_areaopt2 stage12(
+			.clk(clk),
+			.en(en),
+			.i(i),
+			.a(a),
+			.b(b),
+			.stage3_en(stage3_en),
+			.stage3_tmp(stage3_tmp));
+
+		//uncomment to verify optimization level 0 against 2
+		X25519_MultPass_stage12_areaopt0 stage12_knowngood(
+			.clk(clk),
+			.en(en),
+			.i(i),
+			.a(a),
+			.b(b),
+			.stage3_en(stage3_en_ref),
+			.stage3_tmp(stage3_tmp_ref));
+
+		//Sanity check here
+		always_ff @(posedge clk) begin
+			if(stage3_en !== stage3_en_ref) begin
+				$display("en mismatch");
+				$finish;
+			end
+			if(stage3_en) begin
+				if(stage3_tmp !== stage3_tmp_ref) begin
+					$display("data mismatch");
+					$finish;
+				end
+			end
+		end
+
+	end
+
+	else begin
+		invalid_area_opt_setting();
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -227,13 +296,19 @@ module X25519_MultPass_stage1(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// First stage of multiplication
 
+	logic		stage1_en;		//this SHOULD be logically equivalent to "en"
+	always_comb stage1_en = en;	//but for reasons unclear, vivado 2024.1 simulator makes
+								//en and stage2_en change the same cycle which they clearly will never do in real hardware
+								//doing this gives what looks more like a correct result
+
+
 	always_ff @(posedge clk) begin
 
-		stage2_en	<= en;
+		stage2_en					<= stage1_en;
 
-		if(en) begin
+		if(stage1_en) begin
 			for(integer j=0; j<32; j=j+1)
-				stage2_do38[j]			<= (j > i);
+				stage2_do38[j]		<= (j > i);
 		end
 
 	end
@@ -328,12 +403,14 @@ module X25519_MultPass_stage12_areaopt1(
 	bignum32_t	mult_a;
 	bignum_t	mult_b;
 
-	logic[31:0] tmp1;
-	logic[31:0] tmp2;
+	logic		stage1_en;		//this SHOULD be logically equivalent to "en"
+	always_comb stage1_en = en;	//but for reasons unclear, vivado 2024.1 simulator makes
+								//en and stage2_en change the same cycle which they clearly will never do in real hardware
+								//doing this gives what looks more like a correct result
 
 	always_ff @(posedge clk) begin
 
-		stage2_en	<= en;
+		stage2_en	<= stage1_en;
 		stage3_en	<= stage2_en;
 
 		for(integer j=0; j<32; j++) begin
@@ -350,15 +427,115 @@ module X25519_MultPass_stage12_areaopt1(
 
 			if(en)
 				stage2_do38[j]			<= (j > i);
-			else
-				stage2_do38[j]			<= 0;
 
 			//The multipliers
-			if(en || stage2_do38[j])
+			if(en || (stage2_en && stage2_do38[j]) )
 				stage3_tmp.blocks[j]	<= mult_a.blocks[j] * mult_b.blocks[j];
 
 		end
 
+	end
+
+endmodule
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+// AREA_OPT=2 (BROKEN)
+
+/**
+	@brief X25519_MultPass_stage1 and X25519_MultPass_stage2 with AREA_OPT=2
+ */
+module X25519_MultPass_stage12_areaopt2(
+	input wire			clk,
+	input wire			en,
+	input wire[4:0]		i,
+	input wire bignum_t	a,
+	input wire bignum_t	b,
+
+	output wire			stage3_en,
+	output bignum32_t	stage3_tmp
+);
+
+	logic		stage2_en	= 0;
+	logic[31:0]	stage2_do38 = 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Input muxing
+
+	bignum32_t	mult_a;
+	bignum_t	mult_b;
+	logic		stage1_en;		//this SHOULD be logically equivalent to "en"
+	always_comb stage1_en = en;	//but for reasons unclear, vivado 2024.1 simulator makes
+								//en and stage2_en change the same cycle which they clearly will never do in real hardware
+								//doing this gives what looks more like a correct result
+
+	always_comb begin
+		for(integer j=0; j<32; j++) begin
+			if(en) begin
+				mult_a.blocks[j]	= a.blocks[j];
+				mult_b.blocks[j]	= b.blocks[j];
+			end
+			else begin
+				mult_a.blocks[j]	= stage3_tmp.blocks[j];
+				mult_b.blocks[j]	= 38;
+			end
+		end
+	end
+
+	logic		stage2_en_ff = 0;
+	always_ff @(posedge clk) begin
+
+		stage2_en				<= stage1_en;
+		stage2_en_ff			<= stage2_en;
+
+		for(integer j=0; j<32; j++) begin
+			if(stage1_en)
+				stage2_do38[j]	<= (j > i);
+		end
+
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The actual multipliers
+
+	wire[31:0]	mult_done;
+	for(genvar g=0; g<32; g++) begin
+		X25519_MultPass_32x16_areaopt2 mult(
+			.clk(clk),
+			.en(stage1_en || (stage2_en && stage2_do38[g]) ),
+			.a(mult_a.blocks[g]),
+			.b(mult_b.blocks[g]),
+			.out_valid(mult_done[g]),
+			.out(stage3_tmp.blocks[g])
+		);
+	end
+
+	assign stage3_en = stage2_en_ff;
+
+endmodule
+
+module X25519_MultPass_32x16_areaopt2(
+	input wire			clk,
+	input wire			en,
+	input wire[31:0]	a,
+	input wire[15:0]	b,
+
+	output logic		out_valid	`ifdef XILINX = 0 `endif,
+	output logic[31:0]	out			`ifdef XILINX = 0 `endif
+);
+
+	//output initialization for efinix toolchain compatibility
+	`ifndef XILINX
+	initial begin
+		out_valid	= 0;
+		out			= 0;
+	end
+	`endif
+
+	//single cycle implementation for initial testing
+	always_ff @(posedge clk) begin
+		out_valid	<= en;
+		if(en)
+			out		<= a * b;
 	end
 
 endmodule
