@@ -55,7 +55,7 @@
 			crypto_scalarmult (ECDH): 486368 clocks
 			scalarmult (ECDSA): TODO
 		REGFILE_OUT_REG = 1, MULT_AREA_OPT = 1
-			crypto_scalarmuklt (ECDH: 486367 clocks
+			crypto_scalarmult (ECDH): 486367 clocks
 
 		OLD need to update after optimizations
 			crypto_scalarmult (ECDH): 567786 clocks
