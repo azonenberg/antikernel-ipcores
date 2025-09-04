@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -37,13 +37,22 @@ module APB_GPIO #(
 	parameter TRIS_INIT		= 16'h0
 )(
 	//The APB bus
-	APB.completer 						apb,
+	APB.completer 					apb,
 
 	//The GPIO signals
-	output logic[apb.DATA_WIDTH-1:0]	gpio_out	= OUT_INIT,
-	output logic[apb.DATA_WIDTH-1:0]	gpio_tris	= TRIS_INIT,
-	input wire[apb.DATA_WIDTH-1:0]		gpio_in
+	output wire[apb.DATA_WIDTH-1:0]	gpio_out,
+	output wire[apb.DATA_WIDTH-1:0]	gpio_tris,
+	input wire[apb.DATA_WIDTH-1:0]	gpio_in
 );
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Define output logics as internal logic + wire for Efinix toolchain compatibility
+
+	logic[apb.DATA_WIDTH-1:0]	gpio_out_int	= OUT_INIT;
+	logic[apb.DATA_WIDTH-1:0]	gpio_tris_int	= TRIS_INIT;
+
+	assign gpio_out = gpio_out_int;
+	assign gpio_tris = gpio_tris_int;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// We only support up to 32-bit APB due to register alignment, throw synthesis error for anything else
@@ -106,8 +115,8 @@ module APB_GPIO #(
 
 		//Reset
 		if(!apb.preset_n) begin
-			gpio_out	<= OUT_INIT;
-			gpio_tris	<= TRIS_INIT;
+			gpio_out_int	<= OUT_INIT;
+			gpio_tris_int	<= TRIS_INIT;
 		end
 
 		//Normal path
@@ -117,8 +126,8 @@ module APB_GPIO #(
 
 				case(apb.paddr)
 
-					REG_GPIO_OUT:	gpio_out	<= apb.pwdata;
-					REG_GPIO_TRIS:	gpio_tris	<= apb.pwdata;
+					REG_GPIO_OUT:	gpio_out_int	<= apb.pwdata;
+					REG_GPIO_TRIS:	gpio_tris_int	<= apb.pwdata;
 
 					default: begin
 					end

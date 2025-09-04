@@ -42,8 +42,12 @@ module ThreeStageSynchronizer #(
 	input wire clk_out,
 
 	(* ASYNC_REG = "TRUE" *)
-	output logic dout	= INIT
+	output logic dout	`ifndef EFINIX = INIT `endif
     );
+
+    `ifdef EFINIX
+    initial dout = INIT;
+    `endif
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Input stage

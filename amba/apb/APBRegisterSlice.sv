@@ -29,8 +29,6 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "APBTypes.sv"
-
 /**
 	@brief An APBv5 pipeline register (parameterizable upstream, downstream, or both)
  */

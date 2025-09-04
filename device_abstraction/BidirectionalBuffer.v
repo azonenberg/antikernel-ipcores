@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2018 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -51,12 +51,26 @@ module BidirectionalBuffer #(
 	genvar i;
 	generate
 		for(i=0; i<WIDTH; i = i+1) begin: buffers
-			IOBUF iobuf(
-				.I(fabric_out[i]),
-				.IO(pad[i]),
-				.O(fabric_in[i]),
-				.T(OE_INVERT ? (!oe) : (oe))
-			);
+
+			`ifdef XILINX
+				IOBUF iobuf(
+					.I(fabric_out[i]),
+					.IO(pad[i]),
+					.O(fabric_in[i]),
+					.T(OE_INVERT ? (!oe) : (oe))
+				);
+			`endif
+
+			`ifdef EFINIX
+				EFX_IO_BUF #(
+					.PULL_OPTION("WEAK_PULLDOWN")	//TODO decide what we want
+				) iobuf (
+					.I(fabric_out[i]),
+					.IO(pad[i]),
+					.O(fabric_in[i]),
+					.OE(OE_INVERT ? !oe : oe));
+			`endif
+
 		end
 	endgenerate
 

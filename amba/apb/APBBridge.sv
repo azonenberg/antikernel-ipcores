@@ -29,8 +29,6 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "APBTypes.sv"
-
 /**
 	@brief A simple, parameterizable APBv5 interconnect bridge
 
