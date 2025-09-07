@@ -255,7 +255,7 @@ module APB_SPIHostInterface #(
 			if(apb.pready && apb.pwrite) begin
 				case(apb.paddr)
 					REG_CS_N:		spi_cs_n_int	<= apb.pwdata[0];
-					REG_CLK_DIV:	clkdiv			<= apb.pwdata[15:0] - 1;
+					REG_CLK_DIV:	clkdiv			<= apb.pwdata[15:0] - 16'h1;
 
 					//Start a burst read
 					REG_BURST_RDLEN: begin
@@ -276,7 +276,7 @@ module APB_SPIHostInterface #(
 			//Handle writes
 			if(burst_wr) begin
 				burst_wvalid	<= 0;
-				burst_wptr		<= burst_wptr + 1;
+				burst_wptr		<= burst_wptr + 1'h1;
 			end
 
 			//Handle bursts
@@ -298,8 +298,8 @@ module APB_SPIHostInterface #(
 					endcase
 
 					//Count progress
-					burst_count		<= burst_count - 1;
-					burst_wvalid	<= burst_wvalid + 1;
+					burst_count		<= burst_count - 9'h1;
+					burst_wvalid	<= burst_wvalid + 2'h1;
 
 					if(burst_count <= 1)
 						burst_busy	<= 0;

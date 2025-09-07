@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -54,19 +54,32 @@ module EthernetMDIOTransceiver #(
 
 	input	wire[4:0]	phy_md_addr,
 
-	output	logic		mdio_tx_data	= 0,
-	output	logic		mdio_tx_en		= 0,
+	output	wire		mdio_tx_data,
+	output	wire		mdio_tx_en,
 	input	wire		mdio_rx_data,
 
-	output	logic		mdc			 	= 0,
+	output	wire		mdc,
 
 	output	wire		mgmt_busy_fwd,
 	input	wire[4:0]	phy_reg_addr,
 	input	wire[15:0]	phy_wr_data,
-	output	logic[15:0]	phy_rd_data		= 0,
+	output	wire[15:0]	phy_rd_data,
 	input	wire		phy_reg_wr,
 	input	wire		phy_reg_rd
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Ootput register glue
+
+	logic		mdio_tx_data_int	= 0;
+	logic		mdio_tx_en_int		= 0;
+	logic		mdc_int			 	= 0;
+	logic[15:0]	phy_rd_data_int		= 0;
+
+	assign mdio_tx_data = mdio_tx_data_int;
+	assign mdio_tx_en 	= mdio_tx_en_int;
+	assign mdc			= mdc_int;
+	assign phy_rd_data	= phy_rd_data_int;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Slow clock generation for MDC
@@ -86,7 +99,7 @@ module EthernetMDIOTransceiver #(
 		if(mdc_count == (CLK_DIV_2 - 1) ) begin
 			mdc_count		<= 0;
 
-			if(mdc)
+			if(mdc_int)
 				mdc_falling_edge	<= 1;
 			else
 				mdc_rising_edge		<= 1;
@@ -94,9 +107,9 @@ module EthernetMDIOTransceiver #(
 
 		//Turn edges into a squarewave
 		if(mdc_falling_edge)
-			mdc		<= 0;
+			mdc_int		<= 0;
 		if(mdc_rising_edge)
-			mdc		<= 1;
+			mdc_int		<= 1;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
@@ -139,7 +152,7 @@ module EthernetMDIOTransceiver #(
 			MGMT_STATE_IDLE: begin
 
 				//Tri-state I/Os during this time
-				mdio_tx_en			<= 0;
+				mdio_tx_en_int		<= 0;
 
 				//Wait for commands
 				if(phy_reg_rd) begin
@@ -163,10 +176,10 @@ module EthernetMDIOTransceiver #(
 			//22.2.4.5.2 - preamble (minimum 32 contiguous 1 bits)
 			MGMT_STATE_PRE: begin
 				if(mdc_falling_edge) begin
-					mdio_tx_en		<= 1;
-					mdio_tx_data	<= 1;
+					mdio_tx_en_int		<= 1;
+					mdio_tx_data_int	<= 1;
 
-					mgmt_count		<= mgmt_count + 6'h1;
+					mgmt_count			<= mgmt_count + 6'h1;
 
 					if(mgmt_count == 'd48) begin		//send extra long preamble just in case
 						mgmt_state	<= MGMT_STATE_ST;
@@ -179,8 +192,8 @@ module EthernetMDIOTransceiver #(
 			//22.2.4.5.3 - start of frame (01)
 			MGMT_STATE_ST: begin
 				if(mdc_falling_edge) begin
-					mdio_tx_en		<= 1;
-					mdio_tx_data	<= mgmt_count[0];
+					mdio_tx_en_int		<= 1;
+					mdio_tx_data_int	<= mgmt_count[0];
 
 					if(mgmt_count == 0)
 						mgmt_count	<= 1;
@@ -195,18 +208,18 @@ module EthernetMDIOTransceiver #(
 			//22.2.4.5.4 - opcode (read = 10, write = 01)
 			MGMT_STATE_OP: begin
 				if(mdc_falling_edge) begin
-					mdio_tx_en		<= 1;
+					mdio_tx_en_int			<= 1;
 
 					if(mgmt_op == MGMT_OP_RD)
-						mdio_tx_data <= ~mgmt_count[0];
+						mdio_tx_data_int	<= ~mgmt_count[0];
 					else
-						mdio_tx_data <= mgmt_count[0];
+						mdio_tx_data_int	<= mgmt_count[0];
 
 					if(mgmt_count == 0)
-						mgmt_count	 <= 1;
+						mgmt_count	 		<= 1;
 					else begin
-						mgmt_state 	<= MGMT_STATE_PHYAD;
-						mgmt_count	 <= 0;
+						mgmt_state			<= MGMT_STATE_PHYAD;
+						mgmt_count			 <= 0;
 					end
 
 				end
@@ -215,18 +228,18 @@ module EthernetMDIOTransceiver #(
 			//22.2.4.5.5 - PHY address
 			MGMT_STATE_PHYAD: begin
 				if(mdc_falling_edge) begin
-					mdio_tx_en 				<= 1;
-					mgmt_count				<= mgmt_count + 6'h1;
+					mdio_tx_en_int				<= 1;
+					mgmt_count					<= mgmt_count + 6'h1;
 
 					case(mgmt_count)
-						0: mdio_tx_data 	<= phy_md_addr[4];
-						1: mdio_tx_data 	<= phy_md_addr[3];
-						2: mdio_tx_data 	<= phy_md_addr[2];
-						3: mdio_tx_data		<= phy_md_addr[1];
+						0: mdio_tx_data_int		<= phy_md_addr[4];
+						1: mdio_tx_data_int		<= phy_md_addr[3];
+						2: mdio_tx_data_int		<= phy_md_addr[2];
+						3: mdio_tx_data_int		<= phy_md_addr[1];
 						default: begin
-							mdio_tx_data	<= phy_md_addr[0];
-							mgmt_state		<= MGMT_STATE_REGAD;
-							mgmt_count		<= 0;
+							mdio_tx_data_int	<= phy_md_addr[0];
+							mgmt_state			<= MGMT_STATE_REGAD;
+							mgmt_count			<= 0;
 						end
 					endcase
 				end
@@ -236,18 +249,18 @@ module EthernetMDIOTransceiver #(
 			//22.2.4.5.6 - register address
 			MGMT_STATE_REGAD: begin
 				if(mdc_falling_edge) begin
-					mdio_tx_en				<= 1;
-					mgmt_count				<= mgmt_count + 6'h1;
+					mdio_tx_en_int				<= 1;
+					mgmt_count					<= mgmt_count + 6'h1;
 
 					case(mgmt_count)
-						0: mdio_tx_data		<= phy_reg_addr[4];
-						1: mdio_tx_data		<= phy_reg_addr[3];
-						2: mdio_tx_data		<= phy_reg_addr[2];
-						3: mdio_tx_data		<= phy_reg_addr[1];
+						0: mdio_tx_data_int		<= phy_reg_addr[4];
+						1: mdio_tx_data_int		<= phy_reg_addr[3];
+						2: mdio_tx_data_int		<= phy_reg_addr[2];
+						3: mdio_tx_data_int		<= phy_reg_addr[1];
 						default: begin
-							mdio_tx_data	<= phy_reg_addr[0];
-							mgmt_state		<= MGMT_STATE_TA;
-							mgmt_count		<= 0;
+							mdio_tx_data_int	<= phy_reg_addr[0];
+							mgmt_state			<= MGMT_STATE_TA;
+							mgmt_count			<= 0;
 						end
 					endcase
 				end
@@ -263,15 +276,15 @@ module EthernetMDIOTransceiver #(
 						during the second bit time of the turnaround of a read transaction.
 					 */
 					if(mgmt_op == MGMT_OP_RD)
-						mdio_tx_en		<= 0;
+						mdio_tx_en_int		<= 0;
 
 					/*
 						During a write transaction, the STA shall drive a one bit for the first bit time of
 						the turnaround and a zero bit for the second bit time of the turnaround.
 					 */
 					else begin
-						mdio_tx_en		<= 1;
-						mdio_tx_data	<= ~mgmt_count[0];
+						mdio_tx_en_int		<= 1;
+						mdio_tx_data_int	<= ~mgmt_count[0];
 					end
 
 					//Go on to the next state
@@ -292,18 +305,18 @@ module EthernetMDIOTransceiver #(
 				if(mgmt_op == MGMT_OP_RD) begin
 
 					//Stay tri-stated in read mode
-					mdio_tx_en <= 0;
+					mdio_tx_en_int <= 0;
 
 					//Read on rising edge of clock as per 22.3.4
 					//Bit 15 goes first
 					//Read one extra bit because we start half a cycle early
 					if(mdc_rising_edge) begin
 						mgmt_count 			<= mgmt_count + 6'h1;
-						phy_rd_data_raw 	<= {phy_rd_data_raw[14:0], mdio_rx_data};
+						phy_rd_data_raw 	<= {phy_rd_data_raw[13:0], mdio_rx_data};
 
 						//Just read the last bit, we're done
 						if(mgmt_count == 16) begin
-							phy_rd_data		<= {phy_rd_data_raw[14:0], mdio_rx_data};
+							phy_rd_data_int	<= {phy_rd_data_raw[14:0], mdio_rx_data};
 							mgmt_state		<= MGMT_STATE_IFG;
 							mgmt_count		<= 0;
 						end
@@ -316,8 +329,8 @@ module EthernetMDIOTransceiver #(
 
 					//Write on falling edge of clock as per 22.3.4
 					if(mdc_falling_edge) begin
-						mdio_tx_en 			<= 1;
-						mdio_tx_data		<= phy_wr_data_ff[15];
+						mdio_tx_en_int		<= 1;
+						mdio_tx_data_int	<= phy_wr_data_ff[15];
 						mgmt_count			<= mgmt_count + 6'h1;
 						phy_wr_data_ff		<= {phy_wr_data_ff[14:0], 1'b0};
 

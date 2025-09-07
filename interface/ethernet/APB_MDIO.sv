@@ -224,7 +224,7 @@ module APB_MDIO #(
 
 						//start write operation
 						phy_reg_wr		<= 1;
-						phy_wr_data		<= apb.pwdata;
+						phy_wr_data		<= apb.pwdata[15:0];
 
 					end
 
