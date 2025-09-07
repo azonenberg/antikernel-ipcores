@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -29,8 +29,6 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-`include "../../../antikernel-ipcores/amba/apb/APBTypes.sv"
-
 /**
 	@file
 	@author	Andrew D. Zonenberg
@@ -54,7 +52,7 @@ module APB_SPIHostInterface #(
 	output wire						spi_sck,
 	output wire						spi_mosi,
 	input wire						spi_miso,
-	output logic					spi_cs_n = 1
+	output wire						spi_cs_n
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -68,6 +66,12 @@ module APB_SPIHostInterface #(
 
 	assign apb.pruser = 0;
 	assign apb.pbuser = 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Output register interfacing
+
+	logic	spi_cs_n_int	= 1;
+	assign spi_cs_n = spi_cs_n_int;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register IDs
@@ -208,7 +212,7 @@ module APB_SPIHostInterface #(
 
 						REG_CLK_DIV:	apb.prdata	= clkdiv + 1;
 						REG_DATA:		apb.prdata	= {8'h0, rx_data};
-						REG_CS_N:		apb.prdata	= {15'h0, spi_cs_n};
+						REG_CS_N:		apb.prdata	= {15'h0, spi_cs_n_int};
 						REG_STATUS:		apb.prdata	= {15'h0, shift_busy | burst_busy};
 						REG_STATUS_2:	apb.prdata	= {15'h0, shift_busy | burst_busy};
 						REG_QUAD_CAP:	apb.prdata	= 'h0;
@@ -228,7 +232,7 @@ module APB_SPIHostInterface #(
 
 		//Reset
 		if(!apb.preset_n) begin
-			spi_cs_n		<= 1;
+			spi_cs_n_int	<= 1;
 			clkdiv			<= 100;
 			shift_busy		<= 0;
 			burst_busy		<= 0;
@@ -250,8 +254,8 @@ module APB_SPIHostInterface #(
 			//APB writes
 			if(apb.pready && apb.pwrite) begin
 				case(apb.paddr)
-					REG_CS_N:		spi_cs_n	<= apb.pwdata[0];
-					REG_CLK_DIV:	clkdiv		<= apb.pwdata[15:0] - 1;
+					REG_CS_N:		spi_cs_n_int	<= apb.pwdata[0];
+					REG_CLK_DIV:	clkdiv			<= apb.pwdata[15:0] - 1;
 
 					//Start a burst read
 					REG_BURST_RDLEN: begin

@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -60,20 +60,33 @@ module SPIHostInterface #(
 	input wire[15:0]	clkdiv,
 
 	//SPI interface
-	output logic		spi_sck = 0,
-	output logic		spi_mosi = 0,
+	output wire			spi_sck,
+	output wire			spi_mosi,
 	input wire			spi_miso,
 
 	//Control interface
 	input wire			shift_en,
-	output logic		shift_done = 0,
+	output wire			shift_done,
 	input wire[7:0]		tx_data,
-	output reg[7:0]		rx_data = 0
+	output wire[7:0]	rx_data
 
 	`ifdef FORMAL
 	, output logic active	= 0
 	`endif
     );
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Output register interfacing
+
+	logic spi_sck_int		= 0;
+	logic spi_mosi_int		= 0;
+	logic shift_done_int	= 0;
+	logic[7:0] rx_data_int	= 0;
+
+	assign spi_sck 			= spi_sck_int;
+	assign spi_mosi 		= spi_mosi_int;
+	assign shift_done		= shift_done_int;
+	assign rx_data			= rx_data_int;
 
  	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Clock divider edge finding
@@ -103,10 +116,10 @@ module SPIHostInterface #(
 	// Main state machine
 
 	`ifndef FORMAL
-	logic		active		= 0;
+	logic		active			= 0;
 	`endif
 
-	logic[3:0]	count		= 0;
+	logic[3:0]	count			= 0;
 
 	logic[6:0]	tx_shreg		= 0;
 
@@ -117,18 +130,18 @@ module SPIHostInterface #(
 	generate
 		if(CHANGE_ON_DONE) begin
 			always_ff @(posedge clk) begin
-				shift_done		<= 0;
+				shift_done_int		<= 0;
 				if(shift_done_adv) begin
-					rx_data		<= rx_shreg;
-					shift_done	<= 1;
+					rx_data_int		<= rx_shreg;
+					shift_done_int	<= 1;
 				end
 			end
 		end
 
 		else begin
 			always_comb begin
-				rx_data		= rx_shreg;
-				shift_done	= shift_done_adv;
+				rx_data_int		= rx_shreg;
+				shift_done_int	= shift_done_adv;
 			end
 		end
 	endgenerate
@@ -161,14 +174,14 @@ module SPIHostInterface #(
 
 			if(SAMPLE_EDGE == "FALLING") begin
 				count	<= 1;
-				spi_sck <= 1;
+				spi_sck_int <= 1;
 			end
 			else begin
 				count	<= 0;
-				spi_sck <= 0;
+				spi_sck_int <= 0;
 			end
 
-			spi_mosi <= tx_data[7];
+			spi_mosi_int <= tx_data[7];
 			tx_shreg <= tx_data[6:0];
 		end
 
@@ -180,19 +193,19 @@ module SPIHostInterface #(
 
 				//Reset the counter and toggle the clock
 				clkcount	<= 0;
-				spi_sck 	<= !spi_sck;
+				spi_sck_int 	<= !spi_sck_int;
 
 				//Make the done flag wait half a bit period if necessary
 				if(almost_done) begin
-					spi_sck			<= 0;
+					spi_sck_int			<= 0;
 					shift_done_adv	<= 1;
-					active			<= 0;
-					almost_done		<= 0;
+					active				<= 0;
+					almost_done			<= 0;
 				end
 
 				//ACTIVE EDGE
-				else if( (spi_sck && (SAMPLE_EDGE == "RISING")) || (!spi_sck && (SAMPLE_EDGE == "FALLING")) ) begin
-					spi_mosi <= tx_shreg[6];
+				else if( (spi_sck_int && (SAMPLE_EDGE == "RISING")) || (!spi_sck_int && (SAMPLE_EDGE == "FALLING")) ) begin
+					spi_mosi_int <= tx_shreg[6];
 
 					tx_shreg <= {tx_shreg[5:0], 1'b0};
 
@@ -207,7 +220,7 @@ module SPIHostInterface #(
 
 					//Stop on the end of the last clock
 					if( (count == 'd8) ) begin
-						spi_sck		<= 0;
+						spi_sck_int		<= 0;
 						almost_done	<= 1;
 					end
 
