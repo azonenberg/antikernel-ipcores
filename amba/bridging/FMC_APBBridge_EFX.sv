@@ -111,7 +111,7 @@ module FMC_APBBridge_EFX #(
 
 			//continue counting if active
 			if(apb_x32.penable) begin
-				stuck_count	<= stuck_count + 1;
+				stuck_count	<= stuck_count + 8'h1;
 
 				if(stuck_count == 8'hff)
 					stuck_release	<= 1;
@@ -141,7 +141,7 @@ module FMC_APBBridge_EFX #(
 
 		//Once PLL is locked, hold reset for 15 clocks
 		else if(!rst_n) begin
-			rst_count	<= rst_count + 1;
+			rst_count	<= rst_count + 4'h1;
 			if(rst_count == 0)
 				rst_n	<= 1;
 
@@ -186,13 +186,13 @@ module FMC_APBBridge_EFX #(
 	} state = STATE_ADDR;
 
 	//Saved address/write enable flag before we started a write
-	logic[25:0]		pending_addr	= 0;
+	logic[26:0]		pending_addr	= 0;
 	logic			pending_write	= 0;
 	logic			apb_busy		= 0;
 	logic[3:0]		wait_count		= 0;
 
 	//Saved read data
-	logic[31:0]		prdata_latched	= 0;
+	logic[63:0]		prdata_latched	= 0;
 
 	always_ff @(posedge apb_x32.pclk or negedge pll_lock) begin
 
@@ -222,6 +222,7 @@ module FMC_APBBridge_EFX #(
 
 	end
 
+	//TODO: support 64-bit reads
 	always_ff @(posedge apb_x32.pclk) begin
 
 		case(state)
@@ -235,7 +236,7 @@ module FMC_APBBridge_EFX #(
 	//Figure out if address is in the 32 or 64 bit segment
 	logic		addr_is_x64 = 0;
 
-	wire[25:0]	pending_addr_next;
+	wire[26:0]	pending_addr_next;
 	assign pending_addr_next = { fmc_a_hi, adbus_in, 1'b0};
 
 	logic		apb_busy_ff	= 0;
@@ -347,7 +348,7 @@ module FMC_APBBridge_EFX #(
 				//wait state is active, delay for several clocks
 				STATE_WDATA_WAIT: begin
 					if(!apb_busy_ff) begin
-						wait_count		<= wait_count + 1;
+						wait_count		<= wait_count + 4'h1;
 						if(wait_count >= WAIT_CYCLE_RTT)
 							state		<= STATE_WDATA_HI;
 					end

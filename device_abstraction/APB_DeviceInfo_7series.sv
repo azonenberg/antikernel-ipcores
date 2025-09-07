@@ -80,8 +80,9 @@ module APB_DeviceInfo_7series(
 		REG_STATUS		= 8'h00,	//[0] = IDCODE valid
 									//[1] = serial valid
 		REG_IDCODE		= 8'h04,	//Device IDCODE
-		REG_SERIAL_0	= 8'h0c,	//Die serial bits 63:32
-		REG_SERIAL_1	= 8'h10,	//Die serial bits 31:0
+		REG_SERIAL_0	= 8'h08,	//Die serial bits 95:64 (not used in 7 series)
+		REG_SERIAL_1	= 8'h0c,	//Die serial bits 63:32
+		REG_SERIAL_2	= 8'h10,	//Die serial bits 31:0
 		REG_USERCODE	= 8'h14,	//User ID
 		REG_SCRATCH		= 8'h18		//Dummy register
 	} regid_t;
@@ -422,8 +423,9 @@ module APB_DeviceInfo_7series(
 				case(apb.paddr)
 					REG_STATUS:		apb.prdata = { 30'h0, die_serial_valid, idcode_valid };
 					REG_IDCODE:		apb.prdata = idcode_pclk;
-					REG_SERIAL_0:	apb.prdata = die_serial_pclk[63:32];
-					REG_SERIAL_1:	apb.prdata = die_serial_pclk[31:0];
+					REG_SERIAL_0:	apb.prdata = 32'h0;
+					REG_SERIAL_1:	apb.prdata = die_serial_pclk[63:32];
+					REG_SERIAL_2:	apb.prdata = die_serial_pclk[31:0];
 					REG_USERCODE:	apb.prdata = usercode;
 					REG_SCRATCH:	apb.prdata = scratch;
 					default:		apb.pslverr	= 1;

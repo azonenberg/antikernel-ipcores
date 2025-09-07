@@ -64,7 +64,8 @@ module APB_DeviceInfo_UltraScale(
 		REG_SERIAL_0	= 8'h08,		//Die serial bits 95:64
 		REG_SERIAL_1	= 8'h0c,		//Die serial bits 63:32
 		REG_SERIAL_2	= 8'h10,		//Die serial bits 31:0
-		REG_USERCODE	= 8'h14			//User ID
+		REG_USERCODE	= 8'h14,		//User ID
+		REG_SCRATCH		= 8'h18			//Dummy register
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -310,6 +311,13 @@ module APB_DeviceInfo_UltraScale(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register logic
 
+	logic[31:0] scratch = 32'h5555aaaa;
+
+	always_ff @(posedge apb.pclk) begin
+		if(apb.pready && apb.pwrite && (apb.paddr == REG_SCRATCH))
+			scratch	<= apb.pwdata;
+	end
+
 	//Combinatorial readback
 	always_comb begin
 
@@ -328,6 +336,7 @@ module APB_DeviceInfo_UltraScale(
 					REG_SERIAL_1:	apb.prdata = die_serial[63:32];
 					REG_SERIAL_2:	apb.prdata = die_serial[31:0];
 					REG_USERCODE:	apb.prdata = usercode;
+					REG_SCRATCH:	apb.prdata = scratch;
 					default:		apb.pslverr	= 1;
 				endcase
 			end

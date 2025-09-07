@@ -27,13 +27,13 @@
 *                                                                                                                      *
 ***********************************************************************************************************************/
 
-#ifndef APB_DeviceInfo_UltraScale_h
-#define APB_DeviceInfo_UltraScale_h
+#ifndef APB_DeviceInfo_Generic_h
+#define APB_DeviceInfo_Generic_h
 
 /**
 	@brief Registers for device information core
  */
-struct APB_DeviceInfo_UltraScale
+struct APB_DeviceInfo_Generic
 {
 public:
 	uint32_t status;
