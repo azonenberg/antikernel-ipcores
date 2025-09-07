@@ -68,7 +68,7 @@ module BidirectionalBuffer #(
 					.I(fabric_out[i]),
 					.IO(pad[i]),
 					.O(fabric_in[i]),
-					.OE(OE_INVERT ? !oe : oe));
+					.OE(OE_INVERT ? oe : !oe));
 			`endif
 
 		end
