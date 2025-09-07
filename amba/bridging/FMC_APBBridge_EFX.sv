@@ -224,13 +224,11 @@ module FMC_APBBridge_EFX #(
 
 	//TODO: support 64-bit reads
 	always_ff @(posedge apb_x32.pclk) begin
-
 		case(state)
 			STATE_RDATA_LO:	adbus_out	<= prdata_latched[15:0];
 			STATE_RDATA_HI:	adbus_out	<= prdata_latched[31:16];
 			default:		adbus_out	<= 0;
 		endcase
-
 	end
 
 	//Figure out if address is in the 32 or 64 bit segment
@@ -255,7 +253,7 @@ module FMC_APBBridge_EFX #(
 			apb_x32.penable		<= 0;
 			apb_x32.psel		<= 0;
 			apb_busy			<= 0;
-			prdata_latched		<= apb_x32.prdata;
+			prdata_latched		<= {32'h0, apb_x32.prdata};
 		end
 
 		if(apb_x64.pready) begin
