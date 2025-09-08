@@ -2,9 +2,9 @@
 `timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -54,8 +54,15 @@ module ClockBuffer(clkin, ce, clkout);
 
 	wire ce_internal = (CE == "YES") ? ce : 1'b1;
 
-	generate
-
+	`ifdef EFINIX
+		EFX_GBUFCE #(
+			.CE_POLARITY(1)
+		) clk_buf (
+			.I(clkin),
+			.CE(ce_internal),
+			.O(clkout)
+		);
+	`else
 		//Local clock (one region of the device)
 		if(TYPE == "LOCAL") begin
 
@@ -146,8 +153,7 @@ module ClockBuffer(clkin, ce, clkout);
 				$fatal(0, "ERROR: ClockBuffer TYPE argument must be \"GLOBAL\" or \"LOCAL\"");
 			end
 		end
-
-	endgenerate
+	`endif
 
 endmodule
 

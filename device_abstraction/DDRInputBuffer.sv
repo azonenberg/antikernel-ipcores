@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -45,9 +45,13 @@ module DDRInputBuffer #(
 
 	output wire[WIDTH-1:0]	dout0,
 	output wire[WIDTH-1:0]	dout1
+
+	`ifdef EFINIX
+	, input wire			clk_pipe
+	`endif
 );
 
-	////////////////////////////////////////////////////////////////////////////////////////////////
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The IO buffers
 
 	for(genvar i=0; i<WIDTH; i++) begin: buffers
@@ -59,8 +63,7 @@ module DDRInputBuffer #(
 				.DDR_CLK_EDGE("SAME_EDGE_PIPELINED"),
 				.IS_C_INVERTED(0),
 				.IS_CB_INVERTED(0)
-			) ddr_ibuf
-			(
+			) ddr_ibuf (
 				.C(clk_p),
 				.CB(clk_n),
 				.Q1(dout0[i]),
@@ -77,8 +80,7 @@ module DDRInputBuffer #(
 				.SRTYPE("ASYNC"),
 				.INIT_Q1(0),
 				.INIT_Q2(0)
-			) ddr_ibuf
-			(
+			) ddr_ibuf (
 				.C(clk_p),
 				.Q1(dout0[i]),
 				.Q2(dout1[i]),
@@ -88,10 +90,37 @@ module DDRInputBuffer #(
 				.D(din[i])
 			);
 
+		`elsif EFINIX
+
+			EFX_IDDIO #(
+				.IS_CLK_INVERTED(0),
+				.PULL_OPTION("NONE"),
+				.MODE("DDIO_RESYNC")
+			) ddr_ibuf (
+				.O_HI(dout0_tmp[i]),
+				.O_LO(dout1[i]),
+				.CLK(clk_p),
+				.I(din[i])
+			);
 		`else
 			$fatal(1, "DDRInputBuffer: unrecognized device family (did you forget to define XILINX_7SERIES or XILINX_ULTRASCALEPLUS?)");
 		`endif
 
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Extra pipeline registers for Trion
+
+	`ifdef EFINIX
+		//DDIO_PIPE isn't working (is it even there??), need to manually pipeline
+		wire[WIDTH-1:0]		dout0_tmp;
+		logic[WIDTH-1:0]	dout0_tmp_ff;
+
+		always_ff @(posedge clk_pipe) begin
+			dout0_tmp_ff	<= dout0_tmp;
+		end
+
+		assign dout0 	= dout0_tmp_ff;
+	`endif
 
 endmodule
