@@ -72,7 +72,11 @@ module DDRInputBuffer #(
 				.D(din[i])
 			);
 
-		`elsif XILINX_7SERIES
+			`define OK
+
+		`endif
+
+		`ifdef XILINX_7SERIES
 
 			IDDR #
 			(
@@ -90,7 +94,11 @@ module DDRInputBuffer #(
 				.D(din[i])
 			);
 
-		`elsif EFINIX
+			`define OK
+
+		`endif
+
+		`ifdef EFINIX
 
 			EFX_IDDIO #(
 				.IS_CLK_INVERTED(0),
@@ -102,7 +110,12 @@ module DDRInputBuffer #(
 				.CLK(clk_p),
 				.I(din[i])
 			);
-		`else
+
+			`define OK
+
+		`endif
+
+		`ifndef OK
 			$fatal(1, "DDRInputBuffer: unrecognized device family (did you forget to define XILINX_7SERIES or XILINX_ULTRASCALEPLUS?)");
 		`endif
 

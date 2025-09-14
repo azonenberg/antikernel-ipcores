@@ -80,7 +80,8 @@ module QSPIDeviceInterface #(
 	logic[3:0]	dq_out	= 0;
 
 	BidirectionalBuffer #(
-		.WIDTH(4)
+		.WIDTH(4),
+		.OE_INVERT(1)
 	) dq_iobuf (
 		.fabric_in(dq_in),
 		.fabric_out(dq_out),

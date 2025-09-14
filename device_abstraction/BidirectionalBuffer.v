@@ -59,6 +59,7 @@ module BidirectionalBuffer #(
 					.O(fabric_in[i]),
 					.T(OE_INVERT ? (!oe) : (oe))
 				);
+				`define OK
 			`endif
 
 			`ifdef EFINIX
@@ -69,6 +70,11 @@ module BidirectionalBuffer #(
 					.IO(pad[i]),
 					.O(fabric_in[i]),
 					.OE(OE_INVERT ? oe : !oe));
+				`define OK
+			`endif
+
+			`ifndef OK
+				$fatal(1, "BidirectionalBuffer: unrecognized device family (did you forget to define XILINX or EFINIX?)");
 			`endif
 
 		end
