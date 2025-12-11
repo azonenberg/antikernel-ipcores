@@ -125,6 +125,31 @@ module MinimalPCIeEndpoint(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Output mux
+
+	wire[15:0]	tx_train_data;
+	wire[1:0]	tx_train_charisk;
+	wire		tx_train_skip_ack;
+
+	wire		tx_skip_req;
+	wire		tx_skip_done;
+
+	PCIeOutputMux outmux(
+		.clk(tx_clk),
+		.rst_n(rst_tx_n),
+
+		.tx_data(tx_data),
+		.tx_charisk(tx_charisk),
+
+		.tx_train_data(tx_train_data),
+		.tx_train_charisk(tx_train_charisk),
+		.tx_train_skip_ack(tx_train_skip_ack),
+
+		.tx_skip_req(tx_skip_req),
+		.tx_skip_done(tx_skip_done)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Generate outgoing training sets
 
 	logic		ts_type_is_ts2		= 0;
@@ -139,8 +164,8 @@ module MinimalPCIeEndpoint(
 		.clk(tx_clk),
 		.rst_n(rst_tx_n),
 
-		.tx_data(tx_data),
-		.tx_charisk(tx_charisk),
+		.tx_data(tx_train_data),
+		.tx_charisk(tx_train_charisk),
 
 		.tx_set_is_ts2(ts_type_is_ts2),
 		.tx_ts_link_valid(tx_ts_link_valid),
@@ -150,7 +175,10 @@ module MinimalPCIeEndpoint(
 		.tx_ts_num_fts(8'd64),		//constant
 		.tx_ts_5g_supported(1'b0),	//constant
 
-		.tx_ts_sent(tx_ts_sent)
+		.tx_ts_sent(tx_ts_sent),
+		.tx_skip_req(tx_skip_req),
+		.tx_skip_ack(tx_train_skip_ack),
+		.tx_skip_done(tx_skip_done)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -320,9 +348,13 @@ module MinimalPCIeEndpoint(
 		.probe18(tx_ts_lane),
 		.probe19(tsSentCount),
 		.probe20(tsRecvCount),
+		.probe21(ltssm_state),
 
-		//new from here
-		.probe21(ltssm_state)
+		.probe22(tx_train_data),
+		.probe23(tx_train_charisk),
+		.probe24(tx_train_skip_ack),
+		.probe25(tx_skip_req),
+		.probe26(tx_skip_done)
 	);
 
 

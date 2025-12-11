@@ -30,155 +30,82 @@
 ***********************************************************************************************************************/
 
 /**
-	@brief Generate outbound training sets
+	@brief Mux between link training and data link layer to drive the 8b10b output. Also inserts skip sets.
  */
-module PCIeTrainingSetGenerator(
+module PCIeOutputMux(
 	input wire			clk,
 	input wire			rst_n,
 
+	//Outputs to SERDES
 	output logic[15:0]	tx_data			= 0,
 	output logic[1:0]	tx_charisk		= 0,
 
-	input wire			tx_set_is_ts2,
-	input wire			tx_ts_link_valid,
-	input wire[4:0]		tx_ts_link,
-	input wire			tx_ts_lane_valid,
-	input wire[4:0]		tx_ts_lane,
-	input wire[7:0]		tx_ts_num_fts,
-	input wire			tx_ts_5g_supported,
+	//Inputs from link training
+	input wire[15:0]	tx_train_data,
+	input wire[1:0]		tx_train_charisk,
+	input wire			tx_train_skip_ack,
 
-	output logic		tx_ts_sent		= 0,
-	input wire			tx_skip_req,
-	output logic		tx_skip_ack		= 0,
-	input wire			tx_skip_done
+	//Inputs from data link layer
+
+	//Skip request
+	output logic		tx_skip_req		= 0,
+	output logic		tx_skip_done	= 0
 );
 
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Generate training sets
-
-	enum logic[2:0]
-	{
-		TS_HEAD	= 0,
-		TS_LANEFTS,
-		TS_RATECTL,
-		TS_FILLER,
-
-		TS_SKIP
-	} state = TS_HEAD;
-
-	logic[2:0] count = 0;
-	logic[6:0]	skip_count	= 0;
+	//Send skips every 1180 to 1538 symbol times per spec
+	//Target 1400 symbols (700 clocks) interval
+	logic[9:0]	count 			= 0;
+	logic		tx_skip_done_ff	= 0;
 
 	always_ff @(posedge clk or negedge rst_n) begin
-
 		if(!rst_n) begin
-			tx_data		<= 0;
-			tx_charisk	<= 0;
-			count		<= 0;
-			state		<= TS_HEAD;
-			tx_ts_sent	<= 0;
-			tx_skip_ack	<= 0;
+			count			<= 0;
+			tx_skip_req		<= 0;
+			tx_skip_done	<= 0;
+			tx_skip_done_ff	<= 0;
 		end
 
 		else begin
 
-			tx_ts_sent	<= 0;
-			tx_skip_ack	<= 0;
+			//TODO: actual mux
+			//for now, just forward data from link training
+			tx_data		<= tx_train_data;
+			tx_charisk	<= tx_train_charisk;
 
-			case(state)
+			//Clear single cycle flags
+			tx_skip_done	<= 0;
 
-				TS_SKIP: begin
-					tx_data[15:0]	<= 16'h00;
-					tx_charisk[1:0]	<= 0;
+			//Pipeline delays
+			tx_skip_done_ff	<= tx_skip_done;
 
-					if(tx_skip_done)
-						state	<= TS_HEAD;
+			//Request a skip set every 700 symbols
+			if(!tx_skip_req) begin
+				count		<= count + 1;
+
+				if(count == 700) begin
+					tx_skip_req	<= 1;
 				end
+			end
 
-				//K28.5, link number
-				TS_HEAD: begin
+			//Send a skip when a request is acknowledged
+			if(tx_train_skip_ack) begin
+				tx_skip_req		<= 0;
+				tx_skip_done	<= 1;
+			end
 
-					tx_data[7:0]	<= 8'hbc;
-					tx_charisk[0]	<= 1;
+			if(tx_skip_done) begin
+				tx_charisk		<= 2'b11;
+				tx_data			<= 16'h1cbc;
+			end
 
-					//Valid link number, send it
-					if(tx_ts_link_valid) begin
-						tx_data[15:8]	<= {3'b0, tx_ts_link};
-						tx_charisk[1]	<= 0;
-					end
-
-					//No link number, send PAD
-					else begin
-						tx_data[15:8]	<= 8'hf7;
-						tx_charisk[1]	<= 1;
-					end
-
-					state			<= TS_LANEFTS;
-
-					//Keep track of how many sets we sent between skips
-					skip_count		<= skip_count + 1;
-
-				end	//end TS_HEAD
-
-				//Lane number, number of FTs
-				TS_LANEFTS: begin
-
-					//Valid lane number, send it
-					if(tx_ts_lane_valid) begin
-						tx_data[7:0]	<= {3'b0, tx_ts_lane};
-						tx_charisk[0]	<= 0;
-					end
-
-					//No lane number, send PAD
-					else begin
-						tx_data[7:0]	<= 8'hf7;
-						tx_charisk[0]	<= 1;
-					end
-
-					//Number of FTs
-					tx_data[15:8]	<= tx_ts_num_fts;
-					tx_charisk[1]	<= 0;
-
-					state			<= TS_RATECTL;
-
-				end //end TS_LANEFTS
-
-				//Data rate and training control
-				TS_RATECTL: begin
-					tx_charisk		<= 2'b00;
-					tx_data[7:0]	<= { 5'h0, tx_ts_5g_supported, 2'b10 };	//always 2.5G, 5G optional, nothing faster
-					tx_data[15:8]	<= 0;	//ignore training control
-
-					state			<= TS_FILLER;
-					count			<= 0;
-				end //end TS_RATECTL
-
-				TS_FILLER: begin
-					tx_charisk		<= 2'b0;
-					if(tx_set_is_ts2)
-						tx_data	<= 16'h4545;
-					else
-						tx_data	<= 16'h4a4a;
-
-					count			<= count + 1;
-					if(count >= 4) begin
-						state		<= TS_HEAD;
-
-						tx_ts_sent	<= 1;
-
-						//If we have a pending skip request, ack it
-						if(tx_skip_req) begin
-							tx_skip_ack	<= 1;
-							state		<= TS_SKIP;
-						end
-
-					end
-
-				end	//end TS_FILLER
-
-			endcase
+			//Second half of skip set
+			if(tx_skip_done_ff) begin
+				tx_charisk		<= 2'b11;
+				tx_data			<= 16'h1c1c;
+			end
 
 		end
+
 	end
 
 endmodule
