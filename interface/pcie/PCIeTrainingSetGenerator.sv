@@ -45,7 +45,9 @@ module PCIeTrainingSetGenerator(
 	input wire			tx_ts_lane_valid,
 	input wire[4:0]		tx_ts_lane,
 	input wire[7:0]		tx_ts_num_fts,
-	input wire			tx_ts_5g_supported
+	input wire			tx_ts_5g_supported,
+
+	output logic		tx_ts_sent		= 0
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -72,9 +74,12 @@ module PCIeTrainingSetGenerator(
 			tx_charisk	<= 0;
 			count		<= 0;
 			state		<= TS_HEAD;
+			tx_ts_sent	<= 0;
 		end
 
 		else begin
+
+			tx_ts_sent	<= 0;
 
 			case(state)
 
@@ -147,6 +152,8 @@ module PCIeTrainingSetGenerator(
 					if(count >= 4) begin
 						state		<= TS_HEAD;
 
+						tx_ts_sent	<= 1;
+
 						//Send skips every 1180 to 1538 symbol times
 						//Training sets are 16 symbols long so this is every 73.75 to 96 TSes
 						//Send every 80 to be in the middle
@@ -156,6 +163,8 @@ module PCIeTrainingSetGenerator(
 						end
 					end
 				end	//end TS_FILLER
+
+				//TODO: refactoring, move TSes to higher level of the stack
 
 				TS_SKIP_0: begin
 					tx_charisk		<= 2'b11;
