@@ -95,6 +95,14 @@ module MinimalPCIeEndpoint(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Post-training link and lane IDs
+
+	logic[4:0]	link_id	= 0;
+	logic[4:0]	lane_id	= 0;
+
+	logic		link_up	= 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Detect incoming training sets
 
 	wire		rx_ts1_valid;
@@ -131,6 +139,10 @@ module MinimalPCIeEndpoint(
 	wire[1:0]	tx_train_charisk;
 	wire		tx_train_skip_ack;
 
+	wire[15:0]	tx_ll_data;
+	wire[1:0]	tx_ll_charisk;
+	wire		tx_ll_skip_ack;
+
 	wire		tx_skip_req;
 	wire		tx_skip_done;
 
@@ -144,6 +156,12 @@ module MinimalPCIeEndpoint(
 		.tx_train_data(tx_train_data),
 		.tx_train_charisk(tx_train_charisk),
 		.tx_train_skip_ack(tx_train_skip_ack),
+
+		.tx_ll_data(tx_ll_data),
+		.tx_ll_charisk(tx_ll_charisk),
+		.tx_ll_skip_ack(tx_ll_skip_ack),
+
+		.tx_link_up(link_up),
 
 		.tx_skip_req(tx_skip_req),
 		.tx_skip_done(tx_skip_done)
@@ -182,13 +200,24 @@ module MinimalPCIeEndpoint(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Post-training link and lane IDs
+	// Link layer
 
-	logic[4:0]	link_id	= 0;
-	logic[4:0]	lane_id	= 0;
+	PCIeDataLinkLayer linklayer(
+		.clk(tx_clk),
+		.rst_n(rst_tx_n),
+
+		.tx_data(tx_ll_data),
+		.tx_charisk(tx_ll_charisk),
+
+		.tx_skip_req(tx_skip_req),
+		.tx_skip_ack(tx_ll_skip_ack),
+		.tx_skip_done(tx_skip_done)
+	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// PCIe LTSSM
+
+	//TODO: refactor this to a new module
 
 	enum logic[3:0]
 	{
@@ -196,7 +225,12 @@ module MinimalPCIeEndpoint(
 		LTSSM_POLLING_ACTIVE					= 1,
 		LTSSM_POLLING_CONFIGURATION				= 2,
 		LTSSM_CONFIGURATION_LINKWIDTH_START		= 3,
-		LTSSM_CONFIGURATION_LINKWIDTH_ACCEPT	= 4
+		LTSSM_CONFIGURATION_LINKWIDTH_ACCEPT	= 4,
+		LTSSM_CONFIGURATION_LANENUM_WAIT		= 5,
+		LTSSM_CONFIGURATION_LANENUM_ACCEPT		= 6,
+		LTSSM_CONFIGURATION_COMPLETE			= 7,
+		LTSSM_CONFIGURATION_IDLE				= 8,
+		LTSSM_L0								= 9
 	} ltssm_state	= LTSSM_DETECT;
 
 	logic[10:0]	tsSentCount	= 0;
@@ -312,7 +346,86 @@ module MinimalPCIeEndpoint(
 
 				LTSSM_CONFIGURATION_LINKWIDTH_ACCEPT: begin
 
+					//If we get two consecutive TS1s with valid lane numbers, save the link number
+					if(rx_ts1_valid && rx_ts_link_valid && rx_ts_lane_valid) begin
+
+						//If this is the first one, save the lane number
+						if(tsRecvCount == 0) begin
+							lane_id		<= rx_ts_lane;
+							tsRecvCount	<= tsRecvCount + 4'h1;
+						end
+
+						//If this is the second, and they match, move to LINKWIDTH_ACCEPT
+						else if(lane_id == rx_ts_lane) begin
+							tx_ts_lane			<= lane_id;
+							tx_ts_lane_valid	<= 1;
+							tsRecvCount			<= 0;
+							ltssm_state			<= LTSSM_CONFIGURATION_LANENUM_WAIT;
+						end
+
+					end
+
 				end	//end LTSSM_CONFIGURATION_LINKWIDTH_ACCEPT
+
+				LTSSM_CONFIGURATION_LANENUM_WAIT: begin
+
+					//If we get two consecutive TS2s move to Lanenum.Accept
+					//TODO: validate lane numbers match us
+					if(rx_ts2_valid && rx_ts_link_valid && rx_ts_lane_valid) begin
+						tsRecvCount		<= tsRecvCount + 1;
+
+						if(tsRecvCount == 2) begin
+							tsRecvCount			<= 0;
+							ltssm_state			<= LTSSM_CONFIGURATION_LANENUM_ACCEPT;
+						end
+					end
+
+				end //end LTSSM_CONFIGURATION_LANENUM_WAIT
+
+				LTSSM_CONFIGURATION_LANENUM_ACCEPT: begin
+
+					//If we get two consecutive TS2s move to Lanenum.Accept
+					//TODO: validate lane numbers match us
+					if(rx_ts2_valid && rx_ts_link_valid && rx_ts_lane_valid) begin
+						tsRecvCount		<= tsRecvCount + 1;
+
+						if(tsRecvCount == 2) begin
+							tsRecvCount			<= 0;
+							ts_type_is_ts2		<= 1;
+							ltssm_state			<= LTSSM_CONFIGURATION_COMPLETE;
+						end
+					end
+
+				end //end LTSSM_CONFIGURATION_LANENUM_ACCEPT
+
+				LTSSM_CONFIGURATION_COMPLETE: begin
+
+					//If we get eight good TS2s move to Configuration.Idle
+					//TODO: validate matching link/lane numbers
+					if(rx_ts2_valid && rx_ts_link_valid && rx_ts_lane_valid) begin
+						tsRecvCount		<= tsRecvCount + 1;
+
+						if(tsRecvCount == 8) begin
+							tsRecvCount			<= 0;
+							ts_type_is_ts2		<= 1;
+							ltssm_state			<= LTSSM_CONFIGURATION_IDLE;
+						end
+					end
+
+				end	//end LTSSM_CONFIGURATION_COMPLETE
+
+				LTSSM_CONFIGURATION_IDLE: begin
+
+					//Cleanly switch to link-up state as we end a training set
+					if(tx_ts_sent)
+						link_up					<= 1;
+
+					//TODO: search for incoming idle symbols
+				end	//end LTSSM_CONFIGURATION_IDLE
+
+				LTSSM_L0: begin
+					//TODO
+				end //end LTSSM_L0
 
 			endcase
 
@@ -349,12 +462,13 @@ module MinimalPCIeEndpoint(
 		.probe19(tsSentCount),
 		.probe20(tsRecvCount),
 		.probe21(ltssm_state),
-
 		.probe22(tx_train_data),
 		.probe23(tx_train_charisk),
 		.probe24(tx_train_skip_ack),
 		.probe25(tx_skip_req),
-		.probe26(tx_skip_done)
+		.probe26(tx_skip_done),
+		.probe27(link_up),
+		.probe28(1'b0)
 	);
 
 

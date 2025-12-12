@@ -46,16 +46,93 @@ module PCIeOutputMux(
 	input wire			tx_train_skip_ack,
 
 	//Inputs from data link layer
+	input wire[15:0]	tx_ll_data,
+	input wire[1:0]		tx_ll_charisk,
+	input wire			tx_ll_skip_ack,
+
+	//Link state
+	input wire			tx_link_up,
 
 	//Skip request
 	output logic		tx_skip_req		= 0,
 	output logic		tx_skip_done	= 0
 );
 
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Scrambler
+
+	logic[15:0]	scrambler_state			= 16'hffff;
+	logic[15:0]	scrambler_out;
+	logic[15:0]	scrambler_state_next;
+
+	logic		tx_skip_done_ff			= 0;
+	logic		tx_link_up_ff			= 0;
+
+	//Calculate LFSR output
+	integer i;
+	always_comb begin
+		scrambler_state_next			= scrambler_state;
+		scrambler_out					= 0;
+
+		for(i=0; i<16; i++) begin
+			scrambler_out[i]			= scrambler_state_next[15];
+
+			if(scrambler_out[i])
+				scrambler_state_next	= ((scrambler_state_next ^ 16'h1c) << 1) | 1;
+			else
+				scrambler_state_next	= (scrambler_state_next << 1);
+		end
+
+	end
+
+	//Register scrambler state
+	always_ff @(posedge clk) begin
+
+		//Don't run the scrambler while sending a skip
+		//We still want to run the scrambler in link training mode;
+		//even though we're not actually scrambling the tx data the state should be advancing
+		if(tx_skip_done || tx_skip_done_ff) begin
+		end
+
+		else
+			scrambler_state	<= scrambler_state_next;
+
+		//When we send a COM, reset the scrambler
+		if(tx_charisk[0] && tx_data[7:0] == 8'hbc) begin
+
+			//If we are sending a training set, pre-advance the scrambler by 3 states since the scrambler needs to run
+			//during the TS and the second byte of the 16-bit datapath is not a comma
+			if(!tx_link_up)
+				scrambler_state	<= 16'h284b;
+
+			//Second half is a skip, don't advance it
+			else
+				scrambler_state	<= 16'hffff;
+		end
+
+	end
+
+	/*
+	for(int j=0; j<8; j++)
+	{
+		bool b = (state & 0x8000) ? true : false;
+		ret >>= 1;
+
+		if(b)
+		{
+			ret |= 0x80;
+			state ^= 0x1c;
+		}
+		state = (state << 1) | b;
+	}
+	*/
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// The output mux
+
 	//Send skips every 1180 to 1538 symbol times per spec
 	//Target 1400 symbols (700 clocks) interval
 	logic[9:0]	count 			= 0;
-	logic		tx_skip_done_ff	= 0;
 
 	always_ff @(posedge clk or negedge rst_n) begin
 		if(!rst_n) begin
@@ -63,14 +140,32 @@ module PCIeOutputMux(
 			tx_skip_req		<= 0;
 			tx_skip_done	<= 0;
 			tx_skip_done_ff	<= 0;
+			tx_link_up_ff	<= 0;
 		end
 
 		else begin
 
-			//TODO: actual mux
-			//for now, just forward data from link training
-			tx_data		<= tx_train_data;
-			tx_charisk	<= tx_train_charisk;
+			tx_link_up_ff	<= tx_link_up_ff;
+
+			//The actual mux
+			if(tx_link_up) begin
+
+				//Scramble anything that's not a K character
+				if(tx_ll_charisk[0])
+					tx_data[7:0]	<= tx_ll_data[7:0];
+				else
+					tx_data[7:0]	<= tx_ll_data[7:0] ^ scrambler_out[7:0];
+				if(tx_ll_charisk[1])
+					tx_data[15:8]	<= tx_ll_data[15:8];
+				else
+					tx_data[15:8]	<= tx_ll_data[15:8] ^ scrambler_out[15:8];
+
+				tx_charisk	<= tx_ll_charisk;
+			end
+			else begin
+				tx_data		<= tx_train_data;
+				tx_charisk	<= tx_train_charisk;
+			end
 
 			//Clear single cycle flags
 			tx_skip_done	<= 0;
@@ -88,7 +183,7 @@ module PCIeOutputMux(
 			end
 
 			//Send a skip when a request is acknowledged
-			if(tx_train_skip_ack) begin
+			if( (tx_train_skip_ack && !tx_link_up) || (tx_ll_skip_ack && tx_link_up) ) begin
 				tx_skip_req		<= 0;
 				tx_skip_done	<= 1;
 			end

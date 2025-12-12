@@ -30,162 +30,50 @@
 ***********************************************************************************************************************/
 
 /**
-	@brief Generate outbound training sets
+	@brief PCI Express data link layer
  */
-module PCIeTrainingSetGenerator(
+module PCIeDataLinkLayer(
 	input wire			clk,
 	input wire			rst_n,
 
 	output logic[15:0]	tx_data			= 0,
 	output logic[1:0]	tx_charisk		= 0,
 
-	input wire			tx_set_is_ts2,
-	input wire			tx_ts_link_valid,
-	input wire[4:0]		tx_ts_link,
-	input wire			tx_ts_lane_valid,
-	input wire[4:0]		tx_ts_lane,
-	input wire[7:0]		tx_ts_num_fts,
-	input wire			tx_ts_5g_supported,
-
-	output logic		tx_ts_sent		= 0,
 	input wire			tx_skip_req,
 	output logic		tx_skip_ack		= 0,
 	input wire			tx_skip_done
+
+	//todo: data link specific ports
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Generate training sets
+	// Main logic
 
-	enum logic[2:0]
-	{
-		TS_HEAD	= 0,
-		TS_LANEFTS,
-		TS_RATECTL,
-		TS_FILLER,
+	logic	skip_pending	= 0;
 
-		TS_SKIP
-	} state = TS_HEAD;
+	always_ff @(posedge clk) begin
 
-	logic[2:0]	count = 0;
-	logic[6:0]	skip_count			= 0;
+		tx_skip_ack		<= 0;
 
-	logic		tx_set_is_ts2_ff	= 0;
+		//If we have a pending skip request, ack it
+		if(tx_skip_req) begin
+			tx_skip_ack			<= 1;
+			skip_pending		<= 1;
+		end
 
-	always_ff @(posedge clk or negedge rst_n) begin
+		//wait for skip to finish
+		if(skip_pending) begin
+			if(tx_skip_done) begin
+				skip_pending	<= 0;
+			end
+		end
 
-		if(!rst_n) begin
+		//Normal mode
+		else begin
 			tx_data				<= 0;
 			tx_charisk			<= 0;
-			count				<= 0;
-			state				<= TS_HEAD;
-			tx_ts_sent			<= 0;
-			tx_skip_ack			<= 0;
-			tx_set_is_ts2_ff	<= 0;
 		end
 
-		else begin
-
-			tx_ts_sent		<= 0;
-			tx_skip_ack		<= 0;
-
-			case(state)
-
-				TS_SKIP: begin
-					tx_data[15:0]	<= 16'h00;
-					tx_charisk[1:0]	<= 0;
-
-					if(tx_skip_done)
-						state	<= TS_HEAD;
-				end
-
-				//K28.5, link number
-				TS_HEAD: begin
-
-					tx_data[7:0]	<= 8'hbc;
-					tx_charisk[0]	<= 1;
-
-					//Lock in the training set type so it's stable for the rest of the set
-					tx_set_is_ts2_ff	<= tx_set_is_ts2;
-
-					//Valid link number, send it
-					if(tx_ts_link_valid) begin
-						tx_data[15:8]	<= {3'b0, tx_ts_link};
-						tx_charisk[1]	<= 0;
-					end
-
-					//No link number, send PAD
-					else begin
-						tx_data[15:8]	<= 8'hf7;
-						tx_charisk[1]	<= 1;
-					end
-
-					state			<= TS_LANEFTS;
-
-					//Keep track of how many sets we sent between skips
-					skip_count		<= skip_count + 1;
-
-				end	//end TS_HEAD
-
-				//Lane number, number of FTs
-				TS_LANEFTS: begin
-
-					//Valid lane number, send it
-					if(tx_ts_lane_valid) begin
-						tx_data[7:0]	<= {3'b0, tx_ts_lane};
-						tx_charisk[0]	<= 0;
-					end
-
-					//No lane number, send PAD
-					else begin
-						tx_data[7:0]	<= 8'hf7;
-						tx_charisk[0]	<= 1;
-					end
-
-					//Number of FTs
-					tx_data[15:8]	<= tx_ts_num_fts;
-					tx_charisk[1]	<= 0;
-
-					state			<= TS_RATECTL;
-
-				end //end TS_LANEFTS
-
-				//Data rate and training control
-				TS_RATECTL: begin
-					tx_charisk		<= 2'b00;
-					tx_data[7:0]	<= { 5'h0, tx_ts_5g_supported, 2'b10 };	//always 2.5G, 5G optional, nothing faster
-					tx_data[15:8]	<= 0;	//ignore training control
-
-					state			<= TS_FILLER;
-					count			<= 0;
-				end //end TS_RATECTL
-
-				TS_FILLER: begin
-					tx_charisk		<= 2'b0;
-					if(tx_set_is_ts2_ff)
-						tx_data	<= 16'h4545;
-					else
-						tx_data	<= 16'h4a4a;
-
-					count				<= count + 1;
-
-					if(count >= 4) begin
-						state			<= TS_HEAD;
-
-						tx_ts_sent		<= 1;
-
-						//If we have a pending skip request, ack it
-						if(tx_skip_req) begin
-							tx_skip_ack	<= 1;
-							state		<= TS_SKIP;
-						end
-
-					end
-
-				end	//end TS_FILLER
-
-			endcase
-
-		end
 	end
 
 endmodule
