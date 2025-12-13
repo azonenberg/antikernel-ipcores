@@ -36,6 +36,10 @@ module PCIeDataLinkLayer(
 	input wire			clk,
 	input wire			rst_n,
 
+	input wire[15:0]	rx_data,
+	input wire[1:0]		rx_charisk,
+	input wire[1:0]		rx_err,
+
 	output logic[15:0]	tx_data			= 0,
 	output logic[1:0]	tx_charisk		= 0,
 
@@ -75,5 +79,45 @@ module PCIeDataLinkLayer(
 		end
 
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Debug ILA
+
+	/*
+	ila_0 ila(
+		.clk(tx_clk),
+
+		.probe0(rx_data_cdc),
+		.probe1(rx_charisk_cdc),
+		.probe2(rx_err_cdc),
+
+		.probe3(rx_ts1_valid),
+		.probe4(rx_ts2_valid),
+		.probe5(rx_ts_link_valid),
+		.probe6(rx_ts_link),
+		.probe7(rx_ts_lane_valid),
+		.probe8(rx_ts_lane),
+		.probe9(rx_ts_num_fts),
+		.probe10(rx_ts_5g_supported),
+		.probe11(tx_data),
+		.probe12(tx_charisk),
+		.probe13(tsgen.skip_count),
+		.probe14(ts_type_is_ts2),
+		.probe15(tx_ts_link_valid),
+		.probe16(tx_ts_link),
+		.probe17(tx_ts_lane_valid),
+		.probe18(tx_ts_lane),
+		.probe19(tsSentCount),
+		.probe20(tsRecvCount),
+		.probe21(ltssm_state),
+		.probe22(tx_train_data),
+		.probe23(tx_train_charisk),
+		.probe24(tx_train_skip_ack),
+		.probe25(tx_skip_req),
+		.probe26(tx_skip_done),
+		.probe27(link_up),
+		.probe28(1'b0)
+	);
+	*/
 
 endmodule

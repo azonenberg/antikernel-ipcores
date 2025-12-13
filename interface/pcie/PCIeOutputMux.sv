@@ -112,21 +112,6 @@ module PCIeOutputMux(
 
 	end
 
-	/*
-	for(int j=0; j<8; j++)
-	{
-		bool b = (state & 0x8000) ? true : false;
-		ret >>= 1;
-
-		if(b)
-		{
-			ret |= 0x80;
-			state ^= 0x1c;
-		}
-		state = (state << 1) | b;
-	}
-	*/
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// The output mux
 
