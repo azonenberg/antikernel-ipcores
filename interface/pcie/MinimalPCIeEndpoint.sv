@@ -165,6 +165,8 @@ module MinimalPCIeEndpoint(
 		.clk(tx_clk),
 		.rst_n(rst_tx_n),
 
+		.link_up(link_up),
+
 		.rx_data(rx_data_cdc),
 		.rx_charisk(rx_charisk_cdc),
 		.rx_err(rx_err_cdc),
