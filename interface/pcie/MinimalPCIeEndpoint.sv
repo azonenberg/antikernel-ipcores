@@ -161,6 +161,8 @@ module MinimalPCIeEndpoint(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Link layer
 
+	wire	dl_link_up;
+
 	PCIeDataLinkLayer linklayer(
 		.clk(tx_clk),
 		.rst_n(rst_tx_n),
@@ -176,7 +178,9 @@ module MinimalPCIeEndpoint(
 
 		.tx_skip_req(tx_skip_req),
 		.tx_skip_ack(tx_ll_skip_ack),
-		.tx_skip_done(tx_skip_done)
+		.tx_skip_done(tx_skip_done),
+
+		.dl_link_up(dl_link_up)
 	);
 
 endmodule

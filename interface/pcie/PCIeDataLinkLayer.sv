@@ -36,20 +36,25 @@ module PCIeDataLinkLayer(
 	input wire			clk,
 	input wire			rst_n,
 
+	//Link training state from LTSSM
 	input wire			link_up,
 
+	//RX data from SERDES
 	input wire[15:0]	rx_data,
 	input wire[1:0]		rx_charisk,
 	input wire[1:0]		rx_err,
 
+	//Transmit data to SERDES
 	output logic[15:0]	tx_data			= 0,
 	output logic[1:0]	tx_charisk		= 0,
 
+	//Skip generation
 	input wire			tx_skip_req,
 	output logic		tx_skip_ack		= 0,
-	input wire			tx_skip_done
+	input wire			tx_skip_done,
 
-	//todo: data link specific ports
+	//Data link layer status
+	output logic		dl_link_up		= 0
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -304,21 +309,27 @@ module PCIeDataLinkLayer(
 					//HdrFC is header credit count
 					//DataFC is data credit count
 					DLLP_TYPE_INITFC1_P: begin
-						partner_credit_valid_p		<= 1;
-						partner_credit_header_p		<= rx_dllp_payload[21:14];
-						partner_credit_data_p		<= rx_dllp_payload[11:0];
+						if(!partner_credit_valid_p) begin
+							partner_credit_valid_p		<= 1;
+							partner_credit_header_p		<= rx_dllp_payload[21:14];
+							partner_credit_data_p		<= rx_dllp_payload[11:0];
+						end
 					end
 
 					DLLP_TYPE_INITFC1_NP: begin
-						partner_credit_valid_np		<= 1;
-						partner_credit_header_np	<= rx_dllp_payload[21:14];
-						partner_credit_data_np		<= rx_dllp_payload[11:0];
+						if(!partner_credit_valid_np) begin
+							partner_credit_valid_np		<= 1;
+							partner_credit_header_np	<= rx_dllp_payload[21:14];
+							partner_credit_data_np		<= rx_dllp_payload[11:0];
+						end
 					end
 
 					DLLP_TYPE_INITFC1_CPL: begin
-						partner_credit_valid_cpl	<= 1;
-						partner_credit_header_cpl	<= rx_dllp_payload[21:14];
-						partner_credit_data_cpl		<= rx_dllp_payload[11:0];
+						if(!partner_credit_valid_cpl) begin
+							partner_credit_valid_cpl	<= 1;
+							partner_credit_header_cpl	<= rx_dllp_payload[21:14];
+							partner_credit_data_cpl		<= rx_dllp_payload[11:0];
+						end
 					end
 
 				endcase
@@ -349,7 +360,7 @@ module PCIeDataLinkLayer(
 		.clk(clk),
 		.rst_n(rst_n),
 
-		.first_phase( (tx_state == TX_STATE_IDLE) && tx_dllp_req && !tx_skip_req),
+		.first_phase( (tx_state == TX_STATE_IDLE) && tx_dllp_req && !tx_dllp_ack && !tx_skip_req),
 		.second_phase(tx_state == TX_STATE_DLLP_1),
 		.data_in_first({ tx_dllp_payload[23:16], tx_dllp_type }),
 		.data_in_second({ tx_dllp_payload[7:0], tx_dllp_payload[15:8] }),
@@ -392,7 +403,7 @@ module PCIeDataLinkLayer(
 
 					//If we have a pending DLLP request, start sending it
 					//K28.2 (k.5c) is start of DLLP
-					else if(tx_dllp_req) begin
+					else if(tx_dllp_req && !tx_dllp_ack) begin
 						tx_data			<= { tx_dllp_type, 8'h5c };
 						tx_charisk		<= 2'b01;
 						tx_state		<= TX_STATE_DLLP_1;
@@ -440,10 +451,10 @@ module PCIeDataLinkLayer(
 	// Capacity limits for flow control
 
 	localparam MAX_POSTED_HEADER		= 32;
-	localparam MAX_POSTED_DATA			= 2048;
+	localparam MAX_POSTED_DATA			= 2047;
 
 	localparam MAX_NONPOSTED_HEADER		= 32;
-	localparam MAX_NONPOSTED_DATA		= 2048;
+	localparam MAX_NONPOSTED_DATA		= 2047;
 
 	//report unlimited completions
 	localparam MAX_COMPLETION_HEADER	= 0;
@@ -464,28 +475,68 @@ module PCIeDataLinkLayer(
 		FC_INIT1_P		= 0,
 		FC_INIT1_NP		= 1,
 		FC_INIT1_CPL	= 2,
-		FC_DONE			= 3	//hang for now
+
+		FC_INIT2_P		= 3,
+		FC_INIT2_NP		= 4,
+		FC_INIT2_CPL	= 5,
+
+		FC_DONE			= 6	//hang for now
 
 	} fc_init_substate = FC_INIT1_P;
 
 	logic[2:0]	rx_idle_count	= 0;
+	logic		flag_fi2		= 0;
+
+	//Send flow control updates every 30us nominally
+	//At 2.5 GT/s we have a 400ps UI so this is 75000 UIs, 7500 symbols, or 3250 clocks with a 2-symbol datapath
+	//At 5 GT/s we have a 200ps UI so this doubles to 150K UIs, 15K symbols, and 7500 clocks.
+	localparam FC_TIMER_MAX_2G5	= 3249;
+	localparam FC_TIMER_MAX_5G0	= 7499;
+	logic[12:0]	fc_timer		= 0;
+	logic[12:0]	fc_timer_max	= FC_TIMER_MAX_2G5;
+
+	logic		next_fc_type_p	= 1;
 
 	always_ff @(posedge clk or negedge rst_n) begin
 
 		if(!rst_n) begin
 			dl_state			<= DL_INACTIVE;
+			dl_link_up			<= 0;
 			tx_dllp_req			<= 0;
 			fc_init_substate	<= FC_INIT1_P;
+			rx_idle_count		<= 0;
+			flag_fi2			<= 0;
+			fc_timer_max		<= FC_TIMER_MAX_2G5;
+			fc_timer			<= 0;
+			next_fc_type_p		<= 1;
 		end
 
 		else begin
+
+			//Set FI2 if we see any InitFC2 or UpdateFC
+			if(rx_dllp_valid) begin
+				case(rx_dllp_type)
+					DLLP_TYPE_INITFC2_P:	flag_fi2 <= 1;
+					DLLP_TYPE_INITFC2_NP:	flag_fi2 <= 1;
+					DLLP_TYPE_INITFC2_CPL:	flag_fi2 <= 1;
+					DLLP_TYPE_UPDATEFC_P:	flag_fi2 <= 1;
+					DLLP_TYPE_UPDATEFC_NP:	flag_fi2 <= 1;
+					DLLP_TYPE_UPDATEFC_CPL:	flag_fi2 <= 1;
+					default: begin
+					end
+				endcase
+			end
+
+			//Set FI2 if we see any TLP (K27.7)
+			if(rx_charisk_ff[0] && !rx_err_ff && (rx_data_descrambled[7:0] == 8'hfb) )
+				flag_fi2	<= 1;
 
 			case(dl_state)
 
 				DL_INACTIVE: begin
 					if(link_up) begin
 
-						//Wait for 8 consecutive idle symbols before we start sending DLLPs
+						//Wait for 8 consecutive idle symbols, sending idles of our own, before we start sending DLLPs
 						if( (rx_data_descrambled == 16'h00) && !rx_err_ff && !rx_charisk_ff)
 							rx_idle_count	<= rx_idle_count + 1;
 						else
@@ -502,6 +553,9 @@ module PCIeDataLinkLayer(
 
 					//start sending flow control init DLLPs, return to inactive if link drops
 					case(fc_init_substate)
+
+						////////////////////////////////////////////////////////////////////////////////////////////////
+						// InitFC-1
 
 						//Send InitFC1-P
 						FC_INIT1_P: begin
@@ -544,38 +598,153 @@ module PCIeDataLinkLayer(
 
 							if(tx_dllp_ack) begin
 
-								//for now, loop back to the start and stay in the loop forever
-								fc_init_substate	<= FC_INIT1_P;
-
 								tx_dllp_req				<= 1;
 								tx_dllp_type			<= DLLP_TYPE_INITFC1_P;
 								tx_dllp_payload			<= 0;
 								tx_dllp_payload[21:14]	<= MAX_POSTED_HEADER;
 								tx_dllp_payload[11:0]	<= MAX_POSTED_DATA;
+
+								//If we have seen FC info from each VC, start sending InitFC2 instead
+								if(partner_credit_valid_p && partner_credit_valid_np && partner_credit_valid_cpl) begin
+									fc_init_substate		<= FC_INIT2_P;
+									flag_fi2				<= 0;
+								end
+								else
+									fc_init_substate		<= FC_INIT1_P;
+
 							end
 
 						end	//end FC_INIT1_CPL
+
+						////////////////////////////////////////////////////////////////////////////////////////////////
+						// InitFC-2
+
+						//Send InitFC1-P
+						FC_INIT2_P: begin
+
+							tx_dllp_req				<= 1;
+							tx_dllp_type			<= DLLP_TYPE_INITFC2_P;
+							tx_dllp_payload			<= 0;
+							tx_dllp_payload[21:14]	<= MAX_POSTED_HEADER;
+							tx_dllp_payload[11:0]	<= MAX_POSTED_DATA;
+
+							if(tx_dllp_ack) begin
+								fc_init_substate	<= FC_INIT2_NP;
+
+								//Start sending InitFC1-NP
+								tx_dllp_req				<= 1;
+								tx_dllp_type			<= DLLP_TYPE_INITFC2_NP;
+								tx_dllp_payload			<= 0;
+								tx_dllp_payload[21:14]	<= MAX_NONPOSTED_HEADER;
+								tx_dllp_payload[11:0]	<= MAX_NONPOSTED_DATA;
+							end
+
+						end	//end FC_INIT2_P
+
+						FC_INIT2_NP: begin
+
+							if(tx_dllp_ack) begin
+								fc_init_substate	<= FC_INIT2_CPL;
+
+								//Start sending InitFC1-CPL
+								tx_dllp_req				<= 1;
+								tx_dllp_type			<= DLLP_TYPE_INITFC2_CPL;
+								tx_dllp_payload			<= 0;
+								tx_dllp_payload[21:14]	<= MAX_COMPLETION_HEADER;
+								tx_dllp_payload[11:0]	<= MAX_COMPLETION_DATA;
+							end
+
+						end	//end FC_INIT2_NP
+
+						FC_INIT2_CPL: begin
+
+							if(tx_dllp_ack) begin
+
+								tx_dllp_req				<= 1;
+								tx_dllp_type			<= DLLP_TYPE_INITFC2_P;
+								tx_dllp_payload			<= 0;
+								tx_dllp_payload[21:14]	<= MAX_POSTED_HEADER;
+								tx_dllp_payload[11:0]	<= MAX_POSTED_DATA;
+
+								//Done?
+								if(flag_fi2) begin
+									fc_init_substate	<= FC_DONE;
+									dl_state			<= DL_ACTIVE;
+									dl_link_up			<= 1;
+									fc_timer			<= 0;
+									next_fc_type_p		<= 1;
+
+									//TODO: speed dependent
+									fc_timer_max		<= FC_TIMER_MAX_2G5;
+								end
+								else
+									fc_init_substate	<= FC_INIT2_P;
+
+							end
+
+						end	//end FC_INIT2_CPL
+
+						////////////////////////////////////////////////////////////////////////////////////////////////
+						// Idle
 
 						FC_DONE: begin
 						end	//end FC_DONE
 
 					endcase
 
-					/*
-						Initialize flow control for VC0
-						Report DL down until we hit FC_INIT2
-						exit to DL_ACTIVE once init completes
-					 */
-
-					if(!link_up)
+					if(!link_up) begin
 						dl_state	<= DL_INACTIVE;
+						dl_link_up	<= 0;
+					end
 				end
 
 				DL_ACTIVE: begin
-					//ready to go unless link drops
 
-					if(!link_up)
+					//Clear DLLP request when we get an ack
+					if(tx_dllp_ack)
+						tx_dllp_req	<= 0;
+
+					//Timer to send UpdateFC DLLPs every X time
+					fc_timer		<= fc_timer + 1;
+					if(!tx_dllp_req) begin
+
+						//When timer wraps, send an UpdateFC-P the next chance we get
+						if(fc_timer >= fc_timer_max) begin
+							next_fc_type_p			<= 0;
+							fc_timer				<= 0;
+
+							//TODO: use actual flow control credits
+							//rather than always reporting max capacity
+							tx_dllp_req				<= 1;
+							tx_dllp_type			<= DLLP_TYPE_UPDATEFC_P;
+							tx_dllp_payload			<= 0;
+							tx_dllp_payload[21:14]	<= MAX_POSTED_HEADER;
+							tx_dllp_payload[11:0]	<= MAX_POSTED_DATA;
+						end
+
+						//If we just sent an UpdateFC-P, send an UpdateFC-NP to follow it
+						else if(!next_fc_type_p) begin
+							next_fc_type_p			<= 1;
+
+							//TODO: use actual flow control credits
+							//rather than always reporting max capacity
+							tx_dllp_req				<= 1;
+							tx_dllp_type			<= DLLP_TYPE_UPDATEFC_NP;
+							tx_dllp_payload			<= 0;
+							tx_dllp_payload[21:14]	<= MAX_POSTED_HEADER;
+							tx_dllp_payload[11:0]	<= MAX_POSTED_DATA;
+						end
+
+						//Don't need to control completions, we have infinite flow control capacity for those
+					end
+
+					//TODO: send ACK DLLPs when a TLP is accepted or at regular intervals
+
+					//ready to go unless link drops
+					if(!link_up) begin
 						dl_state	<= DL_INACTIVE;
+						dl_link_up	<= 0;
+					end
 				end
 
 			endcase
@@ -619,7 +788,11 @@ module PCIeDataLinkLayer(
 		.probe26(tx_dllp_req),
 		.probe27(tx_dllp_ack),
 		.probe28(tx_dllp_payload),
-		.probe29(tx_state)
+		.probe29(tx_state),
+		.probe30(dl_link_up),
+		.probe31(flag_fi2),
+
+		.probe32(next_fc_type_p)
 	);
 
 endmodule
