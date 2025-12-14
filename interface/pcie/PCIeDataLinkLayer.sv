@@ -123,6 +123,27 @@ module PCIeDataLinkLayer(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// RX CRC engine
+
+	logic		rx_dllp_valid			= 0;
+	logic[7:0]	rx_dllp_type			= 0;	//Type of DLLP
+	logic[23:0]	rx_dllp_payload			= 0;	//Payload (type dependent)
+
+	wire[15:0]	rx_dllp_crc_expected;
+
+	PCIeDataLinkChecksum rx_checksum(
+		.clk(clk),
+		.rst_n(rst_n),
+
+		.first_phase(rx_state == RX_STATE_DLLP_1),
+		.second_phase(rx_state == RX_STATE_DLLP_2),
+		.data_in_first({ rx_data_descrambled[7:0], rx_dllp_type }),
+		.data_in_second({ rx_data_descrambled[7:0], rx_dllp_payload[15:8] }),
+
+		.crc_out(rx_dllp_crc_expected)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Parsing of incoming DLLPs (and eventually TLPs)
 
 	enum logic[3:0]
@@ -153,45 +174,7 @@ module PCIeDataLinkLayer(
 		DLLP_TYPE_UPDATEFC_CPL	= 8'b1010_0000	//low 3 bits are VC
 	} dllp_type_t;
 
-	logic		rx_dllp_valid			= 0;
-	logic[7:0]	rx_dllp_type			= 0;	//Type of DLLP
-	logic[23:0]	rx_dllp_payload			= 0;	//Payload (type dependent)
-
 	logic[7:0]	rx_dllp_crc_hi			= 0;
-	logic[15:0]	rx_dllp_crc_comb;
-	logic[15:0]	rx_dllp_crc_expected	= 0;
-
-	//Format the RX CRC input
-
-	logic[15:0]	rx_dllp_crc_din;
-	always_comb begin
-
-		//Start a new CRC
-		if(rx_state == RX_STATE_DLLP_1) begin
-			rx_dllp_crc_din		= { rx_data_descrambled[7:0], rx_dllp_type };
-			rx_dllp_crc_comb	= 16'hffff;
-		end
-
-		//Continue an existing CRC
-		else begin
-			rx_dllp_crc_din		= { rx_data_descrambled[7:0], rx_dllp_payload[15:8] };
-			rx_dllp_crc_comb	= rx_dllp_crc_expected;
-		end
-
-		for(integer i=0; i<2; i++) begin
-			for(integer j=0; j<8; j++) begin
-				if(rx_dllp_crc_comb[0] ^ rx_dllp_crc_din[8*i + j])
-					rx_dllp_crc_comb = rx_dllp_crc_comb[15:1] ^ 16'hd008;
-				else
-					rx_dllp_crc_comb = rx_dllp_crc_comb[15:1];
-			end
-		end
-
-		//Output inversion and byte swapping
-		if(rx_state != RX_STATE_DLLP_1)
-			rx_dllp_crc_comb = {~rx_dllp_crc_comb[7:0], ~rx_dllp_crc_comb[15:8] };
-
-	end
 
 	always_ff @(posedge clk or negedge rst_n) begin
 
@@ -227,9 +210,6 @@ module PCIeDataLinkLayer(
 				//First two bytes of the DLLP
 				RX_STATE_DLLP_1: begin
 
-					//Register CRC output
-					rx_dllp_crc_expected		<= rx_dllp_crc_comb;
-
 					//should not have any k chars
 					if(rx_charisk_ff == 2'b00) begin
 						rx_dllp_payload[23:8]	<= { rx_data_descrambled[7:0], rx_data_descrambled[15:8] };
@@ -244,9 +224,6 @@ module PCIeDataLinkLayer(
 
 				//Last byte of the DLLP, high half of the CRC
 				RX_STATE_DLLP_2: begin
-
-					//Register CRC output
-					rx_dllp_crc_expected		<= rx_dllp_crc_comb;
 
 					//should not have any k chars
 					if(rx_charisk_ff == 2'b00) begin
@@ -293,31 +270,316 @@ module PCIeDataLinkLayer(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Main logic
+	// Flow control state for our single virtual circuit
 
-	logic	skip_pending	= 0;
+	logic		partner_credit_valid_p		= 0;
+	logic[7:0]	partner_credit_header_p		= 0;
+	logic[11:0]	partner_credit_data_p		= 0;
 
-	always_ff @(posedge clk) begin
+	logic		partner_credit_valid_np		= 0;
+	logic[7:0]	partner_credit_header_np	= 0;
+	logic[11:0]	partner_credit_data_np		= 0;
 
-		tx_skip_ack		<= 0;
+	logic		partner_credit_valid_cpl	= 0;
+	logic[7:0]	partner_credit_header_cpl	= 0;
+	logic[11:0]	partner_credit_data_cpl		= 0;
 
-		//If we have a pending skip request, ack it
-		if(tx_skip_req) begin
-			tx_skip_ack			<= 1;
-			skip_pending		<= 1;
+	always_ff @(posedge clk or negedge rst_n) begin
+
+		if(!rst_n) begin
+			partner_credit_valid_p		<= 0;
+			partner_credit_valid_np		<= 0;
+			partner_credit_valid_cpl	<= 0;
 		end
 
-		//wait for skip to finish
-		if(skip_pending) begin
-			if(tx_skip_done) begin
-				skip_pending	<= 0;
-			end
-		end
-
-		//Normal mode
 		else begin
-			tx_data				<= 0;
-			tx_charisk			<= 0;
+
+			//Every time a DLLP shows up, see if it's flow control related
+			if(rx_dllp_valid) begin
+
+				//Low 3 bits of flow control DLLP type are virtual circuit
+				//We only support VC0, ignore anything for any other VC
+				case(rx_dllp_type)
+
+					//HdrFC is header credit count
+					//DataFC is data credit count
+					DLLP_TYPE_INITFC1_P: begin
+						partner_credit_valid_p		<= 1;
+						partner_credit_header_p		<= rx_dllp_payload[21:14];
+						partner_credit_data_p		<= rx_dllp_payload[11:0];
+					end
+
+					DLLP_TYPE_INITFC1_NP: begin
+						partner_credit_valid_np		<= 1;
+						partner_credit_header_np	<= rx_dllp_payload[21:14];
+						partner_credit_data_np		<= rx_dllp_payload[11:0];
+					end
+
+					DLLP_TYPE_INITFC1_CPL: begin
+						partner_credit_valid_cpl	<= 1;
+						partner_credit_header_cpl	<= rx_dllp_payload[21:14];
+						partner_credit_data_cpl		<= rx_dllp_payload[11:0];
+					end
+
+				endcase
+
+			end
+
+		end
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX CRC engine
+
+	logic[7:0]	tx_dllp_type	= 0;
+	logic[23:0]	tx_dllp_payload	= 0;
+
+	wire[15:0]	tx_dllp_crc;
+
+	enum logic[2:0]
+	{
+		TX_STATE_IDLE		= 0,
+		TX_STATE_SKIP		= 1,
+		TX_STATE_DLLP_1		= 2,
+		TX_STATE_DLLP_2		= 3,
+		TX_STATE_DLLP_3		= 4
+	} tx_state = TX_STATE_IDLE;
+
+	PCIeDataLinkChecksum tx_checksum(
+		.clk(clk),
+		.rst_n(rst_n),
+
+		.first_phase( (tx_state == TX_STATE_IDLE) && tx_dllp_req && !tx_skip_req),
+		.second_phase(tx_state == TX_STATE_DLLP_1),
+		.data_in_first({ tx_dllp_payload[23:16], tx_dllp_type }),
+		.data_in_second({ tx_dllp_payload[7:0], tx_dllp_payload[15:8] }),
+
+		.crc_out(tx_dllp_crc)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Transmit logic
+
+	//Request sending a DLLP
+	logic		tx_dllp_req		= 0;
+	logic		tx_dllp_ack		= 0;
+
+	always_ff @(posedge clk or negedge rst_n) begin
+
+		if(!rst_n) begin
+			tx_state	<= TX_STATE_IDLE;
+		end
+
+		else begin
+
+			//Clear single cycle flags
+			tx_skip_ack		<= 0;
+			tx_dllp_ack		<= 0;
+
+			case(tx_state)
+
+				TX_STATE_IDLE: begin
+
+					//Send idles by default
+					tx_data				<= 0;
+					tx_charisk			<= 0;
+
+					//If we have a pending skip request, ack it (takes precedence over starting a DLLP)
+					if(tx_skip_req) begin
+						tx_skip_ack		<= 1;
+						tx_state		<= TX_STATE_SKIP;
+					end
+
+					//If we have a pending DLLP request, start sending it
+					//K28.2 (k.5c) is start of DLLP
+					else if(tx_dllp_req) begin
+						tx_data			<= { tx_dllp_type, 8'h5c };
+						tx_charisk		<= 2'b01;
+						tx_state		<= TX_STATE_DLLP_1;
+					end
+
+				end	//end TX_STATE_IDLE
+
+				TX_STATE_SKIP: begin
+
+					//Wait until we're done
+					if(tx_skip_done) begin
+						tx_state		<= TX_STATE_IDLE;
+						tx_data			<= 0;
+						tx_charisk		<= 0;
+					end
+
+				end	//end TX_STATE_SKIP
+
+				TX_STATE_DLLP_1: begin
+					tx_data			<= { tx_dllp_payload[15:8], tx_dllp_payload[23:16] };
+					tx_charisk		<= 0;
+					tx_state		<= TX_STATE_DLLP_2;
+				end	//end TX_STATE_DLLP_1
+
+				TX_STATE_DLLP_2: begin
+					tx_data			<= { tx_dllp_crc[15:8], tx_dllp_payload[7:0] };
+					tx_charisk		<= 0;
+					tx_state		<= TX_STATE_DLLP_3;
+					tx_dllp_ack		<= 1;
+				end	//end TX_STATE_DLLP_2
+
+				//K29.7 (k.fd) is end of packet
+				TX_STATE_DLLP_3: begin
+					tx_data			<= { 8'hfd, tx_dllp_crc[7:0] };
+					tx_charisk		<= 2'b10;
+					tx_state		<= TX_STATE_IDLE;
+				end	//end TX_STATE_DLLP_3
+
+			endcase
+
+		end
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Capacity limits for flow control
+
+	localparam MAX_POSTED_HEADER		= 32;
+	localparam MAX_POSTED_DATA			= 2048;
+
+	localparam MAX_NONPOSTED_HEADER		= 32;
+	localparam MAX_NONPOSTED_DATA		= 2048;
+
+	//report unlimited completions
+	localparam MAX_COMPLETION_HEADER	= 0;
+	localparam MAX_COMPLETION_DATA		= 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Top level state machine
+
+	enum logic[1:0]
+	{
+		DL_INACTIVE		= 0,
+		DL_INIT			= 1,
+		DL_ACTIVE		= 2
+	} dl_state = DL_INACTIVE;
+
+	enum logic[2:0]
+	{
+		FC_INIT1_P		= 0,
+		FC_INIT1_NP		= 1,
+		FC_INIT1_CPL	= 2,
+		FC_DONE			= 3	//hang for now
+
+	} fc_init_substate = FC_INIT1_P;
+
+	logic[2:0]	rx_idle_count	= 0;
+
+	always_ff @(posedge clk or negedge rst_n) begin
+
+		if(!rst_n) begin
+			dl_state			<= DL_INACTIVE;
+			tx_dllp_req			<= 0;
+			fc_init_substate	<= FC_INIT1_P;
+		end
+
+		else begin
+
+			case(dl_state)
+
+				DL_INACTIVE: begin
+					if(link_up) begin
+
+						//Wait for 8 consecutive idle symbols before we start sending DLLPs
+						if( (rx_data_descrambled == 16'h00) && !rx_err_ff && !rx_charisk_ff)
+							rx_idle_count	<= rx_idle_count + 1;
+						else
+							rx_idle_count	<= 0;
+
+						if(rx_idle_count == 7)
+							dl_state		<= DL_INIT;
+					end
+					else
+						rx_idle_count = 0;
+				end
+
+				DL_INIT: begin
+
+					//start sending flow control init DLLPs, return to inactive if link drops
+					case(fc_init_substate)
+
+						//Send InitFC1-P
+						FC_INIT1_P: begin
+
+							tx_dllp_req				<= 1;
+							tx_dllp_type			<= DLLP_TYPE_INITFC1_P;
+							tx_dllp_payload			<= 0;
+							tx_dllp_payload[21:14]	<= MAX_POSTED_HEADER;
+							tx_dllp_payload[11:0]	<= MAX_POSTED_DATA;
+
+							if(tx_dllp_ack) begin
+								fc_init_substate	<= FC_INIT1_NP;
+
+								//Start sending InitFC1-NP
+								tx_dllp_req				<= 1;
+								tx_dllp_type			<= DLLP_TYPE_INITFC1_NP;
+								tx_dllp_payload			<= 0;
+								tx_dllp_payload[21:14]	<= MAX_NONPOSTED_HEADER;
+								tx_dllp_payload[11:0]	<= MAX_NONPOSTED_DATA;
+							end
+
+						end	//end FC_INIT1_P
+
+						FC_INIT1_NP: begin
+
+							if(tx_dllp_ack) begin
+								fc_init_substate	<= FC_INIT1_CPL;
+
+								//Start sending InitFC1-CPL
+								tx_dllp_req				<= 1;
+								tx_dllp_type			<= DLLP_TYPE_INITFC1_CPL;
+								tx_dllp_payload			<= 0;
+								tx_dllp_payload[21:14]	<= MAX_COMPLETION_HEADER;
+								tx_dllp_payload[11:0]	<= MAX_COMPLETION_DATA;
+							end
+
+						end	//end FC_INIT1_NP
+
+						FC_INIT1_CPL: begin
+
+							if(tx_dllp_ack) begin
+
+								//for now, loop back to the start and stay in the loop forever
+								fc_init_substate	<= FC_INIT1_P;
+
+								tx_dllp_req				<= 1;
+								tx_dllp_type			<= DLLP_TYPE_INITFC1_P;
+								tx_dllp_payload			<= 0;
+								tx_dllp_payload[21:14]	<= MAX_POSTED_HEADER;
+								tx_dllp_payload[11:0]	<= MAX_POSTED_DATA;
+							end
+
+						end	//end FC_INIT1_CPL
+
+						FC_DONE: begin
+						end	//end FC_DONE
+
+					endcase
+
+					/*
+						Initialize flow control for VC0
+						Report DL down until we hit FC_INIT2
+						exit to DL_ACTIVE once init completes
+					 */
+
+					if(!link_up)
+						dl_state	<= DL_INACTIVE;
+				end
+
+				DL_ACTIVE: begin
+					//ready to go unless link drops
+
+					if(!link_up)
+						dl_state	<= DL_INACTIVE;
+				end
+
+			endcase
+
 		end
 
 	end
@@ -328,25 +590,36 @@ module PCIeDataLinkLayer(
 	ila_0 ila(
 		.clk(clk),
 
-		.probe0(rx_data),
-		.probe1(rx_charisk),
-		.probe2(rx_err),
+		.probe0(rx_data_descrambled),
+		.probe1(rx_charisk_ff),
+		.probe2(rx_err_ff),
 		.probe3(tx_data),
 		.probe4(tx_charisk),
 		.probe5(tx_skip_req),
 		.probe6(tx_skip_ack),
-		.probe7(skip_pending),
+		.probe7(tx_dllp_crc),
 		.probe8(rx_state),
 		.probe9(rx_dllp_type),
 		.probe10(rx_dllp_payload),
 		.probe11(rx_dllp_valid),
 		.probe12(rx_dllp_crc_hi),
 		.probe13(rx_dllp_crc_expected),
-		.probe14(link_up),
-		.probe15(rx_data_descrambled),
-		.probe16(rx_charisk_ff),
-		.probe17(rx_err_ff),
-		.probe18(rx_dllp_crc_din)
+		.probe14(tx_dllp_type),
+		.probe15(partner_credit_data_np),
+		.probe16(partner_credit_valid_cpl),
+		.probe17(partner_credit_header_cpl),
+		.probe18(partner_credit_data_cpl),
+		.probe19(partner_credit_valid_p),
+		.probe20(partner_credit_header_p),
+		.probe21(partner_credit_data_p),
+		.probe22(partner_credit_valid_np),
+		.probe23(partner_credit_header_np),
+		.probe24(dl_state),
+		.probe25(fc_init_substate),
+		.probe26(tx_dllp_req),
+		.probe27(tx_dllp_ack),
+		.probe28(tx_dllp_payload),
+		.probe29(tx_state)
 	);
 
 endmodule
