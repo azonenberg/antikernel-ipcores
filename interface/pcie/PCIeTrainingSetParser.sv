@@ -67,7 +67,16 @@ module PCIeTrainingSetParser(
 
 	always_ff @(posedge clk or negedge rst_n) begin
 		if(!rst_n) begin
-			rx_ts_state		<= TS_HEAD;
+			rx_ts_state			<= TS_HEAD;
+			rx_ts1_valid		<= 0;
+			rx_ts2_valid		<= 0;
+			rx_ts_link_valid	<= 0;
+			rx_ts_link			<= 0;
+			rx_ts_lane_valid	<= 0;
+			rx_ts_lane			<= 0;
+			rx_ts_num_fts		<= 0;
+			rx_ts_fillcount		<= 0;
+			rx_ts_5g_supported	<= 0;
 		end
 
 		else begin

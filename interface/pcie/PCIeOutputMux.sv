@@ -126,6 +126,8 @@ module PCIeOutputMux(
 			tx_skip_done	<= 0;
 			tx_skip_done_ff	<= 0;
 			tx_link_up_ff	<= 0;
+			tx_charisk		<= 0;
+			tx_data			<= 0;
 		end
 
 		else begin

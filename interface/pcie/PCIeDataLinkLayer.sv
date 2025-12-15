@@ -149,6 +149,18 @@ module PCIeDataLinkLayer(
 
 	wire[15:0]	rx_dllp_crc_expected;
 
+	enum logic[3:0]
+	{
+		RX_STATE_IDLE			= 0,
+
+		RX_STATE_DLLP_1			= 1,
+		RX_STATE_DLLP_2			= 2,
+		RX_STATE_DLLP_CRC_END	= 3,
+
+		RX_STATE_TLP_1			= 4,
+		RX_STATE_TLP_2			= 5
+	} rx_state = RX_STATE_IDLE;
+
 	PCIeDataLinkChecksum rx_dllp_checksum(
 		.clk(clk),
 		.rst_n(rst_n),
@@ -164,56 +176,23 @@ module PCIeDataLinkLayer(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX TLP CRC engine
 
-	enum logic[3:0]
-	{
-		RX_STATE_IDLE			= 0,
-
-		RX_STATE_DLLP_1			= 1,
-		RX_STATE_DLLP_2			= 2,
-		RX_STATE_DLLP_CRC_END	= 3,
-
-		RX_STATE_TLP_1			= 4,
-		RX_STATE_TLP_2			= 5
-	} rx_state = RX_STATE_IDLE;
-
 	wire[31:0]	rx_tlp_crc_expected;
 	logic[55:0]	rx_tlp_data				= 0;
 	logic[2:0]	rx_tlp_bytecount		= 0;
 	logic[11:0]	rx_tlp_seq				= 0;
 
 	logic[31:0]	rx_tlp_crc_din;
-	logic[2:0]	rx_tlp_crc_din_len;
-	logic		rx_tlp_crc_reset;
-
-	always_comb begin
-
-		//Reset at the very beginning
-		rx_tlp_crc_reset	= (rx_state == RX_STATE_TLP_1);
-
-		//Default to not CRcing anything
-		rx_tlp_crc_din		= 0;
-		rx_tlp_crc_din_len	= 0;
-
-		//Sequence number at start of TLP
-		if(rx_tlp_bytecount == 1) begin
-			rx_tlp_crc_din		= { 4'b0, rx_tlp_seq, 16'h0 };
-			rx_tlp_crc_din_len	= 2;
-		end
-
-		//Full data words
-		if(rx_tlp_bytecount == 7) begin
-			rx_tlp_crc_din		= { rx_tlp_data[7:0], rx_tlp_data[15:8], rx_tlp_data[23:16], rx_tlp_data[31:24] };
-			rx_tlp_crc_din_len	= 4;
-		end
-
-	end
+	logic		rx_tlp_crc_reset		= 0;
+	logic		rx_tlp_crc_ce		= 0;
+	logic		rx_tlp_crc_half			= 0;
 
 	//TLP checksum includes the sequence number!!
-	CRC32_Ethernet_x32_variable rx_tlp_checksum(
+	CRC32_Ethernet_x32_variable_halfsel rx_tlp_checksum(
 		.clk(clk),
 		.reset(rx_tlp_crc_reset),
+		.ce(rx_tlp_crc_ce),
 		.din(rx_tlp_crc_din),
-		.din_len(rx_tlp_crc_din_len),
+		.halfwidth(rx_tlp_crc_half),
 		.crc_out(rx_tlp_crc_expected)
 	);
 
@@ -244,20 +223,73 @@ module PCIeDataLinkLayer(
 	logic		rx_tlp_ending			= 0;
 	logic[31:0]	rx_tlp_crc_actual		= 0;
 
+	//RX acknowledgement
+	logic[11:0]	next_rcv_seq			= 0;
+	logic		nak_scheduled			= 0;
+	logic[7:0]	acknak_latency_timer	= 0;
+
+	//FIFO of DLLPs the RX logic wants to send
+	logic		tlp_dllp_wr_en			= 0;
+	logic[7:0]	tlp_dllp_type			= 0;
+	logic[23:0]	tlp_dllp_data			= 0;
+	logic		tlp_dllp_rd				= 0;
+	wire[7:0]	tlp_dllp_fifo_type;
+	wire[23:0]	tlp_dllp_fifo_data;
+	wire		tlp_dllp_fifo_empty;
+
+	SingleClockFifo #(
+		.WIDTH(32),
+		.DEPTH(32),
+		.USE_BLOCK(0),
+		.OUT_REG(0)
+	) dllp_tx_fifo (
+		.clk(clk),
+		.wr(tlp_dllp_wr_en),
+		.din({tlp_dllp_type, tlp_dllp_data}),
+		.rd(tlp_dllp_rd),
+		.dout({tlp_dllp_fifo_type, tlp_dllp_fifo_data}),
+		.empty(tlp_dllp_fifo_empty),
+		.full(),
+		.overflow(),
+		.underflow(),
+		.rsize(),
+		.wsize(),
+		.reset(!dl_link_up)
+	);
+
 	always_ff @(posedge clk or negedge rst_n) begin
 
 		if(!rst_n) begin
-			rx_state			<= RX_STATE_IDLE;
-			rx_dllp_valid		<= 0;
-			axi_tlp_rx.tvalid	<= 0;
-			rx_tlp_crc_actual	<= 0;
+			rx_state				<= RX_STATE_IDLE;
+			rx_dllp_valid			<= 0;
+			axi_tlp_rx.tvalid		<= 0;
+			rx_tlp_crc_actual		<= 0;
+			next_rcv_seq			<= 0;
+			nak_scheduled			<= 0;
+			acknak_latency_timer	<= 0;
+			tlp_dllp_wr_en			<= 0;
+			rx_tlp_crc_reset		<= 0;
+			rx_tlp_crc_ce			<= 0;
+			rx_tlp_crc_din			<= 0;
 		end
 
 		else begin
-			rx_dllp_valid		<= 0;
-			rx_tlp_seq			<= 0;
-			axi_tlp_rx.tvalid	<= 0;
-			rx_tlp_ending		<= 0;
+
+			//Clear single cycle flags
+			rx_dllp_valid			<= 0;
+			axi_tlp_rx.tvalid		<= 0;
+			rx_tlp_ending			<= 0;
+			tlp_dllp_wr_en			<= 0;
+			rx_tlp_crc_reset		<= 0;
+			rx_tlp_crc_ce		<= 0;
+			rx_tlp_crc_half			<= 0;
+
+			//Clear flow control if the data link layer is not up
+			if(!dl_link_up) begin
+				next_rcv_seq			<= 12'h0;
+				nak_scheduled			<= 0;
+				acknak_latency_timer	<= 0;
+			end
 
 			//Validate TLP checksum and report the end of the TLP
 			if(rx_tlp_ending) begin
@@ -265,7 +297,27 @@ module PCIeDataLinkLayer(
 				axi_tlp_rx.tlast	<= 1;
 				axi_tlp_rx.tuser	<= rx_tlp_crc_actual != rx_tlp_crc_expected;
 
-				//TODO: send ACK / NAK DLLP (or ideally update a pending request)
+				//TODO: validate sequence number, ack duplicates, nak anything else (see page 205)
+
+				//Prepare to ack/nak the TLP if needed
+				tlp_dllp_data		<= rx_tlp_seq;
+
+				//All happy
+				if(rx_tlp_crc_actual == rx_tlp_crc_expected) begin
+					next_rcv_seq	<= next_rcv_seq + 1;
+					tlp_dllp_type	<= DLLP_TYPE_ACK;
+
+					//DEBUG: send immediate ack
+					tlp_dllp_wr_en	<= 1;
+				end
+
+				//No, something went wrong. Send an immediate nak
+				else begin
+					tlp_dllp_wr_en	<= 1;
+					tlp_dllp_type	<= DLLP_TYPE_NAK;
+					nak_scheduled	<= 1;
+				end
+
 			end
 
 			case(rx_state)
@@ -290,6 +342,10 @@ module PCIeDataLinkLayer(
 						//First byte of the TLP is the high bit of the sequence number
 						rx_tlp_seq[11:8]	<= rx_data_descrambled[11:8];
 						rx_state			<= RX_STATE_TLP_1;
+
+						//Reset the CRC engine
+						rx_tlp_crc_reset	<= 1;
+						rx_tlp_crc_ce	<= 1;
 
 					end
 
@@ -362,6 +418,11 @@ module PCIeDataLinkLayer(
 						rx_tlp_data[7:0]	<= rx_data_descrambled[15:8];
 						rx_tlp_bytecount	<= 1;
 
+						//CRC the sequence number
+						rx_tlp_crc_ce	<= 1;
+						rx_tlp_crc_half		<= 1;
+						rx_tlp_crc_din		<= { 4'b0, rx_tlp_seq[11:8], rx_data_descrambled[7:0], 16'h0 };
+
 						rx_state			<= RX_STATE_TLP_2;
 					end
 
@@ -433,6 +494,14 @@ module PCIeDataLinkLayer(
 							//We have 5 bytes in the holding buffer and 2 new ones. Append them
 							5: begin
 								rx_tlp_data[55:40]	<= rx_data_descrambled;
+								rx_tlp_crc_ce	<= 1;
+								rx_tlp_crc_din		<=
+								{
+									rx_tlp_data[7:0],
+									rx_tlp_data[15:8],
+									rx_tlp_data[23:16],
+									rx_tlp_data[31:24]
+								};
 								rx_tlp_bytecount	<= 7;
 							end
 
@@ -476,7 +545,7 @@ module PCIeDataLinkLayer(
 			endcase
 
 			//Any symbol error, or dropping the link, clears us back to the idle state for now
-			//TODO: send a nak or something
+			//TODO: if we have a symbol error while receiving a TLP, send a NAK for the expected sequence number
 			if(rx_err_ff || !link_up)
 				rx_state	<= RX_STATE_IDLE;
 		end
@@ -718,9 +787,12 @@ module PCIeDataLinkLayer(
 			fc_timer_max		<= FC_TIMER_MAX_2G5;
 			fc_timer			<= 0;
 			next_fc_type_p		<= 1;
+			tlp_dllp_rd			<= 0;
 		end
 
 		else begin
+
+			tlp_dllp_rd			<= 0;
 
 			//Set FI2 if we see any InitFC2 or UpdateFC
 			if(rx_dllp_valid) begin
@@ -915,10 +987,19 @@ module PCIeDataLinkLayer(
 
 					//Timer to send UpdateFC DLLPs every X time
 					fc_timer		<= fc_timer + 1;
+
 					if(!tx_dllp_req) begin
 
+						//If TLP engine has a pending DLLP, that's first priority
+						if(!tlp_dllp_fifo_empty) begin
+							tx_dllp_req				<= 1;
+							tx_dllp_type			<= tlp_dllp_fifo_type;
+							tx_dllp_payload			<= tlp_dllp_fifo_data;
+							tlp_dllp_rd				<= 1;
+						end
+
 						//When timer wraps, send an UpdateFC-P the next chance we get
-						if(fc_timer >= fc_timer_max) begin
+						else if(fc_timer >= fc_timer_max) begin
 							next_fc_type_p			<= 0;
 							fc_timer				<= 0;
 
@@ -946,8 +1027,6 @@ module PCIeDataLinkLayer(
 
 						//Don't need to control completions, we have infinite flow control capacity for those
 					end
-
-					//TODO: send ACK DLLPs when a TLP is accepted or at regular intervals
 
 					//ready to go unless link drops
 					if(!link_up) begin
@@ -989,18 +1068,18 @@ module PCIeDataLinkLayer(
 		.probe18(axi_tlp_rx.tready),
 		.probe19(tx_dllp_payload),
 		.probe20(axi_tlp_rx.tdata),
-		.probe21(rx_tlp_data),
-		.probe22(rx_tlp_bytecount),
-		.probe23(rx_tlp_crc_expected),
+		.probe21(tx_dllp_type),
+		.probe22(tx_dllp_payload),
+		.probe23(next_rcv_seq),
 		.probe24(dl_state),
 		.probe25(tx_state),
 		.probe26(tx_dllp_req),
 		.probe27(tx_dllp_ack),
-
-		.probe28(rx_tlp_crc_reset),
-		.probe29(rx_tlp_crc_din_len),
-		.probe30(rx_tlp_crc_din),
-		.probe31(rx_tlp_crc_actual)
+		.probe28(rx_tlp_crc_din),
+		.probe29(rx_tlp_crc_expected),
+		.probe30(rx_tlp_crc_actual),
+		.probe31(rx_tlp_crc_ce),
+		.probe32(rx_tlp_crc_half)
 	);
 
 endmodule

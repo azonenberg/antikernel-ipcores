@@ -144,6 +144,13 @@ module PCIeLTSSM(
 			ltssm_state	<= LTSSM_DETECT;
 			link_id		<= 0;
 			lane_id		<= 0;
+			tsSentCount	<= 0;
+			tsRecvCount	<= 0;
+			ts_type_is_ts2		<= 0;
+			tx_ts_link_valid	<= 0;
+			tx_ts_link			<= 0;
+			tx_ts_lane_valid	<= 0;
+			tx_ts_lane			<= 0;
 		end
 
 		else begin
