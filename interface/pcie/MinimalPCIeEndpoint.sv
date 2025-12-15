@@ -163,6 +163,9 @@ module MinimalPCIeEndpoint(
 
 	wire	dl_link_up;
 
+	//TLPs up to the data link layer
+	AXIStream #(.DATA_WIDTH(32), .ID_WIDTH(0), .DEST_WIDTH(0), .USER_WIDTH(1)) axi_tlp_rx();
+
 	PCIeDataLinkLayer linklayer(
 		.clk(tx_clk),
 		.rst_n(rst_tx_n),
@@ -180,7 +183,14 @@ module MinimalPCIeEndpoint(
 		.tx_skip_ack(tx_ll_skip_ack),
 		.tx_skip_done(tx_skip_done),
 
-		.dl_link_up(dl_link_up)
+		.dl_link_up(dl_link_up),
+		.axi_tlp_rx(axi_tlp_rx)
 	);
+
+	//TODO: do we ever backpressure here
+	assign axi_tlp_rx.tready = 1;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Transaction layer
 
 endmodule
