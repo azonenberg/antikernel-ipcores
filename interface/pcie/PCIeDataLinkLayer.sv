@@ -281,8 +281,9 @@ module PCIeDataLinkLayer(
 			rx_tlp_ending			<= 0;
 			tlp_dllp_wr_en			<= 0;
 			rx_tlp_crc_reset		<= 0;
-			rx_tlp_crc_ce		<= 0;
+			rx_tlp_crc_ce			<= 0;
 			rx_tlp_crc_half			<= 0;
+			axi_tlp_rx.tlast		<= 0;
 
 			//Clear flow control if the data link layer is not up
 			if(!dl_link_up) begin
@@ -1040,46 +1041,5 @@ module PCIeDataLinkLayer(
 		end
 
 	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Debug ILA
-
-	ila_0 ila(
-		.clk(clk),
-
-		.probe0(rx_data_descrambled),
-		.probe1(rx_charisk_ff),
-		.probe2(rx_err_ff),
-		.probe3(tx_data),
-		.probe4(tx_charisk),
-		.probe5(tx_skip_req),
-		.probe6(tx_skip_ack),
-		.probe7(rx_tlp_seq),
-		.probe8(rx_state),
-		.probe9(rx_dllp_type),
-		.probe10(rx_dllp_payload),
-		.probe11(rx_dllp_valid),
-		.probe12(axi_tlp_rx.tuser),
-		.probe13(axi_tlp_rx.tkeep),
-		.probe14(tx_dllp_type),
-		.probe15(axi_tlp_rx.tlast),
-		.probe16(dl_link_up),
-		.probe17(axi_tlp_rx.tvalid),
-		.probe18(axi_tlp_rx.tready),
-		.probe19(tx_dllp_payload),
-		.probe20(axi_tlp_rx.tdata),
-		.probe21(tx_dllp_type),
-		.probe22(tx_dllp_payload),
-		.probe23(next_rcv_seq),
-		.probe24(dl_state),
-		.probe25(tx_state),
-		.probe26(tx_dllp_req),
-		.probe27(tx_dllp_ack),
-		.probe28(rx_tlp_crc_din),
-		.probe29(rx_tlp_crc_expected),
-		.probe30(rx_tlp_crc_actual),
-		.probe31(rx_tlp_crc_ce),
-		.probe32(rx_tlp_crc_half)
-	);
 
 endmodule

@@ -187,10 +187,24 @@ module MinimalPCIeEndpoint(
 		.axi_tlp_rx(axi_tlp_rx)
 	);
 
-	//TODO: do we ever backpressure here
-	assign axi_tlp_rx.tready = 1;
-
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transaction layer
+
+	APB #(.DATA_WIDTH(32), .ADDR_WIDTH(32), .USER_WIDTH(0)) cfg_apb();
+
+	PCIeTransactionLayer txnlayer(
+		.dl_link_up(dl_link_up),
+
+		//Data to data link layer
+		.axi_tlp_rx(axi_tlp_rx),
+
+		//Configuration bus
+		.cfg_apb(cfg_apb)
+	);
+
+	//sink config requests for now
+	assign cfg_apb.pready = cfg_apb.penable;
+	assign cfg_apb.pslverr = 0;
+	assign cfg_apb.prdata = 32'hcccccccc;
 
 endmodule
