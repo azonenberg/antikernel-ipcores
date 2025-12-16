@@ -34,12 +34,15 @@
  */
 module PCIeTransactionLayer(
 
-	//Link status from data link layer
+	//Link status from data link layer and LTSSM
 	input wire				dl_link_up,
 
 	//Incoming TLPs from data link layer
 	//TUSER[0] is CRC-error bit set concurrently with TLAST
 	AXIStream.receiver		axi_tlp_rx,
+
+	//Outgoing TLPs to data link layer
+	AXIStream.transmitter	axi_tlp_tx,
 
 	//Incoming memory read/write requests from the host
 
@@ -51,10 +54,10 @@ module PCIeTransactionLayer(
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Tie off unused AXI ports
+	// Hook up AXI TX signals
 
-	//We're always ready for incoming stuff
-	assign axi_tlp_rx.tready	= 1;
+	assign axi_tlp_tx.aclk		= axi_tlp_rx.aclk;
+	assign axi_tlp_tx.areset_n	= axi_tlp_rx.areset_n;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// APB configuration
@@ -99,6 +102,10 @@ module PCIeTransactionLayer(
 	logic[7:0]	rx_tlp_tag			= 0;
 	logic[31:0]	rx_tlp_addr			= 0;
 
+	//use zero prior to the first config write
+	logic[7:0]	bus_num				= 0;
+	logic[4:0]	device_num			= 0;
+
 	enum logic[3:0]
 	{
 		RX_TLP_STATE_IDLE			= 0,
@@ -106,21 +113,33 @@ module PCIeTransactionLayer(
 		RX_TLP_STATE_HEADER_1		= 2,
 		RX_TLP_STATE_HEADER_2		= 3,
 		RX_TLP_STATE_CFG_WDATA		= 4,
-		RX_TLP_STATE_MEM_WDATA		= 5
+		RX_TLP_STATE_MEM_WDATA		= 5,
+
+		RX_TLP_STATE_CFG_COMP1		= 6,
+		RX_TLP_STATE_CFG_COMP2		= 7
 	} rx_tlp_state	= RX_TLP_STATE_IDLE;
 
 	always_ff @(posedge axi_tlp_rx.aclk or negedge axi_tlp_rx.areset_n) begin
 		if(!axi_tlp_rx.areset_n) begin
-			cfg_apb.psel	<= 0;
-			cfg_apb.penable	<= 0;
-			cfg_apb.paddr	<= 0;
-			cfg_apb.pwdata	<= 0;
-			cfg_apb.pstrb	<= 0;
-			rx_tlp_format	<= 0;
-			rx_tlp_type		<= 0;
+			cfg_apb.psel		<= 0;
+			cfg_apb.penable		<= 0;
+			cfg_apb.paddr		<= 0;
+			cfg_apb.pwdata		<= 0;
+			cfg_apb.pstrb		<= 0;
+			rx_tlp_format		<= 0;
+			rx_tlp_type			<= 0;
+			axi_tlp_rx.tready	<= 1;
+			axi_tlp_tx.tvalid	<= 0;
+			axi_tlp_tx.tlast	<= 0;
+			bus_num				<= 0;
+			device_num			<= 0;
 		end
 
 		else begin
+
+			//Clear single cycle flags
+			axi_tlp_tx.tvalid	<= 0;
+			axi_tlp_tx.tlast	<= 0;
 
 			//APB control
 			if(cfg_apb.psel)
@@ -130,10 +149,20 @@ module PCIeTransactionLayer(
 				cfg_apb.psel	<= 0;
 			end
 
+			//Go to idle state whenever the current TLP ends by default
+			if(axi_tlp_rx.tlast && axi_tlp_rx.tvalid)
+				rx_tlp_state	<= RX_TLP_STATE_IDLE;
+
 			case(rx_tlp_state)
+
+				////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// Generic RX path
 
 				//Wait for TVALID on the TLP interface
 				RX_TLP_STATE_IDLE: begin
+
+					//Ready for new traffic by default
+					axi_tlp_rx.tready	<= 1;
 
 					//First word is TLP headers
 					if(axi_tlp_rx.tvalid) begin
@@ -209,6 +238,12 @@ module PCIeTransactionLayer(
 									//Write to configuration space
 									TLP_TYPE_CONFIG_0: begin
 										rx_tlp_state	<= RX_TLP_STATE_CFG_WDATA;
+
+										//Save bus and function number from the address
+										//(must update each write per spec)
+										bus_num			<= axi_tlp_rx.tdata[7:0];
+										device_num		<= axi_tlp_rx.tdata[15:11];
+
 									end
 
 									//TODO: writes to normal memory
@@ -236,6 +271,9 @@ module PCIeTransactionLayer(
 					end
 				end	//end RX_TLP_STATE_HEADER_2
 
+				////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// Configuration write path
+
 				//Configuration write data
 				//Should only be a single data word
 				RX_TLP_STATE_CFG_WDATA: begin
@@ -245,7 +283,7 @@ module PCIeTransactionLayer(
 						if(!axi_tlp_rx.tlast)
 							rx_tlp_state	<= RX_TLP_STATE_DROP;
 
-						//This is our single data word. If CRC is good, send the transaction out
+						//This is our single data word and the last cycle. If CRC is good, send the transaction out
 						else if(!axi_tlp_rx.tuser[0]) begin
 							cfg_apb.psel	<= 1;
 							cfg_apb.paddr	<= rx_tlp_addr;
@@ -253,27 +291,96 @@ module PCIeTransactionLayer(
 							cfg_apb.pwrite	<= 1;
 							cfg_apb.pwdata	<= axi_tlp_rx.tdata;
 
-							//Go back to idle but leave the transaction on the APB
-							rx_tlp_state	<= RX_TLP_STATE_IDLE;
+							//Prepare to send the completion
+							axi_tlp_tx.tvalid	<= 1;
+							axi_tlp_tx.tkeep	<= 4'b1111;
+							axi_tlp_tx.tdata	<=
+							{
+								//Fourth byte: no payload data
+								8'h00,
+
+								//Third byte: flags we don't care about
+								8'h00,
+
+								//Second byte: flags we don't care about
+								8'h00,
+
+								//First byte: format / type
+								TLP_FORMAT_3DW_NODATA,
+								TLP_TYPE_COMPLETION
+							};
+							rx_tlp_state		<= RX_TLP_STATE_CFG_COMP1;
+
+							//Not ready to accept any new data from the FIFO while sending completions
+							axi_tlp_rx.tready	<= 0;
 
 						end
 
-						//If CRC is bad, just go to idle without further processing
+						//If CRC is bad during the last cycle, just go to idle without further processing
 						else
 							rx_tlp_state	<= RX_TLP_STATE_IDLE;
 
 					end
 				end	//end RX_TLP_STATE_CFG_WDATA
 
+				RX_TLP_STATE_CFG_COMP1: begin
+
+					//Send the second word of the completion
+					axi_tlp_tx.tvalid	<= 1;
+					axi_tlp_tx.tkeep	<= 4'b1111;
+					axi_tlp_tx.tdata	<=
+					{
+						//Fourth byte: low byte count plus two padding bits since word sized
+						rx_tlp_len[5:0], 2'b0,
+
+						//Third byte: status and upper byte count
+						//For now always make this successful completion
+						//TODO: should we delay the outbound TLP until we have the actual APB success/fail?
+						4'h0, rx_tlp_len[9:6],
+
+						//Second byte: device number and function number
+						//function is always zero
+						device_num, 3'b0,
+
+						//First byte: bus ID
+						bus_num
+					};
+					rx_tlp_state		<= RX_TLP_STATE_CFG_COMP2;
+
+				end	//end RX_TLP_STATE_CFG_COMP1
+
+				RX_TLP_STATE_CFG_COMP2: begin
+
+					//Send the third and final word of the completion
+					axi_tlp_tx.tvalid	<= 1;
+					axi_tlp_tx.tlast	<= 1;
+					axi_tlp_tx.tkeep	<= 4'b1111;
+					axi_tlp_tx.tdata	<=
+					{
+						//Fourth byte: replay low bits of address if memory read
+						//this is a config so zeroes
+						8'h0,
+
+						//Third byte: replay tag
+						rx_tlp_tag,
+
+						//First and second bytes: replay requester
+						rx_tlp_requester
+					};
+
+					//We're done when we get to this point
+					rx_tlp_state		<= RX_TLP_STATE_IDLE;
+
+				end	//end RX_TLP_STATE_CFG_COMP2
+
+				////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// Drop path
+
 				//Wait until the TLP ends then go back to idle
 				RX_TLP_STATE_DROP: begin
 				end	//end RX_TLP_STATE_DROP
 
 			endcase
-
-			//Go to idle state whenever the current TLP ends, no matter what
-			if(axi_tlp_rx.tlast && axi_tlp_rx.tvalid)
-				rx_tlp_state	<= RX_TLP_STATE_IDLE;
 
 		end
 	end
@@ -305,7 +412,15 @@ module PCIeTransactionLayer(
 		.probe17(rx_tlp_len),
 		.probe18(rx_tlp_requester),
 		.probe19(rx_tlp_tag),
-		.probe20(rx_tlp_addr)
+		.probe20(rx_tlp_addr),
+		.probe21(axi_tlp_tx.tvalid),
+		.probe22(axi_tlp_rx.tready),
+		.probe23(axi_tlp_tx.tkeep),
+		.probe24(axi_tlp_tx.tlast),
+		.probe25(axi_tlp_tx.tdata),
+
+		.probe26(bus_num),
+		.probe27(device_num)
 	);
 
 endmodule

@@ -165,6 +165,18 @@ module MinimalPCIeEndpoint(
 
 	//TLPs up to the data link layer
 	AXIStream #(.DATA_WIDTH(32), .ID_WIDTH(0), .DEST_WIDTH(0), .USER_WIDTH(1)) axi_tlp_rx();
+	AXIStream #(.DATA_WIDTH(32), .ID_WIDTH(0), .DEST_WIDTH(0), .USER_WIDTH(1)) axi_tlp_rx_fifo();
+	AXIStream #(.DATA_WIDTH(32), .ID_WIDTH(0), .DEST_WIDTH(0), .USER_WIDTH(0)) axi_tlp_tx();
+	AXIStream #(.DATA_WIDTH(32), .ID_WIDTH(0), .DEST_WIDTH(0), .USER_WIDTH(0)) axi_tlp_tx_fifo();
+
+	//Add a FIFO between the transaction layer outbound and link layer to handle backpressure
+	//in case we try to send a completion while a DLLP is going out or something
+	AXIS_FIFO #(.FIFO_DEPTH(32), .USE_BLOCK(0)) tlp_tx_fifo (
+		.axi_rx(axi_tlp_tx), .axi_tx(axi_tlp_tx_fifo), .wr_size());
+
+	//FIFO in the other direction in case the transaction layer gets busy
+	AXIS_FIFO #(.FIFO_DEPTH(32), .USE_BLOCK(0)) tlp_rx_fifo (
+		.axi_rx(axi_tlp_rx), .axi_tx(axi_tlp_rx_fifo), .wr_size());
 
 	PCIeDataLinkLayer linklayer(
 		.clk(tx_clk),
@@ -184,7 +196,8 @@ module MinimalPCIeEndpoint(
 		.tx_skip_done(tx_skip_done),
 
 		.dl_link_up(dl_link_up),
-		.axi_tlp_rx(axi_tlp_rx)
+		.axi_tlp_rx(axi_tlp_rx),
+		.axi_tlp_tx(axi_tlp_tx_fifo)
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -196,7 +209,8 @@ module MinimalPCIeEndpoint(
 		.dl_link_up(dl_link_up),
 
 		//Data to data link layer
-		.axi_tlp_rx(axi_tlp_rx),
+		.axi_tlp_rx(axi_tlp_rx_fifo),
+		.axi_tlp_tx(axi_tlp_tx),
 
 		//Configuration bus
 		.cfg_apb(cfg_apb)

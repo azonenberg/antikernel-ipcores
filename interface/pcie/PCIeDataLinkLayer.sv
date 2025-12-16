@@ -58,11 +58,17 @@ module PCIeDataLinkLayer(
 
 	//AXI stream to the transaction layer
 	//TUSER[0] is "CRC bad" flag, only valid when tlast=1
-	AXIStream.transmitter	axi_tlp_rx
+	AXIStream.transmitter	axi_tlp_rx,
+
+	//AXI stream from the transaction layer
+	AXIStream.receiver		axi_tlp_tx
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// AXI stream tieoffs
+
+	//for now always ready
+	assign axi_tlp_tx.tready	= 1;
 
 	assign axi_tlp_rx.aclk		= clk;
 	assign axi_tlp_rx.areset_n	= rst_n;
@@ -458,8 +464,6 @@ module PCIeDataLinkLayer(
 							rx_tlp_data[55:48],
 							rx_data_descrambled[7:0]
 						};
-						//axi_tlp_rx.tvalid	<= 1;
-						axi_tlp_rx.tlast	<= 1;
 						axi_tlp_rx.tuser	<= 0;
 
 						//Fill the last block of the TLP and wait one cycle for the checksum before marking it valid
