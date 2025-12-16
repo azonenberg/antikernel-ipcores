@@ -107,7 +107,7 @@ module AXIS_FIFO #(
 	) fifo (
 		.clk(axi_rx.aclk),
 
-		.wr( (axi_rx.tvalid && axi_rx.tready) || axi_rx.tlast ),
+		.wr(axi_rx.tvalid && axi_rx.tready),
 		.din(wr_data),
 		.wsize(wr_size),
 		.full(),
