@@ -334,6 +334,7 @@ module PCIeTransactionLayer(
 						axi_mem_wr.tdata	<= axi_tlp_rx.tdata;
 						axi_mem_wr.tlast	<= axi_tlp_rx.tlast;
 						axi_mem_wr.tuser	<= axi_tlp_rx.tuser;
+						axi_mem_wr.tdest	<= rx_tlp_addr;
 
 						//When TLAST is set, send completion (TODO)
 						//for now assume always successful
