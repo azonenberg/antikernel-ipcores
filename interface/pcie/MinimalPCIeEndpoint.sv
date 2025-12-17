@@ -201,9 +201,24 @@ module MinimalPCIeEndpoint(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Configuration registers
+
+	APB #(.DATA_WIDTH(32), .ADDR_WIDTH(12), .USER_WIDTH(0)) cfg_apb();
+	APB #(.DATA_WIDTH(32), .ADDR_WIDTH(12), .USER_WIDTH(0)) cfg_apb_pipe();
+
+	APBRegisterSlice #(.UP_REG(1), .DOWN_REG(0)) regslice_cfg_apb(.upstream(cfg_apb), .downstream(cfg_apb_pipe));
+
+	PCIeConfigRegisterSpace cfgregs(
+		.apb(cfg_apb_pipe),
+
+		.dl_link_up(dl_link_up)
+		);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transaction layer
 
-	APB #(.DATA_WIDTH(32), .ADDR_WIDTH(32), .USER_WIDTH(0)) cfg_apb();
+	//AXI stream of memory write requests
+	AXIStream #(.DATA_WIDTH(32), .ID_WIDTH(0), .DEST_WIDTH(32), .USER_WIDTH(1)) axi_mem_wr();
 
 	PCIeTransactionLayer txnlayer(
 		.dl_link_up(dl_link_up),
@@ -213,12 +228,13 @@ module MinimalPCIeEndpoint(
 		.axi_tlp_tx(axi_tlp_tx),
 
 		//Configuration bus
-		.cfg_apb(cfg_apb)
+		.cfg_apb(cfg_apb),
+
+		//Memory write requests
+		.axi_mem_wr(axi_mem_wr)
 	);
 
-	//sink config requests for now
-	assign cfg_apb.pready = cfg_apb.penable;
-	assign cfg_apb.pslverr = 0;
-	assign cfg_apb.prdata = 32'hcccccccc;
+	//sink memory write requests for now
+	assign axi_mem_wr.tready	= 1;
 
 endmodule

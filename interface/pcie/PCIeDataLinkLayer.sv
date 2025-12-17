@@ -63,18 +63,29 @@ module PCIeDataLinkLayer(
 	//AXI stream from the transaction layer
 	AXIStream.receiver		axi_tlp_tx
 );
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Special character definitions
+
+	typedef enum logic[7:0]
+	{
+		KCHAR_COM	= 8'hbc,	//K28.5
+		KCHAR_SDP	= 8'h5c,	//K28.2
+		KCHAR_SKIP	= 8'h1c,	//K28.0
+		KCHAR_STP	= 8'hfb,	//K27.7
+		KCHAR_END	= 8'hfd		//K29.7
+	} kchar_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// AXI stream tieoffs
-
-	//for now always ready
-	assign axi_tlp_tx.tready	= 1;
 
 	assign axi_tlp_rx.aclk		= clk;
 	assign axi_tlp_rx.areset_n	= rst_n;
 	assign axi_tlp_rx.tid 		= 0;
 	assign axi_tlp_rx.tdest		= 0;
 	assign axi_tlp_rx.twakeup	= 0;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TODO: TLP retransmit buffer
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Descramble incoming data
@@ -125,17 +136,17 @@ module PCIeDataLinkLayer(
 				rx_data_descrambled[15:8]	<= rx_data[15:8] ^ scrambler_out[15:8];
 
 			//Don't run the scrambler during a skip set
-			//TODO: handle odd numbers of skips?
-			if( (rx_charisk == 2'b11) && (rx_data == 16'h1c1c) ) begin
+			//TODO: handle odd numbers of skips? is that something that can happen?
+			if( (rx_charisk == 2'b11) && (rx_data == { KCHAR_SKIP, KCHAR_SKIP }) ) begin
 			end
 			else
 				scrambler_state		<= scrambler_state_next;
 
 			//Commas reset the scrambler
-			if( (rx_data[7:0] == 8'hbc) && (rx_charisk[0]) ) begin
+			if( (rx_data[7:0] == KCHAR_COM) && (rx_charisk[0]) ) begin
 
 				//If this was a skip, don't advance
-				if( (rx_data[15:8] == 8'h1c) && rx_charisk[1])
+				if( (rx_data[15:8] == KCHAR_SKIP) && rx_charisk[1])
 					scrambler_state	<= 16'hffff;
 
 				//otherwise advance by one stage
@@ -335,7 +346,7 @@ module PCIeDataLinkLayer(
 				RX_STATE_IDLE: begin
 
 					//K28.2 (K.5c) is start of DLLP
-					if( (rx_charisk_ff == 2'b01) && (rx_data_descrambled[7:0] == 8'h5c) ) begin
+					if( (rx_charisk_ff == 2'b01) && (rx_data_descrambled[7:0] == KCHAR_SDP) ) begin
 
 						//First byte of the DLLP is the type
 						rx_dllp_type	<= rx_data_descrambled[15:8];
@@ -344,7 +355,7 @@ module PCIeDataLinkLayer(
 					end
 
 					//K27.7 (K.fb) is start of TLP
-					else if( (rx_charisk_ff == 2'b01) && (rx_data_descrambled[7:0] == 8'hfb) ) begin
+					else if( (rx_charisk_ff == 2'b01) && (rx_data_descrambled[7:0] == KCHAR_STP) ) begin
 
 						//First byte of the TLP is the high bit of the sequence number
 						rx_tlp_seq[11:8]	<= rx_data_descrambled[11:8];
@@ -395,10 +406,10 @@ module PCIeDataLinkLayer(
 				RX_STATE_DLLP_CRC_END: begin
 
 					//should be one byte of CRC then the end symbol (k.fd)
-					if( (rx_charisk_ff == 2'b10) && (rx_data_descrambled[15:8] == 8'hfd) ) begin
+					if( (rx_charisk_ff == 2'b10) && (rx_data_descrambled[15:8] == KCHAR_END) ) begin
 						//7:0 is the rest of the CRC
 
-						//Set valid flag if they match
+						//Set valid flag if they matc
 						if(rx_dllp_crc_expected == {rx_dllp_crc_hi, rx_data_descrambled[7:0] })
 							rx_dllp_valid	<= 1;
 
@@ -426,7 +437,7 @@ module PCIeDataLinkLayer(
 						rx_tlp_bytecount	<= 1;
 
 						//CRC the sequence number
-						rx_tlp_crc_ce	<= 1;
+						rx_tlp_crc_ce		<= 1;
 						rx_tlp_crc_half		<= 1;
 						rx_tlp_crc_din		<= { 4'b0, rx_tlp_seq[11:8], rx_data_descrambled[7:0], 16'h0 };
 
@@ -443,7 +454,7 @@ module PCIeDataLinkLayer(
 
 					//End character in first lane: odd length TLP (invalid, drop it)
 					//TODO: send NAK?
-					if(rx_charisk_ff[0] && (rx_data_descrambled[7:0] == 8'hfd) ) begin
+					if(rx_charisk_ff[0] && (rx_data_descrambled[7:0] == KCHAR_END) ) begin
 						axi_tlp_rx.tlast	<= 1;
 						axi_tlp_rx.tuser	<= 1;
 						axi_tlp_rx.tvalid	<= 1;
@@ -454,7 +465,7 @@ module PCIeDataLinkLayer(
 
 					//End character in second lane: even length TLP, end + one byte of CRC
 					//The previous 3 bytes are also the CRC
-					else if(rx_charisk_ff[1] && (rx_data_descrambled[15:8] == 8'hfd) ) begin
+					else if(rx_charisk_ff[1] && (rx_data_descrambled[15:8] == KCHAR_END) ) begin
 
 						//we should always have 7 valid bytes so CRC is in the same position
 						rx_tlp_crc_actual	<=
@@ -623,20 +634,26 @@ module PCIeDataLinkLayer(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// TX CRC engine
+	// TX DLLP CRC engine
 
 	logic[7:0]	tx_dllp_type	= 0;
 	logic[23:0]	tx_dllp_payload	= 0;
 
 	wire[15:0]	tx_dllp_crc;
 
-	enum logic[2:0]
+	enum logic[3:0]
 	{
-		TX_STATE_IDLE		= 0,
-		TX_STATE_SKIP		= 1,
-		TX_STATE_DLLP_1		= 2,
-		TX_STATE_DLLP_2		= 3,
-		TX_STATE_DLLP_3		= 4
+		TX_STATE_IDLE		= 'h0,
+		TX_STATE_SKIP		= 'h1,
+		TX_STATE_DLLP_1		= 'h2,
+		TX_STATE_DLLP_2		= 'h3,
+		TX_STATE_DLLP_3		= 'h4,
+		TX_STATE_TLP_1		= 'h5,
+		TX_STATE_TLP_2		= 'h6,
+		TX_STATE_TLP_3		= 'h7,
+		TX_STATE_TLP_4		= 'h8,
+		TX_STATE_TLP_5		= 'h9,
+		TX_STATE_TLP_6		= 'ha
 	} tx_state = TX_STATE_IDLE;
 
 	PCIeDataLinkChecksum tx_checksum(
@@ -652,25 +669,68 @@ module PCIeDataLinkLayer(
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TX TLP CRC engine
+
+	wire[31:0]	tx_tlp_crc;
+	logic		tx_tlp_crc_reset	= 0;
+	logic[31:0]	tx_tlp_crc_din;
+	logic		tx_tlp_crc_ce		= 0;
+	logic		tx_tlp_crc_half		= 0;
+
+	//TLP checksum includes the sequence number!!
+	CRC32_Ethernet_x32_variable_halfsel tx_tlp_checksum(
+		.clk(clk),
+		.reset(tx_tlp_crc_reset),
+		.ce(tx_tlp_crc_ce),
+		.din(tx_tlp_crc_din),
+		.halfwidth(tx_tlp_crc_half),
+		.crc_out(tx_tlp_crc)
+	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transmit logic
 
 	//Request sending a DLLP
 	logic		tx_dllp_req		= 0;
 	logic		tx_dllp_ack		= 0;
 
+	logic[11:0]	tx_tlp_seq		= 0;
+
+	//Holding buffer for the last byte of a TLP word
+	logic[7:0]	tx_tlp_data_tmp	= 0;
+
 	always_ff @(posedge clk or negedge rst_n) begin
 
 		if(!rst_n) begin
-			tx_state	<= TX_STATE_IDLE;
+			tx_state			<= TX_STATE_IDLE;
+			tx_tlp_seq			<= 0;
+			tx_tlp_data_tmp		<= 0;
+			axi_tlp_tx.tready	<= 0;
+			tx_tlp_crc_ce		<= 0;
+			tx_tlp_crc_reset	<= 0;
+			tx_tlp_crc_din		<= 0;
+			tx_tlp_crc_half		<= 0;
 		end
 
 		else begin
 
 			//Clear single cycle flags
-			tx_skip_ack		<= 0;
-			tx_dllp_ack		<= 0;
+			tx_skip_ack			<= 0;
+			tx_dllp_ack			<= 0;
+			axi_tlp_tx.tready	<= 0;
+			tx_tlp_crc_ce		<= 0;
+			tx_tlp_crc_reset	<= 0;
+			tx_tlp_crc_din		<= 0;
+			tx_tlp_crc_half		<= 0;
+
+			//Reset TLP sequence number when the link drops
+			if(!dl_link_up)
+				tx_tlp_seq	<= 0;
 
 			case(tx_state)
+
+				////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// Wait for something to do
 
 				TX_STATE_IDLE: begin
 
@@ -678,8 +738,22 @@ module PCIeDataLinkLayer(
 					tx_data				<= 0;
 					tx_charisk			<= 0;
 
+					//If we have a pending TLP transmit request, send the header
+					//note that TREADY is 0 at this point; we're detecting "data is coming" but not accepting it
+					//since we need to send the TLP headers first
+					if(axi_tlp_tx.tvalid) begin
+						tx_data			<= { 4'h0, tx_tlp_seq[11:8], KCHAR_STP };
+						tx_charisk		<= 2'b01;
+						tx_state		<= TX_STATE_TLP_1;
+
+						//CRC the sequence number
+						tx_tlp_crc_ce	<= 1;
+						tx_tlp_crc_half	<= 1;
+						tx_tlp_crc_din	<= { 4'b0, tx_tlp_seq[11:0], 16'h0 };
+					end
+
 					//If we have a pending skip request, ack it (takes precedence over starting a DLLP)
-					if(tx_skip_req) begin
+					else if(tx_skip_req) begin
 						tx_skip_ack		<= 1;
 						tx_state		<= TX_STATE_SKIP;
 					end
@@ -694,16 +768,116 @@ module PCIeDataLinkLayer(
 
 				end	//end TX_STATE_IDLE
 
+				////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// Skip transmit path
+
 				TX_STATE_SKIP: begin
 
 					//Wait until we're done
 					if(tx_skip_done) begin
-						tx_state		<= TX_STATE_IDLE;
-						tx_data			<= 0;
-						tx_charisk		<= 0;
+						tx_state			<= TX_STATE_IDLE;
+						tx_data				<= 0;
+						tx_charisk			<= 0;
+
+						//Reset the TLP CRC engine when we enter the idle state
+						tx_tlp_crc_ce		<= 1;
+						tx_tlp_crc_reset	<= 1;
 					end
 
 				end	//end TX_STATE_SKIP
+
+				////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// TLP transmit path
+
+				//Send low half of sequence number and first data byte
+				//TVALID is implicitly high here since it was high when we got here and TREADY was low
+				TX_STATE_TLP_1: begin
+					tx_data				<= { axi_tlp_tx.tdata[7:0], tx_tlp_seq[7:0]};
+					tx_charisk			<= 0;
+					tx_state			<= TX_STATE_TLP_2;
+
+					//CRC the data word
+					tx_tlp_crc_ce		<= 1;
+					tx_tlp_crc_din		<=
+					{
+						axi_tlp_tx.tdata[7:0],
+						axi_tlp_tx.tdata[15:8],
+						axi_tlp_tx.tdata[23:16],
+						axi_tlp_tx.tdata[31:24]
+					};
+
+					//Increment the sequence number for the next TLP
+					tx_tlp_seq			<= tx_tlp_seq + 1;
+
+					//In TX_STATE_TLP_3 we'll need a new data byte.
+					//So we need to assert TREADY this cycle to make it be marked accepted in TX_STATE_TLP_2
+					axi_tlp_tx.tready	<= 1;
+
+				end	//end TX_STATE_TLP_1
+
+				//Send second two data bytes of a word, save the fourth in the holding buffer
+				TX_STATE_TLP_2: begin
+					tx_data			<= { axi_tlp_tx.tdata[23:16], axi_tlp_tx.tdata[15:8] };
+					tx_charisk		<= 0;
+					tx_tlp_data_tmp	<= axi_tlp_tx.tdata[31:24];
+
+					//If this is the last word, move to the CRC
+					if(axi_tlp_tx.tlast)
+						tx_state	<= TX_STATE_TLP_4;
+					else
+						tx_state	<= TX_STATE_TLP_3;
+
+				end	//end TX_STATE_TLP_2
+
+				//Send fourth data byte of previous word and first of the next
+				TX_STATE_TLP_3: begin
+					tx_data				<= { axi_tlp_tx.tdata[7:0], tx_tlp_data_tmp };
+					tx_charisk			<= 0;
+					tx_state			<= TX_STATE_TLP_2;
+
+					//CRC the data word
+					tx_tlp_crc_ce		<= 1;
+					tx_tlp_crc_din		<=
+					{
+						axi_tlp_tx.tdata[7:0],
+						axi_tlp_tx.tdata[15:8],
+						axi_tlp_tx.tdata[23:16],
+						axi_tlp_tx.tdata[31:24]
+					};
+
+					//Next time we get to TX_STATE_TLP_3 we'll need a new data byte.
+					//So we need to assert TREADY this cycle to make it be marked accepted in TX_STATE_TLP_2
+					axi_tlp_tx.tready	<= 1;
+
+				end	//end TX_STATE_TLP_3
+
+				//Send fourth data byte of the final transaction layer word, plus first of the CRC
+				TX_STATE_TLP_4: begin
+					tx_data			<= { tx_tlp_crc[31:24], tx_tlp_data_tmp };
+					tx_charisk		<= 0;
+					tx_state		<= TX_STATE_TLP_5;
+				end	//end TX_STATE_TLP_4
+
+				//Send next two CRC bytes
+				TX_STATE_TLP_5: begin
+					tx_data			<= { tx_tlp_crc[15:8], tx_tlp_crc[23:16] };
+					tx_charisk		<= 0;
+					tx_state		<= TX_STATE_TLP_6;
+				end	//end TX_STATE_TLP_5
+
+				//Send final CRC byte and end
+				TX_STATE_TLP_6: begin
+					tx_data				<= { KCHAR_END, tx_tlp_crc[7:0] };
+					tx_charisk			<= 2'b10;
+
+					//Reset the TLP CRC engine when we enter the idle state
+					tx_tlp_crc_ce		<= 1;
+					tx_tlp_crc_reset	<= 1;
+					tx_state			<= TX_STATE_IDLE;
+				end	//end TX_STATE_TLP_6
+
+				////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// DLLP transmit path
 
 				TX_STATE_DLLP_1: begin
 					tx_data			<= { tx_dllp_payload[15:8], tx_dllp_payload[23:16] };
@@ -720,9 +894,13 @@ module PCIeDataLinkLayer(
 
 				//K29.7 (k.fd) is end of packet
 				TX_STATE_DLLP_3: begin
-					tx_data			<= { 8'hfd, tx_dllp_crc[7:0] };
-					tx_charisk		<= 2'b10;
-					tx_state		<= TX_STATE_IDLE;
+					tx_data				<= { 8'hfd, tx_dllp_crc[7:0] };
+					tx_charisk			<= 2'b10;
+
+					//Reset the TLP CRC engine when we enter the idle state
+					tx_tlp_crc_ce		<= 1;
+					tx_tlp_crc_reset	<= 1;
+					tx_state			<= TX_STATE_IDLE;
 				end	//end TX_STATE_DLLP_3
 
 			endcase
@@ -813,8 +991,8 @@ module PCIeDataLinkLayer(
 				endcase
 			end
 
-			//Set FI2 if we see any TLP (K27.7)
-			if(rx_charisk_ff[0] && !rx_err_ff && (rx_data_descrambled[7:0] == 8'hfb) )
+			//Set FI2 if we see any TLP
+			if(rx_charisk_ff[0] && !rx_err_ff && (rx_data_descrambled[7:0] == KCHAR_STP) )
 				flag_fi2	<= 1;
 
 			case(dl_state)
@@ -1045,5 +1223,29 @@ module PCIeDataLinkLayer(
 		end
 
 	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Debug ILA
+
+	/*
+	ila_1 ila(
+		.clk(clk),
+
+		.probe0(axi_tlp_tx.tready),
+		.probe1(axi_tlp_tx.tvalid),
+		.probe2(axi_tlp_tx.tdata),
+		.probe3(axi_tlp_tx.tlast),
+		.probe4(tx_state),
+		.probe5(tx_data),
+		.probe6(tx_charisk),
+		.probe7(tx_tlp_data_tmp),
+
+		.probe8(tx_tlp_crc),
+		.probe9(tx_tlp_crc_reset),
+		.probe10(tx_tlp_crc_ce),
+		.probe11(tx_tlp_crc_din),
+		.probe12(tx_tlp_crc_half)
+	);
+	*/
 
 endmodule
