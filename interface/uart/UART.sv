@@ -1,9 +1,11 @@
 `timescale 1ns / 1ps
+`default_nettype none
+
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2020 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2026 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -54,20 +56,34 @@ module UART(
 	input wire[15:0]	clkdiv,
 
 	input wire			rx,
-	output logic		rxactive	= 0,
-	output logic[7:0]	rx_data		= 0,
-	output logic		rx_en		= 0,
+	output logic		rxactive 	`ifndef EFINIX = 0 `endif,
+	output logic[7:0]	rx_data 	`ifndef EFINIX = 0 `endif,
+	output logic		rx_en  		`ifndef EFINIX = 0 `endif,
 
-	output logic		tx			= 1,
+	output logic		tx  		`ifndef EFINIX = 1 `endif,
 	input wire[7:0]		tx_data,
 	input wire			tx_en,
-	output logic		txactive	= 0,
-	output logic		tx_done		= 0
+	output logic		txactive  	`ifndef EFINIX = 0 `endif,
+	output logic		tx_done		`ifndef EFINIX = 0 `endif
 	);
 
 	//1/4 of the clock divisor (for 90 degree phase offset)
 	wire[13:0] clkdiv_offset;
 	assign clkdiv_offset = clkdiv[15:2];
+
+	///////////////////////////////////////////////////////////////////////////////////////////////
+	// Initialize output ports
+
+	`ifdef EFINIX
+		initial begin
+			rxactive 	<= 0;
+			rx_data 	<= 0;
+			rx_en		<= 0;
+			tx			<= 1;
+			txactive	<= 0;
+			tx_done		<= 0;
+		end
+	`endif
 
 	///////////////////////////////////////////////////////////////////////////////////////////////
 	// Metastability protection on input
@@ -78,7 +94,7 @@ module UART(
 		.INIT(1),
 		.IN_REG(0)
 	) sync_rx(
-		.clk_in(),
+		.clk_in(1'b0),
 		.din(rx),
 		.clk_out(clk),
 		.dout(rx_sync)
@@ -93,11 +109,7 @@ module UART(
 
 	always @(posedge clk) begin
 
-		//Clear data from output after one clock
-		if(rx_en) begin
-			rx_en		<= 0;
-			rx_data		<= 0;
-		end
+		rx_en		<= 0;
 
 		//If not currently recieving, look for falling edge on RX (start bit).
 		if(!rxactive) begin
