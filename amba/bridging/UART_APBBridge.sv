@@ -34,18 +34,15 @@
 
 	The bridge maps to a 32-bit APB segment mapped starting at 0000_0000.
 
-	Two different protocols, with non-overlapping opcodes, are supported:
+	Two different protocols, with non-overlapping opcodes, are planned:
 	* A low overhead binary protocol meant for automated use (opcodes restricted to high characters > 0x80)
-	* A human readable, line oriented ASCII protocol meant for use as a CLI
+	* A human readable, line oriented ASCII protocol meant for use as a CLI (not yet implemented)
 
-	Binary protocol:
-	* 0x80							Reset the APB segment
-	* 0x81 a0 a1 a2 a3 d0 d1 d2 d3	32-bit write of 0xd3d2d1d0 to 0xa3a2a1a0
-	* 0xff							No-op
-
-	Text protocol:
+	All data values are little endian
  */
-module UART_APBBridge(
+module UART_APBBridge #(
+	parameter DEBUG_ROM_ADDR = 32'h4000_0000
+)(
 
 	//Main system clock used for both the UART IP and as APB PCLK
 	input wire			clk,
@@ -149,6 +146,9 @@ module UART_APBBridge(
 	assign apb.pwuser	= 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// TODO: RX FIFO so we can queue multiple requests before executing them
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Main state machine
 
 	enum logic[7:0]
@@ -165,9 +165,40 @@ module UART_APBBridge(
 		STATE_WRITE_D3		= 8'h08,
 
 		STATE_WRITE_ENABLE	= 8'h09,
-		STATE_WRITE_WAIT	= 8'h0a
+		STATE_WRITE_WAIT	= 8'h0a,
+
+		STATE_IDCODE_0		= 8'h0b,
+		STATE_IDCODE_1		= 8'h0c,
+		STATE_IDCODE_2		= 8'h0d,
+
+		STATE_ROMADDR_0		= 8'h0e,
+		STATE_ROMADDR_1		= 8'h0f,
+		STATE_ROMADDR_2		= 8'h10,
+
+		STATE_READ_A0		= 8'h11,
+		STATE_READ_A1		= 8'h12,
+		STATE_READ_A2		= 8'h13,
+		STATE_READ_A3		= 8'h14,
+		STATE_READ_ENABLE	= 8'h15,
+		STATE_READ_WAIT		= 8'h16,
+		STATE_READ_D0		= 8'h17,
+		STATE_READ_D1		= 8'h18,
+		STATE_READ_D2		= 8'h19
 
 	} state = STATE_IDLE;
+
+	typedef enum logic[7:0]
+	{
+		OP_RESET		= 8'h80,		//no args
+		OP_WRITE_32		= 8'h81,		//addr32 value32
+		OP_READ_32		= 8'h82,		//addr32, returns value32
+
+		OP_GET_BASE		= 8'hfd,		//returns value32
+		OP_IDCODE		= 8'hfe,		//returns "APB_"
+		OP_NOP			= 8'hff
+	} opcode_t;
+
+	logic[31:0]		rd_data_ff = 0;
 
 	always_ff @(posedge apb.pclk or negedge rst_n) begin
 
@@ -181,12 +212,14 @@ module UART_APBBridge(
 			apb.pwdata	<= 0;
 			apb.pwrite	<= 0;
 			apb.pstrb	<= 0;
+			rd_data_ff	<= 0;
 			state		<= STATE_IDLE;
 		end
 
 		else begin
 
 			soft_reset	<= 0;
+			tx_en		<= 0;
 
 			case(state)
 
@@ -199,17 +232,36 @@ module UART_APBBridge(
 						case(rx_data)
 
 							//Reset the APB
-							8'h80: begin
+							OP_RESET: begin
 								soft_reset	<= 1;
 							end
 
 							//Write path
-							8'h81: begin
+							OP_WRITE_32: begin
 								state		<= STATE_WRITE_A0;
 							end
 
+							//Read path
+							OP_READ_32: begin
+								state		<= STATE_READ_A0;
+							end
+
+							//Get the base address
+							OP_GET_BASE: begin
+								tx_en		<= 1;
+								tx_data		<= DEBUG_ROM_ADDR[7:0];
+								state		<= STATE_ROMADDR_0;
+							end
+
+							//Get the ID code
+							OP_IDCODE: begin
+								tx_en		<= 1;
+								tx_data		<= "A";
+								state		<= STATE_IDCODE_0;
+							end
+
 							//Nop
-							8'hff: begin
+							OP_NOP: begin
 							end
 
 						endcase
@@ -295,6 +347,138 @@ module UART_APBBridge(
 						state		<= STATE_IDLE;
 					end
 				end //STATE_WRITE_WAIT
+
+				////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// IDCODE path
+
+				STATE_IDCODE_0: begin
+					if(tx_done) begin
+						tx_en		<= 1;
+						tx_data		<= "P";
+						state		<= STATE_IDCODE_1;
+					end
+				end //STATE_IDCODE_0
+
+				STATE_IDCODE_1: begin
+					if(tx_done) begin
+						tx_en		<= 1;
+						tx_data		<= "B";
+						state		<= STATE_IDCODE_2;
+					end
+				end //STATE_IDCODE_1
+
+				STATE_IDCODE_2: begin
+					if(tx_done) begin
+						tx_en		<= 1;
+						tx_data		<= "_";
+						state		<= STATE_IDLE;
+					end
+				end //STATE_IDCODE_2
+
+				////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// ROMADDR path
+
+				STATE_ROMADDR_0: begin
+					if(tx_done) begin
+						tx_en		<= 1;
+						tx_data		<= DEBUG_ROM_ADDR[15:8];
+						state		<= STATE_ROMADDR_1;
+					end
+				end //STATE_ROMADDR_0
+
+				STATE_ROMADDR_1: begin
+					if(tx_done) begin
+						tx_en		<= 1;
+						tx_data		<= DEBUG_ROM_ADDR[23:16];
+						state		<= STATE_ROMADDR_2;
+					end
+				end //STATE_ROMADDR_1
+
+				STATE_ROMADDR_2: begin
+					if(tx_done) begin
+						tx_en		<= 1;
+						tx_data		<= DEBUG_ROM_ADDR[31:24];
+						state		<= STATE_IDLE;
+					end
+				end //STATE_ROMADDR_2
+
+				////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// Write path
+
+				STATE_READ_A0: begin
+					if(rx_en) begin
+						apb.paddr[7:0]		<= rx_data;
+						state				<= STATE_READ_A1;
+					end
+				end //STATE_READ_A0
+
+				STATE_READ_A1: begin
+					if(rx_en) begin
+						apb.paddr[15:8]		<= rx_data;
+						state				<= STATE_READ_A2;
+					end
+				end //STATE_READ_A1
+
+				STATE_READ_A2: begin
+					if(rx_en) begin
+						apb.paddr[23:15]	<= rx_data;
+						state				<= STATE_READ_A3;
+					end
+				end //STATE_READ_A2
+
+				STATE_READ_A3: begin
+					if(rx_en) begin
+						apb.paddr[31:24]	<= rx_data;
+						apb.pwrite			<= 0;
+						apb.psel			<= 1;
+						state				<= STATE_READ_ENABLE;
+					end
+				end //STATE_READ_A3
+
+				STATE_READ_ENABLE: begin
+					apb.penable				<= 1;
+					state					<= STATE_READ_WAIT;
+				end //STATE_READ_ENABLE
+
+				STATE_READ_WAIT: begin
+					if(apb.pready) begin
+						apb.penable			<= 0;
+						apb.pwrite			<= 0;
+						apb.paddr			<= 0;
+						apb.pwdata			<= 0;
+						apb.pstrb			<= 0;
+						apb.psel			<= 0;
+						rd_data_ff			<= apb.prdata;
+
+						tx_en				<= 1;
+						tx_data				<= apb.prdata[7:0];
+						state				<= STATE_READ_D0;
+					end
+				end //STATE_READ_WAIT
+
+				STATE_READ_D0: begin
+					if(tx_done) begin
+						tx_en				<= 1;
+						tx_data				<= rd_data_ff[15:8];
+						state				<= STATE_READ_D1;
+					end
+				end //STATE_READ_D0
+
+				STATE_READ_D1: begin
+					if(tx_done) begin
+						tx_en				<= 1;
+						tx_data				<= rd_data_ff[23:16];
+						state				<= STATE_READ_D2;
+					end
+				end //STATE_READ_D1
+
+				STATE_READ_D2: begin
+					if(tx_done) begin
+						tx_en				<= 1;
+						tx_data				<= rd_data_ff[31:24];
+						state				<= STATE_IDLE;
+					end
+				end //STATE_READ_D2
 
 			endcase
 
