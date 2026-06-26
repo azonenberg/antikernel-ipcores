@@ -349,7 +349,7 @@ module AXIS_TriSpeedEthernetMAC #(
 
 			//Mark data consumed when we eat it
 			if(tx_pending && (tx_state == TX_STATE_FRAME_DATA) ) begin
-				tx_pending	 	<= tx_pending - 1;
+				tx_pending	 	<= tx_pending - 3'h1;
 
 				//if we're consuming the last word, accept more data
 				//Note that in gig mode we have to request it pretty early to allow for AXI flow control latency
@@ -529,7 +529,7 @@ module AXIS_TriSpeedEthernetMAC #(
 
 				TX_STATE_FRAME_DATA: begin
 
-					tx_count	<= tx_count + 1;
+					tx_count	<= tx_count + 4'h1;
 
 					//Last byte?
 					if(tx_last && (tx_pending == 1)) begin

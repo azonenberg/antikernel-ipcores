@@ -262,11 +262,11 @@ module APB_AXIS_EthernetRxBuffer(
 				rxfifo_wr_data	<= axi_rx.tdata;
 
 				case(axi_rx.tstrb)
-					4'b0001:	framelen <= framelen + 1;
-					4'b0011:	framelen <= framelen + 2;
-					4'b0111:	framelen <= framelen + 3;
-					4'b1111:	framelen <= framelen + 4;
-					default:	framelen <= framelen + 4;	//all other values reserved, we don't support gaps in data
+					4'b0001:	framelen <= framelen + 11'h1;
+					4'b0011:	framelen <= framelen + 11'h2;
+					4'b0111:	framelen <= framelen + 11'h3;
+					4'b1111:	framelen <= framelen + 11'h4;
+					default:	framelen <= framelen + 11'h4;	//all other values reserved, we don't support gaps in data
 				endcase
 			end
 
