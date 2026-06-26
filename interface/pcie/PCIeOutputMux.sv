@@ -1,4 +1,5 @@
-`timescale 1ns / 1ps
+`timescale 1ns/1ps
+`default_nettype none
 /***********************************************************************************************************************
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
@@ -29,111 +30,164 @@
 ***********************************************************************************************************************/
 
 /**
-	@file
-	@author Andrew D. Zonenberg
-	@brief Ganged collection of DDR I/O buffers for a parallel DDR input bus
-
-	Supports 7 series only for now.
+	@brief Mux between link training and data link layer to drive the 8b10b output. Also inserts skip sets.
  */
-module DDRInputBuffer #(
-	parameter WIDTH = 16
-) (
-	input wire				clk_p,
-	input wire				clk_n,
+module PCIeOutputMux(
+	input wire			clk,
+	input wire			rst_n,
 
-	input wire[WIDTH-1:0]	din,
+	//Outputs to SERDES
+	output logic[15:0]	tx_data			= 0,
+	output logic[1:0]	tx_charisk		= 0,
 
-	output wire[WIDTH-1:0]	dout0,
-	output wire[WIDTH-1:0]	dout1
+	//Inputs from link training
+	input wire[15:0]	tx_train_data,
+	input wire[1:0]		tx_train_charisk,
+	input wire			tx_train_skip_ack,
 
-	`ifdef EFINIX
-	, input wire			clk_pipe
-	`endif
+	//Inputs from data link layer
+	input wire[15:0]	tx_ll_data,
+	input wire[1:0]		tx_ll_charisk,
+	input wire			tx_ll_skip_ack,
+
+	//Link state
+	input wire			tx_link_up,
+
+	//Skip request
+	output logic		tx_skip_req		= 0,
+	output logic		tx_skip_done	= 0
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// The IO buffers
+	// Scrambler
 
-	for(genvar i=0; i<WIDTH; i++) begin: buffers
+	logic[15:0]	scrambler_state			= 16'hffff;
+	logic[15:0]	scrambler_out;
+	logic[15:0]	scrambler_state_next;
 
-		`ifdef XILINX_ULTRASCALEPLUS
+	logic		tx_skip_done_ff			= 0;
+	logic		tx_link_up_ff			= 0;
 
-			IDDRE1 #
-			(
-				.DDR_CLK_EDGE("SAME_EDGE_PIPELINED"),
-				.IS_C_INVERTED(0),
-				.IS_CB_INVERTED(0)
-			) ddr_ibuf (
-				.C(clk_p),
-				.CB(clk_n),
-				.Q1(dout0[i]),
-				.Q2(dout1[i]),
-				.R(1'b0),
-				.D(din[i])
-			);
+	//Calculate LFSR output
+	integer i;
+	always_comb begin
+		scrambler_state_next			= scrambler_state;
+		scrambler_out					= 0;
 
-			`define OK
+		for(i=0; i<16; i++) begin
+			scrambler_out[i]			= scrambler_state_next[15];
 
-		`endif
+			if(scrambler_out[i])
+				scrambler_state_next	= ((scrambler_state_next ^ 16'h1c) << 1) | 1;
+			else
+				scrambler_state_next	= (scrambler_state_next << 1);
+		end
 
-		`ifdef XILINX_7SERIES
+	end
 
-			IDDR #
-			(
-				.DDR_CLK_EDGE("SAME_EDGE_PIPELINED"),
-				.SRTYPE("ASYNC"),
-				.INIT_Q1(0),
-				.INIT_Q2(0)
-			) ddr_ibuf (
-				.C(clk_p),
-				.Q1(dout0[i]),
-				.Q2(dout1[i]),
-				.CE(1'b1),
-				.R(1'b0),
-				.S(1'b0),
-				.D(din[i])
-			);
+	//Register scrambler state
+	always_ff @(posedge clk) begin
 
-			`define OK
+		//Don't run the scrambler while sending a skip
+		//We still want to run the scrambler in link training mode;
+		//even though we're not actually scrambling the tx data the state should be advancing
+		if(tx_skip_done || tx_skip_done_ff) begin
+		end
 
-		`endif
+		else
+			scrambler_state	<= scrambler_state_next;
 
-		`ifdef EFINIX
+		//When we send a COM, reset the scrambler
+		if(tx_charisk[0] && tx_data[7:0] == 8'hbc) begin
 
-			EFX_IDDIO #(
-				.IS_CLK_INVERTED(0),
-				.PULL_OPTION("NONE"),
-				.MODE("DDIO_RESYNC")
-			) ddr_ibuf (
-				.O_HI(dout0_tmp[i]),
-				.O_LO(dout1[i]),
-				.CLK(clk_p),
-				.I(din[i])
-			);
+			//If we are sending a training set, pre-advance the scrambler by 3 states since the scrambler needs to run
+			//during the TS and the second byte of the 16-bit datapath is not a comma
+			if(!tx_link_up)
+				scrambler_state	<= 16'h284b;
 
-			`define OK
-
-		`endif
-
-		`ifndef OK
-			$fatal(1, "DDRInputBuffer: unrecognized device family (did you forget to define XILINX_7SERIES or XILINX_ULTRASCALEPLUS?)");
-		`endif
+			//Second half is a skip, don't advance it
+			else
+				scrambler_state	<= 16'hffff;
+		end
 
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Extra pipeline registers for Trion
+	// The output mux
 
-	`ifdef EFINIX
-		//DDIO_PIPE isn't working (is it even there??), need to manually pipeline
-		wire[WIDTH-1:0]		dout0_tmp;
-		logic[WIDTH-1:0]	dout0_tmp_ff;
+	//Send skips every 1180 to 1538 symbol times per spec
+	//Target 1400 symbols (700 clocks) interval
+	logic[9:0]	count 			= 0;
 
-		always_ff @(posedge clk_pipe) begin
-			dout0_tmp_ff	<= dout0_tmp;
+	always_ff @(posedge clk or negedge rst_n) begin
+		if(!rst_n) begin
+			count			<= 0;
+			tx_skip_req		<= 0;
+			tx_skip_done	<= 0;
+			tx_skip_done_ff	<= 0;
+			tx_link_up_ff	<= 0;
+			tx_charisk		<= 0;
+			tx_data			<= 0;
 		end
 
-		assign dout0 	= dout0_tmp_ff;
-	`endif
+		else begin
+
+			tx_link_up_ff	<= tx_link_up_ff;
+
+			//The actual mux
+			if(tx_link_up) begin
+
+				//Scramble anything that's not a K character
+				if(tx_ll_charisk[0])
+					tx_data[7:0]	<= tx_ll_data[7:0];
+				else
+					tx_data[7:0]	<= tx_ll_data[7:0] ^ scrambler_out[7:0];
+				if(tx_ll_charisk[1])
+					tx_data[15:8]	<= tx_ll_data[15:8];
+				else
+					tx_data[15:8]	<= tx_ll_data[15:8] ^ scrambler_out[15:8];
+
+				tx_charisk	<= tx_ll_charisk;
+			end
+			else begin
+				tx_data		<= tx_train_data;
+				tx_charisk	<= tx_train_charisk;
+			end
+
+			//Clear single cycle flags
+			tx_skip_done	<= 0;
+
+			//Pipeline delays
+			tx_skip_done_ff	<= tx_skip_done;
+
+			//Request a skip set every 700 symbols
+			if(!tx_skip_req) begin
+				count		<= count + 1;
+
+				if(count == 700) begin
+					tx_skip_req	<= 1;
+				end
+			end
+
+			//Send a skip when a request is acknowledged
+			if( (tx_train_skip_ack && !tx_link_up) || (tx_ll_skip_ack && tx_link_up) ) begin
+				tx_skip_req		<= 0;
+				tx_skip_done	<= 1;
+			end
+
+			if(tx_skip_done) begin
+				tx_charisk		<= 2'b11;
+				tx_data			<= 16'h1cbc;
+			end
+
+			//Second half of skip set
+			if(tx_skip_done_ff) begin
+				tx_charisk		<= 2'b11;
+				tx_data			<= 16'h1c1c;
+			end
+
+		end
+
+	end
 
 endmodule
