@@ -316,7 +316,7 @@ module UART_APBBridge #(
 
 				STATE_WRITE_D2: begin
 					if(rx_en) begin
-						apb.pwdata[23:15]	<= rx_data;
+						apb.pwdata[23:16]	<= rx_data;
 						state				<= STATE_WRITE_D3;
 					end
 				end //STATE_WRITE_D2
