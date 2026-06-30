@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2026 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -32,122 +32,66 @@
 /**
 	@file
 	@author Andrew D. Zonenberg
-	@brief 8B/10B line comma aligner
+	@brief Bitslip module for aligning incoming serial data to symbol/word boundaries without changing its width
  */
-module SymbolAligner8b10b(
-	input wire			clk,
+module BitslipAligner #(
+	parameter WIDTH		= 20,
+	parameter REVERSE	= 1
+)(
+	input wire				clk,
+	input wire[WIDTH-1:0]	data_in,
+	input wire				bitslip,
 
-	input wire			codeword_valid,
-	input wire[19:0]	comma_window,	//Sliding window big enough for any possible comma to be in
-
-	output wire			locked,			//true if we've locked to a comma at this lane position
-	output wire			no_commas,		//true if we're not seeing any commas
-	output wire			bitslip
-	);
+	output wire[WIDTH-1:0]	data_out
+);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Output registers
 
-	logic locked_int = 0;
-	logic no_commas_int = 0;
-	logic bitslip_int = 0;
+	logic[WIDTH-1:0]		data_out_int	= 0;
 
-	assign locked		= locked_int;
-	assign no_commas 	= no_commas_int;
-	assign bitslip		= bitslip_int;
+	assign data_out = data_out_int;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Comma detector
+	// Window of incoming data
 
-	logic		comma_found;
-	logic[4:0]	comma_found_pos;
+	logic[WIDTH*2 - 1 : 0]		window_int;
+	logic[WIDTH*2 - 1 : 0]		window;
+	logic[WIDTH-1:0]			data_in_ff = 0;
+
+	always_comb begin
+		window_int			= { data_in_ff, data_in };
+
+		//Bit reverse the data window
+		if(REVERSE) begin
+			for(integer i=0; i<WIDTH*2; i=i+1)
+				window[i]	= window_int[WIDTH*2-1 - i];
+		end
+		else
+			window 			= window_int;
+	end
 
 	always_ff @(posedge clk) begin
-
-		comma_found	<= 0;
-
-		if(codeword_valid) begin
-
-			for(integer i=0; i<10; i=i+1) begin
-
-				//Positive comma
-				if(comma_window[i +: 5] == 5'b11111) begin
-					comma_found				<= 1;
-					comma_found_pos			<= i;
-				end
-
-				//Negative comma
-				if(comma_window[i +: 5] == 5'b00000) begin
-					comma_found				<= 1;
-					comma_found_pos			<= i;
-				end
-
-			end
-
-		end
-
+		data_in_ff	<= data_in;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Comma aligner
+	// Bitslip logic
 
-	logic[7:0]	comma_count		= 0;
-	logic[7:0]	bad_commas		= 0;
-	logic[15:0]	commaLastSeen	= 0;
-
-	logic		codeword_valid_ff	= 0;
+	logic[$clog2(WIDTH)-1:0]	shiftpos = 0;
 
 	always_ff @(posedge clk) begin
 
-		bitslip_int			<= 0;
-
-		codeword_valid_ff	<= codeword_valid;
-
-		if(codeword_valid_ff) begin
-
-			if(comma_found) begin
-				commaLastSeen	<= 0;
-				no_commas_int	<= 0;
-
-				comma_count	<= comma_count + 1'h1;
-
-				//All three legal 8b/10b comma characters have the comma at bits 7:3.
-				//If we see one anywhere else, that's an indication we're out of sync.
-				if(comma_found_pos != 3)
-					bad_commas	<= bad_commas + 1'h1;
-
-				//Every 256 commas, see what our alignment looks like.
-				if(comma_count == 8'hff) begin
-					bad_commas	<= 0;
-
-					//If a lot of them are in the wrong place, realign
-					if(bad_commas > 128) begin
-						locked_int	<= 0;
-						bitslip_int	<= 1;
-					end
-
-					//If we have no bad commas, we're properly aligned.
-					else if(bad_commas == 0)
-						locked_int	<= 1;
-
-				end
-			end
-
-			//Not a comma
-			else begin
-
-				//Bitslip and reset if we go a long time with no commas
-				if(commaLastSeen == 16'hffff) begin
-					no_commas_int	<= 1;
-					bitslip_int		<= 1;
-					commaLastSeen	<= 0;
-				end
-
-				else
-					commaLastSeen	<= commaLastSeen + 1;
-			end
-
+		//Update shift position
+		if(bitslip) begin
+			if(shiftpos >= (WIDTH - 1) )
+				shiftpos	<= 0;
+			else
+				shiftpos	<= shiftpos + 1;
 		end
+
+		//Barrel shift
+		data_out_int	<= window[shiftpos +: WIDTH];
 
 	end
 
