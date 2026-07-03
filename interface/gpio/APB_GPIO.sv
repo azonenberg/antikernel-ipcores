@@ -31,6 +31,8 @@
 
 /**
 	@brief A GPIO controller, readable/writable in blocks over APB
+
+	Debug ROM tag "GPIO"
  */
 module APB_GPIO #(
 	parameter OUT_INIT		= 16'h0,

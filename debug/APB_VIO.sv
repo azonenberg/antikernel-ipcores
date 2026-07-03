@@ -31,6 +31,8 @@
 
 /**
 	@brief A multi port virtual I/O controller, readable/writable over APB
+
+	Debug ROM tag "VIO_"
  */
 module APB_VIO #(
 	parameter 			OUT0_WIDTH	= 1,

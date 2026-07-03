@@ -61,6 +61,7 @@ module Decode8b10b_Lane(
 	assign data_valid	= data_valid_int;
 	assign data			= data_int;
 	assign data_is_ctl	= data_is_ctl_int;
+	assign symbol_err	= symbol_err_int;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX decoder stages

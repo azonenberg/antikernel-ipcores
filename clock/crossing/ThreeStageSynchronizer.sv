@@ -70,6 +70,7 @@ module ThreeStageSynchronizer #(
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Two stages in the receiving clock domain
+
 	(* ASYNC_REG = "TRUE" *) logic dout1;
 	always_ff @(posedge clk_out) begin
 		dout1	<= dout0;

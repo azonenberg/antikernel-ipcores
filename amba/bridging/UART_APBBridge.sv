@@ -153,37 +153,50 @@ module UART_APBBridge #(
 
 	enum logic[7:0]
 	{
-		STATE_IDLE 			= 8'h00,
+		STATE_IDLE 				= 8'h00,
 
-		STATE_WRITE_A0		= 8'h01,
-		STATE_WRITE_A1		= 8'h02,
-		STATE_WRITE_A2		= 8'h03,
-		STATE_WRITE_A3		= 8'h04,
-		STATE_WRITE_D0		= 8'h05,
-		STATE_WRITE_D1		= 8'h06,
-		STATE_WRITE_D2		= 8'h07,
-		STATE_WRITE_D3		= 8'h08,
+		STATE_WRITE_A0			= 8'h01,
+		STATE_WRITE_A1			= 8'h02,
+		STATE_WRITE_A2			= 8'h03,
+		STATE_WRITE_A3			= 8'h04,
+		STATE_WRITE_D0			= 8'h05,
+		STATE_WRITE_D1			= 8'h06,
+		STATE_WRITE_D2			= 8'h07,
+		STATE_WRITE_D3			= 8'h08,
 
-		STATE_WRITE_ENABLE	= 8'h09,
-		STATE_WRITE_WAIT	= 8'h0a,
+		STATE_WRITE_ENABLE		= 8'h09,
+		STATE_WRITE_WAIT		= 8'h0a,
 
-		STATE_IDCODE_0		= 8'h0b,
-		STATE_IDCODE_1		= 8'h0c,
-		STATE_IDCODE_2		= 8'h0d,
+		STATE_IDCODE_0			= 8'h0b,
+		STATE_IDCODE_1			= 8'h0c,
+		STATE_IDCODE_2			= 8'h0d,
 
-		STATE_ROMADDR_0		= 8'h0e,
-		STATE_ROMADDR_1		= 8'h0f,
-		STATE_ROMADDR_2		= 8'h10,
+		STATE_ROMADDR_0			= 8'h0e,
+		STATE_ROMADDR_1			= 8'h0f,
+		STATE_ROMADDR_2			= 8'h10,
 
-		STATE_READ_A0		= 8'h11,
-		STATE_READ_A1		= 8'h12,
-		STATE_READ_A2		= 8'h13,
-		STATE_READ_A3		= 8'h14,
-		STATE_READ_ENABLE	= 8'h15,
-		STATE_READ_WAIT		= 8'h16,
-		STATE_READ_D0		= 8'h17,
-		STATE_READ_D1		= 8'h18,
-		STATE_READ_D2		= 8'h19
+		STATE_READ_A0			= 8'h11,
+		STATE_READ_A1			= 8'h12,
+		STATE_READ_A2			= 8'h13,
+		STATE_READ_A3			= 8'h14,
+		STATE_READ_ENABLE		= 8'h15,
+		STATE_READ_WAIT			= 8'h16,
+		STATE_READ_D0			= 8'h17,
+		STATE_READ_D1			= 8'h18,
+		STATE_READ_D2			= 8'h19,
+
+		STATE_READ_BULK_A0		= 8'h1a,
+		STATE_READ_BULK_A1		= 8'h1b,
+		STATE_READ_BULK_A2		= 8'h1c,
+		STATE_READ_BULK_A3		= 8'h1d,
+		STATE_READ_BULK_N0		= 8'h1e,
+		STATE_READ_BULK_N1		= 8'h1f,
+		STATE_READ_BULK_ENABLE	= 8'h20,
+		STATE_READ_BULK_WAIT	= 8'h21,
+		STATE_READ_BULK_D0		= 8'h22,
+		STATE_READ_BULK_D1		= 8'h23,
+		STATE_READ_BULK_D2		= 8'h24,
+		STATE_READ_BULK_D3		= 8'h25
 
 	} state = STATE_IDLE;
 
@@ -192,6 +205,7 @@ module UART_APBBridge #(
 		OP_RESET		= 8'h80,		//no args
 		OP_WRITE_32		= 8'h81,		//addr32 value32
 		OP_READ_32		= 8'h82,		//addr32, returns value32
+		OP_READ_32_BULK	= 8'h83,		//addr32, count16, returns value32[]
 
 		OP_GET_BASE		= 8'hfd,		//returns value32
 		OP_IDCODE		= 8'hfe,		//returns "APB_"
@@ -200,20 +214,25 @@ module UART_APBBridge #(
 
 	logic[31:0]		rd_data_ff = 0;
 
+	logic[15:0]		bulk_word_count	= 0;
+	logic[15:0]		bulk_word_idx = 0;
+
 	always_ff @(posedge apb.pclk or negedge rst_n) begin
 
 		if(!rst_n) begin
-			tx_data		<= 0;
-			tx_en		<= 0;
-			soft_reset	<= 0;
-			apb.penable	<= 0;
-			apb.psel	<= 0;
-			apb.paddr	<= 0;
-			apb.pwdata	<= 0;
-			apb.pwrite	<= 0;
-			apb.pstrb	<= 0;
-			rd_data_ff	<= 0;
-			state		<= STATE_IDLE;
+			tx_data			<= 0;
+			tx_en			<= 0;
+			soft_reset		<= 0;
+			apb.penable		<= 0;
+			apb.psel		<= 0;
+			apb.paddr		<= 0;
+			apb.pwdata		<= 0;
+			apb.pwrite		<= 0;
+			apb.pstrb		<= 0;
+			rd_data_ff		<= 0;
+			state			<= STATE_IDLE;
+			bulk_word_count	<= 0;
+			bulk_word_idx	<= 0;
 		end
 
 		else begin
@@ -244,6 +263,11 @@ module UART_APBBridge #(
 							//Read path
 							OP_READ_32: begin
 								state		<= STATE_READ_A0;
+							end
+
+							//Bulk read
+							OP_READ_32_BULK: begin
+								state		<= STATE_READ_BULK_A0;
 							end
 
 							//Get the base address
@@ -288,7 +312,7 @@ module UART_APBBridge #(
 
 				STATE_WRITE_A2: begin
 					if(rx_en) begin
-						apb.paddr[23:15]	<= rx_data;
+						apb.paddr[23:16]	<= rx_data;
 						state				<= STATE_WRITE_A3;
 					end
 				end //STATE_WRITE_A2
@@ -403,7 +427,7 @@ module UART_APBBridge #(
 				end //STATE_ROMADDR_2
 
 				////////////////////////////////////////////////////////////////////////////////////////////////////////
-				// Write path
+				// Read single word path
 
 				STATE_READ_A0: begin
 					if(rx_en) begin
@@ -421,7 +445,7 @@ module UART_APBBridge #(
 
 				STATE_READ_A2: begin
 					if(rx_en) begin
-						apb.paddr[23:15]	<= rx_data;
+						apb.paddr[23:16]	<= rx_data;
 						state				<= STATE_READ_A3;
 					end
 				end //STATE_READ_A2
@@ -479,6 +503,119 @@ module UART_APBBridge #(
 						state				<= STATE_IDLE;
 					end
 				end //STATE_READ_D2
+
+				////////////////////////////////////////////////////////////////////////////////////////////////////////
+				// Read block path
+
+				STATE_READ_BULK_A0: begin
+					if(rx_en) begin
+						apb.paddr[7:0]		<= rx_data;
+						state				<= STATE_READ_BULK_A1;
+					end
+				end //STATE_READ_BULK_A0
+
+				STATE_READ_BULK_A1: begin
+					if(rx_en) begin
+						apb.paddr[15:8]		<= rx_data;
+						state				<= STATE_READ_BULK_A2;
+					end
+				end //STATE_READ_BULK_A1
+
+				STATE_READ_BULK_A2: begin
+					if(rx_en) begin
+						apb.paddr[23:16]	<= rx_data;
+						state				<= STATE_READ_BULK_A3;
+					end
+				end //STATE_READ_BULK_A2
+
+				STATE_READ_BULK_A3: begin
+					if(rx_en) begin
+						apb.paddr[31:24]	<= rx_data;
+						apb.pwrite			<= 0;
+						state				<= STATE_READ_BULK_N0;
+					end
+				end //STATE_READ_BULK_A3
+
+				STATE_READ_BULK_N0: begin
+					if(rx_en) begin
+						bulk_word_count[7:0]	<= rx_data;
+						bulk_word_idx			<= 0;
+						state					<= STATE_READ_BULK_N1;
+					end
+				end	//STATE_READ_BULK_N0
+
+				STATE_READ_BULK_N1: begin
+					if(rx_en) begin
+						bulk_word_count[15:8]	<= rx_data;
+
+						apb.psel				<= 1;
+						state					<= STATE_READ_BULK_ENABLE;
+					end
+				end
+
+				STATE_READ_BULK_ENABLE: begin
+					apb.penable				<= 1;
+					state					<= STATE_READ_BULK_WAIT;
+				end //STATE_READ_BULK_ENABLE
+
+				STATE_READ_BULK_WAIT: begin
+					if(apb.pready) begin
+						bulk_word_idx		<= bulk_word_idx + 1;
+
+						apb.penable			<= 0;
+						apb.psel			<= 0;
+						rd_data_ff			<= apb.prdata;
+
+						tx_en				<= 1;
+						tx_data				<= apb.prdata[7:0];
+						state				<= STATE_READ_BULK_D0;
+					end
+				end //STATE_READ_BULK_WAIT
+
+				STATE_READ_BULK_D0: begin
+					if(tx_done) begin
+						tx_en				<= 1;
+						tx_data				<= rd_data_ff[15:8];
+						state				<= STATE_READ_BULK_D1;
+					end
+				end //STATE_READ_BULK_D0
+
+				STATE_READ_BULK_D1: begin
+					if(tx_done) begin
+						tx_en				<= 1;
+						tx_data				<= rd_data_ff[23:16];
+						state				<= STATE_READ_BULK_D2;
+					end
+				end //STATE_READ_BULK_D1
+
+				STATE_READ_BULK_D2: begin
+					if(tx_done) begin
+						tx_en				<= 1;
+						tx_data				<= rd_data_ff[31:24];
+
+						state				<= STATE_READ_BULK_D3;
+					end
+				end //STATE_READ_BULK_D2
+
+				STATE_READ_BULK_D3: begin
+					if(tx_done) begin
+						apb.paddr			<= apb.paddr + 4;
+
+						if(bulk_word_idx >= bulk_word_count) begin
+							state			<= STATE_IDLE;
+							apb.pwrite		<= 0;
+							apb.paddr		<= 0;
+							apb.pwdata		<= 0;
+							apb.pstrb		<= 0;
+						end
+
+						else begin
+							apb.psel		<= 1;
+							state			<= STATE_READ_BULK_ENABLE;
+						end
+
+					end
+				end //STATE_READ_BULK_D3
 
 			endcase
 
