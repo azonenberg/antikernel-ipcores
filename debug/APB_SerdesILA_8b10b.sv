@@ -57,7 +57,10 @@ module APB_SerdesILA_8b10b #(
 	input wire[WIDTH_SYMBOLS-1:0]		disparity_err,
 
 	//External trigger (clk domain)
-	input wire							trig_in
+	input wire							trig_in,
+
+	//Trigger output (clk domain)
+	output logic						trig_out
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -181,8 +184,7 @@ module APB_SerdesILA_8b10b #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Write side control state machine
 
-	//for now always trigger at mid point
-	logic[ROW_BITS-1:0] trigger_offset_words = DEPTH_WORDS / 2;
+	wire[ROW_BITS-1:0] trigger_offset_words_sync;
 
 	logic[ROW_BITS-1:0] trigger_pos = 0;
 	logic[ROW_BITS-1:0] trigger_endpos = 0;
@@ -211,6 +213,7 @@ module APB_SerdesILA_8b10b #(
 	always_ff @(posedge clk) begin
 
 		ila_done_pulse	<= 0;
+		trig_out		<= 0;
 
 		if(writing && wr_en)
 			wr_addr	<= wr_addr_next;
@@ -221,7 +224,7 @@ module APB_SerdesILA_8b10b #(
 			ILA_STATE_PRE_TRIG: begin
 				writing	<= 1;
 
-				if(wr_addr >= trigger_offset_words)
+				if(wr_addr >= trigger_offset_words_sync)
 					ila_state	<= ILA_STATE_ARMED;
 			end //ILA_STATE_PRE_TRIG
 
@@ -231,8 +234,9 @@ module APB_SerdesILA_8b10b #(
 				//Wait for the trigger event
 				//For now: trigger immediately
 				if(trigger) begin
+					trig_out		<= 1;
 					trigger_pos		<= wr_addr;
-					trigger_endpos	<= wr_addr + DEPTH_WORDS - trigger_offset_words;
+					trigger_endpos	<= wr_addr + DEPTH_WORDS - trigger_offset_words_sync;
 					ila_state		<= ILA_STATE_POST_TRIG;
 				end
 
@@ -291,6 +295,24 @@ module APB_SerdesILA_8b10b #(
 		.pulse_b(ila_arm_pulse_sync)
 	);
 
+	logic				trigger_offset_update	= 0;
+	logic[ROW_BITS-1:0] trigger_offset_words = DEPTH_WORDS / 2;
+
+	RegisterSynchronizer #(
+		.WIDTH(ROW_BITS),
+		.INIT(DEPTH_WORDS / 2)
+	) sync_ila_trigger_offset (
+		.clk_a(apbData.pclk),
+		.en_a(trigger_offset_update),
+		.ack_a(),
+		.reg_a(trigger_offset_words),
+
+		.clk_b(clk),
+		.updated_b(),
+		.reset_b(1'b0),
+		.reg_b(trigger_offset_words_sync)
+	);
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register IDs
 
@@ -299,10 +321,11 @@ module APB_SerdesILA_8b10b #(
 		REG_TRIGGER		= 'h00,			//[0] trigger arm (RAZ, write 1 to arm trigger)
 										//[1] data ready flag (RW, write 0 after readout)
 										//[2] force trigger bit (RAZ)
-		REG_TRIGGER_IDX	= 'h04,			//trigger sample index, in words (RO)
+		REG_TRIGGER_IDX	= 'h04,			//Sample address of the trigger within the buffer, in words (RO)
 		REG_DATA_BASE	= 'h08,			//base address of data bus
 		REG_DEPTH		= 'h0c,			//Total memory depth
-		REG_RATE		= 'h10			//Picoseconds per sample
+		REG_RATE		= 'h10,			//Picoseconds per sample
+		REG_TRIG_POS	= 'h14			//Word index for the trigger within the logical space
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -326,6 +349,7 @@ module APB_SerdesILA_8b10b #(
 					REG_DATA_BASE:		apbControl.prdata	= DATA_BUF_ADDR;
 					REG_DEPTH:			apbControl.prdata	= DEPTH;
 					REG_RATE:			apbControl.prdata	= PS_PER_SYMBOL;
+					REG_TRIG_POS:		apbControl.prdata	= trigger_offset_words;
 					default:			apbControl.pslverr	= 1;
 				endcase
 			end
@@ -335,6 +359,7 @@ module APB_SerdesILA_8b10b #(
 
 				case(apbControl.paddr)
 					REG_TRIGGER: 	begin end
+					REG_TRIG_POS:	begin end
 					default:		apbControl.pslverr	= 1;
 				endcase
 
@@ -347,16 +372,19 @@ module APB_SerdesILA_8b10b #(
 	always_ff @(posedge apbControl.pclk or negedge apbControl.preset_n) begin
 
 		if(!apbControl.preset_n) begin
-			ila_ready_sticky	<= 0;
-			ila_arm_pulse		<= 0;
+			ila_ready_sticky		<= 0;
+			ila_arm_pulse			<= 0;
+			trigger_offset_update	<= 0;
+			trigger_offset_words 	<= DEPTH_WORDS / 2;
 		end
 
 		else begin
 
 			if(ila_done_pulse_sync)
-				ila_ready_sticky <= 1;
+				ila_ready_sticky 	<= 1;
 
-			ila_arm_pulse	<= 0;
+			ila_arm_pulse			<= 0;
+			trigger_offset_update	<= 0;
 
 			if(apbControl.pready) begin
 
@@ -368,6 +396,11 @@ module APB_SerdesILA_8b10b #(
 								ila_ready_sticky	<= 0;
 							if(apbControl.pwdata[0])
 								ila_arm_pulse		<= 1;
+						end
+
+						REG_TRIG_POS: begin
+							trigger_offset_words	<= apbControl.pwdata;
+							trigger_offset_update	<= 1;
 						end
 
 						default: begin
