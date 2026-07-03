@@ -60,7 +60,7 @@ module BitslipAligner #(
 	logic[WIDTH-1:0]			data_in_ff = 0;
 
 	always_comb begin
-		window_int			= { data_in_ff, data_in };
+		window_int			= { data_in, data_in_ff };
 
 		//Bit reverse the data window
 		if(REVERSE) begin

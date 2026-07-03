@@ -40,7 +40,8 @@
 module APB_SerdesILA_8b10b #(
 	parameter DEPTH			= 2048,
 	parameter WIDTH_SYMBOLS	= 2,
-	parameter DATA_BUF_ADDR	= 0
+	parameter DATA_BUF_ADDR	= 0,
+	parameter PS_PER_SYMBOL	= 8000
 ) (
 	//APB interface for the control plane registers
 	APB.completer 						apbControl,
@@ -293,14 +294,15 @@ module APB_SerdesILA_8b10b #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Register IDs
 
-	typedef enum logic[3:0]
+	typedef enum logic[4:0]
 	{
 		REG_TRIGGER		= 'h00,			//[0] trigger arm (RAZ, write 1 to arm trigger)
 										//[1] data ready flag (RW, write 0 after readout)
 										//[2] force trigger bit (RAZ)
 		REG_TRIGGER_IDX	= 'h04,			//trigger sample index, in words (RO)
 		REG_DATA_BASE	= 'h08,			//base address of data bus
-		REG_DEPTH		= 'h0c			//Total memory depth
+		REG_DEPTH		= 'h0c,			//Total memory depth
+		REG_RATE		= 'h10			//Picoseconds per sample
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -323,6 +325,7 @@ module APB_SerdesILA_8b10b #(
 					REG_TRIGGER_IDX:	apbControl.prdata	= trigger_pos_sync;
 					REG_DATA_BASE:		apbControl.prdata	= DATA_BUF_ADDR;
 					REG_DEPTH:			apbControl.prdata	= DEPTH;
+					REG_RATE:			apbControl.prdata	= PS_PER_SYMBOL;
 					default:			apbControl.pslverr	= 1;
 				endcase
 			end
