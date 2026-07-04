@@ -30,38 +30,166 @@
 ***********************************************************************************************************************/
 
 /**
-	@brief An internal logic analyzer that captures 8B/10B code words and writes to block RAM then reads back over APB
+	@brief An internal logic analyzer with APB readout
 
-	External triggering required, no pattern matching included for now
-	Both APB buses are assumed to be in the same clock domain
+	Debug ROM tag "ILA_"
 
-	Debug ROM tag "8B10"
+	TODO scale to >16 ports
+
+	Due to the large number of ports this block requires more than the standard 1 kB of address space for
+	the register block.
+
+	Each probe descriptor is 32 bytes, if we want to expand up to say 128 channels without a memory map change that's
+	4 kB of descriptors.
+
+	Register map (bank sel 13:12)
+		0x0000				Base control registers
+		0x1000				Debug ROM
+		0x2000				Trigger config (not yet implemented)
  */
-module APB_SerdesILA_8b10b #(
+module APB_ILA #(
 	parameter DEPTH			= 2048,
-	parameter WIDTH_SYMBOLS	= 2,
+	parameter CLK_PERIOD	= 10000,
 	parameter DATA_BUF_ADDR	= 0,
-	parameter PS_PER_SYMBOL	= 8000
-) (
+
+	parameter PROBE0_WIDTH	= 0,
+	parameter PROBE1_WIDTH	= 0,
+	parameter PROBE2_WIDTH	= 0,
+	parameter PROBE3_WIDTH	= 0,
+	parameter PROBE4_WIDTH	= 0,
+	parameter PROBE5_WIDTH	= 0,
+	parameter PROBE6_WIDTH	= 0,
+	parameter PROBE7_WIDTH	= 0,
+	parameter PROBE8_WIDTH	= 0,
+	parameter PROBE9_WIDTH	= 0,
+	parameter PROBE10_WIDTH	= 0,
+	parameter PROBE11_WIDTH	= 0,
+	parameter PROBE12_WIDTH	= 0,
+	parameter PROBE13_WIDTH	= 0,
+	parameter PROBE14_WIDTH	= 0,
+	parameter PROBE15_WIDTH	= 0,
+
+	parameter[247:0]	PROBE0_NAME		= 248'h0,
+	parameter[247:0]	PROBE1_NAME		= 248'h0,
+	parameter[247:0]	PROBE2_NAME		= 248'h0,
+	parameter[247:0]	PROBE3_NAME		= 248'h0,
+	parameter[247:0]	PROBE4_NAME		= 248'h0,
+	parameter[247:0]	PROBE5_NAME		= 248'h0,
+	parameter[247:0]	PROBE6_NAME		= 248'h0,
+	parameter[247:0]	PROBE7_NAME		= 248'h0,
+	parameter[247:0]	PROBE8_NAME		= 248'h0,
+	parameter[247:0]	PROBE9_NAME		= 248'h0,
+	parameter[247:0]	PROBE10_NAME	= 248'h0,
+	parameter[247:0]	PROBE11_NAME	= 248'h0,
+	parameter[247:0]	PROBE12_NAME	= 248'h0,
+	parameter[247:0]	PROBE13_NAME	= 248'h0,
+	parameter[247:0]	PROBE14_NAME	= 248'h0,
+	parameter[247:0]	PROBE15_NAME	= 248'h0
+)(
 	//APB interface for the control plane registers
 	APB.completer 						apbControl,
 
-	//APB interface for memory buffer readback
+	//APB interface for memory buffer readback (must be same clock domain as apbControl)
 	APB.completer 						apbData,
 
-	//8b10b data interface (clk domain)
+	//Probe inputs
 	input wire							clk,
-	input wire[WIDTH_SYMBOLS*8 - 1 : 0]	data,
-	input wire[WIDTH_SYMBOLS-1:0]		data_is_ctl,
-	input wire[WIDTH_SYMBOLS-1:0]		symbol_err,
-	input wire[WIDTH_SYMBOLS-1:0]		disparity_err,
+	input wire[PROBE0_WIDTH-1:0]		probe0,
+	input wire[PROBE1_WIDTH-1:0]		probe1,
+	input wire[PROBE2_WIDTH-1:0]		probe2,
+	input wire[PROBE3_WIDTH-1:0]		probe3,
+	input wire[PROBE4_WIDTH-1:0]		probe4,
+	input wire[PROBE5_WIDTH-1:0]		probe5,
+	input wire[PROBE6_WIDTH-1:0]		probe6,
+	input wire[PROBE7_WIDTH-1:0]		probe7,
+	input wire[PROBE8_WIDTH-1:0]		probe8,
+	input wire[PROBE9_WIDTH-1:0]		probe9,
+	input wire[PROBE10_WIDTH-1:0]		probe10,
+	input wire[PROBE11_WIDTH-1:0]		probe11,
+	input wire[PROBE12_WIDTH-1:0]		probe12,
+	input wire[PROBE13_WIDTH-1:0]		probe13,
+	input wire[PROBE14_WIDTH-1:0]		probe14,
+	input wire[PROBE15_WIDTH-1:0]		probe15,
 
-	//External trigger (clk domain)
+	//Trigger sync
 	input wire							trig_in,
-
-	//Trigger output (clk domain)
 	output logic						trig_out
 );
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// IDs: name concatenated with width
+
+	localparam PROBE0_ID  = { PROBE0_WIDTH[7:0],  PROBE0_NAME[247:0] };
+	localparam PROBE1_ID  = { PROBE1_WIDTH[7:0],  PROBE1_NAME[247:0] };
+	localparam PROBE2_ID  = { PROBE2_WIDTH[7:0],  PROBE2_NAME[247:0] };
+	localparam PROBE3_ID  = { PROBE3_WIDTH[7:0],  PROBE3_NAME[247:0] };
+	localparam PROBE4_ID  = { PROBE4_WIDTH[7:0],  PROBE4_NAME[247:0] };
+	localparam PROBE5_ID  = { PROBE5_WIDTH[7:0],  PROBE5_NAME[247:0] };
+	localparam PROBE6_ID  = { PROBE6_WIDTH[7:0],  PROBE6_NAME[247:0] };
+	localparam PROBE7_ID  = { PROBE7_WIDTH[7:0],  PROBE7_NAME[247:0] };
+	localparam PROBE8_ID  = { PROBE8_WIDTH[7:0],  PROBE8_NAME[247:0] };
+	localparam PROBE9_ID  = { PROBE9_WIDTH[7:0],  PROBE9_NAME[247:0] };
+	localparam PROBE10_ID = { PROBE10_WIDTH[7:0], PROBE10_NAME[247:0] };
+	localparam PROBE11_ID = { PROBE11_WIDTH[7:0], PROBE11_NAME[247:0] };
+	localparam PROBE12_ID = { PROBE12_WIDTH[7:0], PROBE12_NAME[247:0] };
+	localparam PROBE13_ID = { PROBE13_WIDTH[7:0], PROBE13_NAME[247:0] };
+	localparam PROBE14_ID = { PROBE14_WIDTH[7:0], PROBE14_NAME[247:0] };
+	localparam PROBE15_ID = { PROBE15_WIDTH[7:0], PROBE15_NAME[247:0] };
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Probe bit position indexes
+
+	localparam PROBE0_BASE	= 0;
+	localparam PROBE1_BASE	= PROBE0_BASE  + PROBE0_WIDTH;
+	localparam PROBE2_BASE	= PROBE1_BASE  + PROBE1_WIDTH;
+	localparam PROBE3_BASE	= PROBE2_BASE  + PROBE2_WIDTH;
+	localparam PROBE4_BASE	= PROBE3_BASE  + PROBE3_WIDTH;
+	localparam PROBE5_BASE	= PROBE4_BASE  + PROBE4_WIDTH;
+	localparam PROBE6_BASE	= PROBE5_BASE  + PROBE5_WIDTH;
+	localparam PROBE7_BASE	= PROBE6_BASE  + PROBE6_WIDTH;
+	localparam PROBE8_BASE	= PROBE7_BASE  + PROBE7_WIDTH;
+	localparam PROBE9_BASE	= PROBE8_BASE  + PROBE8_WIDTH;
+	localparam PROBE10_BASE	= PROBE9_BASE  + PROBE9_WIDTH;
+	localparam PROBE11_BASE	= PROBE10_BASE + PROBE10_WIDTH;
+	localparam PROBE12_BASE	= PROBE11_BASE + PROBE11_WIDTH;
+	localparam PROBE13_BASE	= PROBE12_BASE + PROBE12_WIDTH;
+	localparam PROBE14_BASE	= PROBE13_BASE + PROBE13_WIDTH;
+	localparam PROBE15_BASE	= PROBE14_BASE + PROBE14_WIDTH;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Concatenate the inputs into a single bus
+
+	localparam MEM_WIDTH		= PROBE15_BASE + PROBE15_WIDTH;
+
+	wire[MEM_WIDTH-1:0] probe_bus;
+	assign probe_bus =
+	{
+		probe15,
+		probe14,
+		probe13,
+		probe12,
+		probe11,
+		probe10,
+		probe9,
+		probe8,
+		probe7,
+		probe6,
+		probe5,
+		probe4,
+		probe3,
+		probe2,
+		probe1,
+		probe0
+	};
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Pipeline stage on the input (for now, a single hard coded stage)
+
+	logic[MEM_WIDTH-1:0] probe_pipe = 0;
+
+	always_ff @(posedge clk) begin
+		probe_pipe	<= probe_bus;
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Sanity check bus config
@@ -69,6 +197,9 @@ module APB_SerdesILA_8b10b #(
 	if(apbData.DATA_WIDTH != 32)
 		apb_bus_width_is_invalid();
 	if(apbControl.DATA_WIDTH != 32)
+		apb_bus_width_is_invalid();
+
+	if(apbControl.ADDR_WIDTH < 14)
 		apb_bus_width_is_invalid();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -81,93 +212,26 @@ module APB_SerdesILA_8b10b #(
 	assign apbData.pbuser = 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Sample packing into memory words
-
-	//Each symbol needs 11 bits of storage space in the BRAM. We support 1 to 4 byte lanes of width
-	//The buffer is always 44 bits wide, padded out to 64 for readback
-
-	//Pack 1, 2, or 4 samples per clock into the write buffer
-	logic				wr_valid = 0;
-	logic[43:0] 		wr_data = 0;
-	logic[1:0]			wr_idx = 0;
-
-	always_ff @(posedge clk) begin
-
-		wr_valid						<= 0;
-
-		//Single word datapath
-		if(WIDTH_SYMBOLS == 1) begin
-
-			wr_data[8*wr_idx +: 8]		<= data;
-			wr_data[wr_idx + 32]		<= data_is_ctl;
-			wr_data[wr_idx + 36]		<= symbol_err;
-			wr_data[wr_idx + 40]		<= disparity_err;
-
-			wr_idx 						<= wr_idx + 1;
-			if(wr_idx == 3)
-				wr_valid				<= 1;
-		end
-
-		//Double word datapath
-		else if(WIDTH_SYMBOLS == 2) begin
-
-			wr_data[16*wr_idx +: 16]	<= data;
-			wr_data[wr_idx*2 + 32 +: 2]	<= data_is_ctl;
-			wr_data[wr_idx*2 + 36 +: 2]	<= symbol_err;
-			wr_data[wr_idx*2 + 40 +: 2]	<= disparity_err;
-
-			if(wr_idx) begin
-				wr_valid				<= 1;
-				wr_idx					<= 0;
-			end
-			else
-				wr_idx					<= 1;
-
-		end
-
-		//Quad word datapath
-		else if(WIDTH_SYMBOLS == 4) begin
-			wr_valid					<= 1;
-			wr_data						<= { disparity_err, symbol_err, data_is_ctl, data };
-		end
-
-		else begin
-			`ifdef XILINX
-				$fatal("invalid datapath width");
-			`else
-				datapath_width_is_invalid();
-			`endif
-		end
-
-	end
-
-	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Capture buffer
 
-	localparam DEPTH_WORDS = DEPTH / 4;
-	localparam ROW_BITS = $clog2(DEPTH_WORDS);
+	localparam ROW_BITS = $clog2(DEPTH);
 
 	//The buffer itself
-	logic[43:0] capture[DEPTH_WORDS-1:0];
+	logic[MEM_WIDTH-1:0] capture[DEPTH-1:0];
 
 	//Write any time we have valid data and are in the capturing state
-	logic				writing	= 0;
 	logic				wr_en	= 0;
 	logic[ROW_BITS-1:0]	wr_addr = 0;
-
-	always_comb begin
-		wr_en	= writing & wr_valid;
-	end
 
 	//Write logic
 	always_ff @(posedge clk) begin
 		if(wr_en)
-			capture[wr_addr]	<= wr_data;
+			capture[wr_addr]	<= probe_pipe;
 	end
 
-	logic				rd_en;
-	logic[ROW_BITS-1:0]	rd_addr;
-	logic[43:0]			rd_data;
+	logic					rd_en;
+	logic[ROW_BITS-1:0]		rd_addr;
+	logic[MEM_WIDTH-1:0]	rd_data;
 
 	always_ff @(posedge apbData.pclk) begin
 		if(rd_en)
@@ -181,13 +245,12 @@ module APB_SerdesILA_8b10b #(
 
 	//for now just use ext trigger
 	always_comb begin
-		//trigger = trig_in;
-
-		trigger = (data[7:0] != 8'hbc);
+		trigger = trig_in;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Write side control state machine
+	// TODO: this is the same as SERDES ILA, refactor into shared module??
 
 	wire[ROW_BITS-1:0] trigger_offset_words_sync;
 
@@ -220,14 +283,14 @@ module APB_SerdesILA_8b10b #(
 		ila_done_pulse	<= 0;
 		trig_out		<= 0;
 
-		if(writing && wr_en)
+		if(wr_en && wr_en)
 			wr_addr	<= wr_addr_next;
 
 		case(ila_state)
 
-			//Pre trigger: writing initial samples into the buffer, not yet looking for trigger events
+			//Pre trigger: wr_en initial samples into the buffer, not yet looking for trigger events
 			ILA_STATE_PRE_TRIG: begin
-				writing	<= 1;
+				wr_en	<= 1;
 
 				if(wr_addr >= trigger_offset_words_sync)
 					ila_state	<= ILA_STATE_ARMED;
@@ -241,7 +304,7 @@ module APB_SerdesILA_8b10b #(
 				if(trigger) begin
 					trig_out		<= 1;
 					trigger_pos		<= wr_addr;
-					trigger_endpos	<= wr_addr + DEPTH_WORDS - trigger_offset_words_sync;
+					trigger_endpos	<= wr_addr + DEPTH - trigger_offset_words_sync;
 					ila_state		<= ILA_STATE_POST_TRIG;
 				end
 
@@ -250,7 +313,7 @@ module APB_SerdesILA_8b10b #(
 			ILA_STATE_POST_TRIG: begin
 
 				if(wr_en && (wr_addr_next == trigger_endpos) ) begin
-					writing			<= 0;
+					wr_en			<= 0;
 					ila_done_pulse	<= 1;
 					ila_state		<= ILA_STATE_DONE;
 				end
@@ -301,11 +364,11 @@ module APB_SerdesILA_8b10b #(
 	);
 
 	logic				trigger_offset_update	= 0;
-	logic[ROW_BITS-1:0] trigger_offset_words = DEPTH_WORDS / 2;
+	logic[ROW_BITS-1:0] trigger_offset_words = DEPTH / 2;
 
 	RegisterSynchronizer #(
 		.WIDTH(ROW_BITS),
-		.INIT(DEPTH_WORDS / 2)
+		.INIT(DEPTH / 2)
 	) sync_ila_trigger_offset (
 		.clk_a(apbData.pclk),
 		.en_a(trigger_offset_update),
@@ -338,24 +401,78 @@ module APB_SerdesILA_8b10b #(
 
 	logic	ila_ready_sticky = 0;
 
+	//Divide the register space into 4 kB blocks
+	logic[1:0]	ctl_block;
+	logic[11:0]	ctl_regid;
+	logic[6:0]	ctl_port;
+	logic[2:0]	ctl_word_idx;
+
+	typedef enum logic[1:0]
+	{
+		BLOCK_CSR			= 'h00,
+		BLOCK_ROM			= 'h01,
+		BLOCK_TRIGGER_PAT	= 'h02,
+		BLOCK_TRIGGER_MASK	= 'h03
+	} block_t;
+
 	always_comb begin
 
 		apbControl.pready	= apbControl.psel && apbControl.penable;
 		apbControl.prdata	= 0;
 		apbControl.pslverr	= 0;
 
+		//Crack address
+		ctl_block			= apbControl.paddr[13:12];
+		ctl_regid			= apbControl.paddr[11:0];
+		ctl_port			= apbControl.paddr[11:5];
+		ctl_word_idx		= apbControl.paddr[4:2];
+
 		if(apbControl.pready) begin
 
 			//read
 			if(!apbControl.pwrite) begin
-				case(apbControl.paddr)
-					REG_TRIGGER:		apbControl.prdata	= { 30'h0, ila_ready_sticky, 1'b0 } ;
-					REG_TRIGGER_IDX:	apbControl.prdata	= trigger_pos_sync;
-					REG_DATA_BASE:		apbControl.prdata	= DATA_BUF_ADDR;
-					REG_DEPTH:			apbControl.prdata	= DEPTH;
-					REG_RATE:			apbControl.prdata	= PS_PER_SYMBOL;
-					REG_TRIG_POS:		apbControl.prdata	= trigger_offset_words;
-					default:			apbControl.pslverr	= 1;
+				case(ctl_block)
+
+					//Small control registers
+					BLOCK_CSR: begin
+						case(ctl_regid)
+							REG_TRIGGER:		apbControl.prdata	= { 30'h0, ila_ready_sticky, 1'b0 } ;
+							REG_TRIGGER_IDX:	apbControl.prdata	= trigger_pos_sync;
+							REG_DATA_BASE:		apbControl.prdata	= DATA_BUF_ADDR;
+							REG_DEPTH:			apbControl.prdata	= DEPTH;
+							REG_RATE:			apbControl.prdata	= CLK_PERIOD;
+							REG_TRIG_POS:		apbControl.prdata	= trigger_offset_words;
+							default:			apbControl.pslverr	= 1;
+						endcase
+					end	//BLOCK_CSR
+
+					//Signal ID ROM
+					BLOCK_ROM: begin
+						case(ctl_port)
+							0:  apbControl.prdata = PROBE0_ID[ctl_word_idx*32 +: 32];
+							1:  apbControl.prdata = PROBE1_ID[ctl_word_idx*32 +: 32];
+							2:  apbControl.prdata = PROBE2_ID[ctl_word_idx*32 +: 32];
+							3:  apbControl.prdata = PROBE3_ID[ctl_word_idx*32 +: 32];
+							4:  apbControl.prdata = PROBE4_ID[ctl_word_idx*32 +: 32];
+							5:  apbControl.prdata = PROBE5_ID[ctl_word_idx*32 +: 32];
+							6:  apbControl.prdata = PROBE6_ID[ctl_word_idx*32 +: 32];
+							7:  apbControl.prdata = PROBE7_ID[ctl_word_idx*32 +: 32];
+							8:  apbControl.prdata = PROBE8_ID[ctl_word_idx*32 +: 32];
+							9:  apbControl.prdata = PROBE9_ID[ctl_word_idx*32 +: 32];
+							10: apbControl.prdata = PROBE10_ID[ctl_word_idx*32 +: 32];
+							11: apbControl.prdata = PROBE11_ID[ctl_word_idx*32 +: 32];
+							12: apbControl.prdata = PROBE12_ID[ctl_word_idx*32 +: 32];
+							13: apbControl.prdata = PROBE13_ID[ctl_word_idx*32 +: 32];
+							14: apbControl.prdata = PROBE14_ID[ctl_word_idx*32 +: 32];
+							15: apbControl.prdata = PROBE15_ID[ctl_word_idx*32 +: 32];
+						endcase
+					end //BLOCK_ROM
+
+					//invalid / unallocated
+					default: begin
+						apbControl.pslverr	= 1;
+					end
+
 				endcase
 			end
 
@@ -380,7 +497,7 @@ module APB_SerdesILA_8b10b #(
 			ila_ready_sticky		<= 0;
 			ila_arm_pulse			<= 0;
 			trigger_offset_update	<= 0;
-			trigger_offset_words 	<= DEPTH_WORDS / 2;
+			trigger_offset_words 	<= DEPTH / 2;
 		end
 
 		else begin
@@ -422,6 +539,20 @@ module APB_SerdesILA_8b10b #(
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Data plane readout interface: sequential on both
 
+	//Memory word size is variable! As a result we can't hardcode how many 32-bit APB words fit in a memory word
+	//Round up memory width to the next multiple of 32
+	localparam MEM_WIDTH_ROUND_UP = MEM_WIDTH[4:0] ? (MEM_WIDTH | 5'h1f) + 1 : MEM_WIDTH;
+
+	//Divide by 32 bits to get the number of APB words in a single memory row
+	localparam APB_WORDS_PER_SAMPLE = MEM_WIDTH_ROUND_UP / 32;
+
+	//Number of APB address bits to select word index within a row
+	localparam WORD_BITS = $clog2(APB_WORDS_PER_SAMPLE);
+
+	//Number of address bits to select row index is ROW_BITS
+	localparam TOTAL_ADDR_BITS = ROW_BITS + WORD_BITS;
+	logic[WORD_BITS-1:0]	readout_word_idx;
+
 	logic apbData_pready_next;
 
 	always_comb begin
@@ -432,18 +563,17 @@ module APB_SerdesILA_8b10b #(
 		//Read any time an APB read comes in
 		rd_en				= apbData_pready_next && !apbData.pwrite;
 
-		//Bits 1:0 of APB address are byte within the word, ignore
-		//Bit 2 is low/high word within the memory row
-		rd_addr				= apbData.paddr[apbData.ADDR_WIDTH-1 : 3];
+		//Read the memory address word
+		rd_addr				= apbData.paddr[WORD_BITS + 2 +: ROW_BITS];
+
+		//Get column index
+		readout_word_idx	= apbData.paddr[2 +: WORD_BITS];
 
 		//Reject all writes
 		apbData.pslverr		= apbData.pready && apbData.pwrite;
 
 		//Mux output
-		if(apbData.paddr[2])
-			apbData.prdata	= rd_data[43:32];
-		else
-			apbData.prdata	= rd_data[31:0];
+		apbData.prdata		= rd_data[32*readout_word_idx +: 32];
 
 	end
 
