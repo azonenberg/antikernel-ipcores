@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2026 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -51,12 +51,22 @@ module RegisterSynchronizer #(
 	input wire[WIDTH-1:0]	reg_a,
 
 	input wire				clk_b,
-	output logic			updated_b 	= 0,
+	output wire				updated_b,
 	input wire				reset_b,
 
-	(* ASYNC_REG = "TRUE" *)
-	output logic[WIDTH-1:0]	reg_b		= INIT
+	output wire[WIDTH-1:0]	reg_b
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Output registers
+
+	logic updated_b_int				= 0;
+
+	(* ASYNC_REG = "TRUE" *)
+	logic[WIDTH-1:0]	reg_b_int	= INIT;
+
+	assign updated_b 	= updated_b_int;
+	assign reg_b		= reg_b_int;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Control plane
@@ -113,17 +123,17 @@ module RegisterSynchronizer #(
 	always_ff @(posedge clk_b or posedge reset_b) begin
 
 		if(reset_b) begin
-			updated_b	<= 0;
-			reg_b		<= INIT;
-			update_b_ff	<= 0;
+			updated_b_int	<= 0;
+			reg_b_int		<= INIT;
+			update_b_ff		<= 0;
 		end
 
 		else begin
-			update_b_ff	<= update_b;
+			update_b_ff		<= update_b;
 
-			updated_b	<= update_b_ff;
+			updated_b_int	<= update_b_ff;
 			if(update_b_ff)
-				reg_b	<= reg_a_muxed;
+				reg_b_int	<= reg_a_muxed;
 		end
 
 	end

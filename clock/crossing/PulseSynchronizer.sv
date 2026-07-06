@@ -3,7 +3,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2026 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -43,8 +43,14 @@ module PulseSynchronizer #(
 	input wire		pulse_a,
 
 	input wire		clk_b,
-	output logic	pulse_b = 0
+	output logic	pulse_b
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Output registers
+
+	logic	pulse_b_int	= 0;
+	assign pulse_b	= pulse_b_int;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Transmit side
@@ -79,8 +85,8 @@ module PulseSynchronizer #(
 
 	//Pulse every time we get a toggle
 	always_ff @(posedge clk_b) begin
-		rx_a_ff	<= rx_a;
-		pulse_b	<= (rx_a_ff != rx_a);
+		rx_a_ff		<= rx_a;
+		pulse_b_int	<= (rx_a_ff != rx_a);
 	end
 
 endmodule
