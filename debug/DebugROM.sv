@@ -43,7 +43,43 @@ module DebugROM #(
 	parameter DEVICE_2_ADDR		= 32'h0,
 
 	parameter DEVICE_3_TYPE		= 32'h0,
-	parameter DEVICE_3_ADDR		= 32'h0
+	parameter DEVICE_3_ADDR		= 32'h0,
+
+	parameter DEVICE_4_TYPE		= 32'h0,
+	parameter DEVICE_4_ADDR		= 32'h0,
+
+	parameter DEVICE_5_TYPE		= 32'h0,
+	parameter DEVICE_5_ADDR		= 32'h0,
+
+	parameter DEVICE_6_TYPE		= 32'h0,
+	parameter DEVICE_6_ADDR		= 32'h0,
+
+	parameter DEVICE_7_TYPE		= 32'h0,
+	parameter DEVICE_7_ADDR		= 32'h0,
+
+	parameter DEVICE_8_TYPE		= 32'h0,
+	parameter DEVICE_8_ADDR		= 32'h0,
+
+	parameter DEVICE_9_TYPE		= 32'h0,
+	parameter DEVICE_9_ADDR		= 32'h0,
+
+	parameter DEVICE_10_TYPE	= 32'h0,
+	parameter DEVICE_10_ADDR	= 32'h0,
+
+	parameter DEVICE_11_TYPE	= 32'h0,
+	parameter DEVICE_11_ADDR	= 32'h0,
+
+	parameter DEVICE_12_TYPE	= 32'h0,
+	parameter DEVICE_12_ADDR	= 32'h0,
+
+	parameter DEVICE_13_TYPE	= 32'h0,
+	parameter DEVICE_13_ADDR	= 32'h0,
+
+	parameter DEVICE_14_TYPE	= 32'h0,
+	parameter DEVICE_14_ADDR	= 32'h0,
+
+	parameter DEVICE_15_TYPE	= 32'h0,
+	parameter DEVICE_15_ADDR	= 32'h0
 )(
 	//The APB bus
 	APB.completer 					apb
@@ -82,6 +118,30 @@ module DebugROM #(
 					'h14: apb.prdata = DEVICE_2_ADDR;
 					'h18: apb.prdata = DEVICE_3_TYPE;
 					'h1c: apb.prdata = DEVICE_3_ADDR;
+					'h20: apb.prdata = DEVICE_4_TYPE;
+					'h24: apb.prdata = DEVICE_4_ADDR;
+					'h28: apb.prdata = DEVICE_5_TYPE;
+					'h2c: apb.prdata = DEVICE_5_ADDR;
+					'h30: apb.prdata = DEVICE_6_TYPE;
+					'h34: apb.prdata = DEVICE_6_ADDR;
+					'h38: apb.prdata = DEVICE_7_TYPE;
+					'h3c: apb.prdata = DEVICE_7_ADDR;
+					'h40: apb.prdata = DEVICE_8_TYPE;
+					'h44: apb.prdata = DEVICE_8_ADDR;
+					'h48: apb.prdata = DEVICE_9_TYPE;
+					'h4c: apb.prdata = DEVICE_9_ADDR;
+					'h50: apb.prdata = DEVICE_10_TYPE;
+					'h54: apb.prdata = DEVICE_10_ADDR;
+					'h58: apb.prdata = DEVICE_11_TYPE;
+					'h5c: apb.prdata = DEVICE_11_ADDR;
+					'h60: apb.prdata = DEVICE_12_TYPE;
+					'h64: apb.prdata = DEVICE_12_ADDR;
+					'h68: apb.prdata = DEVICE_13_TYPE;
+					'h6c: apb.prdata = DEVICE_13_ADDR;
+					'h70: apb.prdata = DEVICE_14_TYPE;
+					'h74: apb.prdata = DEVICE_14_ADDR;
+					'h78: apb.prdata = DEVICE_15_TYPE;
+					'h7c: apb.prdata = DEVICE_15_ADDR;
 
 					//Invalid address
 					default: apb.pslverr = 1;
