@@ -547,7 +547,7 @@ module APB_ILA #(
 	localparam APB_WORDS_PER_SAMPLE = MEM_WIDTH_ROUND_UP / 32;
 
 	//Number of APB address bits to select word index within a row
-	localparam WORD_BITS = $clog2(APB_WORDS_PER_SAMPLE);
+	localparam WORD_BITS = (APB_WORDS_PER_SAMPLE == 1) ? 1 : $clog2(APB_WORDS_PER_SAMPLE);
 
 	//Number of address bits to select row index is ROW_BITS
 	localparam TOTAL_ADDR_BITS = ROW_BITS + WORD_BITS;
