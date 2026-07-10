@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2026 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -41,11 +41,24 @@ module Gearbox32To32PlusHeader(
 
 	//Bus to MAC
 	input wire			rx_bitslip,
-	output logic		rx_header_valid = 0,
-	output logic[1:0]	rx_header = 0,
-	output logic[31:0]	rx_data = 0,
-	output logic		rx_data_valid = 0
+	output wire			rx_header_valid,
+	output wire[1:0]	rx_header,
+	output wire[31:0]	rx_data,
+	output wire			rx_data_valid
 	);
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Output registers
+
+	logic		rx_header_valid_int = 0;
+	logic[1:0]	rx_header_int = 0;
+	logic[31:0]	rx_data_int = 0;
+	logic		rx_data_valid_int = 0;
+
+	assign		rx_header_valid = rx_header_valid_int;
+	assign		rx_header		= rx_header_int;
+	assign		rx_data			= rx_data_int;
+	assign		rx_data_valid	= rx_data_valid_int;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// First stage: 32/33 gearbox
@@ -98,25 +111,25 @@ module Gearbox32To32PlusHeader(
 	logic[31:0]		rx_66b_data_ff = 0;
 	always_ff @(posedge clk) begin
 
-		rx_data_valid		<= 0;
-		rx_header_valid		<= 0;
-		rx_66b_valid_ff		<= 0;
+		rx_data_valid_int		<= 0;
+		rx_header_valid_int		<= 0;
+		rx_66b_valid_ff			<= 0;
 
 		//First half
 		if(rx_66b_valid) begin
-			rx_data			<= rx_66b_data[63:32];
-			rx_66b_data_ff	<= rx_66b_data[31:0];
+			rx_data_int			<= rx_66b_data[63:32];
+			rx_66b_data_ff		<= rx_66b_data[31:0];
 
-			rx_data_valid	<= 1;
-			rx_header_valid	<= 1;
-			rx_header		<= rx_66b_data[65:64];
-			rx_66b_valid_ff	<= 1;
+			rx_data_valid_int	<= 1;
+			rx_header_valid_int	<= 1;
+			rx_header_int		<= rx_66b_data[65:64];
+			rx_66b_valid_ff		<= 1;
 		end
 
 		//Second half
 		else if(rx_66b_valid_ff) begin
-			rx_data			<= rx_66b_data_ff;
-			rx_data_valid	<= 1;
+			rx_data_int			<= rx_66b_data_ff;
+			rx_data_valid_int	<= 1;
 		end
 
 	end

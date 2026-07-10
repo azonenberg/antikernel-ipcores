@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2024 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2026 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -38,9 +38,18 @@ module SymbolAligner64b66b(
 	input wire		header_valid,
 	input wire[1:0]	header,
 
-	output logic	bitslip 		= 0,
-	output logic	block_sync_good	= 0
+	output wire		bitslip,
+	output wire		block_sync_good
 );
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Output registers
+
+	logic	bitslip_int 		= 0;
+	logic	block_sync_good_int	= 0;
+
+	assign bitslip 			= bitslip_int;
+	assign block_sync_good	= block_sync_good_int;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// RX 64/66b block alignment
@@ -51,7 +60,7 @@ module SymbolAligner64b66b(
 
 	always_ff @(posedge clk) begin
 
-		bitslip							<= 0;
+		bitslip_int						<= 0;
 
 		if(header_valid) begin
 
@@ -71,9 +80,9 @@ module SymbolAligner64b66b(
 				if(block_align_errors == 15) begin
 					bitslip_window		<= 0;
 					block_align_errors	<= 0;
-					bitslip				<= 1;
+					bitslip_int			<= 1;
 					bitslip_cooldown	<= 1;
-					block_sync_good		<= 0;
+					block_sync_good_int	<= 0;
 				end
 
 				if(bitslip_window == 0)
@@ -81,7 +90,7 @@ module SymbolAligner64b66b(
 
 				//Declare block sync good after 128 blocks in a row with valid headers
 				if( (bitslip_window == 128) && (block_align_errors == 0) )
-					block_sync_good		<= 1;
+					block_sync_good_int	<= 1;
 
 			end
 

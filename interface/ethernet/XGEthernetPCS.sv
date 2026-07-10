@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2026 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -49,13 +49,13 @@ module XGEthernetPCS(
 	output wire			rx_bitslip,
 
 	//Outbound data to the GT's 64/66b gearbox
-	output logic[5:0]	tx_sequence	= 0,
-	output logic[1:0]	tx_header	= 0,
-	output logic[31:0]	tx_data		= 0,
+	output wire[5:0]	tx_sequence,
+	output wire[1:0]	tx_header,
+	output wire[31:0]	tx_data,
 
 	//Output control signals to fabric gearbox (if used)
-	output logic		tx_header_valid = 0,
-	output logic		tx_data_valid = 0,
+	output wire			tx_header_valid,
+	output wire			tx_data_valid,
 
 	//RX XGMII interface (single rate @ 312.5 MHz, rather than double rate @ 162.5 MHz)
 	//Bit numbering is changed from the 802.3 spec: we have [31] be lane 0
@@ -72,8 +72,8 @@ module XGEthernetPCS(
 	//Link state etc signals (RX clock domain)
 	input wire			sfp_los,
 	output wire			block_sync_good,	//indicates valid 64/66b synchronization
-	output logic		link_up = 0,		//registered so we can use it as a reset better
-	output logic		remote_fault
+	output wire			link_up,			//registered so we can use it as a reset better
+	output wire			remote_fault
 	);
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -81,6 +81,29 @@ module XGEthernetPCS(
 
 	assign xgmii_rx_clk	= rx_clk;
 	assign xgmii_tx_clk	= tx_clk;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Output registers
+
+	logic[5:0]	tx_sequence_int		= 0;
+	logic[1:0]	tx_header_int		= 0;
+	logic[31:0]	tx_data_int			= 0;
+
+	logic		tx_header_valid_int	= 0;
+	logic		tx_data_valid_int	= 0;
+
+	logic		link_up_int			= 0;
+	logic		remote_fault_int	= 0;
+
+	assign tx_sequence 		= tx_sequence_int;
+	assign tx_header 		= tx_header_int;
+	assign tx_data 			= tx_data_int;
+
+	assign tx_header_valid 	= tx_header_valid_int;
+	assign tx_data_valid	= tx_data_valid_int;
+
+	assign link_up			= link_up_int;
+	assign remote_fault		= remote_fault_int;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Link state calculation
@@ -98,7 +121,7 @@ module XGEthernetPCS(
 
 	//TODO: detect invalid code groups etc and drop the link after too many
 	always_ff @(posedge rx_clk) begin
-		link_up	<= block_sync_good && !remote_fault && !sfp_los_sync;
+		link_up_int	<= block_sync_good && !remote_fault && !sfp_los_sync;
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -589,14 +612,14 @@ module XGEthernetPCS(
 				link_ok_count		<= 0;
 
 				if(remote_fault_count == 127)
-					remote_fault	<= 1;
+					remote_fault_int	<= 1;
 			end
 			else begin
-				link_ok_count		<= link_ok_count + 1'h1;
-				remote_fault_count	<= 0;
+				link_ok_count			<= link_ok_count + 1'h1;
+				remote_fault_count		<= 0;
 
 				if(link_ok_count == 127)
-					remote_fault	<= 0;
+					remote_fault_int	<= 0;
 			end
 
 		end
@@ -765,17 +788,17 @@ module XGEthernetPCS(
 		//Run gearbox counter at half the USRCLK rate because the gearbox works on 64b blocks
 		if(seq_div) begin
 
-			if(tx_sequence == 32)
-				tx_sequence	<= 0;
+			if(tx_sequence_int == 32)
+				tx_sequence_int	<= 0;
 
 			else
-				tx_sequence	<= tx_sequence + 1;
+				tx_sequence_int	<= tx_sequence_int + 1'b1;
 
 		end
 
 		//advance pause flag by half a word to allow for latency from tx_32b_data -> tx_data
 		else
-			tx_pause		<= (tx_sequence == 31);
+			tx_pause		<= (tx_sequence_int == 31);
 
 	end
 
@@ -791,7 +814,7 @@ module XGEthernetPCS(
 
 	always_comb begin
 
-		tx_elastic_rd		= (tx_sequence != 30) && seq_div;
+		tx_elastic_rd		= (tx_sequence_int != 30) && seq_div;
 
 		//If FIFO is still filling up, don't pop yet
 		if(tx_elastic_rsize < 4)
@@ -866,18 +889,18 @@ module XGEthernetPCS(
 
 	always_ff @(posedge tx_clk) begin
 
-		tx_header_valid	<= tx_elastic_header_valid;
-		tx_data_valid	<= 0;
+		tx_header_valid_int	<= tx_elastic_header_valid;
+		tx_data_valid_int	<= 0;
 
 		if(!tx_pause) begin
 
-			tx_header					<= tx_elastic_rd_header_ff;
-			tx_data_valid				<= 1;
+			tx_header_int				<= tx_elastic_rd_header_ff;
+			tx_data_valid_int			<= 1;
 
 			for(integer i=0; i<32; i=i+1) begin
 				tx_scramble_temp		= tx_32b_data[i] ^ tx_scramble[38] ^ tx_scramble[57];
 
-				tx_data[31-i]			= tx_scramble_temp;
+				tx_data_int[31-i]		= tx_scramble_temp;
 				tx_scramble				= { tx_scramble[56:0], tx_scramble_temp };
 			end
 		end

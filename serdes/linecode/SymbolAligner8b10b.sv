@@ -144,7 +144,7 @@ module SymbolAligner8b10b(
 				end
 
 				else
-					commaLastSeen	<= commaLastSeen + 1;
+					commaLastSeen	<= commaLastSeen + 1'b1;
 			end
 
 		end

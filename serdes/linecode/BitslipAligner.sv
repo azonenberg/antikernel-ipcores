@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2023 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2026 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -87,7 +87,7 @@ module BitslipAligner #(
 			if(shiftpos >= (WIDTH - 1) )
 				shiftpos	<= 0;
 			else
-				shiftpos	<= shiftpos + 1;
+				shiftpos	<= shiftpos + 1'b1;
 		end
 
 		//Barrel shift

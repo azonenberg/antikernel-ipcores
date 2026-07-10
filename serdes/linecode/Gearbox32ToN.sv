@@ -41,9 +41,18 @@ module Gearbox32ToN #(
 	input wire					valid_in,
 	input wire					bitslip,
 
-	output logic[OUT_WIDTH-1:0]	data_out	= 0,
-	output logic				valid_out	= 0
+	output wire[OUT_WIDTH-1:0]	data_out,
+	output wire					valid_out
 );
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Output registers
+
+	logic[OUT_WIDTH-1:0]	data_out_int	= 0;
+	logic					valid_out_int	= 0;
+
+	assign data_out 	= data_out_int;
+	assign valid_out	= valid_out_int;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Rearrange the data to MSB-first bit ordering because serdes IPs are dumb, and pipeline to improve latency
@@ -85,23 +94,23 @@ module Gearbox32ToN #(
 
 		//Drop a bit if we're bitslipping
 		if(bitslip)
-			combined_valid	= combined_valid - 1;
+			combined_valid	= combined_valid - 1'b1;
 
 	end
 
 	always_ff @(posedge clk) begin
 
-		valid_out	<= 0;
+		valid_out_int	<= 0;
 
 		//New data? If not, nothing to do
 		if(data_in_flip_valid) begin
 
 			//If we have a full output word, push it out and save the remaining data
 			if(combined_valid >= OUT_WIDTH) begin
-				data_out	<= combined[COMBINED_WIDTH-1:IN_WIDTH];
-				valid_out	<= 1;
-				workbuf		<= { combined[IN_WIDTH-1:0], {(OUT_WIDTH-IN_WIDTH-1){1'h0}} };
-				work_valid	<= combined_valid - OUT_WIDTH;
+				data_out_int	<= combined[COMBINED_WIDTH-1:IN_WIDTH];
+				valid_out_int	<= 1;
+				workbuf			<= { combined[IN_WIDTH-1:0], {(OUT_WIDTH-IN_WIDTH-1){1'h0}} };
+				work_valid		<= combined_valid - OUT_WIDTH;
 			end
 
 			//No, just register it as-is
