@@ -560,7 +560,7 @@ module UART_APBBridge #(
 
 				STATE_READ_BULK_WAIT: begin
 					if(apb.pready) begin
-						bulk_word_idx		<= bulk_word_idx + 1;
+						bulk_word_idx		<= bulk_word_idx + 1'b1;
 
 						apb.penable			<= 0;
 						apb.psel			<= 0;
