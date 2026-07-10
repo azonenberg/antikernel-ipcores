@@ -1,9 +1,9 @@
 `timescale 1ns / 1ps
 /***********************************************************************************************************************
 *                                                                                                                      *
-* ANTIKERNEL v0.1                                                                                                      *
+* ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2022 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2026 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -73,8 +73,8 @@ module SingleClockFifo #(
 	input wire					rd,
 	output wire[WIDTH-1:0]		dout,
 
-	output logic				overflow = 0,
-	output logic				underflow = 0,
+	output wire					overflow,
+	output wire					underflow,
 
 	output wire					empty,
 	output wire					full,
@@ -89,6 +89,15 @@ module SingleClockFifo #(
 	output logic[WIDTH*DEPTH-1 : 0] dout_formal
 	`endif
     );
+
+    ////////////////////////////////////////////////////////////////////////////////////////////////
+	// Output registers
+
+	logic	overflow_int = 0;
+	logic	underflow_int = 0;
+
+	assign overflow = overflow_int;
+	assign underflow = underflow_int;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////
 	// Control logic
@@ -113,15 +122,15 @@ module SingleClockFifo #(
 	assign wsize				= DEPTH[ADDR_BITS:0] + rpos - wpos;
 
 	always_ff @(posedge clk) begin
-		overflow <= 0;
-		underflow <= 0;
+		overflow_int <= 0;
+		underflow_int <= 0;
 
 		//Read
 		if(rd) begin
 
 			//Empty? Can't do anything
 			if(empty) begin
-				underflow <= 1;
+				underflow_int <= 1;
 				`ifdef SIMULATION
 				$display("[SingleClockFifo] %m WARNING: Underflow occurred!");
 				`endif
@@ -139,7 +148,7 @@ module SingleClockFifo #(
 
 			//Full? Error
 			if(full) begin
-				overflow <= 1;
+				overflow_int <= 1;
 				`ifdef SIMULATION
 				$display("[SingleClockFifo] %m WARNING: Overflow occurred!");
 				`endif
