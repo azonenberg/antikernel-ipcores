@@ -68,6 +68,22 @@ module APB_ILA #(
 	parameter PROBE13_WIDTH	= 0,
 	parameter PROBE14_WIDTH	= 0,
 	parameter PROBE15_WIDTH	= 0,
+	parameter PROBE16_WIDTH	= 0,
+	parameter PROBE17_WIDTH	= 0,
+	parameter PROBE18_WIDTH	= 0,
+	parameter PROBE19_WIDTH	= 0,
+	parameter PROBE20_WIDTH	= 0,
+	parameter PROBE21_WIDTH	= 0,
+	parameter PROBE22_WIDTH	= 0,
+	parameter PROBE23_WIDTH	= 0,
+	parameter PROBE24_WIDTH	= 0,
+	parameter PROBE25_WIDTH	= 0,
+	parameter PROBE26_WIDTH	= 0,
+	parameter PROBE27_WIDTH	= 0,
+	parameter PROBE28_WIDTH	= 0,
+	parameter PROBE29_WIDTH	= 0,
+	parameter PROBE30_WIDTH	= 0,
+	parameter PROBE31_WIDTH	= 0,
 
 	parameter[247:0]	PROBE0_NAME		= 248'h0,
 	parameter[247:0]	PROBE1_NAME		= 248'h0,
@@ -84,7 +100,24 @@ module APB_ILA #(
 	parameter[247:0]	PROBE12_NAME	= 248'h0,
 	parameter[247:0]	PROBE13_NAME	= 248'h0,
 	parameter[247:0]	PROBE14_NAME	= 248'h0,
-	parameter[247:0]	PROBE15_NAME	= 248'h0
+	parameter[247:0]	PROBE15_NAME	= 248'h0,
+
+	parameter[247:0]	PROBE16_NAME	= 248'h0,
+	parameter[247:0]	PROBE17_NAME	= 248'h0,
+	parameter[247:0]	PROBE18_NAME	= 248'h0,
+	parameter[247:0]	PROBE19_NAME	= 248'h0,
+	parameter[247:0]	PROBE20_NAME	= 248'h0,
+	parameter[247:0]	PROBE21_NAME	= 248'h0,
+	parameter[247:0]	PROBE22_NAME	= 248'h0,
+	parameter[247:0]	PROBE23_NAME	= 248'h0,
+	parameter[247:0]	PROBE24_NAME	= 248'h0,
+	parameter[247:0]	PROBE25_NAME	= 248'h0,
+	parameter[247:0]	PROBE26_NAME	= 248'h0,
+	parameter[247:0]	PROBE27_NAME	= 248'h0,
+	parameter[247:0]	PROBE28_NAME	= 248'h0,
+	parameter[247:0]	PROBE29_NAME	= 248'h0,
+	parameter[247:0]	PROBE30_NAME	= 248'h0,
+	parameter[247:0]	PROBE31_NAME	= 248'h0
 )(
 	//APB interface for the control plane registers
 	APB.completer 						apbControl,
@@ -110,6 +143,22 @@ module APB_ILA #(
 	input wire[PROBE13_WIDTH-1:0]		probe13,
 	input wire[PROBE14_WIDTH-1:0]		probe14,
 	input wire[PROBE15_WIDTH-1:0]		probe15,
+	input wire[PROBE16_WIDTH-1:0]		probe16,
+	input wire[PROBE17_WIDTH-1:0]		probe17,
+	input wire[PROBE18_WIDTH-1:0]		probe18,
+	input wire[PROBE19_WIDTH-1:0]		probe19,
+	input wire[PROBE20_WIDTH-1:0]		probe20,
+	input wire[PROBE21_WIDTH-1:0]		probe21,
+	input wire[PROBE22_WIDTH-1:0]		probe22,
+	input wire[PROBE23_WIDTH-1:0]		probe23,
+	input wire[PROBE24_WIDTH-1:0]		probe24,
+	input wire[PROBE25_WIDTH-1:0]		probe25,
+	input wire[PROBE26_WIDTH-1:0]		probe26,
+	input wire[PROBE27_WIDTH-1:0]		probe27,
+	input wire[PROBE28_WIDTH-1:0]		probe28,
+	input wire[PROBE29_WIDTH-1:0]		probe29,
+	input wire[PROBE30_WIDTH-1:0]		probe30,
+	input wire[PROBE31_WIDTH-1:0]		probe31,
 
 	//Trigger sync
 	input wire							trig_in,
@@ -136,6 +185,23 @@ module APB_ILA #(
 	localparam PROBE14_ID = { PROBE14_WIDTH[7:0], PROBE14_NAME[247:0] };
 	localparam PROBE15_ID = { PROBE15_WIDTH[7:0], PROBE15_NAME[247:0] };
 
+	localparam PROBE16_ID = { PROBE16_WIDTH[7:0], PROBE16_NAME[247:0] };
+	localparam PROBE17_ID = { PROBE17_WIDTH[7:0], PROBE17_NAME[247:0] };
+	localparam PROBE18_ID = { PROBE18_WIDTH[7:0], PROBE18_NAME[247:0] };
+	localparam PROBE19_ID = { PROBE19_WIDTH[7:0], PROBE19_NAME[247:0] };
+	localparam PROBE20_ID = { PROBE20_WIDTH[7:0], PROBE20_NAME[247:0] };
+	localparam PROBE21_ID = { PROBE21_WIDTH[7:0], PROBE21_NAME[247:0] };
+	localparam PROBE22_ID = { PROBE22_WIDTH[7:0], PROBE22_NAME[247:0] };
+	localparam PROBE23_ID = { PROBE23_WIDTH[7:0], PROBE23_NAME[247:0] };
+	localparam PROBE24_ID = { PROBE24_WIDTH[7:0], PROBE24_NAME[247:0] };
+	localparam PROBE25_ID = { PROBE25_WIDTH[7:0], PROBE25_NAME[247:0] };
+	localparam PROBE26_ID = { PROBE26_WIDTH[7:0], PROBE26_NAME[247:0] };
+	localparam PROBE27_ID = { PROBE27_WIDTH[7:0], PROBE27_NAME[247:0] };
+	localparam PROBE28_ID = { PROBE28_WIDTH[7:0], PROBE28_NAME[247:0] };
+	localparam PROBE29_ID = { PROBE29_WIDTH[7:0], PROBE29_NAME[247:0] };
+	localparam PROBE30_ID = { PROBE30_WIDTH[7:0], PROBE30_NAME[247:0] };
+	localparam PROBE31_ID = { PROBE31_WIDTH[7:0], PROBE31_NAME[247:0] };
+
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Probe bit position indexes
 
@@ -155,15 +221,47 @@ module APB_ILA #(
 	localparam PROBE13_BASE	= PROBE12_BASE + PROBE12_WIDTH;
 	localparam PROBE14_BASE	= PROBE13_BASE + PROBE13_WIDTH;
 	localparam PROBE15_BASE	= PROBE14_BASE + PROBE14_WIDTH;
+	localparam PROBE16_BASE	= PROBE15_BASE + PROBE15_WIDTH;
+	localparam PROBE17_BASE	= PROBE16_BASE + PROBE16_WIDTH;
+	localparam PROBE18_BASE	= PROBE17_BASE + PROBE17_WIDTH;
+	localparam PROBE19_BASE	= PROBE18_BASE + PROBE18_WIDTH;
+	localparam PROBE20_BASE	= PROBE19_BASE + PROBE19_WIDTH;
+	localparam PROBE21_BASE	= PROBE20_BASE + PROBE20_WIDTH;
+	localparam PROBE22_BASE	= PROBE21_BASE + PROBE21_WIDTH;
+	localparam PROBE23_BASE	= PROBE22_BASE + PROBE22_WIDTH;
+	localparam PROBE24_BASE	= PROBE23_BASE + PROBE23_WIDTH;
+	localparam PROBE25_BASE	= PROBE24_BASE + PROBE24_WIDTH;
+	localparam PROBE26_BASE	= PROBE25_BASE + PROBE25_WIDTH;
+	localparam PROBE27_BASE	= PROBE26_BASE + PROBE26_WIDTH;
+	localparam PROBE28_BASE	= PROBE27_BASE + PROBE27_WIDTH;
+	localparam PROBE29_BASE	= PROBE28_BASE + PROBE28_WIDTH;
+	localparam PROBE30_BASE	= PROBE29_BASE + PROBE29_WIDTH;
+	localparam PROBE31_BASE	= PROBE30_BASE + PROBE30_WIDTH;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Concatenate the inputs into a single bus
 
-	localparam MEM_WIDTH		= PROBE15_BASE + PROBE15_WIDTH;
+	localparam MEM_WIDTH		= PROBE31_BASE + PROBE31_WIDTH;
 
 	wire[MEM_WIDTH-1:0] probe_bus;
 	assign probe_bus =
 	{
+		probe31,
+		probe30,
+		probe29,
+		probe28,
+		probe27,
+		probe26,
+		probe25,
+		probe24,
+		probe23,
+		probe22,
+		probe21,
+		probe20,
+		probe19,
+		probe18,
+		probe17,
+		probe16,
 		probe15,
 		probe14,
 		probe13,
@@ -465,6 +563,22 @@ module APB_ILA #(
 							13: apbControl.prdata = PROBE13_ID[ctl_word_idx*32 +: 32];
 							14: apbControl.prdata = PROBE14_ID[ctl_word_idx*32 +: 32];
 							15: apbControl.prdata = PROBE15_ID[ctl_word_idx*32 +: 32];
+							16: apbControl.prdata = PROBE16_ID[ctl_word_idx*32 +: 32];
+							17: apbControl.prdata = PROBE17_ID[ctl_word_idx*32 +: 32];
+							18: apbControl.prdata = PROBE18_ID[ctl_word_idx*32 +: 32];
+							19: apbControl.prdata = PROBE19_ID[ctl_word_idx*32 +: 32];
+							20: apbControl.prdata = PROBE20_ID[ctl_word_idx*32 +: 32];
+							21: apbControl.prdata = PROBE21_ID[ctl_word_idx*32 +: 32];
+							22: apbControl.prdata = PROBE22_ID[ctl_word_idx*32 +: 32];
+							23: apbControl.prdata = PROBE23_ID[ctl_word_idx*32 +: 32];
+							24: apbControl.prdata = PROBE24_ID[ctl_word_idx*32 +: 32];
+							25: apbControl.prdata = PROBE25_ID[ctl_word_idx*32 +: 32];
+							26: apbControl.prdata = PROBE26_ID[ctl_word_idx*32 +: 32];
+							27: apbControl.prdata = PROBE27_ID[ctl_word_idx*32 +: 32];
+							28: apbControl.prdata = PROBE28_ID[ctl_word_idx*32 +: 32];
+							29: apbControl.prdata = PROBE29_ID[ctl_word_idx*32 +: 32];
+							30: apbControl.prdata = PROBE30_ID[ctl_word_idx*32 +: 32];
+							31: apbControl.prdata = PROBE31_ID[ctl_word_idx*32 +: 32];
 						endcase
 					end //BLOCK_ROM
 
