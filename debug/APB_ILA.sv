@@ -34,7 +34,7 @@
 
 	Debug ROM tag "ILA_"
 
-	TODO scale to >16 ports
+	TODO scale to >32 ports
 
 	Due to the large number of ports this block requires more than the standard 1 kB of address space for
 	the register block.

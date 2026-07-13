@@ -147,25 +147,38 @@ module APB_VIO #(
 	localparam IN7_ID = { IN7_WIDTH[7:0], IN7_NAME[247:0] };
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Round widths up to next multiple of 32 so internal registers are word readable/writable
+	// (this also fixes some decoding weirdness on Xilinx)
+
+	localparam OUT0_WIDTH_ROUNDED = (OUT0_WIDTH[4:0]) ? ( (OUT0_WIDTH | 5'h1f) + 1) : OUT0_WIDTH;
+	localparam OUT1_WIDTH_ROUNDED = (OUT1_WIDTH[4:0]) ? ( (OUT1_WIDTH | 5'h1f) + 1) : OUT1_WIDTH;
+	localparam OUT2_WIDTH_ROUNDED = (OUT2_WIDTH[4:0]) ? ( (OUT2_WIDTH | 5'h1f) + 1) : OUT2_WIDTH;
+	localparam OUT3_WIDTH_ROUNDED = (OUT3_WIDTH[4:0]) ? ( (OUT3_WIDTH | 5'h1f) + 1) : OUT3_WIDTH;
+	localparam OUT4_WIDTH_ROUNDED = (OUT4_WIDTH[4:0]) ? ( (OUT4_WIDTH | 5'h1f) + 1) : OUT4_WIDTH;
+	localparam OUT5_WIDTH_ROUNDED = (OUT5_WIDTH[4:0]) ? ( (OUT5_WIDTH | 5'h1f) + 1) : OUT5_WIDTH;
+	localparam OUT6_WIDTH_ROUNDED = (OUT6_WIDTH[4:0]) ? ( (OUT6_WIDTH | 5'h1f) + 1) : OUT6_WIDTH;
+	localparam OUT7_WIDTH_ROUNDED = (OUT7_WIDTH[4:0]) ? ( (OUT7_WIDTH | 5'h1f) + 1) : OUT7_WIDTH;
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Define output logics as internal logic + wire for Efinix toolchain compatibility
 
-	logic[OUT0_WIDTH-1:0]  probe_out0_int = OUT0_INIT;
-	logic[OUT1_WIDTH-1:0]  probe_out1_int = OUT1_INIT;
-	logic[OUT2_WIDTH-1:0]  probe_out2_int = OUT2_INIT;
-	logic[OUT3_WIDTH-1:0]  probe_out3_int = OUT3_INIT;
-	logic[OUT4_WIDTH-1:0]  probe_out4_int = OUT4_INIT;
-	logic[OUT5_WIDTH-1:0]  probe_out5_int = OUT5_INIT;
-	logic[OUT6_WIDTH-1:0]  probe_out6_int = OUT6_INIT;
-	logic[OUT7_WIDTH-1:0]  probe_out7_int = OUT7_INIT;
+	logic[OUT0_WIDTH_ROUNDED-1:0]  probe_out0_int = OUT0_INIT;
+	logic[OUT1_WIDTH_ROUNDED-1:0]  probe_out1_int = OUT1_INIT;
+	logic[OUT2_WIDTH_ROUNDED-1:0]  probe_out2_int = OUT2_INIT;
+	logic[OUT3_WIDTH_ROUNDED-1:0]  probe_out3_int = OUT3_INIT;
+	logic[OUT4_WIDTH_ROUNDED-1:0]  probe_out4_int = OUT4_INIT;
+	logic[OUT5_WIDTH_ROUNDED-1:0]  probe_out5_int = OUT5_INIT;
+	logic[OUT6_WIDTH_ROUNDED-1:0]  probe_out6_int = OUT6_INIT;
+	logic[OUT7_WIDTH_ROUNDED-1:0]  probe_out7_int = OUT7_INIT;
 
-	assign probe_out0 = probe_out0_int;
-	assign probe_out1 = probe_out1_int;
-	assign probe_out2 = probe_out2_int;
-	assign probe_out3 = probe_out3_int;
-	assign probe_out4 = probe_out4_int;
-	assign probe_out5 = probe_out5_int;
-	assign probe_out6 = probe_out6_int;
-	assign probe_out7 = probe_out7_int;
+	assign probe_out0 = probe_out0_int[OUT0_WIDTH-1:0];
+	assign probe_out1 = probe_out1_int[OUT1_WIDTH-1:0];
+	assign probe_out2 = probe_out2_int[OUT2_WIDTH-1:0];
+	assign probe_out3 = probe_out3_int[OUT3_WIDTH-1:0];
+	assign probe_out4 = probe_out4_int[OUT4_WIDTH-1:0];
+	assign probe_out5 = probe_out5_int[OUT5_WIDTH-1:0];
+	assign probe_out6 = probe_out6_int[OUT6_WIDTH-1:0];
+	assign probe_out7 = probe_out7_int[OUT7_WIDTH-1:0];
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Parameter validation
