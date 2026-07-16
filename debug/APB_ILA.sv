@@ -35,19 +35,12 @@
 	Debug ROM tag "ILA_"
 
 	TODO scale to >32 ports
-
-	Due to the large number of ports this block requires more than the standard 1 kB of address space for
-	the register block.
-
-	Register map (bank sel 13:12)
-		0x0000				Base control registers
-		0x1000				Debug ROM
-		0x2000				Trigger config (not yet implemented)
  */
 module APB_ILA #(
 	parameter DEPTH			= 2048,
 	parameter CLK_PERIOD	= 10000,
 	parameter DATA_BUF_ADDR	= 0,
+	parameter ROM_ADDR		= 0,
 
 	parameter PROBE0_WIDTH	= 0,
 	parameter PROBE1_WIDTH	= 0,
@@ -116,11 +109,14 @@ module APB_ILA #(
 	parameter PROBE30_NAME	= "",
 	parameter PROBE31_NAME	= ""
 )(
-	//APB interface for the control plane registers
+	//APB interface for the control plane registers (small, can be standard 1 kB)
 	APB.completer 						apbControl,
 
 	//APB interface for memory buffer readback (must be same clock domain as apbControl)
 	APB.completer 						apbData,
+
+	//APB interface for symbol table ROM (no restrictions on clock domain)
+	APB.completer 						apbRom,
 
 	//Probe inputs
 	input wire							clk,
@@ -163,100 +159,170 @@ module APB_ILA #(
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Endianness-swap the channel names because systemverilog has derpy string ordering
+
+	localparam PROBE0_NAME_BSWAP  = {<<8{PROBE0_NAME}};
+	localparam PROBE1_NAME_BSWAP  = {<<8{PROBE1_NAME}};
+	localparam PROBE2_NAME_BSWAP  = {<<8{PROBE2_NAME}};
+	localparam PROBE3_NAME_BSWAP  = {<<8{PROBE3_NAME}};
+	localparam PROBE4_NAME_BSWAP  = {<<8{PROBE4_NAME}};
+	localparam PROBE5_NAME_BSWAP  = {<<8{PROBE5_NAME}};
+	localparam PROBE6_NAME_BSWAP  = {<<8{PROBE6_NAME}};
+	localparam PROBE7_NAME_BSWAP  = {<<8{PROBE7_NAME}};
+	localparam PROBE8_NAME_BSWAP  = {<<8{PROBE8_NAME}};
+	localparam PROBE9_NAME_BSWAP  = {<<8{PROBE9_NAME}};
+	localparam PROBE10_NAME_BSWAP = {<<8{PROBE10_NAME}};
+	localparam PROBE11_NAME_BSWAP = {<<8{PROBE11_NAME}};
+	localparam PROBE12_NAME_BSWAP = {<<8{PROBE12_NAME}};
+	localparam PROBE13_NAME_BSWAP = {<<8{PROBE13_NAME}};
+	localparam PROBE14_NAME_BSWAP = {<<8{PROBE14_NAME}};
+	localparam PROBE15_NAME_BSWAP = {<<8{PROBE15_NAME}};
+	localparam PROBE16_NAME_BSWAP = {<<8{PROBE16_NAME}};
+	localparam PROBE17_NAME_BSWAP = {<<8{PROBE17_NAME}};
+	localparam PROBE18_NAME_BSWAP = {<<8{PROBE18_NAME}};
+	localparam PROBE19_NAME_BSWAP = {<<8{PROBE19_NAME}};
+	localparam PROBE20_NAME_BSWAP = {<<8{PROBE20_NAME}};
+	localparam PROBE21_NAME_BSWAP = {<<8{PROBE21_NAME}};
+	localparam PROBE22_NAME_BSWAP = {<<8{PROBE22_NAME}};
+	localparam PROBE23_NAME_BSWAP = {<<8{PROBE23_NAME}};
+	localparam PROBE24_NAME_BSWAP = {<<8{PROBE24_NAME}};
+	localparam PROBE25_NAME_BSWAP = {<<8{PROBE25_NAME}};
+	localparam PROBE26_NAME_BSWAP = {<<8{PROBE26_NAME}};
+	localparam PROBE27_NAME_BSWAP = {<<8{PROBE27_NAME}};
+	localparam PROBE28_NAME_BSWAP = {<<8{PROBE28_NAME}};
+	localparam PROBE29_NAME_BSWAP = {<<8{PROBE29_NAME}};
+	localparam PROBE30_NAME_BSWAP = {<<8{PROBE30_NAME}};
+	localparam PROBE31_NAME_BSWAP = {<<8{PROBE31_NAME}};
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Width of each channel's name, in bytes
 
-	localparam[7:0] PROBE0_NAME_WIDTH  = $bits(PROBE0_NAME) / 8;
-	localparam[7:0] PROBE1_NAME_WIDTH  = $bits(PROBE1_NAME) / 8;
-	localparam[7:0] PROBE2_NAME_WIDTH  = $bits(PROBE2_NAME) / 8;
-	localparam[7:0] PROBE3_NAME_WIDTH  = $bits(PROBE3_NAME) / 8;
-	localparam[7:0] PROBE4_NAME_WIDTH  = $bits(PROBE4_NAME) / 8;
-	localparam[7:0] PROBE5_NAME_WIDTH  = $bits(PROBE5_NAME) / 8;
-	localparam[7:0] PROBE6_NAME_WIDTH  = $bits(PROBE6_NAME) / 8;
-	localparam[7:0] PROBE7_NAME_WIDTH  = $bits(PROBE7_NAME) / 8;
-	localparam[7:0] PROBE8_NAME_WIDTH  = $bits(PROBE8_NAME) / 8;
-	localparam[7:0] PROBE9_NAME_WIDTH  = $bits(PROBE9_NAME) / 8;
-	localparam[7:0] PROBE10_NAME_WIDTH = $bits(PROBE10_NAME) / 8;
-	localparam[7:0] PROBE11_NAME_WIDTH = $bits(PROBE11_NAME) / 8;
-	localparam[7:0] PROBE12_NAME_WIDTH = $bits(PROBE12_NAME) / 8;
-	localparam[7:0] PROBE13_NAME_WIDTH = $bits(PROBE13_NAME) / 8;
-	localparam[7:0] PROBE14_NAME_WIDTH = $bits(PROBE14_NAME) / 8;
-	localparam[7:0] PROBE15_NAME_WIDTH = $bits(PROBE15_NAME) / 8;
-	localparam[7:0] PROBE16_NAME_WIDTH = $bits(PROBE16_NAME) / 8;
-	localparam[7:0] PROBE17_NAME_WIDTH = $bits(PROBE17_NAME) / 8;
-	localparam[7:0] PROBE18_NAME_WIDTH = $bits(PROBE18_NAME) / 8;
-	localparam[7:0] PROBE19_NAME_WIDTH = $bits(PROBE19_NAME) / 8;
-	localparam[7:0] PROBE20_NAME_WIDTH = $bits(PROBE20_NAME) / 8;
-	localparam[7:0] PROBE21_NAME_WIDTH = $bits(PROBE21_NAME) / 8;
-	localparam[7:0] PROBE22_NAME_WIDTH = $bits(PROBE22_NAME) / 8;
-	localparam[7:0] PROBE23_NAME_WIDTH = $bits(PROBE23_NAME) / 8;
-	localparam[7:0] PROBE24_NAME_WIDTH = $bits(PROBE24_NAME) / 8;
-	localparam[7:0] PROBE25_NAME_WIDTH = $bits(PROBE25_NAME) / 8;
-	localparam[7:0] PROBE26_NAME_WIDTH = $bits(PROBE26_NAME) / 8;
-	localparam[7:0] PROBE27_NAME_WIDTH = $bits(PROBE27_NAME) / 8;
-	localparam[7:0] PROBE28_NAME_WIDTH = $bits(PROBE28_NAME) / 8;
-	localparam[7:0] PROBE29_NAME_WIDTH = $bits(PROBE29_NAME) / 8;
-	localparam[7:0] PROBE30_NAME_WIDTH = $bits(PROBE30_NAME) / 8;
-	localparam[7:0] PROBE31_NAME_WIDTH = $bits(PROBE31_NAME) / 8;
+	localparam[15:0] PROBE0_NAME_WIDTH  = $bits(PROBE0_NAME) / 8;
+	localparam[15:0] PROBE1_NAME_WIDTH  = $bits(PROBE1_NAME) / 8;
+	localparam[15:0] PROBE2_NAME_WIDTH  = $bits(PROBE2_NAME) / 8;
+	localparam[15:0] PROBE3_NAME_WIDTH  = $bits(PROBE3_NAME) / 8;
+	localparam[15:0] PROBE4_NAME_WIDTH  = $bits(PROBE4_NAME) / 8;
+	localparam[15:0] PROBE5_NAME_WIDTH  = $bits(PROBE5_NAME) / 8;
+	localparam[15:0] PROBE6_NAME_WIDTH  = $bits(PROBE6_NAME) / 8;
+	localparam[15:0] PROBE7_NAME_WIDTH  = $bits(PROBE7_NAME) / 8;
+	localparam[15:0] PROBE8_NAME_WIDTH  = $bits(PROBE8_NAME) / 8;
+	localparam[15:0] PROBE9_NAME_WIDTH  = $bits(PROBE9_NAME) / 8;
+	localparam[15:0] PROBE10_NAME_WIDTH = $bits(PROBE10_NAME) / 8;
+	localparam[15:0] PROBE11_NAME_WIDTH = $bits(PROBE11_NAME) / 8;
+	localparam[15:0] PROBE12_NAME_WIDTH = $bits(PROBE12_NAME) / 8;
+	localparam[15:0] PROBE13_NAME_WIDTH = $bits(PROBE13_NAME) / 8;
+	localparam[15:0] PROBE14_NAME_WIDTH = $bits(PROBE14_NAME) / 8;
+	localparam[15:0] PROBE15_NAME_WIDTH = $bits(PROBE15_NAME) / 8;
+	localparam[15:0] PROBE16_NAME_WIDTH = $bits(PROBE16_NAME) / 8;
+	localparam[15:0] PROBE17_NAME_WIDTH = $bits(PROBE17_NAME) / 8;
+	localparam[15:0] PROBE18_NAME_WIDTH = $bits(PROBE18_NAME) / 8;
+	localparam[15:0] PROBE19_NAME_WIDTH = $bits(PROBE19_NAME) / 8;
+	localparam[15:0] PROBE20_NAME_WIDTH = $bits(PROBE20_NAME) / 8;
+	localparam[15:0] PROBE21_NAME_WIDTH = $bits(PROBE21_NAME) / 8;
+	localparam[15:0] PROBE22_NAME_WIDTH = $bits(PROBE22_NAME) / 8;
+	localparam[15:0] PROBE23_NAME_WIDTH = $bits(PROBE23_NAME) / 8;
+	localparam[15:0] PROBE24_NAME_WIDTH = $bits(PROBE24_NAME) / 8;
+	localparam[15:0] PROBE25_NAME_WIDTH = $bits(PROBE25_NAME) / 8;
+	localparam[15:0] PROBE26_NAME_WIDTH = $bits(PROBE26_NAME) / 8;
+	localparam[15:0] PROBE27_NAME_WIDTH = $bits(PROBE27_NAME) / 8;
+	localparam[15:0] PROBE28_NAME_WIDTH = $bits(PROBE28_NAME) / 8;
+	localparam[15:0] PROBE29_NAME_WIDTH = $bits(PROBE29_NAME) / 8;
+	localparam[15:0] PROBE30_NAME_WIDTH = $bits(PROBE30_NAME) / 8;
+	localparam[15:0] PROBE31_NAME_WIDTH = $bits(PROBE31_NAME) / 8;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Raw ID ROM: everything but the initial "number of valid words" header
 
 	/*
 		Format in linear addres range is:
-			uint8_t probe_width_bits (1...256, 0x00 means 256)
-			uint8_t name_length_bytes
+			uint16_t probe_width_bits
+			uint16_t name_length_bytes
 			char name[name_length_bytes]
 
 		note that we need to reverse this in the HDL because MSB first ordering
 	 */
 	localparam RAW_ID_ROM =
 	{
-		 PROBE31_NAME, PROBE31_NAME_WIDTH[7:0], PROBE31_WIDTH[7:0],
-		 PROBE30_NAME, PROBE30_NAME_WIDTH[7:0], PROBE30_WIDTH[7:0],
+		 PROBE31_NAME_BSWAP, PROBE31_NAME_WIDTH[15:0], PROBE31_WIDTH[15:0],
+		 PROBE30_NAME_BSWAP, PROBE30_NAME_WIDTH[15:0], PROBE30_WIDTH[15:0],
 
-		 PROBE29_NAME, PROBE29_NAME_WIDTH[7:0], PROBE29_WIDTH[7:0],
-		 PROBE28_NAME, PROBE28_NAME_WIDTH[7:0], PROBE28_WIDTH[7:0],
-		 PROBE27_NAME, PROBE27_NAME_WIDTH[7:0], PROBE27_WIDTH[7:0],
-		 PROBE26_NAME, PROBE26_NAME_WIDTH[7:0], PROBE26_WIDTH[7:0],
-		 PROBE25_NAME, PROBE25_NAME_WIDTH[7:0], PROBE25_WIDTH[7:0],
-		 PROBE24_NAME, PROBE24_NAME_WIDTH[7:0], PROBE24_WIDTH[7:0],
-		 PROBE23_NAME, PROBE23_NAME_WIDTH[7:0], PROBE23_WIDTH[7:0],
-		 PROBE22_NAME, PROBE22_NAME_WIDTH[7:0], PROBE22_WIDTH[7:0],
-		 PROBE21_NAME, PROBE21_NAME_WIDTH[7:0], PROBE21_WIDTH[7:0],
-		 PROBE20_NAME, PROBE20_NAME_WIDTH[7:0], PROBE20_WIDTH[7:0],
+		 PROBE29_NAME_BSWAP, PROBE29_NAME_WIDTH[15:0], PROBE29_WIDTH[15:0],
+		 PROBE28_NAME_BSWAP, PROBE28_NAME_WIDTH[15:0], PROBE28_WIDTH[15:0],
+		 PROBE27_NAME_BSWAP, PROBE27_NAME_WIDTH[15:0], PROBE27_WIDTH[15:0],
+		 PROBE26_NAME_BSWAP, PROBE26_NAME_WIDTH[15:0], PROBE26_WIDTH[15:0],
+		 PROBE25_NAME_BSWAP, PROBE25_NAME_WIDTH[15:0], PROBE25_WIDTH[15:0],
+		 PROBE24_NAME_BSWAP, PROBE24_NAME_WIDTH[15:0], PROBE24_WIDTH[15:0],
+		 PROBE23_NAME_BSWAP, PROBE23_NAME_WIDTH[15:0], PROBE23_WIDTH[15:0],
+		 PROBE22_NAME_BSWAP, PROBE22_NAME_WIDTH[15:0], PROBE22_WIDTH[15:0],
+		 PROBE21_NAME_BSWAP, PROBE21_NAME_WIDTH[15:0], PROBE21_WIDTH[15:0],
+		 PROBE20_NAME_BSWAP, PROBE20_NAME_WIDTH[15:0], PROBE20_WIDTH[15:0],
 
-		 PROBE19_NAME, PROBE19_NAME_WIDTH[7:0], PROBE19_WIDTH[7:0],
-		 PROBE18_NAME, PROBE18_NAME_WIDTH[7:0], PROBE18_WIDTH[7:0],
-		 PROBE17_NAME, PROBE17_NAME_WIDTH[7:0], PROBE17_WIDTH[7:0],
-		 PROBE16_NAME, PROBE16_NAME_WIDTH[7:0], PROBE16_WIDTH[7:0],
-		 PROBE15_NAME, PROBE15_NAME_WIDTH[7:0], PROBE15_WIDTH[7:0],
-		 PROBE14_NAME, PROBE14_NAME_WIDTH[7:0], PROBE14_WIDTH[7:0],
-		 PROBE13_NAME, PROBE13_NAME_WIDTH[7:0], PROBE13_WIDTH[7:0],
-		 PROBE12_NAME, PROBE12_NAME_WIDTH[7:0], PROBE12_WIDTH[7:0],
-		 PROBE11_NAME, PROBE11_NAME_WIDTH[7:0], PROBE11_WIDTH[7:0],
-		 PROBE10_NAME, PROBE10_NAME_WIDTH[7:0], PROBE10_WIDTH[7:0],
+		 PROBE19_NAME_BSWAP, PROBE19_NAME_WIDTH[15:0], PROBE19_WIDTH[15:0],
+		 PROBE18_NAME_BSWAP, PROBE18_NAME_WIDTH[15:0], PROBE18_WIDTH[15:0],
+		 PROBE17_NAME_BSWAP, PROBE17_NAME_WIDTH[15:0], PROBE17_WIDTH[15:0],
+		 PROBE16_NAME_BSWAP, PROBE16_NAME_WIDTH[15:0], PROBE16_WIDTH[15:0],
+		 PROBE15_NAME_BSWAP, PROBE15_NAME_WIDTH[15:0], PROBE15_WIDTH[15:0],
+		 PROBE14_NAME_BSWAP, PROBE14_NAME_WIDTH[15:0], PROBE14_WIDTH[15:0],
+		 PROBE13_NAME_BSWAP, PROBE13_NAME_WIDTH[15:0], PROBE13_WIDTH[15:0],
+		 PROBE12_NAME_BSWAP, PROBE12_NAME_WIDTH[15:0], PROBE12_WIDTH[15:0],
+		 PROBE11_NAME_BSWAP, PROBE11_NAME_WIDTH[15:0], PROBE11_WIDTH[15:0],
+		 PROBE10_NAME_BSWAP, PROBE10_NAME_WIDTH[15:0], PROBE10_WIDTH[15:0],
 
-		 PROBE9_NAME,  PROBE9_NAME_WIDTH[7:0],  PROBE9_WIDTH[7:0],
-		 PROBE8_NAME,  PROBE8_NAME_WIDTH[7:0],  PROBE8_WIDTH[7:0],
-		 PROBE7_NAME,  PROBE7_NAME_WIDTH[7:0],  PROBE7_WIDTH[7:0],
-		 PROBE6_NAME,  PROBE6_NAME_WIDTH[7:0],  PROBE6_WIDTH[7:0],
-		 PROBE5_NAME,  PROBE5_NAME_WIDTH[7:0],  PROBE5_WIDTH[7:0],
-		 PROBE4_NAME,  PROBE4_NAME_WIDTH[7:0],  PROBE4_WIDTH[7:0],
-		 PROBE3_NAME,  PROBE3_NAME_WIDTH[7:0],  PROBE3_WIDTH[7:0],
-		 PROBE2_NAME,  PROBE2_NAME_WIDTH[7:0],  PROBE2_WIDTH[7:0],
-		 PROBE1_NAME,  PROBE1_NAME_WIDTH[7:0],  PROBE1_WIDTH[7:0],
-		 PROBE0_NAME,  PROBE0_NAME_WIDTH[7:0],  PROBE0_WIDTH[7:0]
+		 PROBE9_NAME_BSWAP,  PROBE9_NAME_WIDTH[15:0],  PROBE9_WIDTH[15:0],
+		 PROBE8_NAME_BSWAP,  PROBE8_NAME_WIDTH[15:0],  PROBE8_WIDTH[15:0],
+		 PROBE7_NAME_BSWAP,  PROBE7_NAME_WIDTH[15:0],  PROBE7_WIDTH[15:0],
+		 PROBE6_NAME_BSWAP,  PROBE6_NAME_WIDTH[15:0],  PROBE6_WIDTH[15:0],
+		 PROBE5_NAME_BSWAP,  PROBE5_NAME_WIDTH[15:0],  PROBE5_WIDTH[15:0],
+		 PROBE4_NAME_BSWAP,  PROBE4_NAME_WIDTH[15:0],  PROBE4_WIDTH[15:0],
+		 PROBE3_NAME_BSWAP,  PROBE3_NAME_WIDTH[15:0],  PROBE3_WIDTH[15:0],
+		 PROBE2_NAME_BSWAP,  PROBE2_NAME_WIDTH[15:0],  PROBE2_WIDTH[15:0],
+		 PROBE1_NAME_BSWAP,  PROBE1_NAME_WIDTH[15:0],  PROBE1_WIDTH[15:0],
+		 PROBE0_NAME_BSWAP,  PROBE0_NAME_WIDTH[15:0],  PROBE0_WIDTH[15:0]
 	};
 
 	localparam RAW_ID_ROM_BITS = $bits(RAW_ID_ROM);
 	localparam RAW_ID_ROM_WORDS = RAW_ID_ROM_BITS[4:0] ? (RAW_ID_ROM_BITS[31:5] + 1) : RAW_ID_ROM_BITS[31:5];
 
-	localparam FULL_ID_ROM =
+	localparam ID_ROM_PADDED =
 	{
-		32'h0,					//Zero padding to ensure any trailing bytes are 0x00
-		RAW_ID_ROM,				//The actual ROM
-		RAW_ID_ROM_WORDS[31:0]	//length at low word
+		32'h0,			//Zero padding to ensure any trailing bytes are 0x00
+		RAW_ID_ROM		//The actual ROM content
 	};
+
+	logic[31:0] rom[RAW_ID_ROM_WORDS + 1 : 0];
+
+	initial begin
+		rom[0]			<= RAW_ID_ROM_WORDS;			//length of rest of ROM
+
+		for(integer i=0; i<RAW_ID_ROM_WORDS; i++)
+			rom[i+1]	<= ID_ROM_PADDED[32*i +: 32];
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Registered reads to allow for ROM to be implemented as a block RAM if it's big enough
+
+	always_ff @(posedge apbRom.pclk) begin
+
+		//Clear flags
+		apbRom.pready	<= 0;
+		apbRom.prdata	<= 0;
+		apbRom.pslverr	<= 0;
+
+		if(apbRom.psel && apbRom.penable) begin
+
+			apbRom.pready		<= 1;
+
+			//Reject all writes
+			if(apbRom.pwrite)
+				apbRom.pslverr	<= 1;
+
+			//Reads
+			else
+				apbRom.prdata	<= rom[ apbRom.paddr[apbRom.ADDR_WIDTH-1 : 2] ];
+
+		end
+
+	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Probe bit position indexes within capture buffer
@@ -352,8 +418,7 @@ module APB_ILA #(
 		apb_bus_width_is_invalid();
 	if(apbControl.DATA_WIDTH != 32)
 		apb_bus_width_is_invalid();
-
-	if(apbControl.ADDR_WIDTH < 14)
+	if(apbRom.DATA_WIDTH != 32)
 		apb_bus_width_is_invalid();
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -364,6 +429,9 @@ module APB_ILA #(
 
 	assign apbData.pruser = 0;
 	assign apbData.pbuser = 0;
+
+	assign apbRom.pruser = 0;
+	assign apbRom.pbuser = 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 	// Capture buffer
@@ -543,10 +611,11 @@ module APB_ILA #(
 										//[1] data ready flag (RW, write 0 after readout)
 										//[2] force trigger bit (RAZ)
 		REG_TRIGGER_IDX	= 'h04,			//Sample address of the trigger within the buffer, in words (RO)
-		REG_DATA_BASE	= 'h08,			//base address of data bus
+		REG_DATA_BASE	= 'h08,			//Base address of data bus
 		REG_DEPTH		= 'h0c,			//Total memory depth
 		REG_RATE		= 'h10,			//Picoseconds per sample
-		REG_TRIG_POS	= 'h14			//Word index for the trigger within the logical space
+		REG_TRIG_POS	= 'h14,			//Word index for the trigger within the logical space
+		REG_ROM_BASE	= 'h18			//Base address of symbol table
 	} regid_t;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -554,61 +623,25 @@ module APB_ILA #(
 
 	logic	ila_ready_sticky = 0;
 
-	//Divide the register space into 4 kB blocks
-	logic[1:0]	ctl_block;
-	logic[11:0]	ctl_regid;
-	logic[6:0]	ctl_port;
-	logic[2:0]	ctl_word_idx;
-
-	typedef enum logic[1:0]
-	{
-		BLOCK_CSR			= 'h00,
-		BLOCK_ROM			= 'h01,
-		BLOCK_TRIGGER_PAT	= 'h02,
-		BLOCK_TRIGGER_MASK	= 'h03
-	} block_t;
-
 	always_comb begin
 
 		apbControl.pready	= apbControl.psel && apbControl.penable;
 		apbControl.prdata	= 0;
 		apbControl.pslverr	= 0;
 
-		//Crack address
-		ctl_block			= apbControl.paddr[13:12];
-		ctl_regid			= apbControl.paddr[11:0];
-		ctl_port			= apbControl.paddr[11:5];
-		ctl_word_idx		= apbControl.paddr[4:2];
-
 		if(apbControl.pready) begin
 
 			//read
 			if(!apbControl.pwrite) begin
-				case(ctl_block)
-
-					//Small control registers
-					BLOCK_CSR: begin
-						case(ctl_regid)
-							REG_TRIGGER:		apbControl.prdata	= { 30'h0, ila_ready_sticky, 1'b0 } ;
-							REG_TRIGGER_IDX:	apbControl.prdata	= trigger_pos_sync;
-							REG_DATA_BASE:		apbControl.prdata	= DATA_BUF_ADDR;
-							REG_DEPTH:			apbControl.prdata	= DEPTH;
-							REG_RATE:			apbControl.prdata	= CLK_PERIOD;
-							REG_TRIG_POS:		apbControl.prdata	= trigger_offset_words;
-							default:			apbControl.pslverr	= 1;
-						endcase
-					end	//BLOCK_CSR
-
-					//Signal ID ROM
-					BLOCK_ROM: begin
-						apbControl.prdata = FULL_ID_ROM[apbControl.paddr[11:2]*32 +: 32];
-					end //BLOCK_ROM
-
-					//invalid / unallocated
-					default: begin
-						apbControl.pslverr	= 1;
-					end
-
+				case( apbControl.paddr)
+					REG_TRIGGER:		apbControl.prdata	= { 30'h0, ila_ready_sticky, 1'b0 } ;
+					REG_TRIGGER_IDX:	apbControl.prdata	= trigger_pos_sync;
+					REG_DATA_BASE:		apbControl.prdata	= DATA_BUF_ADDR;
+					REG_DEPTH:			apbControl.prdata	= DEPTH;
+					REG_RATE:			apbControl.prdata	= CLK_PERIOD;
+					REG_TRIG_POS:		apbControl.prdata	= trigger_offset_words;
+					REG_ROM_BASE:		apbControl.prdata	= ROM_ADDR;
+					default:			apbControl.pslverr	= 1;
 				endcase
 			end
 

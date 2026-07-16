@@ -92,62 +92,93 @@ module DebugROM #(
 	assign apb.pbuser = 0;
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Combinatorial reads
+	// Endianness-swap the FOURCC strings
 
-	always_comb begin
+	//For some reason vivado doesn't like this for synthesis
+	localparam DEVICE_0_TYPE_BSWAP  = {<<8{DEVICE_0_TYPE}};
+	localparam DEVICE_1_TYPE_BSWAP  = {<<8{DEVICE_1_TYPE}};
+	localparam DEVICE_2_TYPE_BSWAP  = {<<8{DEVICE_2_TYPE}};
+	localparam DEVICE_3_TYPE_BSWAP  = {<<8{DEVICE_3_TYPE}};
+	localparam DEVICE_4_TYPE_BSWAP  = {<<8{DEVICE_4_TYPE}};
+	localparam DEVICE_5_TYPE_BSWAP  = {<<8{DEVICE_5_TYPE}};
+	localparam DEVICE_6_TYPE_BSWAP  = {<<8{DEVICE_6_TYPE}};
+	localparam DEVICE_7_TYPE_BSWAP  = {<<8{DEVICE_7_TYPE}};
+	localparam DEVICE_8_TYPE_BSWAP  = {<<8{DEVICE_8_TYPE}};
+	localparam DEVICE_9_TYPE_BSWAP  = {<<8{DEVICE_9_TYPE}};
+	localparam DEVICE_10_TYPE_BSWAP = {<<8{DEVICE_10_TYPE}};
+	localparam DEVICE_11_TYPE_BSWAP = {<<8{DEVICE_11_TYPE}};
+	localparam DEVICE_12_TYPE_BSWAP = {<<8{DEVICE_12_TYPE}};
+	localparam DEVICE_13_TYPE_BSWAP = {<<8{DEVICE_13_TYPE}};
+	localparam DEVICE_14_TYPE_BSWAP = {<<8{DEVICE_14_TYPE}};
+	localparam DEVICE_15_TYPE_BSWAP = {<<8{DEVICE_15_TYPE}};
 
-		apb.pready	= apb.psel && apb.penable;
-		apb.prdata	= 0;
-		apb.pslverr	= 0;
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Fill the ROM
 
-		if(apb.pready) begin
+	logic[31:0] rom [63:0];
+
+	initial begin
+		rom[0]		<= 32'd16;	//16 rom table entries supported for now
+		rom[1]		<= 32'h0;	//reserved
+
+		rom[2]		<= DEVICE_0_TYPE_BSWAP;
+		rom[3]		<= DEVICE_0_ADDR;
+		rom[4]		<= DEVICE_1_TYPE_BSWAP;
+		rom[5]		<= DEVICE_1_ADDR;
+		rom[6]		<= DEVICE_2_TYPE_BSWAP;
+		rom[7]		<= DEVICE_2_ADDR;
+		rom[8]		<= DEVICE_3_TYPE_BSWAP;
+		rom[9]		<= DEVICE_3_ADDR;
+		rom[10]		<= DEVICE_4_TYPE_BSWAP;
+		rom[11]		<= DEVICE_4_ADDR;
+		rom[12]		<= DEVICE_5_TYPE_BSWAP;
+		rom[13]		<= DEVICE_5_ADDR;
+		rom[14]		<= DEVICE_6_TYPE_BSWAP;
+		rom[15]		<= DEVICE_6_ADDR;
+		rom[16]		<= DEVICE_7_TYPE_BSWAP;
+		rom[17]		<= DEVICE_7_ADDR;
+		rom[18]		<= DEVICE_8_TYPE_BSWAP;
+		rom[19]		<= DEVICE_8_ADDR;
+		rom[20]		<= DEVICE_9_TYPE_BSWAP;
+		rom[21]		<= DEVICE_9_ADDR;
+		rom[22]		<= DEVICE_10_TYPE_BSWAP;
+		rom[23]		<= DEVICE_10_ADDR;
+		rom[24]		<= DEVICE_11_TYPE_BSWAP;
+		rom[25]		<= DEVICE_11_ADDR;
+		rom[26]		<= DEVICE_12_TYPE_BSWAP;
+		rom[27]		<= DEVICE_12_ADDR;
+		rom[28]		<= DEVICE_13_TYPE_BSWAP;
+		rom[29]		<= DEVICE_13_ADDR;
+		rom[30]		<= DEVICE_14_TYPE_BSWAP;
+		rom[31]		<= DEVICE_14_ADDR;
+		rom[32]		<= DEVICE_15_TYPE_BSWAP;
+		rom[33]		<= DEVICE_15_ADDR;
+
+		for(integer i=34; i<64; i++)
+			rom[i]	<= 0;
+	end
+
+	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+	// Registered reads to allow for ROM to be implemented as a block RAM if it's big enough
+
+	always_ff @(posedge apb.pclk) begin
+
+		//Clear flags
+		apb.pready	<= 0;
+		apb.prdata	<= 0;
+		apb.pslverr	<= 0;
+
+		if(apb.psel && apb.penable) begin
+
+			apb.pready		<= 1;
 
 			//Reject all writes
 			if(apb.pwrite)
-				apb.pslverr = 1;
+				apb.pslverr <= 1;
 
 			//Reads
-			else begin
-				case(apb.paddr)
-
-					'h00: apb.prdata = DEVICE_0_TYPE;
-					'h04: apb.prdata = DEVICE_0_ADDR;
-					'h08: apb.prdata = DEVICE_1_TYPE;
-					'h0c: apb.prdata = DEVICE_1_ADDR;
-					'h10: apb.prdata = DEVICE_2_TYPE;
-					'h14: apb.prdata = DEVICE_2_ADDR;
-					'h18: apb.prdata = DEVICE_3_TYPE;
-					'h1c: apb.prdata = DEVICE_3_ADDR;
-					'h20: apb.prdata = DEVICE_4_TYPE;
-					'h24: apb.prdata = DEVICE_4_ADDR;
-					'h28: apb.prdata = DEVICE_5_TYPE;
-					'h2c: apb.prdata = DEVICE_5_ADDR;
-					'h30: apb.prdata = DEVICE_6_TYPE;
-					'h34: apb.prdata = DEVICE_6_ADDR;
-					'h38: apb.prdata = DEVICE_7_TYPE;
-					'h3c: apb.prdata = DEVICE_7_ADDR;
-					'h40: apb.prdata = DEVICE_8_TYPE;
-					'h44: apb.prdata = DEVICE_8_ADDR;
-					'h48: apb.prdata = DEVICE_9_TYPE;
-					'h4c: apb.prdata = DEVICE_9_ADDR;
-					'h50: apb.prdata = DEVICE_10_TYPE;
-					'h54: apb.prdata = DEVICE_10_ADDR;
-					'h58: apb.prdata = DEVICE_11_TYPE;
-					'h5c: apb.prdata = DEVICE_11_ADDR;
-					'h60: apb.prdata = DEVICE_12_TYPE;
-					'h64: apb.prdata = DEVICE_12_ADDR;
-					'h68: apb.prdata = DEVICE_13_TYPE;
-					'h6c: apb.prdata = DEVICE_13_ADDR;
-					'h70: apb.prdata = DEVICE_14_TYPE;
-					'h74: apb.prdata = DEVICE_14_ADDR;
-					'h78: apb.prdata = DEVICE_15_TYPE;
-					'h7c: apb.prdata = DEVICE_15_ADDR;
-
-					//Invalid address
-					default: apb.pslverr = 1;
-
-				endcase
-			end
+			else
+				apb.prdata <= rom[ apb.paddr[apb.ADDR_WIDTH-1 : 2] ];
 
 		end
 

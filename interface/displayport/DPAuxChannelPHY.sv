@@ -46,6 +46,7 @@ module DPAuxChannelPHY(
 
 	//Debug ILA
 	APB.completer			ila_apb_control,
+	APB.completer			ila_apb_rom,
 	APB.completer			ila_apb_data,
 
 	//Internal system clock
@@ -920,6 +921,7 @@ module DPAuxChannelPHY(
 	APB_ILA #(
 		.DEPTH(8192),
 		.CLK_PERIOD(50000),
+		.ROM_ADDR(32'h4010_0000),
 		.DATA_BUF_ADDR(32'h4020_0000),
 
 		.PROBE0_WIDTH(1),
@@ -1020,6 +1022,7 @@ module DPAuxChannelPHY(
 
 	) ila2 (
 		.apbControl(ila_apb_control),
+		.apbRom(ila_apb_rom),
 		.apbData(ila_apb_data),
 
 		.clk(clk),
@@ -1057,7 +1060,7 @@ module DPAuxChannelPHY(
 		.probe30(tx_bit_count),
 		.probe31(tx_bit_state),
 
-		.trig_in(/*aux_in_sync*/rx_header_valid && (rx_header_command == DP_AUX_REQ_NATIVE_WRITE) ),
+		.trig_in(rx_header_valid && (rx_header_command == DP_AUX_REQ_NATIVE_WRITE) ),
 		.trig_out()
 	);
 
