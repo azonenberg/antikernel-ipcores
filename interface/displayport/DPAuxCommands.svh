@@ -32,7 +32,11 @@
 
 typedef enum logic[3:0]
 {
+	DP_AUX_REQ_I2C_WRITE		= 4'b0000,
 	DP_AUX_REQ_I2C_WRITE_MOT	= 4'b0100,
+
+	DP_AUX_REQ_I2C_READ			= 4'b0001,
+	DP_AUX_REQ_I2C_READ_MOT		= 4'b0101,
 
 	DP_AUX_REQ_NATIVE_WRITE		= 4'b1000,
 	DP_AUX_REQ_NATIVE_READ		= 4'b1001
@@ -40,11 +44,15 @@ typedef enum logic[3:0]
 
 typedef enum logic[3:0]
 {
-	//TODO I2C support
-
 	DP_AUX_REPLY_AUX_ACK	= 4'b0000,
 	DP_AUX_REPLY_AUX_NACK	= 4'b0001,
 	DP_AUX_REPLY_AUX_DEFER	= 4'b0010
 } auxreply_t;
+
+typedef enum logic[3:0]
+{
+	DP_AUX_REPLY_I2C_ACK	= 4'b0000,
+	DP_AUX_REPLY_I2C_DEFER	= 4'b1000
+} auxreply_i2c_t;
 
 `endif
