@@ -32,10 +32,10 @@
 
 typedef enum logic[3:0]
 {
-	//TODO I2C support
+	DP_AUX_REQ_I2C_WRITE_MOT	= 4'b0100,
 
-	DP_AUX_REQ_NATIVE_WRITE	= 4'b1000,
-	DP_AUX_REQ_NATIVE_READ	= 4'b1001
+	DP_AUX_REQ_NATIVE_WRITE		= 4'b1000,
+	DP_AUX_REQ_NATIVE_READ		= 4'b1001
 } auxreq_t;
 
 typedef enum logic[3:0]
