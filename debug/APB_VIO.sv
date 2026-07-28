@@ -71,35 +71,27 @@ module APB_VIO #(
 
 	parameter 			IN0_WIDTH	= 1,
 	parameter[247:0]	IN0_NAME	= 248'h0,
-	parameter			IN0_INIT	= 0,
 
 	parameter			IN1_WIDTH	= 1,
 	parameter[247:0]	IN1_NAME	= 248'h0,
-	parameter			IN1_INIT	= 0,
 
 	parameter			IN2_WIDTH	= 1,
 	parameter[247:0]	IN2_NAME	= 248'h0,
-	parameter 			IN2_INIT	= 0,
 
 	parameter			IN3_WIDTH	= 1,
 	parameter[247:0]	IN3_NAME	= 248'h0,
-	parameter			IN3_INIT	= 0,
 
 	parameter			IN4_WIDTH	= 1,
 	parameter[247:0]	IN4_NAME	= 248'h0,
-	parameter			IN4_INIT	= 0,
 
 	parameter			IN5_WIDTH	= 1,
 	parameter[247:0]	IN5_NAME	= 248'h0,
-	parameter			IN5_INIT	= 0,
 
 	parameter			IN6_WIDTH	= 1,
 	parameter[247:0]	IN6_NAME	= 248'h0,
-	parameter			IN6_INIT	= 0,
 
 	parameter			IN7_WIDTH	= 1,
-	parameter[247:0]	IN7_NAME	= 248'h0,
-	parameter			IN7_INIT	= 0
+	parameter[247:0]	IN7_NAME	= 248'h0
 ) (
 	//The APB bus
 	APB.completer 					apb,

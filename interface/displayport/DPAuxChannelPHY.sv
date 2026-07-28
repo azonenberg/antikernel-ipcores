@@ -42,7 +42,10 @@
 	DPRX shall reply to DPTX within 300us turnaround period
 	On current test setup, after ~4ms of no reply we get an AUX_NACK not sure from where
  */
-module DPAuxChannelPHY(
+module DPAuxChannelPHY #(
+	parameter ILA_ROM_ADDR 		= 32'h4010_0000,
+	parameter ILA_DATA_BUF_ADDR = 32'h4020_0000
+)(
 
 	//Debug ILA
 	APB.completer			ila_apb_control,
@@ -54,6 +57,9 @@ module DPAuxChannelPHY(
 
 	//Clock divider for nominal symbol period
 	input wire[8:0]			baud_div,
+
+	//Operating mode (1=DPTX, 0=DPRX)
+	input wire				mode_dptx,
 
 	//Aux channel PHY interface to external buffer / transceiver
 	//Tested on Alinx FH6141, TODO describe the setup generically
@@ -346,7 +352,7 @@ module DPAuxChannelPHY(
 		RX_STATE_STOP_2			= 'hb,
 		RX_STATE_STOP_3			= 'hc,
 		RX_STATE_DATA			= 'hd,
-
+		RX_STATE_PAD			= 'he,
 		RX_STATE_HANG			= 'hf
 	} rx_state = RX_STATE_IDLE;
 
@@ -459,7 +465,14 @@ module DPAuxChannelPHY(
 					rx_count					<= rx_count + 1;
 					if(rx_count == 3) begin
 						rx_count				<= 0;
-						rx_state				<= RX_STATE_ADDRESS;
+
+						//If we are a DPTX this is a reply so it's just going to have padding
+						if(mode_dptx)
+							rx_state			<= RX_STATE_PAD;
+
+						//if we are a DPRX this is a request
+						else
+							rx_state			<= RX_STATE_ADDRESS;
 					end
 				end
 
@@ -470,6 +483,22 @@ module DPAuxChannelPHY(
 			end //end RX_STATE_COMMAND
 
 			//If this is a reply, we skip the address and length fields but send 4 bits of padding
+			RX_STATE_PAD: begin
+
+				if(rx_normal_bit_valid) begin
+					rx_count					<= rx_count + 1;
+					if(rx_count == 3) begin
+						rx_count				<= 0;
+						rx_header_has_len_int	<= 0;
+						rx_state				<= RX_STATE_HEADER_DONE;
+					end
+				end
+
+				//Anything else is no good, reset
+				else if(rx_bit_valid)
+					rx_state	<= RX_STATE_IDLE;
+
+			end
 
 			//ADDRESS - expect 20 bit address
 			RX_STATE_ADDRESS: begin
@@ -755,6 +784,7 @@ module DPAuxChannelPHY(
 		TX_STATE_PAD			= 'h5,
 		TX_STATE_DATA			= 'h6,
 		TX_STATE_STOP			= 'h7,
+		TX_STATE_LEN			= 'h8,
 
 		TX_STATE_HANG			= 'hf
 	} tx_state = TX_STATE_IDLE;
@@ -852,15 +882,34 @@ module DPAuxChannelPHY(
 
 						tx_count		<= 0;
 
-						case(tx_header_command)
+						//TX mode
+						if(mode_dptx) begin
 
-							//If this is a reply, we skip the address and length fields but send 4 bits of padding
-							DP_AUX_REPLY_AUX_ACK: 	tx_state	<= TX_STATE_PAD;
-							DP_AUX_REPLY_AUX_NACK:	tx_state	<= TX_STATE_PAD;
-							DP_AUX_REPLY_I2C_DEFER:	tx_state	<= TX_STATE_PAD;
-							default: 				tx_state	<= TX_STATE_ADDRESS;
+							case(tx_header_command)
 
-						endcase
+								//Send the address
+								DP_AUX_REQ_NATIVE_READ: 	tx_state	<= TX_STATE_ADDRESS;
+								DP_AUX_REQ_NATIVE_WRITE:	tx_state	<= TX_STATE_ADDRESS;
+								default: 					tx_state	<= TX_STATE_ADDRESS;
+
+							endcase
+
+						end
+
+						//RX mode
+						else begin
+
+							case(tx_header_command)
+
+								//If this is a reply, we skip the address and length fields but send 4 bits of padding
+								DP_AUX_REPLY_AUX_ACK: 	tx_state	<= TX_STATE_PAD;
+								DP_AUX_REPLY_AUX_NACK:	tx_state	<= TX_STATE_PAD;
+								DP_AUX_REPLY_I2C_DEFER:	tx_state	<= TX_STATE_PAD;
+								default: 				tx_state	<= TX_STATE_ADDRESS;
+
+							endcase
+
+						end
 
 					end
 				end
@@ -960,9 +1009,64 @@ module DPAuxChannelPHY(
 
 			end //TX_STATE_SYNC
 
-			//TODO
+			//Send the address we asked to read
 			TX_STATE_ADDRESS: begin
+
+				if(tx_bit_next) begin
+
+					if(tx_header_addr[19 - tx_count])
+						tx_bit_value	<= BIT_PAIR_LOGIC_1;
+					else
+						tx_bit_value	<= BIT_PAIR_LOGIC_0;
+
+					tx_count			<= tx_count + 1;
+
+					//Move on to the next packet field
+					if(tx_count >= 19) begin
+						tx_count		<= 0;
+
+						//Send length byte if needed
+						case(tx_header_command)
+							DP_AUX_REQ_NATIVE_READ:	tx_state <= TX_STATE_LEN;
+							default:				tx_state <= TX_STATE_STOP;
+						endcase
+
+						//tx_next_byte_int	<= 1;
+						//tx_state			<= TX_STATE_DATA;
+					end
+
+				end
+
 			end //TX_STATE_ADDRESS
+
+			//Send the length byte
+			TX_STATE_LEN: begin
+
+				if(tx_bit_next) begin
+					if(tx_header_len[7 - tx_count])
+						tx_bit_value	<= BIT_PAIR_LOGIC_1;
+					else
+						tx_bit_value	<= BIT_PAIR_LOGIC_0;
+
+					tx_count			<= tx_count + 1;
+
+					//Move on to the next packet field
+					if(tx_count >= 7) begin
+						tx_count		<= 0;
+
+						//Done
+						case(tx_header_command)
+							DP_AUX_REQ_NATIVE_READ:	tx_state <= TX_STATE_STOP;
+							default:				tx_state <= TX_STATE_STOP;
+						endcase
+
+						//tx_next_byte_int	<= 1;
+						//tx_state			<= TX_STATE_DATA;
+					end
+
+				end
+
+			end //TX_STATE_LEN
 
 			//Nothing to do, block
 			TX_STATE_HANG: begin
@@ -991,10 +1095,10 @@ module DPAuxChannelPHY(
 	end
 
 	APB_ILA #(
-		.DEPTH(2048),
+		.DEPTH(8192),
 		.CLK_PERIOD(50000),
-		.ROM_ADDR(32'h4010_0000),
-		.DATA_BUF_ADDR(32'h4020_0000),
+		.ROM_ADDR(ILA_ROM_ADDR),
+		.DATA_BUF_ADDR(ILA_DATA_BUF_ADDR),
 
 		.PROBE0_WIDTH(1),
 		.PROBE0_NAME("aux_muxed"),
@@ -1021,16 +1125,16 @@ module DPAuxChannelPHY(
 		.PROBE7_NAME("rx_bit_count"),
 
 		.PROBE8_WIDTH(1),
-		.PROBE8_NAME("rx_normal_bit_valid"),
+		.PROBE8_NAME("rx_data_valid"),
 
-		.PROBE9_WIDTH(1),
-		.PROBE9_NAME("rx_normal_bit_value"),
+		.PROBE9_WIDTH(8),
+		.PROBE9_NAME("rx_data"),
 
-		.PROBE10_WIDTH(1),
-		.PROBE10_NAME("rx_double_bit_valid"),
+		.PROBE10_WIDTH(11),
+		.PROBE10_NAME("tx_count"),
 
-		.PROBE11_WIDTH(1),
-		.PROBE11_NAME("rx_double_bit_value"),
+		.PROBE11_WIDTH(4),
+		.PROBE11_NAME("tx_state"),
 
 		.PROBE12_WIDTH(4),
 		.PROBE12_NAME("rx_state"),
@@ -1078,19 +1182,7 @@ module DPAuxChannelPHY(
 		.PROBE26_NAME("tx_header_addr"),
 
 		.PROBE27_WIDTH(8),
-		.PROBE27_NAME("tx_header_len"),
-
-		.PROBE28_WIDTH(4),
-		.PROBE28_NAME("tx_state"),
-
-		.PROBE29_WIDTH(11),
-		.PROBE29_NAME("tx_count"),
-
-		.PROBE30_WIDTH(9),
-		.PROBE30_NAME("tx_bit_count"),
-
-		.PROBE31_WIDTH(2),
-		.PROBE31_NAME("tx_bit_state")
+		.PROBE27_NAME("tx_header_len")
 
 	) ila2 (
 		.apbControl(ila_apb_control),
@@ -1106,10 +1198,10 @@ module DPAuxChannelPHY(
 		.probe5(rx_bit_value),
 		.probe6(aux_oe),
 		.probe7(rx_bit_count),
-		.probe8(rx_normal_bit_valid),
-		.probe9(rx_normal_bit_value),
-		.probe10(rx_double_bit_valid),
-		.probe11(rx_double_bit_value),
+		.probe8(rx_data_valid),
+		.probe9(rx_data),
+		.probe10(tx_count),
+		.probe11(tx_state),
 		.probe12(rx_state),
 		.probe13(tx_bit_value),
 		.probe14(tx_bit_start),
@@ -1126,14 +1218,11 @@ module DPAuxChannelPHY(
 		.probe24(tx_start),
 		.probe25(tx_header_command),
 		.probe26(tx_header_addr),
-		.probe27(tx_header_len),
-		.probe28(tx_state),
-		.probe29(tx_count),
-		.probe30(tx_bit_count),
-		.probe31(tx_bit_state),
+		.probe27(tx_header_len)
 
 		//.trig_in(rx_header_valid && (rx_header_command == DP_AUX_REQ_NATIVE_WRITE) ),
-		.trig_in(rx_header_valid && (rx_header_command == DP_AUX_REQ_I2C_WRITE_MOT) ),
+		//.trig_in(rx_header_valid && (rx_header_command == DP_AUX_REQ_I2C_WRITE_MOT) ),
+		.trig_in(tx_start),
 		.trig_out()
 	);
 
