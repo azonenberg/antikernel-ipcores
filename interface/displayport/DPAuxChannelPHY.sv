@@ -412,8 +412,10 @@ module DPAuxChannelPHY #(
 				end
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state			<= RX_STATE_IDLE;
+					rx_packet_done_int	<= 1;	//TODO error report
+				end
 
 			end //end RX_STATE_PREAMBLE
 
@@ -424,8 +426,10 @@ module DPAuxChannelPHY #(
 					rx_state	<= RX_STATE_SYNC_1;
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state		<= RX_STATE_IDLE;
+					rx_packet_done_int	<= 1;	//TODO error report
+				end
 
 			end //end RX_STATE_SYNC_0
 
@@ -436,8 +440,10 @@ module DPAuxChannelPHY #(
 					rx_state	<= RX_STATE_SYNC_2;
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state		<= RX_STATE_IDLE;
+					rx_packet_done_int	<= 1;	//TODO error report
+				end
 
 			end //end RX_STATE_SYNC_1
 
@@ -452,8 +458,10 @@ module DPAuxChannelPHY #(
 				end
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state		<= RX_STATE_IDLE;
+					rx_packet_done_int	<= 1;	//TODO error report
+				end
 
 			end //end RX_STATE_SYNC_2
 
@@ -477,8 +485,10 @@ module DPAuxChannelPHY #(
 				end
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state		<= RX_STATE_IDLE;
+					rx_packet_done_int	<= 1;	//TODO error report
+				end
 
 			end //end RX_STATE_COMMAND
 
@@ -495,8 +505,10 @@ module DPAuxChannelPHY #(
 				end
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state		<= RX_STATE_IDLE;
+					rx_packet_done_int	<= 1;	//TODO error report
+				end
 
 			end
 
@@ -513,8 +525,10 @@ module DPAuxChannelPHY #(
 				end
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state		<= RX_STATE_IDLE;
+					rx_packet_done_int	<= 1;	//TODO error report
+				end
 
 			end //end RX_STATE_ADDRESS
 
@@ -544,8 +558,10 @@ module DPAuxChannelPHY #(
 				end
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state				<= RX_STATE_IDLE;
+					rx_packet_done_int		<= 1;	//TODO error report
+				end
 
 			end //RX_STATE_LEN
 
@@ -556,45 +572,75 @@ module DPAuxChannelPHY #(
 				rx_header_addr_int			<= rx_address;
 				rx_header_len_int			<= rx_len;
 
-				case(rx_command)
+				//Are we a DPTX? If so, we expect responses
+				if(mode_dptx) begin
 
-					//If this was a read, we don't expect any data
-					//Length is number of *requested* bytes, not number being sent
-					DP_AUX_REQ_NATIVE_READ: begin
-						rx_state			<= RX_STATE_STOP_0;
-						rx_count			<= 0;
-					end
-					DP_AUX_REQ_I2C_READ: begin
-						rx_state			<= RX_STATE_STOP_0;
-						rx_count			<= 0;
-					end
-					DP_AUX_REQ_I2C_READ_MOT: begin
-						rx_state			<= RX_STATE_STOP_0;
-						rx_count			<= 0;
-					end
+					case(rx_command)
 
-					//If this was a write, move on to the payload
-					DP_AUX_REQ_NATIVE_WRITE: begin
-						rx_state			<= RX_STATE_DATA;
-						rx_count			<= 0;
-					end
+						//Read completion possibly with data
+						DP_AUX_REPLY_AUX_ACK: begin
+							rx_state			<= RX_STATE_DATA;
+							rx_count			<= 0;
+						end
 
-					//If this is an I2C write, it also has a payload (or might have one)
-					DP_AUX_REQ_I2C_WRITE_MOT: begin
-						rx_state			<= RX_STATE_DATA;
-						rx_count			<= 0;
-					end
-					DP_AUX_REQ_I2C_WRITE: begin
-						rx_state			<= RX_STATE_DATA;
-						rx_count			<= 0;
-					end
+						//NACK with data
+						DP_AUX_REPLY_AUX_NACK: begin
+							rx_state			<= RX_STATE_DATA;
+							rx_count			<= 0;
+						end
 
-					//Anything else, don't know what to do yet, drop it
-					default: begin
-						rx_state			<= RX_STATE_HANG;
-					end
+						//Anything else, don't know what to do yet, drop it
+						default: begin
+							rx_state			<= RX_STATE_HANG;
+						end
 
-				endcase
+					endcase
+
+				end
+
+				//No, we're a DPRX - expect incoming requests
+				else begin
+
+					case(rx_command)
+
+						//If this was a read, we don't expect any data
+						//Length is number of *requested* bytes, not number being sent
+						DP_AUX_REQ_NATIVE_READ: begin
+							rx_state			<= RX_STATE_STOP_0;
+							rx_count			<= 0;
+						end
+						DP_AUX_REQ_I2C_READ: begin
+							rx_state			<= RX_STATE_STOP_0;
+							rx_count			<= 0;
+						end
+						DP_AUX_REQ_I2C_READ_MOT: begin
+							rx_state			<= RX_STATE_STOP_0;
+							rx_count			<= 0;
+						end
+
+						//If this was a write, move on to the payload
+						DP_AUX_REQ_NATIVE_WRITE: begin
+							rx_state			<= RX_STATE_DATA;
+							rx_count			<= 0;
+						end
+
+						//If this is an I2C write, it also has a payload (or might have one)
+						DP_AUX_REQ_I2C_WRITE_MOT: begin
+							rx_state			<= RX_STATE_DATA;
+							rx_count			<= 0;
+						end
+						DP_AUX_REQ_I2C_WRITE: begin
+							rx_state			<= RX_STATE_DATA;
+							rx_count			<= 0;
+						end
+
+						//Anything else, don't know what to do yet, drop it
+						default: begin
+							rx_state			<= RX_STATE_HANG;
+						end
+
+					endcase
+				end
 
 			end //end RX_STATE_HEADER_DONE
 
@@ -629,8 +675,10 @@ module DPAuxChannelPHY #(
 				end
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state			<= RX_STATE_IDLE;
+					rx_packet_done_int	<= 1;	//TODO error report
+				end
 
 			end //end RX_STATE_DATA
 
@@ -640,8 +688,11 @@ module DPAuxChannelPHY #(
 					rx_state	<= RX_STATE_STOP_1;
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state			<= RX_STATE_IDLE;
+					rx_packet_done_int	<= 1;	//TODO error report
+				end
+
 			end //end RX_STATE_STOP_0
 
 			RX_STATE_STOP_1: begin
@@ -649,8 +700,11 @@ module DPAuxChannelPHY #(
 					rx_state	<= RX_STATE_STOP_2;
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state			<= RX_STATE_IDLE;
+					rx_packet_done_int	<= 1;	//TODO error report
+				end
+
 			end //end RX_STATE_STOP_0
 
 			RX_STATE_STOP_2: begin
@@ -658,8 +712,11 @@ module DPAuxChannelPHY #(
 					rx_state	<= RX_STATE_STOP_3;
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state			<= RX_STATE_IDLE;
+					rx_packet_done_int	<= 1;	//TODO error report
+				end
+
 			end //end RX_STATE_STOP_0
 
 			RX_STATE_STOP_3: begin
@@ -671,8 +728,11 @@ module DPAuxChannelPHY #(
 				end
 
 				//Anything else is no good, reset
-				else if(rx_bit_valid)
-					rx_state	<= RX_STATE_IDLE;
+				else if(rx_bit_valid) begin
+					rx_state			<= RX_STATE_IDLE;
+					rx_packet_done_int	<= 1;	//TODO error report
+				end
+
 			end //end RX_STATE_STOP_0
 
 			//Debug state, block until end of transaction
@@ -687,10 +747,11 @@ module DPAuxChannelPHY #(
 			ui_count	<= 0;
 			idle_count	<= idle_count + 1;
 
-			if(idle_count == 'hf) begin
-				rx_state	<= RX_STATE_IDLE;
-				rx_count	<= 0;
-				idle_count	<= 0;
+			if( (idle_count == 'hf) && (rx_state != RX_STATE_IDLE) ) begin
+				rx_packet_done_int	<= 1;
+				rx_state			<= RX_STATE_IDLE;
+				rx_count			<= 0;
+				idle_count			<= 0;
 			end
 		end
 		if(rx_bit_valid) begin
@@ -785,6 +846,7 @@ module DPAuxChannelPHY #(
 		TX_STATE_DATA			= 'h6,
 		TX_STATE_STOP			= 'h7,
 		TX_STATE_LEN			= 'h8,
+		TX_STATE_COOLDOWN		= 'h9,
 
 		TX_STATE_HANG			= 'hf
 	} tx_state = TX_STATE_IDLE;
@@ -797,6 +859,9 @@ module DPAuxChannelPHY #(
 		tx_count_low	= tx_count[2:0];
 		tx_count_high	= tx_count[10:3];
 	end
+
+	logic[8:0]	tx_bit_cooldown		= 0;
+	logic[5:0]	tx_cooldown_count	= 0;
 
 	always_ff @(posedge clk) begin
 
@@ -813,7 +878,14 @@ module DPAuxChannelPHY #(
 				tx_bit_value	<= BIT_PAIR_DOUBLE_0;
 				aux_oe_int		<= 0;
 
+				//32 UI cooldown time between packets to avoid bus fights?
+				//TODO: figure out details here
 				if(tx_start) begin
+					/*
+					tx_state			<= TX_STATE_COOLDOWN;
+					tx_bit_cooldown		<= 0;
+					tx_cooldown_count	<= 0;
+					*/
 					tx_state		<= TX_STATE_PREAMBLE;
 					tx_count		<= 0;
 
@@ -825,6 +897,20 @@ module DPAuxChannelPHY #(
 				end
 
 			end //TX_STATE_IDLE
+			/*
+			TX_STATE_COOLDOWN: begin
+				tx_bit_cooldown			<= tx_bit_cooldown + 1;
+				if( (tx_bit_cooldown + 1) >= baud_div ) begin
+					tx_bit_cooldown		<= 0;
+					tx_cooldown_count	<= tx_cooldown_count + 1;
+				end
+
+				if(tx_cooldown_count == 'h20) begin
+
+				end
+
+			end
+			*/
 
 			//Send 26 to 32 zero bits, aim for 28
 			TX_STATE_PREAMBLE: begin
@@ -1027,12 +1113,11 @@ module DPAuxChannelPHY #(
 
 						//Send length byte if needed
 						case(tx_header_command)
-							DP_AUX_REQ_NATIVE_READ:	tx_state <= TX_STATE_LEN;
-							default:				tx_state <= TX_STATE_STOP;
+							DP_AUX_REQ_NATIVE_READ:		tx_state <= TX_STATE_LEN;
+							DP_AUX_REQ_NATIVE_WRITE:	tx_state <= TX_STATE_LEN;
+							default:					tx_state <= TX_STATE_STOP;
 						endcase
 
-						//tx_next_byte_int	<= 1;
-						//tx_state			<= TX_STATE_DATA;
 					end
 
 				end
@@ -1057,11 +1142,13 @@ module DPAuxChannelPHY #(
 						//Done
 						case(tx_header_command)
 							DP_AUX_REQ_NATIVE_READ:	tx_state <= TX_STATE_STOP;
+							DP_AUX_REQ_NATIVE_WRITE: begin
+								tx_next_byte_int	<= 1;
+								tx_state			<= TX_STATE_DATA;
+							end
 							default:				tx_state <= TX_STATE_STOP;
 						endcase
 
-						//tx_next_byte_int	<= 1;
-						//tx_state			<= TX_STATE_DATA;
 					end
 
 				end
@@ -1125,10 +1212,10 @@ module DPAuxChannelPHY #(
 		.PROBE7_NAME("rx_bit_count"),
 
 		.PROBE8_WIDTH(1),
-		.PROBE8_NAME("rx_data_valid"),
+		.PROBE8_NAME("rx_normal_bit_valid"),
 
-		.PROBE9_WIDTH(8),
-		.PROBE9_NAME("rx_data"),
+		.PROBE9_WIDTH(1),
+		.PROBE9_NAME("rx_normal_bit_value"),
 
 		.PROBE10_WIDTH(11),
 		.PROBE10_NAME("tx_count"),
@@ -1182,7 +1269,10 @@ module DPAuxChannelPHY #(
 		.PROBE26_NAME("tx_header_addr"),
 
 		.PROBE27_WIDTH(8),
-		.PROBE27_NAME("tx_header_len")
+		.PROBE27_NAME("tx_header_len"),
+
+		.PROBE28_WIDTH(1),
+		.PROBE28_NAME("aux_out")
 
 	) ila2 (
 		.apbControl(ila_apb_control),
@@ -1198,8 +1288,8 @@ module DPAuxChannelPHY #(
 		.probe5(rx_bit_value),
 		.probe6(aux_oe),
 		.probe7(rx_bit_count),
-		.probe8(rx_data_valid),
-		.probe9(rx_data),
+		.probe8(rx_normal_bit_valid),
+		.probe9(rx_normal_bit_value),
 		.probe10(tx_count),
 		.probe11(tx_state),
 		.probe12(rx_state),
@@ -1218,11 +1308,12 @@ module DPAuxChannelPHY #(
 		.probe24(tx_start),
 		.probe25(tx_header_command),
 		.probe26(tx_header_addr),
-		.probe27(tx_header_len)
+		.probe27(tx_header_len),
+		.probe28(aux_out),
 
 		//.trig_in(rx_header_valid && (rx_header_command == DP_AUX_REQ_NATIVE_WRITE) ),
 		//.trig_in(rx_header_valid && (rx_header_command == DP_AUX_REQ_I2C_WRITE_MOT) ),
-		.trig_in(tx_start),
+		.trig_in(tx_start && (tx_header_command == DP_AUX_REQ_NATIVE_WRITE) ),
 		.trig_out()
 	);
 
