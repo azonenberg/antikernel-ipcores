@@ -572,6 +572,9 @@ module FMC_APBBridge #(
 		else
 			state		<= STATE_ADDR;
 
+		//TODO: Timeout logic to prevent STM32-side bus hang
+		//if the APB bus doesn't have a response within some amount of time
+
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
