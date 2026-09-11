@@ -32,9 +32,9 @@
 /**
 	@file	PRBS31.sv
 	@author	Andrew D. Zonenberg
-	@brief	Generates a PRBS-31 bit sequence in parallel (one word per clock) with parameterizable width.
+	@brief	Generates a PRBS-7 bit sequence in parallel (one word per clock) with parameterizable width.
 
-	Before use, the PRBS generator must be seeded by asserting "init" for one cycle and loading a 31-bit nonzero value
+	Before use, the PRBS generator must be seeded by asserting "init" for one cycle and loading a 7-bit nonzero value
 	into "seed". Using a seed of all zeroes will cause the LFSR to become stuck in the all-zeroes state and not toggle.
 
 	To generate a new random number, assert "update" for one cycle. "dout" will update on the next cycle.
@@ -42,7 +42,7 @@
 	Asserting "init" and "update" the same cycle is legal, and will work the same as if the re-seeding had occurred
 	before the update was requested.
  */
-module PRBS31 #(
+module PRBS7 #(
 	parameter WIDTH			= 32,
 	parameter MSB_FIRST		= 0,
 	parameter INITIAL_SEED	= 0
@@ -50,15 +50,15 @@ module PRBS31 #(
 	input wire				clk,
 	input wire				update,
 	input wire				init,
-	input wire[30:0]		seed,
+	input wire[6:0]			seed,
 	output logic[WIDTH-1:0]	dout
 );
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-	logic[30:0]			state = INITIAL_SEED;
+	logic[6:0]			state = INITIAL_SEED;
 
-	logic[30:0]			state_comb;
+	logic[6:0]			state_comb;
 	logic				xorout;
 
 	logic[WIDTH-1:0]	dout_comb;
@@ -88,14 +88,14 @@ module PRBS31 #(
 		dout_comb = dout;
 
 		for(integer i=0; i<WIDTH; i=i+1) begin
-			xorout = state_comb[30] ^ state_comb[27];
+			xorout = state_comb[6] ^ state_comb[5];
 
 			if(MSB_FIRST)
 				dout_comb[WIDTH-1-i]	= xorout;
 			else
 				dout_comb[i]	= xorout;
 
-			state_comb	= { state_comb[29:0], xorout };
+			state_comb	= { state_comb[5:0], xorout };
 		end
 
 	end

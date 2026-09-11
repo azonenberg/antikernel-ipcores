@@ -4,7 +4,7 @@
 *                                                                                                                      *
 * ANTIKERNEL                                                                                                           *
 *                                                                                                                      *
-* Copyright (c) 2012-2025 Andrew D. Zonenberg                                                                          *
+* Copyright (c) 2012-2026 Andrew D. Zonenberg                                                                          *
 * All rights reserved.                                                                                                 *
 *                                                                                                                      *
 * Redistribution and use in source and binary forms, with or without modification, are permitted provided that the     *
@@ -116,7 +116,7 @@ module APB_CDC(
 	end
 
 	////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-	// Downstream -> upstream path
+	// Downstream -> upstream CDC path
 
 	always_ff @(posedge downstream_pclk) begin
 
