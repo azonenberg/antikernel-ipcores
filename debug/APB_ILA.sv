@@ -91,7 +91,6 @@ module APB_ILA #(
 	parameter PROBE13_NAME	= "",
 	parameter PROBE14_NAME	= "",
 	parameter PROBE15_NAME	= "",
-
 	parameter PROBE16_NAME	= "",
 	parameter PROBE17_NAME	= "",
 	parameter PROBE18_NAME	= "",
