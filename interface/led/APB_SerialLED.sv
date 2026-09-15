@@ -40,7 +40,7 @@ module APB_SerialLED #(
 	parameter SHORT_TIME 	= 30,
 	parameter LONG_TIME		= 90,
 	parameter IFG_TIME		= 200,
-	parameter RESET_TIME	= 750
+	parameter RESET_TIME	= 7500
 )(
 	//The APB bus
 	APB.completer 			apb,
@@ -103,11 +103,13 @@ module APB_SerialLED #(
 	logic[IDX_BITS-1:0]	nled = 0;
 	logic[23:0]			pixcolor = 24'h000000;
 	logic				update_req	= 0;
+	logic[IDX_BITS-1:0]	update_idx = 0;
 
 	always_ff @(posedge apb.pclk) begin
 
 		if(!apb.preset_n) begin
 			update_req	<= 0;
+			update_idx	<= 0;
 		end
 
 		else begin
@@ -117,6 +119,7 @@ module APB_SerialLED #(
 			if(apb.pwrite && apb.pready) begin
 				framebuffer[apb.paddr[apb.ADDR_WIDTH-1 : 2]]	<= apb.pwdata;
 				update_req	<= 1;
+				update_idx	<= apb.paddr[apb.ADDR_WIDTH-1 : 2];
 			end
 
 			//Reads
@@ -163,9 +166,18 @@ module APB_SerialLED #(
 			//Clear single cycle flags
 			fb_read	<= 0;
 
-			//Mark update as pending
-			if(update_req)
-				update_pending	<= 1;
+			//If we do a write, mark a refresh as pending
+			if(update_req) begin
+
+				//If the write is to an address we have not yet pushed out, and a refresh is in progress,
+				//then we can just forward it
+				if( (state != STATE_IDLE) && (update_idx <= nled) ) begin
+				end
+
+				//no, another refresh is required
+				else
+					update_pending	<= 1;
+			end
 
 			case(state)
 
