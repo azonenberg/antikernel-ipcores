@@ -49,15 +49,15 @@ struct APB_UART
 	Semantics largely identical to the stm32-cpp UART class but derived from CharacterDevice rather than
 	BufferedCharacterDevice, since our buffering is implemented in hardware
  */
-class UART : public CharacterDevice
+class APB_UARTInterface : public CharacterDevice
 {
 public:
 
-	UART(volatile APB_UART* lane, uint32_t baud_div = 181)
-	 : UART(lane, lane, baud_div)
+	APB_UARTInterface(volatile APB_UART* lane, uint32_t baud_div = 181)
+	 : APB_UARTInterface(lane, lane, baud_div)
 	{}
 
-	UART(volatile APB_UART* txlane, volatile APB_UART* rxlane, uint32_t baud_div)
+	APB_UARTInterface(volatile APB_UART* txlane, volatile APB_UART* rxlane, uint32_t baud_div)
 		: m_txlane(txlane)
 		, m_rxlane(rxlane)
 	{
